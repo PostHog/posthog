@@ -6,6 +6,7 @@ from django.utils import timezone
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.scopes import scopes_not_covered
 
@@ -15,6 +16,7 @@ from products.product_analytics.backend.facade.api import viewable_insight_defin
 
 from ..facade import contracts
 from ..models import TodayPulsePins
+from .highlight_registry import load_sources
 from .highlight_types import allows
 
 MAX_PULSE_PINS = 4
@@ -77,15 +79,34 @@ def named_hidden(
     *, team: Team, user: User, keys: list[str], scopes: frozenset[str] | None
 ) -> list[contracts.HiddenPulseNumber]:
     access = UserAccessControl(user=user, team=team)
-    visible = [key for key in keys if allows(access, scopes, *required_scopes(key, None))]
+    others = [key for key in keys if not key.startswith(INSIGHT_PREFIX)]
+    product_names = _product_number_names(team, user, access, scopes, others) if others else {}
+    visible = [key for key in keys if key in product_names or allows(access, scopes, *required_scopes(key, None))]
     short_ids = [key.removeprefix(INSIGHT_PREFIX) for key in visible if key.startswith(INSIGHT_PREFIX)]
     insights = viewable_insight_definitions(team=team, user=user, short_ids=short_ids) if short_ids else {}
-    key_metrics = get_key_metric_names(team=team) if len(short_ids) < len(visible) else {}
+    key_metrics = get_key_metric_names(team=team) if len(short_ids) + len(product_names) < len(visible) else {}
     names = {
         **{f"{INSIGHT_PREFIX}{short_id}": insight.name or UNTITLED_INSIGHT for short_id, insight in insights.items()},
         **key_metrics,
+        **product_names,
     }
     return [contracts.HiddenPulseNumber(key=key, name=names[key]) for key in visible if key in names]
+
+
+def _product_number_names(
+    team: Team, user: User, access: UserAccessControl, scopes: frozenset[str] | None, keys: list[str]
+) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for source in load_sources():
+        if source.number_names is None or not allows(access, scopes, *source.scopes):
+            continue
+        try:
+            named = source.number_names(team, user, keys)
+        except Exception as error:
+            capture_exception(error, {"source": source.name, "team_id": team.id, "product": "today"})
+            continue
+        names.update({key: name for key, name in named.items() if key in keys})
+    return names
 
 
 def delete_for_teams(team_ids: list[int]) -> None:

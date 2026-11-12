@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import pytest
 from unittest.mock import patch
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import (
     _TOKEN_EXPIRY_LEEWAY_SECONDS,
@@ -17,15 +19,19 @@ from posthog.clickhouse.client.connection import (
     Workload,
     default_client,
     default_workload_from_settings,
+    events_cluster_http_url,
     get_clickhouse_creds,
     get_http_client,
     get_http_kwargs,
+    get_kwargs_for_client,
     get_pool,
     init_clickhouse_users,
     make_ch_pool,
+    query_cluster_name,
     set_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.models.event.new_events_schema import events_route_scope
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import Settings
@@ -80,6 +86,35 @@ def test_connection_pool_creation_with_offline_cluster(settings):
 
     set_default_clickhouse_workload_type(Workload.OFFLINE)
     assert get_pool(Workload.DEFAULT) is offline_pool
+
+
+@pytest.mark.parametrize(
+    "workload,reads_events_json,team_id,expected_host,expected_http_url",
+    [
+        (Workload.ONLINE, True, 1, "events.example.com", "https://events.example.com:8443/"),
+        (Workload.OFFLINE, True, 1, "events-offline.example.com", "https://events-offline.example.com:8443/"),
+        (Workload.ONLINE, False, 1, None, None),
+        (Workload.OFFLINE, False, 1, "offline.example.com", None),
+        (Workload.OFFLINE, True, None, "offline.example.com", None),
+        (Workload.ENDPOINTS, True, 1, "endpoints.example.com", None),
+    ],
+)
+def test_projects_on_the_events_table_connect_to_the_events_cluster(
+    settings, workload, reads_events_json, team_id, expected_host, expected_http_url
+):
+    settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = "offline.example.com"
+    settings.CLICKHOUSE_ENDPOINTS_HOST = "endpoints.example.com"
+    settings.CLICKHOUSE_EVENTS_ONLINE_HOST = "events.example.com"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = "events-offline.example.com"
+    settings.CLICKHOUSE_EVENTS_ONLINE_HTTP_URL = "https://events.example.com:8443/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL = "https://events-offline.example.com:8443/"
+    settings.CLICKHOUSE_CLUSTER = "posthog"
+    settings.CLICKHOUSE_EVENTS_CLUSTER = "events"
+
+    with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=reads_events_json)):
+        assert get_kwargs_for_client(workload, team_id=team_id).get("host") == expected_host
+        assert events_cluster_http_url(workload, team_id) == expected_http_url
+        assert query_cluster_name(workload, team_id) == ("events" if expected_http_url else "posthog")
 
 
 @pytest.mark.parametrize("value,expected", [("ONLINE", Workload.ONLINE), ("OFFLINE", Workload.OFFLINE)])
@@ -308,6 +343,23 @@ def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatc
     # Asserting the credential handed to get_http_client, not that the helper was called, keeps this
     # green if the kwargs building is ever inlined.
     assert mock_http_client.call_args.kwargs["password"] == "tok-0"
+
+
+@pytest.mark.parametrize("use_http", [pytest.param(True, id="http"), pytest.param(False, id="native")])
+def test_get_client_from_pool_bounds_the_socket_on_either_transport(settings, use_http):
+    settings.CLICKHOUSE_USE_HTTP = use_http
+
+    with (
+        patch.object(connection, "get_http_client") as http_client,
+        patch.object(connection, "get_pool") as pool,
+    ):
+        connection.get_client_from_pool(Workload.ONLINE, team_id=2, send_receive_timeout=5)
+
+    if use_http:
+        assert http_client.call_args.kwargs["send_receive_timeout"] == 5
+    else:
+        assert pool.call_args.kwargs["send_receive_timeout"] == 5
+        assert pool.call_args.kwargs["team_id"] == 2
 
 
 @pytest.mark.parametrize(

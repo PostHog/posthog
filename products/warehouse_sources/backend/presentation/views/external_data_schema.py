@@ -35,7 +35,6 @@ from products.data_warehouse.backend.facade.api import (
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
     is_any_external_data_schema_paused,
-    is_cdc_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
     sync_cdc_extraction_schedule,
@@ -51,10 +50,12 @@ from products.warehouse_sources.backend.facade.contracts import (
     ConfigValueError,
     HistoryAccessRulesNotAllowedError,
     HistoryTableDropRefusedError,
+    LegacyHistoryTableError,
     UndecryptedConfigError,
 )
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
+    INCREMENTAL_HISTORY_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
@@ -81,6 +82,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     CDC_SNAPSHOT_POSITION_KEY,
+    HISTORY_NAMING,
     AnySource,
     Config,
     RowFilterValidationError,
@@ -98,16 +100,23 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     hand_reset_to_capture,
     hand_reset_to_capture_if_sync_running,
+    history_columns,
     history_naming_unless_taken,
     history_table_name,
+    incremental_history_naming_unless_taken,
+    incremental_history_refusal,
+    incremental_history_table,
     is_another_schemas_history_table,
     is_history_table_mode,
+    is_incremental_history_enabled_for_team,
     known_source_key,
     masking_key_unavailable,
     new_history_naming,
     pin_history_naming,
     pinned_history_naming,
     purge_buffer_prefix,
+    purge_history_staging,
+    registered_history_columns,
     registered_history_table,
     repair_is_running,
     request_access_rules_copy,
@@ -123,13 +132,13 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
-    SettableSyncFrequency,
     WarehouseColumnSensitivity,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
     report_history_table_deleted,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -324,6 +333,60 @@ def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str 
     old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
     new_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(new_mode or "", frozenset())
     return bool(new_targets - old_targets)
+
+
+def _refuse_ineligible_incremental_history(payload: dict[str, Any]) -> None:
+    refusal = incremental_history_refusal(
+        incremental_field=payload.get("incremental_field"),
+        incremental_field_type=payload.get("incremental_field_type"),
+    )
+    if refusal:
+        raise ValidationError(refusal)
+
+
+def _refuse_a_legacy_history_table(instance: ExternalDataSchema) -> None:
+    try:
+        incremental_history_naming_unless_taken(instance)
+    except LegacyHistoryTableError as e:
+        raise ValidationError(str(e)) from e
+
+
+def _apply_incremental_history_mode(
+    instance: ExternalDataSchema, data: dict[str, Any], payload: dict[str, Any], history_mode_before: str | None
+) -> bool:
+    """Store an incremental schema's output tables, and return whether its table must load again.
+
+    `payload` is the schema's own config, so the mode it had comes from `history_mode_before`.
+    """
+    mode = data.get("cdc_table_mode")
+    # A CDC schema's history is no choice of incremental history, so a switch from CDC chooses it again.
+    chosen_before = history_mode_before if instance.is_incremental else None
+    # The form sends the mode it shows on every save, so an unchanged mode needs neither the flag nor a check.
+    if mode not in _CDC_WRITE_TARGETS_BY_TABLE_MODE or mode == (chosen_before or "consolidated"):
+        return False
+    if mode == "consolidated":
+        payload.pop(INCREMENTAL_HISTORY_KEY, None)
+    else:
+        if not is_incremental_history_enabled_for_team(instance.team):
+            raise ValidationError("History tables for incremental syncs are not enabled for this organization.")
+        if not SourceRegistry.get_source(known_source_key(instance.source.source_type)).supports_incremental_history:
+            raise ValidationError(
+                "This source can't keep a history table, because it replaces rows by file instead of merging them by key."
+            )
+        _refuse_a_legacy_history_table(instance)
+        _refuse_ineligible_incremental_history(payload)
+        payload[INCREMENTAL_HISTORY_KEY] = True
+    payload["cdc_table_mode"] = mode
+    if instance.table is None or not _cdc_table_mode_change_needs_resnapshot(
+        history_mode_before or "consolidated", mode
+    ):
+        return False
+    if is_any_external_data_schema_paused(instance.team_id):
+        raise ValidationError(
+            "Monthly sync limit reached. Please increase your billing limit before changing "
+            "the output tables, because the table has to sync again in full."
+        )
+    return True
 
 
 def _concrete_field_names(validated_data: dict[str, Any]) -> list[str]:
@@ -557,21 +620,27 @@ def _apply_primary_key_columns(
 ) -> None:
     """Apply primary_key_columns from request data to the sync_type_config payload.
 
-    Raises ValidationError if the PK changed after data has been synced, or if no PK is set.
+    Raises ValidationError if an established PK changed after data has been synced, or if a switch to
+    this sync type leaves no PK set.
     """
     new_pk = data.get("primary_key_columns")
     if new_pk:
         old_pk = payload.get("primary_key_columns")
-        if new_pk != old_pk and instance.table is not None:
+        # A table synced without a key (full refresh, say) has no merge identity to break, so
+        # its first key is allowed. Only swapping an established key is refused.
+        if old_pk and new_pk != old_pk and instance.table is not None:
             raise ValidationError(
                 "Primary key cannot be changed after data has been synced. "
                 "Delete the synced data first, then change the primary key."
             )
         payload["primary_key_columns"] = new_pk
-    elif not payload.get("primary_key_columns"):
+    # A table already on this sync type keeps taking edits without a key: the sync resolves one
+    # from the source, or fails with its own error when the table has none.
+    elif not payload.get("primary_key_columns") and data.get("sync_type") != instance.sync_type:
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
-            "Choose a primary key for it, or add one on the source table and resync."
+            "Select its primary key columns when you choose the sync method, "
+            "or add a primary key on the source table."
         )
 
 
@@ -772,6 +841,8 @@ def _refuse_reserved_columns(
     new_enabled_columns: list[str] | None,
     new_primary_keys: list[str] | None,
     resulting_config: dict[str, Any],
+    kept_history: bool,
+    captures: bool,
 ) -> None:
     """Capture and the history table write their own columns next to the source's, so a synced source
     column that loads under one of those names fails the sync. Only a collision this request adds is
@@ -782,35 +853,48 @@ def _refuse_reserved_columns(
     history = None
     resolved = None
     if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
-        history = resolved = history_naming_unless_taken(instance)
-        kept_history = instance.sync_type == ExternalDataSchema.SyncType.CDC and is_history_table_mode(previous_mode)
-        if history is None and is_history_table_mode(new_mode) and not kept_history:
+        try:
+            history = resolved = (
+                history_naming_unless_taken(instance) if captures else incremental_history_naming_unless_taken(instance)
+            )
+        except LegacyHistoryTableError as e:
+            raise ValidationError(str(e)) from e
+        # Incremental history always needs the `_history` name; a CDC schema keeps its registered table.
+        if history is None and is_history_table_mode(new_mode) and (not kept_history or not captures):
             raise ValidationError(
                 f"A history table for {instance.name} would share its name with another table of this "
                 "source. Choose the consolidated table only for this table."
             )
         # A taken name leaves only the naming a new history table would get.
-        history = history or new_history_naming(instance.source)
+        history = history or (new_history_naming(instance.source) if captures else HISTORY_NAMING)
     columns = _source_column_names(instance)
+
+    def _reserved(mode: str | None) -> frozenset[str]:
+        naming = history if is_history_table_mode(mode) else None
+        if captures:
+            return reserved_column_names(naming)
+        return history_columns(naming) if naming else frozenset()
+
     taken = reserved_column_collisions(
         columns,
-        reserved_column_names(history if is_history_table_mode(new_mode) else None),
+        _reserved(new_mode),
         enabled_columns=new_enabled_columns,
         primary_keys=new_primary_keys,
         incremental_field=instance.incremental_field,
     )
-    if taken and instance.sync_type == ExternalDataSchema.SyncType.CDC:
+    if taken and (instance.sync_type == ExternalDataSchema.SyncType.CDC or kept_history):
         existing = reserved_column_collisions(
             columns,
-            reserved_column_names(history if is_history_table_mode(previous_mode) else None),
+            _reserved(previous_mode),
             enabled_columns=previous_enabled_columns,
             primary_keys=previous_primary_keys,
             incremental_field=instance.incremental_field,
         )
         taken = [column for column in taken if column not in existing]
     if taken:
+        writer = "Change data capture" if captures else "A history table"
         raise ValidationError(
-            f"Change data capture can't sync the column {' or '.join(taken)}, because it loads under a name "
+            f"{writer} can't sync the column {' or '.join(taken)}, because it loads under a name "
             "PostHog writes. Rename the column on your database, leave it out of the synced columns, or change "
             "this table's sync method or output tables."
         )
@@ -891,15 +975,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Maximum 5184000 (60 days)."
         ),
     )
-    sync_frequency = serializers.ChoiceField(
-        choices=SettableSyncFrequency.choices,
-        required=False,
-        allow_null=True,
-        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
-        error_messages={
-            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
-        },
-    )
+    sync_frequency = SyncFrequencyField(required=False, allow_null=True)
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
     )
@@ -1059,8 +1135,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Name of the history table registered for this schema, whether or not its mode still writes it, "
             "or `null` when none is registered. One the schema no longer writes can be removed with the "
             "`history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, "
-            "`null` elsewhere. After an update that sent `drop_history_table`, a name means the history "
-            "table was kept, for example because a sync started meanwhile."
+            "`null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name "
+            "means the history table was kept, for example because a sync started meanwhile. An update that "
+            "adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its "
+            "contents."
         ),
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
@@ -1277,16 +1355,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
-    def validate_sync_frequency(self, value: str | None) -> str | None:
-        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
-        # The choices still list it, so callers do send it. The message names should_sync because
-        # that is what stops a sync.
-        if value == "never":
-            raise ValidationError(
-                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
-            )
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
@@ -1381,7 +1449,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
         ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
-        ret["cdc_table_mode"] = instance.cdc_table_mode
+        # A schema that left CDC still stores the mode it had there.
+        ret["cdc_table_mode"] = (
+            instance.cdc_table_mode
+            if instance.sync_type == ExternalDataSchema.SyncType.CDC or instance.keeps_history
+            else "consolidated"
+        )
         ret["latest_error"] = redact_schema_error(instance, self.context)
         return ret
 
@@ -1470,7 +1543,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
-        validated_data.pop("sync_frequency", None)
+        # The validated value is canonical; the raw payload can carry a synonym such as "daily".
+        sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
@@ -1531,6 +1605,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
 
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
+        # A masking rebuild leaves the history table's past values readable. Only a CDC table that keeps history
+        # reseeds it; elsewhere the request must delete it with `drop_history_table`.
+        stored_masks = {fold_column_name(column) for column in instance.masked_columns or []}
+        adds_a_mask = masked_columns_changed and any(
+            fold_column_name(column) not in stored_masks for column in validated_data.get("masked_columns") or []
+        )
+        reseeds_history = data.get("sync_type", instance.sync_type) == ExternalDataSchema.SyncType.CDC and (
+            is_history_table_mode(data.get("cdc_table_mode", previous_cdc_table_mode))
+        )
+        masks_rebuild_history = adds_a_mask and not reseeds_history and registered_history_table(instance) is not None
+        if masks_rebuild_history and not drop_history:
+            raise ValidationError(
+                "This table has a history table that keeps the past values of its columns. A new mask can't "
+                "hide those values, so masking deletes the history table. Confirm the delete to mask the column."
+            )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
@@ -1562,12 +1651,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # save a `cdc` label that nothing can read a change stream for.
             if not source_type_supports_cdc(instance.source.source_type):
                 raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
-
-            from posthog.models import Team
-
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_cdc_enabled_for_team(team):
-                raise ValidationError("CDC is not enabled for this team")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
         # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
@@ -1748,6 +1831,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             ):
                 payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
+            if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "cdc_table_mode" in data:
+                trigger_refresh = (
+                    _apply_incremental_history_mode(instance, data, payload, history_mode_before) or trigger_refresh
+                )
+            if (
+                resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and payload.get(INCREMENTAL_HISTORY_KEY)
+                and is_history_table_mode(payload.get("cdc_table_mode"))
+            ):
+                _refuse_ineligible_incremental_history(payload)
+
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
                     max_value = instance.table.get_max_value_for_column(incremental_field)
@@ -1766,6 +1860,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             cdc_table_mode = data.get("cdc_table_mode")
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
+            elif instance.sync_type != ExternalDataSchema.SyncType.CDC and not instance.keeps_history:
+                # The API reports a schema that left CDC as consolidated.
+                payload["cdc_table_mode"] = "consolidated"
 
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
@@ -1807,8 +1904,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Checked once the branches above settle the mode and the key, because `enabled_columns` alone
         # can also bring a validity column into the history table.
-        if (sync_type if "sync_type" in data else instance.sync_type) == ExternalDataSchema.SyncType.CDC:
-            resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
+        resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
+        if resulting_sync_type == ExternalDataSchema.SyncType.CDC or (
+            resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+            and resulting_config.get(INCREMENTAL_HISTORY_KEY)
+        ):
             _refuse_reserved_columns(
                 instance,
                 previous_mode=previous_cdc_table_mode,
@@ -1818,6 +1918,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 new_enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 new_primary_keys=resulting_config.get("primary_key_columns"),
                 resulting_config=resulting_config,
+                kept_history=history_mode_before is not None,
+                captures=resulting_sync_type == ExternalDataSchema.SyncType.CDC,
             )
             instance.sync_type_config = resulting_config
             validated_data["sync_type_config"] = resulting_config
@@ -1833,10 +1935,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "can't sync. Rename the table on your database to sync it."
             )
 
-        history_table_to_drop = self._history_table_to_drop(instance, validated_data) if drop_history else None
+        history_table_to_drop = (
+            self._history_table_to_drop(instance, validated_data, rebuilding=masks_rebuild_history)
+            if drop_history
+            else None
+        )
 
         should_sync = validated_data.get("should_sync", None)
-        sync_frequency = data.get("sync_frequency", None)
         sync_time_of_day_in_payload = "sync_time_of_day" in data
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
@@ -1959,9 +2064,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             sync_type,
             instance.sync_type,
         )
-        # cdc_only wrote the consolidated table only at its initial snapshot, so a sync type that goes on
-        # from that table would skip every change since then.
-        leaves_cdc_only = leaving_cdc and instance.cdc_table_mode == "cdc_only"
+        # cdc_only wrote the consolidated table at most once, so a sync type that goes on from that table
+        # would skip every change since then.
+        leaves_cdc_only = sync_type != instance.sync_type and history_mode_before == "cdc_only"
         if "sync_type" in data and (crosses_xmin or leaves_cdc_only):
             if is_any_external_data_schema_paused(instance.team_id):
                 raise ValidationError(
@@ -2029,16 +2134,28 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
             # not contain the column yet, so exposing it now would surface all-NULL queries.
-            current_columns = instance.table.columns or {}
-            projected_columns = _filter_dwh_columns_by_enabled_columns(
-                current_columns,
-                validated_data["enabled_columns"],
-                instance.primary_key_columns,
-                instance.incremental_field,
-            )
-            if projected_columns != current_columns:
-                instance.table.columns = projected_columns
-                instance.table.save(update_fields=["columns"])
+            tables = [instance.table]
+            # A history table stays queryable after the schema stops writing it, so unselected columns are hidden there too.
+            history_table = incremental_history_table(instance)
+            if history_table is not None and history_table.id != instance.table.id:
+                tables.append(history_table)
+            for table in tables:
+                current_columns = table.columns or {}
+                # A history table also carries its validity and partition columns, which no source column selects.
+                project = (
+                    registered_history_columns
+                    if history_table is not None and table.id == history_table.id
+                    else _filter_dwh_columns_by_enabled_columns
+                )
+                projected_columns = project(
+                    current_columns,
+                    validated_data["enabled_columns"],
+                    instance.primary_key_columns,
+                    instance.incremental_field,
+                )
+                if projected_columns != current_columns:
+                    table.columns = projected_columns
+                    table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
         # A reset handed to capture paused the schedule, and capture only finishes a reset for a CDC table,
@@ -2051,6 +2168,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if leaving_cdc:
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
             instance.sync_type_config.pop(CDC_SNAPSHOT_POSITION_KEY, None)
+        # A schema that comes back to incremental chooses history again, with the checks and the reload.
+        if resulting_sync_type != ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_config:
+            instance.sync_type_config.pop(INCREMENTAL_HISTORY_KEY, None)
         publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             publication_removal = self._handle_cdc_publication_change(
@@ -2071,6 +2191,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # on again without the copy does.
             stage_access_rules_copy(instance, None, keeps_history=resulting_keeps_history)
 
+        if history_table_to_drop is not None and masks_rebuild_history:
+            self._empty_history_table_for_mask(instance, keep_record=resulting_keeps_history)
+        elif adds_a_mask:
+            self._purge_history_staging_for_mask(instance)
+
+        if should_sync is False:
+            # The customer chose to keep the schema off, so it no longer counts as stopped by PostHog.
+            # Staff tools re-enable only stopped schemas, and the failure digest reports only those.
+            # Cleared whatever this request loaded, because a stop can commit after the load.
+            validated_data["auto_disabled_at"] = None
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2079,14 +2210,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
         # Ahead of the side effects below, because a sync they start would block the drop.
-        if history_table_to_drop is not None:
+        if history_table_to_drop is not None and not masks_rebuild_history:
             self._run_temporal_side_effect(lambda: self._drop_history_table_after_mode_change(updated_instance))
 
         if masked_columns_changed:
             # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
-            clear_masked_column_bounds(
-                updated_instance.team_id, updated_instance.table_id, updated_instance.masked_columns
-            )
+            history_table = registered_history_table(updated_instance) or history_table_to_drop
+            for table_id in {updated_instance.table_id, history_table.id if history_table else None}:
+                clear_masked_column_bounds(updated_instance.team_id, table_id, updated_instance.masked_columns)
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
@@ -2232,24 +2363,61 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return updated_instance
 
     def _history_table_to_drop(
-        self, instance: ExternalDataSchema, validated_data: dict[str, Any]
+        self, instance: ExternalDataSchema, validated_data: dict[str, Any], *, rebuilding: bool = False
     ) -> DataWarehouseTable | None:
         """The history table a request with `drop_history_table` deletes, or None when the schema has none."""
-        resulting_sync_type = validated_data.get("sync_type", instance.sync_type)
-        resulting_mode = (validated_data.get("sync_type_config", instance.sync_type_config) or {}).get("cdc_table_mode")
         table = registered_history_table(instance)
         if table is None:
             return None
         require_history_table_editor(self.context.get("request"), self.context.get("view"), table)
+        resulting_keeps_history = ExternalDataSchema(
+            sync_type=validated_data.get("sync_type", instance.sync_type),
+            sync_type_config=validated_data.get("sync_type_config", instance.sync_type_config) or {},
+        ).keeps_history
         try:
-            assert_history_table_droppable(
-                instance,
-                keeps_history=resulting_sync_type == ExternalDataSchema.SyncType.CDC
-                and is_history_table_mode(resulting_mode),
-            )
+            assert_history_table_droppable(instance, keeps_history=not rebuilding and resulting_keeps_history)
         except HistoryTableDropRefusedError as e:
             raise ValidationError({"drop_history_table": str(e)})
         return table
+
+    def _empty_history_table_for_mask(self, instance: ExternalDataSchema, *, keep_record: bool) -> None:
+        """Delete before the mask saves, so a refused delete fails the save. Only a schema that keeps history keeps the
+        record, for the rebuild to refill with its access rules."""
+        fresh = ExternalDataSchema.objects.get(id=instance.id, team_id=instance.team_id)
+        config_before = dict(fresh.sync_type_config or {})
+        try:
+            dropped = drop_history_table(fresh, rebuilding=True, keep_record=keep_record)
+        except HistoryTableDropRefusedError as e:
+            raise ValidationError({"drop_history_table": str(e)})
+        except Exception as e:
+            capture_exception(e)
+            raise ValidationError(
+                {
+                    "drop_history_table": "Couldn't delete the history table's contents, so the mask wasn't saved. Try again."
+                }
+            )
+        if not keep_record and dropped is not None:
+            for key in config_before.keys() - (fresh.sync_type_config or {}).keys():
+                (instance.sync_type_config or {}).pop(key, None)
+            if instance.table_id == dropped.id:
+                instance.table = None
+        request = self.context.get("request")
+        if request is not None:
+            report_history_table_deleted(request.user, instance, trigger="mask", request=request)
+
+    def _purge_history_staging_for_mask(self, instance: ExternalDataSchema) -> None:
+        """Delete staged history rows, also before a first sync registered the history table."""
+        try:
+            purge_history_staging(instance)
+        except HistoryTableDropRefusedError as e:
+            raise ValidationError({"masked_columns": str(e)})
+        except Exception as e:
+            capture_exception(e)
+            raise ValidationError(
+                {
+                    "masked_columns": "Couldn't delete the rows staged for the history table, so the mask wasn't saved. Try again."
+                }
+            )
 
     def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
         try:
@@ -3106,7 +3274,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if direct_engine_adapter is not None:
                 direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
-            instance.save(update_fields=["should_sync", "updated_at"])
+            instance.auto_disabled_at = None
+            instance.save(update_fields=["should_sync", "auto_disabled_at", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
         # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
@@ -3265,7 +3434,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(source.source_type)
-        cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        cdc_available = schema.supports_cdc if source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 
@@ -3275,6 +3444,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
             "xmin_available": xmin_available,
+            "incremental_history_available": is_incremental_history_enabled_for_team(self.team)
+            and source_impl.supports_incremental_history,
             "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,

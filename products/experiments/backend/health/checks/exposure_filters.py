@@ -11,6 +11,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.events_received import quoted
 from products.experiments.backend.health.context import ExposureCohort, ExposureEvents, HealthContext
 from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckOutcome, not_applicable, not_checked
@@ -101,7 +102,7 @@ def _static_in_both_places(ctx: HealthContext, *, otherwise: bool = False) -> st
         return f"{use} a static cohort in both places, so the flag and the results agree on who is in it."
     if ctx.has_ended:
         return f"{'Otherwise, in' if otherwise else 'In'} your next experiment, use a static cohort in both places."
-    return f"{use} a static cohort in both places, then reset the experiment, because the change moves users."
+    return f"{use} a static cohort in both places, then reset the experiment, because the change moves users. {RESET_EFFECT}"
 
 
 def _names(cohorts: list[ExposureCohort]) -> str:

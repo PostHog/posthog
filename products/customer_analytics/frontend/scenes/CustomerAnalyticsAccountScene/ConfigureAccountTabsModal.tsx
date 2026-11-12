@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -27,14 +26,13 @@ export function ConfigureAccountTabsModal({ projectId }: ConfigureAccountTabsMod
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { configureOpen, configDraft, configError, configLoading, configSaving, config, views } = useValues(logic)
-    const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
     const { setConfigureOpen, setConfigDraft, saveConfig, openCreateEditor, loadConfig } = useActions(logic)
     const editingDisabledReason = configError
         ? 'Retry loading tab settings before making changes'
         : configLoading || !config
           ? 'Loading tab settings'
           : undefined
-    const tabs = listOrderedAccountTabs(listAccountTabs(featureFlags, accountViewsEnabled ? views : []), configDraft)
+    const tabs = listOrderedAccountTabs(listAccountTabs(featureFlags, views), configDraft)
     const isTabVisible = (tab: AccountTabDefinition): boolean => isAccountTabVisible(tab, configDraft, user?.id)
     const updateVisibility = (tab: AccountTabDefinition, visible: boolean): void =>
         setConfigDraft(setAccountTabVisibility(tabs, tab, configDraft, user?.id, visible))
@@ -49,19 +47,17 @@ export function ConfigureAccountTabsModal({ projectId }: ConfigureAccountTabsMod
             width={600}
             footer={
                 <>
-                    {accountViewsEnabled ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlus />}
-                            onClick={() => {
-                                setConfigureOpen(false)
-                                openCreateEditor()
-                            }}
-                            className="mr-auto"
-                        >
-                            Add view
-                        </LemonButton>
-                    ) : null}
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            setConfigureOpen(false)
+                            openCreateEditor()
+                        }}
+                        className="mr-auto"
+                    >
+                        Add view
+                    </LemonButton>
                     <LemonButton type="secondary" onClick={() => setConfigureOpen(false)}>
                         Cancel
                     </LemonButton>

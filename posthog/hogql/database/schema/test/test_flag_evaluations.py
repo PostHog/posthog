@@ -275,8 +275,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             organization=self.organization,
             defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
         )
+        # The native JSON events table moves flag-call reads to flag_evaluations whatever the mode, so the baseline also
+        # turns the rewrite off.
+        baseline = (
+            {}
+            if rewrite
+            else {"context": HogQLContext(team_id=self.team.pk, rewrite_flag_calls_to_flag_evaluations=False)}
+        )
         with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite):
-            return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
+            return execute_hogql_query(
+                query, team=self.team, filters=filters, modifiers=modifiers, pretty=False, **baseline
+            )
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
         sync_execute(
@@ -645,7 +654,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "group_0.properties.industry", where=f"{where} AND timestamp >= now() - INTERVAL 1 DAY", source=source
         )
 
-        assert ("in(key," in response.clickhouse) == key_bound
+        assert ("globalIn(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_group_join_of_a_swapped_events_scan_reads_only_the_groups_of_the_matched_rows(self):
@@ -662,7 +671,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert response.clickhouse is not None
         assert "FROM flag_evaluations" in response.clickhouse
-        assert "in(key," in response.clickhouse
+        assert "globalIn(key," in response.clickhouse
         assert response.results == [("software",)]
 
     @parameterized.expand(
@@ -718,7 +727,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             )
 
         assert response.clickhouse is not None
-        assert ("in(key," in response.clickhouse) == key_bound
+        assert ("globalIn(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_session_join_reads_only_sessions_near_the_query_date_range(self):
@@ -893,6 +902,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_scan_that_only_resolution_shows_reads_flag_calls_swaps_once_events_gets_no_flag_calls(
         self, _name: str, query: str | ast.SelectQuery | ast.SelectSetQuery, expected: list[tuple]
     ):
@@ -986,6 +996,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "posthog_events_person_id_through_distinct_ids",
                 f"SELECT person_id FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
+                PersonsOnEventsMode.DISABLED,
             ),
             (
                 "posthog_events_qualifier_that_a_joined_column_takes",
@@ -1009,6 +1020,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_query_flag_evaluations_cannot_answer_reads_events_until_events_gets_no_flag_calls(
         self,
         _name: str,
@@ -1115,6 +1127,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_query_reads_flag_evaluations_without_coverage_once_events_gets_no_flag_calls(self, _name: str, query: str):
         self._create_events_only_flag_call()
 
@@ -1379,8 +1392,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
         ]
     )
-    # Mode 1 keeps a project on the native-JSON events table reading events, so no swap would load a definition.
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_flag_call_views_load_each_property_definition_once_per_query(self, _name: str, mode: FlagEvaluationsMode):
         for name in ("calls_a", "calls_b"):
             self._create_view(
@@ -1511,6 +1522,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_flag_key_typed_as_boolean_selects_the_same_calls_with_and_without_the_rewrite(
         self, _name: str, mode: FlagEvaluationsMode, with_events_only_call: bool
     ):
@@ -1554,12 +1566,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             # The legacy events table returns the escaped text, as flag_evaluations does, so neither read matches.
-            ("legacy_events", False, 0),
-            ("native_json_events", True, 1),
+            ("legacy_events", False, 0, 0),
+            # The native JSON events table decodes the escapes. In production it holds no flag calls, so the rewrite
+            # reads flag_evaluations, whose escaped text the filter does not match.
+            ("native_json_events", True, 1, 0),
         ]
     )
-    def test_filter_on_an_escaped_property_selects_the_same_calls_with_and_without_the_rewrite(
-        self, _name: str, use_new_events_schema: bool, expected_count: int
+    def test_filter_on_an_escaped_property_with_and_without_the_rewrite(
+        self, _name: str, use_new_events_schema: bool, events_count: int, rewritten_count: int
     ):
         row_uuid = uuid.uuid4()
         properties: dict[str, str | int | None] = {"$feature_flag": "probe-flag", "message": 'say "hi"'}
@@ -1579,10 +1593,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             from_events = self._query_events(query, rewrite=False)
             rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
-        assert from_events.results == [(expected_count,)]
-        assert rewritten.results == from_events.results
+        assert from_events.results == [(events_count,)]
+        assert rewritten.results == [(rewritten_count,)]
         assert rewritten.clickhouse is not None
-        assert ("FROM flag_evaluations" in rewritten.clickhouse) is not use_new_events_schema
+        assert "FROM flag_evaluations" in rewritten.clickhouse
 
     @parameterized.expand(
         [

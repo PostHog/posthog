@@ -31,7 +31,7 @@ from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import app_context, home, home_with_region_redirect
+from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
@@ -277,6 +277,14 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
     ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_snapshot",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_snapshot"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_page",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_page"})),
+    ),
     *signals_internal_urlpatterns,
     # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
     path(
@@ -415,5 +423,6 @@ urlpatterns = [
     # OAuth redirect target when logging the local frontend into a remote cloud region;
     # the SPA handles the code→token exchange client-side, so it must load without auth.
     re_path(r"^oauth/callback", home),
+    opt_slash_path("device", device_approval_page),
     re_path(r"^.*", home_with_region_redirect),
 ]

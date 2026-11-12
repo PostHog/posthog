@@ -24,9 +24,11 @@ import structlog
 import dns.resolver
 import dns.exception
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.proxy_service.cloudflare import (
@@ -226,6 +228,26 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         ]
         return DiagnosticReport(
             ran_at=dt.datetime.now(dt.UTC), summary=_build_summary(domain_checks), checks=domain_checks
+        )
+
+    # One check covers the CNAME and CAA lookups below, because the live-event probe already
+    # refuses the name through pinned_request.
+    if is_cloud() and (oob_domain := matched_oob_domain(record.domain)) is not None:
+        log.warning("Proxy diagnostics refused a domain on the out-of-band list", oob_domain=oob_domain)
+        refused_checks: list[CheckResult] = [
+            CheckResult(
+                id="domain",
+                name="Domain name",
+                status="failed",
+                detail=OOB_DOMAIN_REFUSAL,
+                remediation=Remediation(
+                    type="config",
+                    summary="Delete this proxy and create it again on a domain you control.",
+                ),
+            )
+        ]
+        return DiagnosticReport(
+            ran_at=dt.datetime.now(dt.UTC), summary=_build_summary(refused_checks), checks=refused_checks
         )
 
     is_cloudflare = is_cloudflare_proxy_by_cname(record.target_cname)

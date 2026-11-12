@@ -8,14 +8,14 @@ from parameterized import parameterized
 from pydantic import TypeAdapter
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightSeries, SavedInsightDefinition
 from products.today.backend.facade import contracts
-from products.today.backend.facade.contracts import PulsePin
+from products.today.backend.facade.contracts import HighlightFindings, HighlightSource, PulsePin
 from products.today.backend.logic import pinned, pulse_pins
 from products.today.backend.logic.today_highlights import routine
 from products.today.backend.temporal.inputs import PinnedNumber, ResolvePinsInputs
@@ -35,6 +35,10 @@ def key_metric(key: str, this_week: float, last_week: float) -> KeyMetric:
         last_week=last_week,
         node={"kind": "EventsNode", "event": key},
     )
+
+
+def failing_names(_team: Team, _user: User, _keys: list[str]) -> dict[str, str]:
+    raise TimeoutError("slow")
 
 
 class TestPinnedNumbers(BaseTest):
@@ -101,20 +105,46 @@ class TestPinnedNumbers(BaseTest):
             (expected, [key for key in expected if key != "insight:b"]),
         )
 
-    @parameterized.expand([("no rule", None, ["signup_event"]), ("no access", "none", [])])
-    def test_a_hidden_key_metric_is_named_only_for_a_person_who_can_view_customer_analytics(
-        self, _name: str, access_level: str | None, expected: list[str]
+    @parameterized.expand(
+        [
+            ("a key metric", "customer_analytics", None, ["signup_event", "experiment:7"]),
+            ("a key metric without access", "customer_analytics", "none", ["experiment:7"]),
+            ("a product number without access", "experiment", "none", ["signup_event"]),
+        ]
+    )
+    def test_a_hidden_number_is_named_only_for_a_person_who_can_view_its_resource(
+        self, _name: str, resource: str, access_level: str | None, expected: list[str]
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         if access_level:
-            create_access_control(team_id=self.team.id, resource="customer_analytics", access_level=access_level)
+            create_access_control(team_id=self.team.id, resource=resource, access_level=access_level)
+        names = {"experiment:7": "Checkout redesign", "insight:other": "Not this source's"}
+        sources = (
+            HighlightSource(
+                name="experiments",
+                find=lambda _c: HighlightFindings(),
+                scopes=("experiment:read",),
+                number_names=lambda _team, _user, keys: names,
+            ),
+            HighlightSource(
+                name="broken",
+                find=lambda _c: HighlightFindings(),
+                number_names=failing_names,
+            ),
+        )
 
-        with patch.object(pulse_pins, "get_key_metric_names", return_value={"signup_event": "Signups"}):
+        with (
+            patch.object(pulse_pins, "get_key_metric_names", return_value={"signup_event": "Signups"}),
+            patch.object(pulse_pins, "load_sources", return_value=sources),
+        ):
             hidden = pulse_pins.named_hidden(
-                team=self.team, user=self._create_user("reader@example.com"), keys=["signup_event"], scopes=None
+                team=self.team,
+                user=self._create_user("reader@example.com"),
+                keys=["signup_event", "experiment:7"],
+                scopes=None,
             )
 
         self.assertEqual([number.key for number in hidden], expected)

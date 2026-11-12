@@ -1,4 +1,3 @@
-import json
 import ipaddress
 from urllib.parse import urlparse
 
@@ -12,6 +11,7 @@ import requests
 from parameterized import parameterized
 
 from posthog.models import Organization, ProxyRecord
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
     CustomHostname,
@@ -40,14 +40,14 @@ def _non_capture_response(status_code: int) -> Mock:
 
 
 def _respond_by_path(v0: object, analytics: object = None, ai: object = None):
-    """A `requests.post` side effect keyed by path, since the two v1 probes run in parallel."""
+    """A `pinned_request` side effect keyed by path, since the two v1 probes run in parallel."""
     by_path = {
         "/i/v0/e/": v0,
         "/i/v1/analytics/events": analytics or _capture_v1_rejection(),
         "/i/v1/ai/events": ai or _capture_v1_rejection(),
     }
 
-    def respond(url: str, **_kwargs):
+    def respond(_method: str, url: str, **_kwargs):
         outcome = by_path[urlparse(url).path]
         if isinstance(outcome, Exception):
             raise outcome
@@ -89,7 +89,7 @@ class TestCheckProxyIsLive(TestCase):
     @time_machine.travel("2024-01-16 10:00:00", tick=False)  # Frozen at Jan 16, cert expires Feb 15 (30 days later)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_success_mocked(
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
@@ -120,32 +120,29 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        # Verify the request was made correctly. allow_redirects=False is a security boundary:
-        # the domain is org-admin-controlled, so following redirects would enable SSRF to
-        # internal targets (see check_proxy_is_live). timeout stops a malicious domain hanging us.
+        # pinned_request carries the security boundary: it validates the host, pins the address it
+        # validated, and never follows a redirect (see check_proxy_is_live). timeout stops a
+        # malicious domain hanging us.
         self.assertCountEqual(
             mock_post.call_args_list,
             [
                 call(
+                    "POST",
                     f"https://{self.proxy_record.domain}/i/v0/e/",
-                    headers={"Content-Type": "application/json"},
-                    data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+                    json={"event": "test", "api_key": "test", "distinct_id": "test"},
                     timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
-                    allow_redirects=False,
                 ),
                 call(
+                    "POST",
                     f"https://{self.proxy_record.domain}/i/v1/analytics/events",
-                    headers={"Content-Type": "application/json"},
-                    data="{}",
+                    json={},
                     timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
-                    allow_redirects=False,
                 ),
                 call(
+                    "POST",
                     f"https://{self.proxy_record.domain}/i/v1/ai/events",
-                    headers={"Content-Type": "application/json"},
-                    data="{}",
+                    json={},
                     timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
-                    allow_redirects=False,
                 ),
             ],
         )
@@ -161,13 +158,14 @@ class TestCheckProxyIsLive(TestCase):
             ("blocked_in_front_of_capture", _non_capture_response(403), "got 403"),
             ("other_json_error", Mock(status_code=401, json=Mock(return_value={"error": "unauthorized"})), "got 401"),
             ("connection_error", requests.exceptions.ConnectionError("refused"), "ConnectionError"),
+            ("ssrf_blocked", SSRFBlockedError("private address"), "SSRFBlockedError"),
         ]
     )
     @pytest.mark.asyncio
     @time_machine.travel("2024-01-16 10:00:00", tick=False)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_reports_unrouted_v1_capture_and_still_checks_cert(
         self, _name, v1_response, reason, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
@@ -191,7 +189,7 @@ class TestCheckProxyIsLive(TestCase):
     @time_machine.travel("2024-01-16 10:00:00", tick=False)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_reports_unrouted_v1_ai_capture(
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
@@ -239,7 +237,7 @@ class TestCheckProxyIsLive(TestCase):
         ]
     )
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_probe_errors(
         self, _name, post_side_effect, expected_errors, mock_get_record, mock_post
@@ -260,7 +258,7 @@ class TestCheckProxyIsLive(TestCase):
     )
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_refuses_a_stored_domain_that_is_not_a_hostname(
         self, _name, domain, mock_get_record, mock_post, mock_create_connection
@@ -279,7 +277,7 @@ class TestCheckProxyIsLive(TestCase):
     @patch("posthog.temporal.proxy_service.monitor.validate_url_and_pin_ips")
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_cert_check_connects_to_the_validated_address(
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection, mock_validate
@@ -309,9 +307,31 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(mock_context.wrap_socket.call_args.kwargs["server_hostname"], self.proxy_record.domain)
 
     @pytest.mark.asyncio
+    @patch("requests.adapters.HTTPAdapter.send")
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("127.0.0.1")})
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_refuses_a_domain_the_probe_cannot_validate(
+        self, mock_get_record, mock_create_connection, _mock_resolve, mock_send
+    ):
+        # The patch sits on the requests transport, not on pinned_request, so the assertion also
+        # catches a test event that a plain requests call sends before the host check.
+        self.proxy_record.domain = "proxy.example.com"
+        mock_get_record.return_value = self.proxy_record
+        mock_send.return_value = requests.Response()
+        mock_send.return_value.status_code = 200
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Proxy domain does not resolve to a public address"])
+        self.assertEqual(result.warnings, [])
+        mock_send.assert_not_called()
+        mock_create_connection.assert_not_called()
+
+    @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.validate_url_and_pin_ips")
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_cert_check_does_not_connect_to_a_private_address(
         self, mock_get_record, mock_post, mock_create_connection, mock_validate
@@ -327,7 +347,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_reports_cloudflare_1014(self, mock_get_record, mock_post):
         # A 403 body with Cloudflare error 1014 must report a hostname authorization problem,
@@ -344,7 +364,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_rejects_redirect(self, mock_get_record, mock_post):
         # With allow_redirects=False a 3xx is not followed; raise_for_status only rejects 4xx/5xx,
@@ -365,7 +385,7 @@ class TestCheckProxyIsLive(TestCase):
     )  # Frozen at Jan 16, cert expires Jan 25 (9 days later, < 14 day threshold)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
-    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_cert_expiring_soon(
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection

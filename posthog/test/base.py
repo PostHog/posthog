@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import time
 import uuid
@@ -7,10 +8,12 @@ import logging
 import datetime as dt
 import resource
 import threading
+import dataclasses
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import wraps
+from http.cookies import SimpleCookie
 from typing import Any, Optional, Union, cast
 
 import pytest
@@ -53,6 +56,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
 from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
@@ -274,6 +278,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        # A JSON containment filter on an id, such as '{"insight_id": 4}'::jsonb.
+        query = re.sub(r"('\{\"\w+_id\": )\d+(\}'::jsonb)", r"\g<1>99999\2", query)
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
         query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
         query = re.sub(
@@ -960,15 +966,22 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
         )
         # Re-list tables on every flush: tests can create or drop tables (schema
         # migration tests, warehouse DDL), so a cached list goes stale in both
-        # dangerous directions. The catalog query costs ~1ms.
+        # dangerous directions. A table that holds a row has at least one page on
+        # disk, so tables with a zero-length main fork are skipped without probing:
+        # most of the schema is never written in a given test process, and probing
+        # every table dominated the cost of the flush. Partitioned parents have no
+        # storage of their own; their rows are found through their partitions.
         cursor.execute(
             """
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = 'public'
-              AND tablename NOT LIKE 'pg\\_%'
-              AND tablename NOT LIKE '\\_sqlx\\_%'
-              AND tablename NOT LIKE '\\_persons\\_migrations%'
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'r'
+              AND c.relname NOT LIKE 'pg\\_%'
+              AND c.relname NOT LIKE '\\_sqlx\\_%'
+              AND c.relname NOT LIKE '\\_persons\\_migrations%'
+              AND pg_relation_size(c.oid) > 0
             """
         )
         tables = [name for (name,) in cursor.fetchall() if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES]
@@ -1079,6 +1092,18 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
+    _class_login_cookies: Optional[SimpleCookie] = None
+    _class_login_user_id: Optional[int] = None
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        if cls.CLASS_DATA_LEVEL_SETUP and cls.CONFIG_AUTO_LOGIN and cls.user:
+            client = cls.client_class()
+            client.force_login(cls.user)
+            cls._class_login_cookies = client.cookies
+            cls._class_login_user_id = cls.user.pk
+
     def setUp(self):
         super().setUp()
 
@@ -1091,7 +1116,10 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
-            self.client.force_login(self.user)
+            if self._class_login_cookies is not None and self._class_login_user_id == self.user.pk:
+                self.client.cookies = copy.deepcopy(self._class_login_cookies)
+            else:
+                self.client.force_login(self.user)
             get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):
@@ -1847,6 +1875,12 @@ def flush_persons_and_events():
     """
     from posthog.test.persons import flush_persons_to_db_and_clickhouse
 
+    # The first flush of a session can be its first ClickHouse use, so create the tables before writing
+    # into them. The setup's own queries reach this function too, and must not flush before the tables exist.
+    clickhouse_test_setup.run()
+    if clickhouse_test_setup.in_setup():
+        return
+
     person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
@@ -1971,6 +2005,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     snapshot: Any
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Run the deferred ClickHouse setup before any test code, so query snapshots and query
+        # captures never record the setup queries.
+        clickhouse_test_setup.run()
+        super().setUpClass()  # type: ignore[misc]
+
     @staticmethod
     def generalize_sql(value: str):
         """Makes sure we can snapshot our SQL - swaps concrete team_id for placeholder."""
@@ -2022,6 +2063,8 @@ class ClickhouseTestMixin(QueryMatchingTest):
         capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
         pass a filter that matches on mid-statement text; it will not see comments embedded there.
         """
+        # The deferred ClickHouse setup runs its own queries, which must not land in the captured list.
+        clickhouse_test_setup.run()
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
@@ -2054,11 +2097,16 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
         for stmt in statements
     ]
 
+    clickhouse_test_setup.run()
+    # Other threads wait while the deferred ClickHouse setup runs, except the DDL workers the setup starts here.
+    joins_setup = clickhouse_test_setup.in_setup()
+
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
             try:
-                sync_execute(stmt)
+                with clickhouse_test_setup.worker(joins_setup):
+                    sync_execute(stmt)
                 return
             except TooManyConnections:
                 if attempt + 1 == max_attempts:
@@ -2150,7 +2198,21 @@ if settings.TEST:
     ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
-def reset_clickhouse_database() -> None:
+def _kafka_tables_for_tests() -> list[str]:
+    # A Kafka engine table polls Kafka until someone drops it, so the test database only gets them for
+    # AI evals, like create_clickhouse_tables in posthog/conftest.py. Without them, the materialized
+    # views that read from Kafka fail with UNKNOWN_TABLE, which run_clickhouse_statement_in_parallel skips.
+    if not settings.IN_EVAL_TESTING:
+        return []
+    return [
+        KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+        KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
+        KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
+    ]
+
+
+def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
     # Dropping tables below removes their materialized columns behind the metadata cache's back,
     # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
     try:
@@ -2265,7 +2327,6 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
@@ -2273,14 +2334,12 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            *_kafka_tables_for_tests(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
     exchange_rates_seeded = sync_execute(f"SELECT count() FROM {EXCHANGE_RATE_TABLE_NAME}")[0][0] > 0
@@ -2306,6 +2365,14 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+    if materialized_event_properties:
+        from ee.clickhouse.materialized_columns.columns import (
+            materialize,  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+        )
+
+        for property_name in materialized_event_properties:
+            materialize("events", property_name)
+
     managed_tables = {
         match.group(1)
         for statement in (*drop_views_and_dictionaries, *drop_and_truncate_tables, *create_tables)
@@ -2318,6 +2385,7 @@ def reset_clickhouse_database() -> None:
         schema=state.schema,
         row_counts=row_counts,
         mutation_counts={table: count for table, count in state.mutation_counts.items() if table in row_counts},
+        materialized_event_properties=materialized_event_properties,
     )
     _mark_clickhouse_reset()
 
@@ -2343,8 +2411,13 @@ SELECT
         WHERE database = currentDatabase()
     ),
     (
-        SELECT groupArray((table, mutations))
-        FROM (SELECT table, count() AS mutations FROM system.mutations WHERE database = currentDatabase() GROUP BY table)
+        SELECT groupArray((table, mutations, pending))
+        FROM (
+            SELECT table, count() AS mutations, countIf(NOT is_done) AS pending
+            FROM system.mutations
+            WHERE database = currentDatabase()
+            GROUP BY table
+        )
     )
 FROM system.tables
 WHERE database = currentDatabase()
@@ -2356,6 +2429,7 @@ class _ClickhouseTableState:
     schema: tuple[frozenset[tuple[str, str]], int, int]
     row_counts: dict[str, int | None]
     mutation_counts: dict[str, int]
+    tables_with_pending_mutations: frozenset[str]
 
 
 @frozen
@@ -2363,6 +2437,7 @@ class _ClickhouseResetBaseline:
     schema: tuple[frozenset[tuple[str, str]], int, int]
     row_counts: dict[str, int]
     mutation_counts: dict[str, int]
+    materialized_event_properties: tuple[str, ...]
 
 
 _clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
@@ -2370,33 +2445,41 @@ _clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
 
 def _read_clickhouse_table_state() -> _ClickhouseTableState:
     rows = sync_execute(_CLICKHOUSE_TABLE_STATE_SQL)
-    _, _, _, columns_hash, indices_hash, mutation_counts = rows[0]
+    _, _, _, columns_hash, indices_hash, mutations = rows[0]
     return _ClickhouseTableState(
         schema=(frozenset((name, str(uuid)) for name, uuid, *_ in rows), columns_hash, indices_hash),
         row_counts={name: total_rows for name, _, total_rows, *_ in rows},
-        mutation_counts=dict(mutation_counts),
+        mutation_counts={table: count for table, count, _ in mutations},
+        tables_with_pending_mutations=frozenset(table for table, _, pending in mutations if pending),
     )
 
 
-def _truncate_clickhouse_tables_if_schema_unchanged() -> bool:
+def _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties: tuple[str, ...]) -> bool:
+    global _clickhouse_reset_baseline
     baseline = _clickhouse_reset_baseline
-    if baseline is None:
+    if baseline is None or baseline.materialized_event_properties != materialized_event_properties:
         return False
     state = _read_clickhouse_table_state()
     if state.schema != baseline.schema:
         return False
-    if {table: count for table, count in state.mutation_counts.items() if table in baseline.row_counts} != (
-        baseline.mutation_counts
-    ):
+    if state.tables_with_pending_mutations & baseline.row_counts.keys():
         return False
-    tables_with_rows: list[str] = []
+    mutation_counts = {table: count for table, count in state.mutation_counts.items() if table in baseline.row_counts}
+    mutated_tables = {
+        table
+        for table in baseline.row_counts
+        if mutation_counts.get(table, 0) != baseline.mutation_counts.get(table, 0)
+    }
+    tables_to_truncate: list[str] = []
     for name, baseline_rows in baseline.row_counts.items():
-        if state.row_counts[name] == baseline_rows:
+        if state.row_counts[name] == baseline_rows and name not in mutated_tables:
             continue
         if baseline_rows > 0:
             return False
-        tables_with_rows.append(name)
-    run_clickhouse_statement_in_parallel([f"TRUNCATE TABLE {name}" for name in tables_with_rows])
+        tables_to_truncate.append(name)
+    run_clickhouse_statement_in_parallel([f"TRUNCATE TABLE {name}" for name in tables_to_truncate])
+    if mutated_tables:
+        _clickhouse_reset_baseline = dataclasses.replace(baseline, mutation_counts=mutation_counts)
     _mark_clickhouse_reset()
     return True
 
@@ -2406,14 +2489,21 @@ def _mark_clickhouse_reset() -> None:
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
 
 
-def reset_clickhouse_database_if_dirty() -> None:
+def truncate_or_reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
+    if not _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties):
+        reset_clickhouse_database(materialized_event_properties)
+
+
+def reset_clickhouse_database_if_dirty(materialized_event_properties: tuple[str, ...] = ()) -> None:
     """Reset ClickHouse only if something has checked out a ClickHouse client since
     the last reset finished; with zero checkouts the state cannot have changed and
     the reset would be a no-op costing dozens of DDL statements."""
-    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset:
+    baseline = _clickhouse_reset_baseline
+    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset and (
+        baseline is None or baseline.materialized_event_properties == materialized_event_properties
+    ):
         return
-    if not _truncate_clickhouse_tables_if_schema_unchanged():
-        reset_clickhouse_database()
+    truncate_or_reset_clickhouse_database(materialized_event_properties)
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -2422,13 +2512,15 @@ class ClickhouseDestroyTablesMixin(BaseTest):
     Use this mixin to make sure you completely destroy the tables between tests.
     """
 
+    clickhouse_reset_materialized_event_properties: tuple[str, ...] = ()
+
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
 
 def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:

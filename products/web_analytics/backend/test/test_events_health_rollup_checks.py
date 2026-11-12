@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from parameterized import parameterized
 
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
-from posthog.temporal.health_checks.rollups.freshness import RollupWindow
+from posthog.temporal.health_checks.rollups.freshness import RollupWindow, invalidate_published_days
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
 
 from products.event_definitions.backend.models import EventDefinition
@@ -41,6 +41,23 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
             )
             for index, (event, custom, scroll, count) in enumerate(rows)
         )
+
+    def _publish_window_for_another_project(self, window: RollupWindow) -> None:
+        other_team_id = self.team.id + 1000
+        days = (window.start + dt.timedelta(days=offset) for offset in range((window.end - window.start).days + 1))
+        EventsHealthDaily.objects.unscoped().bulk_create(
+            EventsHealthDaily(
+                team_id=other_team_id,
+                day=day,
+                event="$pageview",
+                has_custom_api_host=False,
+                has_scroll_depth=False,
+                session_id_state=SessionIdState.VALID,
+                event_count=1,
+            )
+            for day in days
+        )
+        invalidate_published_days(EventsHealthDaily)
 
     def _flagged(self, check: RollupHealthCheck, rows: list[Row]) -> bool:
         window = window_ending_yesterday(check.window_days)
@@ -102,5 +119,6 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
                 name=defined_event,
                 last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
             )
+        self._publish_window_for_another_project(window_ending_yesterday(NoLiveEventsCheck.window_days))
 
         self.assertEqual(self.team.id in NoLiveEventsCheck().detect([self.team.id]), expected)

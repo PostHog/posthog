@@ -25,6 +25,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -44,6 +45,7 @@ from posthog.hogql.errors import (
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
+from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
@@ -142,7 +144,7 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
@@ -1656,6 +1658,20 @@ class Resolver(CloningVisitor):
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
 
+            for scope_alias, scope_type in scope.tables.items():
+                # An unaliased scan of a non-lazy table prints as its bare table name. `FROM posthog.events JOIN
+                # events` would print both scans as `events`. ClickHouse then cannot tell them apart.
+                if (
+                    isinstance(scope_type, ast.TableType)
+                    and scope_type == node_table_type
+                    and scope_alias != table_alias
+                    and database_table.to_printed_clickhouse(self.context) == table_alias
+                ):
+                    raise QueryError(
+                        f'"{self._get_scope_table_names(scope)[scope_alias]}" and "{".".join(table_name_chain)}" '
+                        "read the same table. Give one of them an alias."
+                    )
+
             if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
                 self._record_warehouse_sync_warnings(database_table.table_id)
 
@@ -1687,7 +1703,14 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal.
+                # `get_alias_for_table_type` returns the first scope entry with an equal type. Without an alias,
+                # the second scan prints with the first scan's name.
+                or node_table_type in scope.tables.values()
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -2220,6 +2243,10 @@ class Resolver(CloningVisitor):
         if self.dialect == "trino" and node.name.lower() == "date":
             node = self._copy(node)
             node.name = "toDate"
+
+        if node.name in NUMERIC_CONVERSION_ALIASES:
+            node = self._copy(node)
+            node.name = NUMERIC_CONVERSION_ALIASES[node.name]
 
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []

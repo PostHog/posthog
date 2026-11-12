@@ -1,5 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -64,12 +66,14 @@ describe('CdpCyclotronWorkerEmail', () => {
         const triggered = (result: CyclotronJobInvocationResult) =>
             result.metrics.filter((metric) => metric.metric_name === 'triggered')
 
+        const queueCreatedAt = DateTime.utc(2026, 11, 4, 9, 59)
         let job: CyclotronJobInvocation = {
             id: new UUIDT().toString(),
             teamId: team.id,
             functionId: hogFlow.id,
             queue: 'email',
             queuePriority: 0,
+            queueCreatedAt,
             state: createHogFlowInvocationContext({
                 event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } } as any,
                 ...(marked ? { triggerMetricPending: true } : {}),
@@ -94,6 +98,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                           metric_kind: 'other',
                           metric_name: 'triggered',
                           count: 1,
+                          timestamp: queueCreatedAt,
                       },
                   ]
                 : []

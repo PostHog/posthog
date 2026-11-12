@@ -2027,16 +2027,25 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("toFloat", "toFloat('1.3')"),
-            ("toFloatOrNull", "toFloatOrNull('1.3')"),
-            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+            ("toFloatOrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64OrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64(event)", "toFloat(event)"),
+            ("toFloat64OrZero(event)", "toFloatOrZero(event)"),
+            ("toFloat64OrDefault(event, 1.5)", "toFloatOrDefault(event, 1.5)"),
+            ("toFloat64OrDefault(event)", "toFloatOrDefault(event)"),
+            ("toInt64(event)", "toInt(event)"),
+            ("toInt64OrNull(event)", "toInt(event)"),
+            ("toIntOrNull(event)", "toInt(event)"),
+            ("toInt64OrZero(event)", "toIntOrZero(event)"),
+            ("toInt64OrDefault(event, 3)", "toIntOrDefault(event, 3)"),
+            ("toInt64OrDefault(event)", "toIntOrDefault(event)"),
         ]
     )
-    def test_to_float_aliases(self, _name: str, expr: str) -> None:
-        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
-        # all routing through accurateCastOrNull so unparseable input becomes NULL.
-        context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+    def test_numeric_conversion_aliases_print_as_hogql_names(self, alias_expr: str, hogql_expr: str) -> None:
+        alias_context = HogQLContext(team_id=self.team.pk)
+        hogql_context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(alias_expr, alias_context), self._expr(hogql_expr, hogql_context))
+        self.assertEqual(alias_context.values, hogql_context.values)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -2072,6 +2081,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "tostring(event)",
             "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?",
+        )
+        self._assert_expr_error(
+            "toInt8OrNull(event)",
+            "Unsupported function call 'toInt8OrNull(...)'. Perhaps you meant 'toIntOrNull(...)'?",
+        )
+        self._assert_expr_error(
+            "toUInt32(event)",
+            "Unsupported function call 'toUInt32(...)'. Perhaps you meant 'toInt(...)'?",
         )
         self._assert_expr_error(
             "int(event)",
@@ -5333,12 +5350,23 @@ class TestPrinter(BaseTest):
                 "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
                 "globalIn(",
             ),
+            (
+                "in_flag_evaluations_subquery",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
+                "globalIn(",
+            ),
+            (
+                "not_in_flag_evaluations_subquery",
+                "SELECT distinct_id FROM posthog.flag_evaluations WHERE distinct_id NOT IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
+                "globalNotIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
         # A per-shard re-executed IN-subquery over a sharded table costs shard-count times
         # the subquery; GLOBAL IN builds the set once and ships it.
-        printed = self._select(select)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            printed = self._select(select)
         assert expected in printed, f"expected {expected} in:\n{printed}"
 
     @parameterized.expand(

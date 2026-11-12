@@ -53,6 +53,8 @@ SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 SLACK_APP_RUNTIME_HANDOFF_FLAG = "slack-app-runtime-handoff"
+SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
+SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -135,6 +137,20 @@ def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_i
     )
 
 
+def is_slack_app_jev_needs_repo_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for asking Jev whether a mention needs code before any repository is picked.
+
+    ``distinct_id`` is the PostHog user who mentioned the app. Off, repository selection
+    keeps the cascade it had before: one connected repository is used without asking.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_JEV_NEEDS_REPO_FLAG,
+        integration,
+        failure_log_key="slack_app_jev_needs_repo_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
 def is_slack_app_byos_enabled(
     integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
 ) -> bool:
@@ -213,6 +229,14 @@ def is_slack_app_runtime_handoff_enabled(integration: IntegrationRecord, distinc
         integration,
         failure_log_key="slack_app_runtime_handoff_feature_flag_check_failed",
         distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_DAILY_WORK_FOCUS_FLAG,
+        integration,
+        failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
     )
 
 

@@ -17,11 +17,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.cloud_utils import is_cloud
 from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
-from posthog.security.pinned_requests import select_pinned_ip
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -152,6 +154,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
 
 def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    if is_cloud() and (oob_domain := matched_oob_domain(proxy_record.domain)) is not None:
+        LOGGER.info("security.oob_domain_seen", host=proxy_record.domain, domain=oob_domain, guard="proxy_dns")
+        return CheckActivityOutput(errors=[OOB_DOMAIN_REFUSAL], warnings=[])
     resolver = dnssec_resolver()
     try:
         cnames = resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
@@ -360,18 +365,16 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 
     # send dummy event to check the proxy is working
     try:
-        # allow_redirects=False is a security boundary: the domain is attacker-controllable
-        # (an org admin sets it, and controls its DNS), so following redirects would let them
-        # point us at internal targets (ClickHouse's HTTP interface, cloud metadata, management
-        # APIs) - an SSRF. A working proxy answers /i/v0/e/ with a 2xx directly. Same protection
-        # as the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
-        # (_check_live_event).
-        response = requests.post(
+        # An org admin sets the domain and controls its DNS, so the request goes through
+        # pinned_request: it connects to the address it validated rather than resolving the name a
+        # second time, and it never follows a redirect. Resolving twice is what makes a low-TTL
+        # record exploitable. Same protection as the diagnostics probe in
+        # posthog/api/proxy_record_diagnostics.py (_check_live_event).
+        response = pinned_request(
+            "POST",
             f"{probe_base}/i/v0/e/",
-            headers={"Content-Type": "application/json"},
-            data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            json={"event": "test", "api_key": "test", "distinct_id": "test"},
             timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
-            allow_redirects=False,
         )
 
         # Since we don't follow redirects, treat a 3xx as a failed check rather than a live proxy:
@@ -425,6 +428,13 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
         if expires_at - dt.datetime.now(dt.UTC).replace(tzinfo=None) < dt.timedelta(days=14):
             errors.append("Live proxy certificate is expiring soon")
+    except SSRFBlockedError:
+        # Not a RequestException, so without this handler the activity raises and the schedule
+        # retries a refusal that can never change.
+        return CheckActivityOutput(
+            errors=["Proxy domain does not resolve to a public address"],
+            warnings=[],
+        )
     except requests.exceptions.Timeout:
         return CheckActivityOutput(
             errors=["Proxy did not respond within the timeout"],
@@ -488,14 +498,9 @@ def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str
     reached capture: a bare 4xx can come from whatever sits in front of it.
     """
     try:
-        response = requests.post(
-            f"{probe_base}{path}",
-            headers={"Content-Type": "application/json"},
-            data="{}",
-            timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
-            allow_redirects=False,
-        )
-    except requests.exceptions.RequestException as e:
+        # Same pinning as the /i/v0 probe: the domain's DNS could answer differently by now.
+        response = pinned_request("POST", f"{probe_base}{path}", json={}, timeout=CAPTURE_V1_PROBE_TIMEOUT_S)
+    except (requests.exceptions.RequestException, SSRFBlockedError) as e:
         return f"Proxy does not forward {path} ({e.__class__.__name__}); {consequence}"
     try:
         body = response.json()

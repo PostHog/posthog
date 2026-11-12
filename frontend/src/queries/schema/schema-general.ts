@@ -641,6 +641,24 @@ export interface BreakdownNotAppliedWarning {
     message: string
 }
 
+export type WarehouseSuggestionNoteKind = 'materialize' | 'unmaterialize'
+
+/** An open warehouse suggestion about a view the query read, for an agent to mention to the person. */
+export interface WarehouseSuggestionNote {
+    /** The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`. */
+    id: string
+    /** What the suggestion proposes. */
+    kind: WarehouseSuggestionNoteKind
+    /** The view's current name. */
+    view_name: string
+    /** Plain-language note for the person, with the next step. */
+    message: string
+    /** Absolute link to the view's page in Models. */
+    url: string
+    /** Whether this user can edit the view, which accepting the suggestion needs. */
+    can_act: boolean
+}
+
 /**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
@@ -2902,6 +2920,11 @@ export interface AnalyticsQueryResponseBase {
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
+    /**
+     * Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers;
+     * absent when not evaluated, empty when evaluated and none apply.
+     */
+    warehouse_suggestions?: WarehouseSuggestionNote[]
 }
 
 interface CachedQueryResponseMixin {
@@ -5928,6 +5951,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
     /** Other flags that also show the item. The item is shown when `flag` or any of these is on. */
     alternativeFlags?: string[]
+    /** Flags that hide the item when every one of them is on. */
+    hiddenWhenFlags?: string[]
     /** Order of object in tree */
     visualOrder?: number
     /** Tag for the product 'beta' / 'alpha' */
@@ -5956,6 +5981,8 @@ export interface FileSystemSearchTab {
     name: string
     href: string
     flag?: string
+    /** Flags that must all be on to show the tab. */
+    requiredFlags?: string[]
     searchKeywords?: string[]
 }
 
@@ -6214,6 +6241,13 @@ export interface ExperimentApiMetric {
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
      *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number
+    /** For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value
+     *  is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the
+     *  project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for
+     *  a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show
+     *  a plain number. It only changes how results show the value, and a change to it does not
+     *  recalculate results. */
+    value_format?: ExperimentMetricValueFormat
     /** For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this
      *  quantile of `source.math_property` over all qualifying events of a variant.
      *  @minimum 0.01
@@ -6321,6 +6355,24 @@ export interface ExperimentMetricBaseProperties extends Node {
     isSharedMetric?: boolean
     sharedMetricId?: number
     breakdownFilter?: BreakdownFilter
+    /** How results show the value of the metric. Metrics that report a share of users (funnel, retention,
+     *  mean with a threshold) ignore it. */
+    value_format?: ExperimentMetricValueFormat
+}
+
+/** What the value of an experiment metric is. `currency` is an amount in the project's base currency.
+ *  `duration` is seconds and `duration_ms` is milliseconds. `percentage` is a percent on a 0-100 scale,
+ *  and `percentage_scaled` is a fraction on a 0-1 scale that results show as a percent. */
+export type ExperimentMetricValueFormatType =
+    | 'currency'
+    | 'duration'
+    | 'duration_ms'
+    | 'percentage'
+    | 'percentage_scaled'
+
+/** How experiment results show the value of a metric. The calculation never reads it. */
+export interface ExperimentMetricValueFormat {
+    type: ExperimentMetricValueFormatType
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -6549,6 +6601,8 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
     feature_flag: Record<string, any>
     start_date: string | null
     end_date: string | null
+    /** The instant the window is evaluated at, when it ends before `end_date`. Unset means now. */
+    as_of?: string | null
     holdout?: ExperimentHoldoutType
 }
 
@@ -8886,14 +8940,13 @@ export type MarketingAnalyticsRecommendationCpaBenchmarkSource = 'target_cpa' | 
 
 export interface MarketingAnalyticsRecommendationCpa {
     /**
-     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total
-     * CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no
-     * conversions or is not bought yet.
+     * Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a
+     * target CPA. Null when it has no conversions.
      */
     value: number | null
     /**
-     * CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for
-     * context. Null when the account has no non-brand conversions.
+     * CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search
+     * scale, budget, spend without conversions and content gap.
      */
     benchmark: number | null
     /** Where the benchmark comes from. Null when there is no benchmark. */
@@ -9826,6 +9879,11 @@ export interface TicketSidebarConfiguration {
     hidden?: string[]
 }
 
+export interface SessionReplayListConfiguration {
+    /** Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference. */
+    filter_test_accounts?: boolean
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9835,6 +9893,7 @@ export interface UserUIConfiguration {
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
     ticket_sidebar?: TicketSidebarConfiguration
+    session_replay?: SessionReplayListConfiguration
     [key: string]: unknown
 }
 

@@ -1,61 +1,140 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { render, screen, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
-import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { HogFunctionTemplateType } from '~/types'
+import { UserType } from '~/types'
 
-import { HogFlow, HogFlowAction } from '../hogflows/types'
+import { HogFlow, HogFlowTemplate } from '../hogflows/types'
 import { workflowLogic } from '../workflowLogic'
 import { workflowTemplateLogic } from './workflowTemplateLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
-jest.mock('lib/api', () => ({
-    ...jest.requireActual('lib/api'),
-    hogFlowTemplates: {
-        createHogFlowTemplate: jest.fn(),
-        updateHogFlowTemplate: jest.fn(),
-        getHogFlowTemplate: jest.fn(),
-    },
-}))
+const WORKFLOW_ID = 'test-workflow-id'
 
-jest.mock('lib/lemon-ui/LemonToast', () => ({
-    lemonToast: {
-        success: jest.fn(),
-        error: jest.fn(),
-    },
-}))
-
-const mockApi = api.hogFlowTemplates as jest.Mocked<typeof api.hogFlowTemplates>
-const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
+const makeWorkflow = (): HogFlow => ({
+    id: WORKFLOW_ID,
+    team_id: 123,
+    name: 'Test Workflow',
+    description: 'Test Description',
+    status: 'active',
+    version: 1,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-02T00:00:00Z',
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { type: 'event', filters: {} },
+        },
+        {
+            id: 'function-action-1',
+            type: 'function',
+            name: 'Function Action',
+            description: '',
+            created_at: 1000,
+            updated_at: 2000,
+            config: {
+                template_id: 'test-template-id',
+                template_uuid: 'test-uuid',
+                inputs: { url: { value: 'https://custom-url.com' } },
+            },
+        },
+    ],
+    edges: [{ from: 'trigger_node', to: 'function-action-1', type: 'continue' }],
+    conversion: { filters: [] },
+    exit_condition: 'exit_only_at_end',
+})
 
 describe('workflowTemplateLogic', () => {
-    beforeEach(() => {
-        initKeaTests()
+    let templates: Record<string, HogFlowTemplate>
+    let currentUser: UserType
 
-        jest.clearAllMocks()
+    const findTemplate = ({ params }: MockResolverInfo): HogFlowTemplate | undefined => templates[String(params.id)]
+
+    const showToasts = (): void => {
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+    }
+
+    const loadWorkflow = async (props: { id: string; editTemplateId?: string }): Promise<void> => {
+        const workflowLogicInstance = workflowLogic(props)
+        workflowLogicInstance.mount()
+        await waitFor(() => expect(workflowLogicInstance.values.originalWorkflow).not.toBeNull())
+    }
+
+    const loadUser = async (user: UserType): Promise<void> => {
+        currentUser = user
+        userLogic.mount()
+        userLogic.actions.loadUser()
+        await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(user.is_staff))
+    }
+
+    const submit = async (
+        logic: ReturnType<typeof workflowTemplateLogic.build>,
+        values: Parameters<typeof logic.actions.setTemplateFormValues>[0]
+    ): Promise<void> => {
+        await expectLogic(logic, () => {
+            logic.actions.setTemplateFormValues(values)
+            logic.actions.submitTemplateForm()
+        }).toFinishAllListeners()
+    }
+
+    const storedTemplate = (): HogFlowTemplate => {
+        expect(Object.keys(templates)).toHaveLength(1)
+        return Object.values(templates)[0]
+    }
+
+    beforeEach(() => {
+        templates = {}
+        currentUser = MOCK_DEFAULT_USER
+        useMocks({
+            get: {
+                '/api/users/@me/': () => [200, currentUser],
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(),
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/projects/:team_id/hog_flow_templates/': () => [
+                    200,
+                    { results: Object.values(templates), count: Object.keys(templates).length },
+                ],
+                '/api/projects/:team_id/hog_flow_templates/:id/': (info) => {
+                    const template = findTemplate(info)
+                    return template ? [200, template] : [404, { detail: 'Not found.' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flow_templates/': async ({ request }) => {
+                    const id = `created-template-${Object.keys(templates).length + 1}`
+                    templates[id] = { ...((await request.json()) as HogFlowTemplate), id }
+                    return [201, templates[id]]
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/hog_flow_templates/:id/': async (info) => {
+                    const template = findTemplate(info)
+                    if (!template) {
+                        return [404, { detail: 'Not found.' }]
+                    }
+                    Object.assign(template, await info.request.json())
+                    return [200, template]
+                },
+            },
+        })
+        initKeaTests()
     })
 
     describe('modal visibility', () => {
-        it('should show modal when showSaveAsTemplateModal is called', async () => {
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
-            workflowLogicInstance.mount()
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id' })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.showSaveAsTemplateModal()
-            })
-                .toMatchValues({
-                    saveAsTemplateModalVisible: true,
-                })
-                .toDispatchActions(['showSaveAsTemplateModal'])
-        })
-
         it('should hide modal when hideSaveAsTemplateModal is called', async () => {
             const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
             workflowLogicInstance.mount()
@@ -79,161 +158,32 @@ describe('workflowTemplateLogic', () => {
         })
 
         it('should hide modal when template form is submitted successfully', async () => {
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
-            workflowLogicInstance.mount()
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id' })
+            await loadWorkflow({ id: WORKFLOW_ID })
+            const logic = workflowTemplateLogic({ id: WORKFLOW_ID })
             logic.mount()
 
-            // Set up workflow in workflowLogic
-            const mockWorkflow: HogFlow = {
-                id: 'test-workflow-id',
-                team_id: 123,
-                name: 'Test Workflow',
-                description: 'Test Description',
-                status: 'active',
-                version: 1,
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-02T00:00:00Z',
-                actions: [],
-                edges: [],
-                conversion: { filters: [] },
-                exit_condition: 'exit_only_at_end',
-            }
+            logic.actions.showSaveAsTemplateModal()
+            expect(logic.values.saveAsTemplateModalVisible).toBe(true)
 
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(mockWorkflow)
-            })
+            await submit(logic, { name: 'Template Name' })
 
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadHogFunctionTemplatesByIdSuccess({})
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.showSaveAsTemplateModal()
-            }).toMatchValues({
-                saveAsTemplateModalVisible: true,
-            })
-
-            mockApi.createHogFlowTemplate.mockResolvedValue({ id: 'created-template-id' } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.setTemplateFormValue('name', 'Template Name')
-                logic.actions.submitTemplateForm()
-            })
-                .toDispatchActions(['submitTemplateFormSuccess'])
-                .toMatchValues({
-                    saveAsTemplateModalVisible: false,
-                })
+            expect(logic.values.saveAsTemplateModalVisible).toBe(false)
         })
 
         it('should show error toast and hide modal when template load fails in edit mode', async () => {
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id', editTemplateId: 'template-id' })
-            workflowLogicInstance.mount()
-
-            const mockWorkflow: HogFlow = {
-                id: 'test-workflow-id',
-                team_id: 123,
-                name: 'Test Workflow',
-                description: 'Test Description',
-                status: 'draft',
-                version: 1,
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-02T00:00:00Z',
-                actions: [],
-                edges: [],
-                conversion: { filters: [] },
-                exit_condition: 'exit_only_at_end',
-            }
-
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(mockWorkflow)
-            })
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id', editTemplateId: 'template-id' })
+            showToasts()
+            await loadWorkflow({ id: WORKFLOW_ID, editTemplateId: 'template-id' })
+            const logic = workflowTemplateLogic({ id: WORKFLOW_ID, editTemplateId: 'template-id' })
             logic.mount()
 
-            // Mock getHogFlowTemplate to fail
-            mockApi.getHogFlowTemplate.mockRejectedValue(new Error('Template not found'))
+            logic.actions.showSaveAsTemplateModal()
 
-            await expectLogic(logic, () => {
-                logic.actions.showSaveAsTemplateModal()
-            })
-                .toDispatchActions(['showSaveAsTemplateModal', 'hideSaveAsTemplateModal'])
-                .toMatchValues({
-                    saveAsTemplateModalVisible: false,
-                })
-
-            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith('template-id')
-            expect(mockToast.error).toHaveBeenCalledWith('Template not found')
+            expect(await screen.findByText('Not found.')).toBeTruthy()
+            expect(logic.values.saveAsTemplateModalVisible).toBe(false)
         })
     })
 
     describe('template form', () => {
-        const mockHogFunctionTemplate: HogFunctionTemplateType = {
-            id: 'test-template-id',
-            name: 'Test Template',
-            type: 'destination',
-            code: '',
-            code_language: 'hog',
-            status: 'stable',
-            free: true,
-            inputs_schema: [
-                {
-                    key: 'url',
-                    type: 'string',
-                    label: 'URL',
-                    required: true,
-                    default: 'https://example.com',
-                },
-            ],
-        }
-
-        const createWorkflowWithFunctionAction = (): HogFlow => {
-            return {
-                id: 'test-workflow-id',
-                team_id: 123,
-                name: 'Test Workflow',
-                description: 'Test Description',
-                status: 'active',
-                version: 1,
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-02T00:00:00Z',
-                actions: [
-                    {
-                        id: 'trigger_node',
-                        type: 'trigger',
-                        name: 'Trigger',
-                        description: '',
-                        created_at: 0,
-                        updated_at: 0,
-                        config: {
-                            type: 'event',
-                            filters: {},
-                        },
-                    },
-                    {
-                        id: 'function-action-1',
-                        type: 'function',
-                        name: 'Function Action',
-                        description: '',
-                        created_at: 1000,
-                        updated_at: 2000,
-                        config: {
-                            template_id: 'test-template-id',
-                            template_uuid: 'test-uuid',
-                            inputs: {
-                                url: { value: 'https://custom-url.com' },
-                            },
-                        },
-                    },
-                ],
-                edges: [{ from: 'trigger_node', to: 'function-action-1', type: 'continue' }],
-                conversion: { filters: [] },
-                exit_condition: 'exit_only_at_end',
-            }
-        }
-
         it('should validate template form name is required', async () => {
             const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
             workflowLogicInstance.mount()
@@ -252,223 +202,86 @@ describe('workflowTemplateLogic', () => {
             })
         })
 
-        it('should create template with form values', async () => {
-            const workflow = createWorkflowWithFunctionAction()
-            const createdTemplate = { ...workflow, id: 'created-template-id' }
+        it.each([
+            { isStaff: true, storedScope: 'global' },
+            { isStaff: false, storedScope: 'team' },
+        ])(
+            'should create the template from the workflow and form values (staff: $isStaff)',
+            async ({ isStaff, storedScope }) => {
+                showToasts()
+                await loadUser({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+                await loadWorkflow({ id: WORKFLOW_ID })
+                const logic = workflowTemplateLogic({ id: WORKFLOW_ID })
+                logic.mount()
 
-            mockApi.createHogFlowTemplate.mockResolvedValue(createdTemplate as any)
-
-            // Load a staff user so scope: 'global' is allowed
-            userLogic.mount()
-            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
-
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
-            workflowLogicInstance.mount()
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id' })
-            logic.mount()
-
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(workflow)
-            })
-
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadHogFunctionTemplatesByIdSuccess({
-                    'test-template-id': mockHogFunctionTemplate,
+                await submit(logic, {
+                    name: 'My Template',
+                    description: 'Template Description',
+                    image_url: 'https://example.com/image.png',
+                    scope: 'global',
                 })
-            })
 
-            await expectLogic(logic, () => {
-                logic.actions.setTemplateFormValue('name', 'My Template')
-                logic.actions.setTemplateFormValue('description', 'Template Description')
-                logic.actions.setTemplateFormValue('image_url', 'https://example.com/image.png')
-                logic.actions.setTemplateFormValue('scope', 'global')
-                logic.actions.submitTemplateForm()
-            }).toDispatchActions(['submitTemplateFormRequest', 'submitTemplateFormSuccess'])
-
-            expect(mockApi.createHogFlowTemplate).toHaveBeenCalledTimes(1)
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
-
-            expect(callArg.name).toBe('My Template')
-            expect(callArg.description).toBe('Template Description')
-            expect(callArg.image_url).toBe('https://example.com/image.png')
-            expect(callArg.scope).toBe('global')
-
-            expect(mockToast.success).toHaveBeenCalledWith('Workflow template created')
-        })
+                const workflow = makeWorkflow()
+                expect(storedTemplate()).toMatchObject({
+                    name: 'My Template',
+                    description: 'Template Description',
+                    image_url: 'https://example.com/image.png',
+                    scope: storedScope,
+                    actions: workflow.actions,
+                    edges: workflow.edges,
+                })
+                expect(await screen.findByText('Workflow template created')).toBeTruthy()
+            }
+        )
 
         it('should use workflow values as fallback when form values are empty', async () => {
-            const workflow = createWorkflowWithFunctionAction()
-            mockApi.createHogFlowTemplate.mockResolvedValue({ ...workflow, id: 'created-id' } as any)
-
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
-            workflowLogicInstance.mount()
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id' })
+            await loadWorkflow({ id: WORKFLOW_ID })
+            const logic = workflowTemplateLogic({ id: WORKFLOW_ID })
             logic.mount()
 
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(workflow)
-            })
+            await submit(logic, { name: 'Template Name', description: '' })
 
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadHogFunctionTemplatesByIdSuccess({
-                    'test-template-id': mockHogFunctionTemplate,
-                })
-            })
-
-            // Submit with only name, empty description
-            await expectLogic(logic, () => {
-                logic.actions.setTemplateFormValue('name', 'Template Name')
-                logic.actions.setTemplateFormValue('description', '')
-                logic.actions.submitTemplateForm()
-            })
-
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
-            expect(callArg.name).toBe('Template Name')
-            expect(callArg.description).toBe('Test Description') // Falls back to workflow description
-        })
-
-        it('should preserve function action inputs when creating template', async () => {
-            const workflow = createWorkflowWithFunctionAction()
-            mockApi.createHogFlowTemplate.mockResolvedValue({ ...workflow, id: 'created-id' } as any)
-
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
-            workflowLogicInstance.mount()
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id' })
-            logic.mount()
-
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(workflow)
-            })
-
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadHogFunctionTemplatesByIdSuccess({
-                    'test-template-id': mockHogFunctionTemplate,
-                })
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.setTemplateFormValue('name', 'Template')
-                logic.actions.submitTemplateForm()
-            })
-
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
-            const functionAction = callArg.actions?.find(
-                (a: HogFlowAction) => a.id === 'function-action-1' && a.type === 'function'
-            )
-            if (functionAction && 'inputs' in functionAction.config) {
-                expect(functionAction.config.inputs).toEqual({
-                    url: { value: 'https://custom-url.com' },
-                })
-            }
+            expect(storedTemplate()).toMatchObject({ name: 'Template Name', description: 'Test Description' })
         })
 
         it('should default scope to team when not provided', async () => {
-            const workflow = createWorkflowWithFunctionAction()
-            mockApi.createHogFlowTemplate.mockResolvedValue({ ...workflow, id: 'created-id' } as any)
-
-            const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
-            workflowLogicInstance.mount()
-
-            const logic = workflowTemplateLogic({ id: 'test-workflow-id' })
+            await loadWorkflow({ id: WORKFLOW_ID })
+            const logic = workflowTemplateLogic({ id: WORKFLOW_ID })
             logic.mount()
 
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(workflow)
-            })
+            await submit(logic, { name: 'Template' })
 
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadHogFunctionTemplatesByIdSuccess({
-                    'test-template-id': mockHogFunctionTemplate,
-                })
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.setTemplateFormValue('name', 'Template')
-                // Don't set scope, should default to 'team'
-                logic.actions.submitTemplateForm()
-            })
-
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
-            expect(callArg.scope).toBe('team')
+            expect(storedTemplate().scope).toBe('team')
         })
     })
 
     describe('update template', () => {
-        const createWorkflow = (): HogFlow => ({
-            id: 'test-workflow-id',
-            team_id: 123,
-            name: 'Updated Workflow',
-            description: 'Updated Description',
-            status: 'draft',
-            version: 1,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-02T00:00:00Z',
-            actions: [
-                {
-                    id: 'trigger_node',
-                    type: 'trigger',
-                    name: 'Trigger',
-                    description: '',
-                    created_at: 0,
-                    updated_at: 0,
-                    config: {
-                        type: 'event',
-                        filters: {},
-                    },
-                },
-            ],
-            edges: [],
-            conversion: { filters: [] },
-            exit_condition: 'exit_only_at_end',
-        })
-
         it('should update template, reload workflow, and reload template list', async () => {
-            const workflow = createWorkflow()
-            const updatedTemplate = { ...workflow, id: 'template-id', scope: 'team' as const, tags: [] }
-            mockApi.updateHogFlowTemplate.mockResolvedValue(updatedTemplate)
-            mockApi.getHogFlowTemplate.mockResolvedValue(updatedTemplate)
-
-            // Use id: 'new' so loadWorkflow calls getHogFlowTemplate when editTemplateId is set
-            const workflowLogicInstance = workflowLogic({ id: 'new', editTemplateId: 'template-id' })
-            workflowLogicInstance.mount()
-            await expectLogic(workflowLogicInstance, () => {
-                workflowLogicInstance.actions.loadWorkflowSuccess(workflow)
-            })
-
+            templates['template-id'] = {
+                ...makeWorkflow(),
+                id: 'template-id',
+                name: 'Original template',
+                scope: 'team',
+                tags: [],
+            }
+            showToasts()
+            const props = { id: 'new', editTemplateId: 'template-id' }
+            await loadWorkflow(props)
             const templatesLogic = workflowTemplatesLogic()
             templatesLogic.mount()
-
-            const templateLogic = workflowTemplateLogic({ id: 'new', editTemplateId: 'template-id' })
+            await waitFor(() => expect(templatesLogic.values.workflowTemplates).toHaveLength(1))
+            const templateLogic = workflowTemplateLogic(props)
             templateLogic.mount()
 
-            const workflowTemplate = { ...workflow, id: 'template-id', tags: [] }
-            await expectLogic(workflowLogicInstance, () => {
-                templateLogic.actions.updateTemplate(workflowTemplate)
-            }).toDispatchActions(['loadWorkflow', 'loadWorkflowSuccess'])
+            templateLogic.actions.showSaveAsTemplateModal()
+            await waitFor(() => expect(templateLogic.values.templateForm.name).toBe('Original template'))
+            await submit(templateLogic, { name: 'Renamed template' })
 
-            // Verify API call with correct data
-            expect(mockApi.updateHogFlowTemplate).toHaveBeenCalledWith(
-                'template-id',
-                expect.objectContaining({
-                    name: 'Updated Workflow',
-                    description: 'Updated Description',
-                    actions: expect.any(Array),
-                    edges: expect.any(Array),
-                    conversion: expect.any(Object),
-                    exit_condition: 'exit_only_at_end',
-                })
+            expect(await screen.findByText('Template updated')).toBeTruthy()
+            await waitFor(() => expect(workflowLogic(props).values.workflow.name).toBe('Renamed template'))
+            await waitFor(() =>
+                expect(templatesLogic.values.workflowTemplates.map(({ name }) => name)).toEqual(['Renamed template'])
             )
-
-            // Verify workflow reload
-            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith('template-id')
-
-            // Verify template list reload
-            await expectLogic(templatesLogic).toDispatchActions(['loadWorkflowTemplates'])
-
-            expect(mockToast.success).toHaveBeenCalledWith('Template updated')
         })
     })
 })

@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import { PendingApprovalSchema, type ApprovalFlow, type ApprovalWait, type PollOutcome } from '@/core/approval'
+import {
+    PendingApprovalSchema,
+    waitIdentity,
+    type ApprovalFlow,
+    type ApprovalWait,
+    type PollOutcome,
+} from '@/core/approval'
 import { HogError } from '@/core/errors'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 import { HostSchema, type Host } from '@/posthog/host'
@@ -163,7 +169,7 @@ export function policyRequestWait(
     target: { host: Host; projectId: ProjectId }
 ): ApprovalWait<PendingPolicyRequest, ApprovedPolicy> {
     return {
-        command: CI_SETUP_COMMAND,
+        ...waitIdentity(CI_SETUP_COMMAND),
         noun: 'policy request',
         pending: PendingPolicyRequestSchema,
         maxWaitMs: MAX_WAIT_MS,
