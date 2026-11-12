@@ -334,20 +334,6 @@ tools:
             the report's canonical status; to re-assess while keeping history, append a new artefact instead. Do not use
             this tool to change suggested reviewers. Use `inbox-report-reviewers-update` so reviewer corrections and
             stale-write protection are preserved.
-    inbox-report-checks-create:
-        operation: signals_scout_report_check_create
-        enabled: true
-        scopes:
-            - signal_scout_report:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Write a follow-up check (removed)
-        description: >
-            Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own;
-            there is no create surface for a person or a task token. Read a report's checks with
-            inbox-report-checks-list.
     inbox-report-checks-list:
         operation: signals_report_checks_list
         enabled: true
