@@ -1,4 +1,7 @@
 .InsightCard {
+    // Inset between the tile edge and the chart area.
+    --insight-viz-content-padding: 0.75rem;
+
     position: relative;
     z-index: 3;
     display: flex;
