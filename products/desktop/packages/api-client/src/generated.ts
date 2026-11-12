@@ -18629,6 +18629,10 @@ export namespace Schemas {
         github_issue_number: number | null;
         zendesk_ticket_id: number | null;
         /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         */
+        intercom_conversation_id: string | null;
+        /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          */
         organization_id: string | null;

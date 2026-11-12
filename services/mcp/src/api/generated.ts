@@ -62996,6 +62996,84 @@ export namespace Schemas {
       Recording: 'recording',
     } as const;
 
+    export interface IntercomImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    export type IntercomImportJobRegionEnum = typeof IntercomImportJobRegionEnum[keyof typeof IntercomImportJobRegionEnum];
+
+
+    export const IntercomImportJobRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+      Au: 'au',
+    } as const;
+
+    export interface IntercomImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /** Intercom region used for this import job. */
+      readonly region: IntercomImportJobRegionEnum | null;
+      /** Whether a stored Intercom access token exists for this job (the token is never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of conversations discovered for import. */
+      readonly total_conversations: number;
+      /** Number of conversations processed so far. */
+      readonly processed_conversations: number;
+      /** Number of conversations imported as tickets. */
+      readonly imported_conversations: number;
+      /** Number of conversations skipped because they were already imported. */
+      readonly skipped_conversations: number;
+      /** Number of conversations that failed to import. */
+      readonly failed_conversations: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface IntercomImportStart {
+      /** Region where the Intercom workspace is hosted: us, eu, or au.
+       *
+       * * `us` - United States
+       * * `eu` - Europe
+       * * `au` - Australia */
+      region?: IntercomImportJobRegionEnum;
+      /**
+         * Intercom access token with permission to read conversations and contacts.
+         * @maxLength 500
+         */
+      access_token: string;
+      /**
+         * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
+    }
+
     export interface IntercomTicketSignalExtra {
       state: string | null;
       priority: string | null;
@@ -80866,6 +80944,11 @@ export namespace Schemas {
       readonly github_issue_number: number | null;
       /** @nullable */
       readonly zendesk_ticket_id: number | null;
+      /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         * @nullable
+         */
+      readonly intercom_conversation_id: string | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
