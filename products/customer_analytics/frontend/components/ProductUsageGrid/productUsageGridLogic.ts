@@ -268,7 +268,10 @@ export interface productUsageGridLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         detailsRetryLoading: (
             detailsLoading: boolean,
-            peopleError: any,
+            peopleError: {
+                key: string
+                message: string
+            } | null,
             peopleLoading: Record<string, boolean>
         ) => boolean
         storageKey: (currentTeamId: number | null, user: UserType | null) => string
@@ -497,8 +500,14 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
     selectors({
         detailsRetryLoading: [
             (s) => [s.detailsLoading, s.peopleError, s.peopleLoading],
-            (detailsLoading: boolean, peopleError, peopleLoading: Record<string, boolean>): boolean =>
-                detailsLoading || !!(peopleError && peopleLoading[peopleError.key]),
+            (
+                detailsLoading: boolean,
+                peopleError: {
+                    key: string
+                    message: string
+                } | null,
+                peopleLoading: Record<string, boolean>
+            ): boolean => detailsLoading || !!(peopleError && peopleLoading[peopleError.key]),
         ],
         storageKey: [
             (s) => [s.currentTeamId, s.user],
