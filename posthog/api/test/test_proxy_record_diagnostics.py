@@ -492,8 +492,11 @@ class TestCheckCaptureV1(SimpleTestCase):
         result = diagnostics._check_capture_v1(_record())
 
         self.assertEqual(result.status, "warned")
-        self.assertIn("`/i/v1/ai/events`", result.detail)
-        self.assertNotIn("analytics", result.detail)
+        self.assertEqual(
+            result.detail,
+            "`e.example.com` doesn't forward `/i/v1/ai/events`, so AI events sent there by SDKs that use "
+            "capture v1 are lost. Contact support.",
+        )
 
 
 CF_TARGET = "abc.cf-prod-eu-proxy.europehog.com."

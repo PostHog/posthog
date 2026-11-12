@@ -146,9 +146,12 @@ CERT_EXPIRY_WARN_DAYS = 14
 # only when that header reaches it. Our proxy guides forward only `phc_`, `phs_` and `phx_` tokens.
 CAPTURE_V1_PROBE_HEADERS: Final[dict[str, str]] = {"Authorization": "Bearer phc_probe"}
 CAPTURE_V1_MISSING_REQUIRED_HEADERS = "missing_required_headers"
-# Capture v1 routes that posthog-ios 4, posthog-android 4, posthog_flutter 6 and posthog-python 8
-# send to. `captureAi` has its own route, so a proxy can forward one and not the other.
-CAPTURE_V1_PATHS: Final[tuple[str, ...]] = ("/i/v1/analytics/events", "/i/v1/ai/events")
+# Capture v1 routes, each with the events SDKs send there. `captureAi` has its own route, so a
+# proxy can forward one and not the other.
+CAPTURE_V1_ROUTES: Final[tuple[tuple[str, str], ...]] = (
+    ("/i/v1/analytics/events", "events"),
+    ("/i/v1/ai/events", "AI events"),
+)
 
 
 @dataclass
@@ -765,19 +768,19 @@ def _check_capture_v1(record: ProxyRecord) -> CheckResult:
     but mobile and server SDKs that send to capture v1 lose their events. Managed proxies forward
     these routes, so a miss is ours to fix, not the customer's.
     """
-    with ThreadPoolExecutor(max_workers=len(CAPTURE_V1_PATHS)) as pool:
-        reaches_capture = list(pool.map(lambda path: _reaches_capture_v1(record.domain, path), CAPTURE_V1_PATHS))
-    missing = [path for path, ok in zip(CAPTURE_V1_PATHS, reaches_capture) if not ok]
+    with ThreadPoolExecutor(max_workers=len(CAPTURE_V1_ROUTES)) as pool:
+        reaches_capture = list(pool.map(lambda route: _reaches_capture_v1(record.domain, route[0]), CAPTURE_V1_ROUTES))
+    missing = [route for route, ok in zip(CAPTURE_V1_ROUTES, reaches_capture) if not ok]
     if missing:
+        lost = " ".join(
+            f"`{record.domain}` doesn't forward `{path}`, so {events} sent there by SDKs that use capture v1 are lost."
+            for path, events in missing
+        )
         return CheckResult(
             id="capture_v1",
             name="Capture v1 routes",
             status="warned",
-            detail=(
-                f"`{record.domain}` doesn't forward {', '.join(f'`{p}`' for p in missing)}. "
-                "Events from posthog-ios 4, posthog-android 4, posthog_flutter 6 and posthog-python 8 "
-                "sent through this proxy are lost. Contact support."
-            ),
+            detail=f"{lost} Contact support.",
         )
     return CheckResult(
         id="capture_v1",
