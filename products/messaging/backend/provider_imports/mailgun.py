@@ -468,6 +468,12 @@ def _clean(value: Any) -> str:
     return str(value or "").replace("\x00", "")
 
 
+def _as_sentence(value: Any) -> str:
+    # Notes follow in the same paragraph, so a description without end punctuation would run into them.
+    text = _clean(value).strip()
+    return text if not text or text[-1] in ".!?" else f"{text}."
+
+
 def _fetch_suppression_list(
     clients: Mapping[MailgunRegion, MailgunClient],
     context: ImportContext,
@@ -858,7 +864,13 @@ def _save_templates(
             if key in taken:
                 counts["already_present"] += 1
                 items.append(
-                    ImportItem(label=label, status="skipped", notes=(f"A template with the key {key} exists.",))
+                    ImportItem(
+                        label=label,
+                        status="skipped",
+                        notes=(
+                            f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                        ),
+                    )
                 )
                 continue
             taken.add(key)
@@ -881,7 +893,11 @@ def _save_templates(
                 {
                     "name": label,
                     "key": key,
-                    "description": " ".join(("Imported from Mailgun.", _clean(template.get("description")), *notes)),
+                    "description": " ".join(
+                        part
+                        for part in ("Imported from Mailgun.", _as_sentence(template.get("description")), *notes)
+                        if part
+                    ),
                     "type": "email",
                     "content": {"templating": "liquid", "email": email},
                     "tags": [IMPORT_TAG],
