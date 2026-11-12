@@ -12,10 +12,11 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 import requests
+from urllib3.exceptions import ProtocolError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import DeliveryAmbiguous, DeliveryError, DestinationRefused
 
 # Request Timeout and Too Many Requests: the destination accepts this request at another time.
 _RETRYABLE_CLIENT_ERRORS: Final = frozenset({408, 429})
@@ -27,8 +28,9 @@ _MAX_REFUSAL_BODY_BYTES: Final = 4096
 _REFUSAL_BODY_TIMEOUT_SECONDS: Final = 1.0
 
 # Both fit inside the deliver activity's 10-second start_to_close, so a stalled destination fails
-# this attempt instead of outliving it. A send still in flight when Temporal starts the next
-# attempt posts a second copy, because no webhook provider takes an idempotency key.
+# this attempt instead of outliving it. A read timeout raises `DeliveryAmbiguous`, which dispatch
+# records as delivered, because no webhook provider takes an idempotency key and a retry would
+# post a second copy.
 CONNECT_TIMEOUT_SECONDS: Final = 3.0
 READ_TIMEOUT_SECONDS: Final = 5.0
 
@@ -98,12 +100,34 @@ def post_json(
     except requests.RequestException as error:
         # Only the class name, and `from None` to keep the original out of the failure chain:
         # the text of a `requests` error carries the whole URL.
+        if _maybe_received(error):
+            raise DeliveryAmbiguous(
+                f"The {display_name} destination's answer was lost, so the message may have arrived: "
+                f"{type(error).__name__}"
+            ) from None
         raise DeliveryError(f"The {display_name} destination could not be reached: {type(error).__name__}") from None
     if not 200 <= status < 300:
         refusal = f"The {display_name} destination refused the message with status {status}."
         if refused:
             raise DestinationRefused(refusal)
         raise DeliveryError(refusal)
+
+
+def _maybe_received(error: requests.RequestException) -> bool:
+    """Whether the request may have reached the destination whole before the failure.
+
+    A read timeout or a broken response came after the request was sent. urllib3 raises a
+    `ProtocolError` when the connection drops mid-exchange, which `requests` wraps in a
+    `ConnectionError`. A connect timeout or a DNS failure reaches `requests` as a `MaxRetryError`
+    instead, and sent nothing.
+    """
+    if isinstance(error, requests.ReadTimeout | requests.exceptions.ChunkedEncodingError):
+        return True
+    return (
+        isinstance(error, requests.ConnectionError)
+        and not isinstance(error, requests.ConnectTimeout)
+        and (isinstance(error.__context__, ProtocolError) or any(isinstance(arg, ProtocolError) for arg in error.args))
+    )
 
 
 def _is_owner_refusal(

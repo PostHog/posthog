@@ -33,6 +33,7 @@ from requests_oauthlib import OAuth1
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 from structlog.testing import capture_logs
 
 from posthog.api.github_callback.personal_state import usable_personal_github_token
@@ -54,6 +55,7 @@ from posthog.credentials_service.errors import (
 )
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackObservabilityHandler
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 from posthog.integrations.testing import fake_integrations_backend
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -135,6 +137,24 @@ class TestSlackIntegration:
             config={"authed_user": {"id": "test_user_id"}},
             sensitive_config={"access_token": "test-token-123"},
         )
+
+    def test_slack_client_unchanged_without_timeout(self):
+        client = SlackIntegration(self.integration).client
+
+        # Only a caller that passes `timeout_seconds` changes the client; every other caller of
+        # `post_message` keeps slack_sdk's defaults.
+        assert client.timeout == 30
+        assert [type(handler) for handler in client.retry_handlers] == [
+            SlackObservabilityHandler,
+            ConnectionErrorRetryHandler,
+        ]
+
+    def test_slack_client_with_timeout_drops_the_connection_retry(self):
+        client = SlackIntegration(self.integration, timeout_seconds=4).client
+
+        assert client.timeout == 4
+        assert [type(handler) for handler in client.retry_handlers] == [SlackObservabilityHandler]
+        assert not any(isinstance(handler, ConnectionErrorRetryHandler) for handler in client.retry_handlers)
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_with_access(self, mock_webclient_class):

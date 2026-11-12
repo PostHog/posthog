@@ -5,7 +5,9 @@ stays here is the part that is about alerts: which destination a message goes to
 message becomes blocks.
 """
 
+from http.client import HTTPException
 from typing import Any, Final
+from urllib.error import URLError
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -28,7 +30,12 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationMisconfigured,
+    MessageHandle,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
@@ -47,6 +54,11 @@ MAX_CONTEXT_CHARS: Final = 3000
 
 # Separates alert traffic from the API-driven calls on the shared Slack egress metrics.
 EGRESS_SOURCE: Final = "alerts"
+
+# A slow send followed by a slow root edit still ends before the deliver activity's 10-second
+# start_to_close, so Slack's answer is read and handled rather than lost with the attempt.
+SLACK_SEND_TIMEOUT_SECONDS: Final = 6
+SLACK_EDIT_TIMEOUT_SECONDS: Final = 3
 
 # What Slack answers when it cannot fetch an image block, such as an expired chart URL. It refuses
 # the whole message, so the message goes again without its image rather than not at all.
@@ -180,6 +192,16 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
 _MISCONFIGURED_ERRORS: Final = frozenset({"account_inactive", "not_in_channel"})
 
 
+def _maybe_posted(error: OSError | HTTPException) -> bool:
+    """Whether Slack may have taken the post before the failure.
+
+    urllib raises `URLError` only while it is still writing the request, which covers a connect
+    timeout, so Slack never had the whole post. Any other socket or HTTP error, a read timeout
+    included, comes while waiting for or reading the answer, after the post was sent.
+    """
+    return not isinstance(error, URLError)
+
+
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
     return error.response.get("error") == IMAGE_REFUSAL and _without_image_content(content) != content
 
@@ -242,7 +264,11 @@ class SlackTransport:
         if workspace_id is None or channel is None:
             raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
-        slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        slack = SlackIntegration(
+            self._integration(team_id=team_id, workspace_id=workspace_id),
+            source=EGRESS_SOURCE,
+            timeout_seconds=SLACK_SEND_TIMEOUT_SECONDS,
+        )
         content = content_for(team_id=team_id, message=message)
 
         def post(content: SlackMessageContent) -> Any:
@@ -272,6 +298,12 @@ class SlackTransport:
             code = error.response.get("error")
             refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
             raise refusal(f"Slack refused the message: {code}") from error
+        except (OSError, HTTPException) as error:
+            if not _maybe_posted(error):
+                raise
+            raise DeliveryAmbiguous(
+                f"Slack's answer was lost, so the message may have posted: {type(error).__name__}"
+            ) from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
@@ -337,7 +369,13 @@ class SlackTransport:
         ts = root.external_ref.get("ts")
         if workspace_id is None or not channel or not ts or not root.root_content:
             raise DeliveryError("This Slack conversation has no opening message to edit.")
-        slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
+        # An edit timeout is not ambiguous: `chat.update` sets the same content again on a retry,
+        # and dispatch counts a failed state edit without failing the send.
+        slack = SlackIntegration(
+            self._integration(team_id=team_id, workspace_id=workspace_id),
+            source=EGRESS_SOURCE,
+            timeout_seconds=SLACK_EDIT_TIMEOUT_SECONDS,
+        )
         original = root.root_content
         attachments = original.get("attachments") or []
         text = f"{original['text']} ({state_line})" if state_line and original["text"] else original["text"]

@@ -32,6 +32,15 @@ class DeliveryError(Exception):
     """A send the provider refused. The caller decides whether to retry."""
 
 
+class DeliveryAmbiguous(DeliveryError):
+    """The whole request was sent and no answer came back, so the provider may have posted it.
+
+    A refused connection or a DNS failure sent nothing, so it stays a plain `DeliveryError` and a
+    retry is safe. A provider without an idempotency key posts a second copy on a retry, so
+    dispatch records this send as delivered rather than repeating it.
+    """
+
+
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 

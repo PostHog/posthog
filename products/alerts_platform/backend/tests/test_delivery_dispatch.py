@@ -16,6 +16,7 @@ from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import NullThreadStore, ThreadClaim, ThreadKey
 from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
     DeliveryError,
     DestinationMisconfigured,
     DestinationRefused,
@@ -68,9 +69,16 @@ def _announcement(
 class FakeTransport:
     provider = "fake"
 
-    def __init__(self, handle: MessageHandle | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        handle: MessageHandle | None = None,
+        error: Exception | None = None,
+        errors: list[Exception | None] | None = None,
+    ) -> None:
         self.handle = handle or MessageHandle(external_ref={"ts": "1"})
         self.error = error
+        # One outcome per send in order, for a test where only some sends fail.
+        self.errors = errors
         self.sends: list[tuple[AlertMessage, MessageHandle | None]] = []
 
     def channel_target(self, target: AlertDestinationData) -> str:
@@ -80,8 +88,9 @@ class FakeTransport:
         self, *, team_id: int, target: AlertDestinationData, message: AlertMessage, in_reply_to: Any = None
     ) -> MessageHandle | None:
         self.sends.append((message, in_reply_to))
-        if self.error:
-            raise self.error
+        error = self.errors[len(self.sends) - 1] if self.errors is not None else self.error
+        if error:
+            raise error
         return self.handle
 
 
@@ -118,6 +127,7 @@ class RecordingThreadStore(NullThreadStore):
     def __init__(self) -> None:
         self.threads: dict[ThreadKey, MessageHandle] = {}
         self.delivered_keys: dict[ThreadKey, list[str]] = {}
+        self.released: list[str] = []
         self._claimed: dict[str, ThreadKey] = {}
 
     def claim(self, key: ThreadKey, evaluation_key: str) -> ThreadClaim | None:
@@ -137,6 +147,9 @@ class RecordingThreadStore(NullThreadStore):
         self.delivered_keys.setdefault(key, []).append(claim.evaluation_key)
         if handle is not None and key not in self.threads:
             self.threads[key] = handle
+
+    def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:
+        self.released.append(claim.evaluation_key)
 
     @property
     def remembered(self) -> list[MessageHandle]:
@@ -365,6 +378,55 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
             "misconfigured"
         ]
+
+    def test_read_timeout_marks_delivered_ambiguous(self) -> None:
+        store = RecordingThreadStore()
+        retry = FakeTransport()
+
+        with recorded_metrics() as metrics:
+            self._deliver(FakeTransport(error=DeliveryAmbiguous("Read timed out")), store, evaluation_key="eval-1")
+            self._deliver(retry, store, evaluation_key="eval-1")
+
+        assert list(store.delivered_keys.values()) == [["eval-1"]]
+        assert store.released == []
+        assert retry.sends == []
+        outcomes = [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"]
+        assert outcomes == ["ambiguous", "already_delivered"]
+        assert "failed" not in outcomes
+        # No confirmed message, so nothing for a later reply to thread under.
+        assert store.remembered == []
+
+    def test_ambiguous_first_transition_still_sends_the_rest(self) -> None:
+        store = RecordingThreadStore()
+        transport = FakeTransport(errors=[DeliveryAmbiguous("Read timed out"), None, None])
+        announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
+            configuration_id="cfg-1",
+            alert_name="API errors",
+            consecutive_failures=0,
+            transitions=tuple(_transition(grouping_key=group) for group in ("checkout", "search", "billing")),
+        )
+
+        with recorded_metrics() as metrics:
+            self._deliver(transport, store, announcement)
+
+        assert len(transport.sends) == 3
+        assert list(store.delivered_keys.values()) == [["eval-1"], ["eval-1"], ["eval-1"]]
+        outcomes = [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"]
+        assert sorted(outcomes) == ["ambiguous", "sent", "sent"]
+
+    def test_pagerduty_read_timeout_still_releases(self) -> None:
+        store = RecordingThreadStore()
+        transport = FakeTransport(error=DeliveryAmbiguous("Read timed out"))
+        transport.provider = "pagerduty"
+
+        with recorded_metrics() as metrics, pytest.raises(DeliveryAmbiguous):
+            self._deliver(transport, store)
+
+        # The dedup_key makes PagerDuty's retry idempotent, so the claim is freed for it.
+        assert store.released == ["eval-1"]
+        assert store.delivered_keys == {}
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == ["failed"]
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()

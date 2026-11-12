@@ -1,5 +1,6 @@
 from dataclasses import replace
 from typing import Any, cast
+from urllib.error import URLError
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -9,13 +10,25 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
-from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for, content_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.slack import (
+    SLACK_EDIT_TIMEOUT_SECONDS,
+    SLACK_SEND_TIMEOUT_SECONDS,
+    SlackTransport,
+    blocks_for,
+    content_for,
+)
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationMisconfigured,
+    MessageHandle,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
@@ -25,6 +38,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SlackMessageContent,
 )
+from products.alerts_platform.backend.temporal.workflows import DELIVERY_START_TO_CLOSE
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
 
 MESSAGE = alert_message(
@@ -229,6 +243,60 @@ class TestSlackTransport(APIBaseTest):
         # An edit restates what was posted, so it never names the image again.
         assert handle is not None and handle.root_content is not None
         assert handle.root_content["blocks"] == post.call_args.kwargs["blocks"]
+
+    def test_delivery_client_timeout_below_activity(self) -> None:
+        self.integration.sensitive_config = {"access_token": "xoxb-not-a-real-token"}
+        self.integration.save()
+        captured: dict[str, Any] = {}
+
+        def capture_post(slack: Any, *_args: Any, **_kwargs: Any) -> dict[str, str]:
+            captured["send"] = slack
+            return {"ts": "1700000000.1"}
+
+        def capture_update(slack: Any, *_args: Any, **_kwargs: Any) -> None:
+            captured["edit"] = slack
+
+        with (
+            patch("products.alerts_platform.backend.delivery.slack.post_message", side_effect=capture_post),
+            patch("products.alerts_platform.backend.delivery.slack.update_message", side_effect=capture_update),
+        ):
+            root = SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+            assert root is not None
+            SlackTransport().edit_root(team_id=self.team.id, target=self.target, root=root, state_line="Resolved")
+
+        send, edit = captured["send"].client, captured["edit"].client
+        assert send.timeout == SLACK_SEND_TIMEOUT_SECONDS
+        assert edit.timeout == SLACK_EDIT_TIMEOUT_SECONDS
+        for client in (send, edit):
+            # It resends after a connection error, which can post the message twice.
+            assert not any(isinstance(handler, ConnectionErrorRetryHandler) for handler in client.retry_handlers)
+            # The egress observability handler stays.
+            assert client.retry_handlers
+        assert SLACK_SEND_TIMEOUT_SECONDS + SLACK_EDIT_TIMEOUT_SECONDS < DELIVERY_START_TO_CLOSE.total_seconds()
+
+    @parameterized.expand(
+        [
+            ("read_timeout", TimeoutError("timed out"), True),
+            ("dropped_after_send", ConnectionResetError("Connection reset by peer"), True),
+            ("connect_timeout", URLError(TimeoutError("timed out")), False),
+        ]
+    )
+    def test_post_timeout_is_ambiguous(self, _name: str, error: Exception, ambiguous: bool) -> None:
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client.chat_postMessage.side_effect = error
+            with pytest.raises(Exception) as raised:
+                SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert isinstance(raised.value, DeliveryAmbiguous) is ambiguous
+
+    def test_a_slack_refusal_is_not_ambiguous(self) -> None:
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            error = SlackApiError("internal_error", {"error": "internal_error"})
+            slack_integration.return_value.client.chat_postMessage.side_effect = error
+            with pytest.raises(DeliveryError) as raised:
+                SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert not isinstance(raised.value, DeliveryAmbiguous)
 
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
         target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": self.integration.id})
