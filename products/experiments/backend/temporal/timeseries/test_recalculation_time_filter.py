@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 from posthog.models import Organization, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.temporal.experiments.activities import (
-    _get_experiment_regular_metrics_for_hour_sync,
-    _get_experiment_saved_metrics_for_hour_sync,
-)
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.temporal.timeseries.activities import (
+    _get_experiment_regular_metrics_for_hour_sync,
+    _get_experiment_saved_metrics_for_hour_sync,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -35,12 +35,12 @@ _raw_saved_sync = _get_experiment_saved_metrics_for_hour_sync.func  # type: igno
 
 
 def _get_metrics_sync(hour):
-    with patch("posthog.temporal.experiments.activities.close_old_connections"):
+    with patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"):
         return _raw_sync(hour)
 
 
 def _get_saved_metrics_sync(hour):
-    with patch("posthog.temporal.experiments.activities.close_old_connections"):
+    with patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"):
         return _raw_saved_sync(hour)
 
 

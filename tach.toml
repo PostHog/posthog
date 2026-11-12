@@ -553,6 +553,7 @@ depends_on = [
     "products.approvals",
     "products.ai_observability",
     "products.analytics_platform",
+    "products.cdp",
     "products.data_tools",
     "products.event_definitions",
     "products.feature_flags",
@@ -1417,7 +1418,6 @@ expose = [
     "backend\\.llm_metric_templates.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
-    "stats\\..*",
 ]
 from = [
     "products.experiments",
