@@ -39521,6 +39521,30 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `canceled` - Canceled
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailSendStatusEnum = typeof EmailSendStatusEnum[keyof typeof EmailSendStatusEnum];
+
+
+    export const EmailSendStatusEnum = {
+      Scheduled: 'scheduled',
+      Queued: 'queued',
+      Canceled: 'canceled',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -39582,15 +39606,17 @@ export namespace Schemas {
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
-      /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+      /** What happened to the email. `scheduled` means it waits for the time it was scheduled for, and `canceled` means it was canceled before it went out. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
        *
+       * * `scheduled` - Scheduled
        * * `queued` - Queued
+       * * `canceled` - Canceled
        * * `failed` - Failed
        * * `sent` - Sent
        * * `delivered` - Delivered
        * * `bounced` - Bounced
        * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
+      status: EmailSendStatusEnum;
       /** When the send was queued. */
       created_at: string;
       /** When the email reached its current status. */

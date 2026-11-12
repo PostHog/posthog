@@ -288,10 +288,22 @@ class EmailDeliveryStatus(LabeledStrEnum):
     COMPLAINED = "complained", "Complained"
 
 
+# What the status read answers: the delivery statuses, plus the two a send has before it goes out.
+class EmailSendStatus(LabeledStrEnum):
+    SCHEDULED = "scheduled", "Scheduled"
+    QUEUED = "queued", "Queued"
+    CANCELED = "canceled", "Canceled"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+
+
 @frozen
 class EmailStatus:
     message_id: str
-    status: EmailDeliveryStatus
+    status: EmailSendStatus
     created_at: datetime
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.

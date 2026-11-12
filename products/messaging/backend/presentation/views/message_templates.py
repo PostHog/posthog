@@ -491,6 +491,17 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
     )
 
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        # A send by template ignores fields it doesn't know. An email it was asked to hold must not go out at once.
+        if isinstance(self.initial_data, Mapping) and "scheduled_at" in self.initial_data:
+            raise serializers.ValidationError(
+                {
+                    "scheduled_at": "PostHog doesn't schedule emails here, so it didn't send the email. Leave out "
+                    "`scheduled_at` to send it now."
+                }
+            )
+        return data
+
 
 class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     identifiers = TransactionalEmailIdentifiersSerializer(
@@ -622,6 +633,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return value
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        data = super().validate(data)
         sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})

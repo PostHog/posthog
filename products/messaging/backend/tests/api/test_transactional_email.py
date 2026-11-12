@@ -866,8 +866,8 @@ class TestTransactionalEmail(APIBaseTest):
                 {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
                 None,
             ),
-            ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
-            ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
+            ("field_this_server_lacks", {"tags": ["welcome"]}, "tags"),
+            ("empty_key_beside_a_field_this_server_lacks", {"": "", "tags": ["welcome"]}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
             ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
         ]
@@ -922,6 +922,31 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("template_route", "template"),
+            ("template_id", "send_email"),
+            ("nested_template_id", "send_email_nested"),
+            ("template_key", "code"),
+        ]
+    )
+    def test_every_send_surface_refuses_scheduled_at(self, mock_post, _flag, _capture, _name, route):
+        psak = self._psak_client(["hog_flow:write"])
+        scheduled_at = {"scheduled_at": "2026-11-20T09:00:00Z"}
+
+        if route == "code":
+            response = psak.post(self.send_email_url, self._code_send(**scheduled_at), format="json")
+        else:
+            response = self._send(psak, route, {**self.body, **scheduled_at})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert {key: response.json()[key] for key in ("type", "code", "attr")} == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "attr": "scheduled_at",
+        }
         mock_post.assert_not_called()
 
     @parameterized.expand(
