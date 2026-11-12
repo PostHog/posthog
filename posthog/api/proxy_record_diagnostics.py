@@ -802,7 +802,8 @@ def _reaches_capture_v1(domain: str, path: str) -> bool:
             "POST", _probe_url(domain, path), headers=CAPTURE_V1_PROBE_HEADERS, json={}, timeout=CHECK_TIMEOUT_S
         )
         body = response.json()
-    except (SSRFBlockedError, requests.exceptions.RequestException, ValueError):
+    # The domain owner controls this body, and a deeply nested one raises RecursionError.
+    except (SSRFBlockedError, requests.exceptions.RequestException, ValueError, RecursionError):
         return False
     return isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS
 

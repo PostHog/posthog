@@ -516,7 +516,8 @@ def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str
         return f"Proxy does not forward {path} ({e.__class__.__name__}); {consequence}"
     try:
         body = response.json()
-    except ValueError:
+    # The domain owner controls this body, and a deeply nested one raises RecursionError.
+    except (ValueError, RecursionError):
         body = None
     if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS:
         return None

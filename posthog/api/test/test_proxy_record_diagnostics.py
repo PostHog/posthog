@@ -472,6 +472,7 @@ class TestCheckCaptureV1(SimpleTestCase):
             ("blocked_in_front", _capture_response(403, ValueError("not json"))),
             ("not_found", _capture_response(404, ValueError("not json"))),
             ("other_error_code", _capture_response(401, {"error": "invalid_token"})),
+            ("deeply_nested_body", _capture_response(200, RecursionError("too deep"))),
             ("authorization_dropped", _capture_response(401, {"error": "missing_authorization"})),
             ("connection_error", requests.exceptions.ConnectionError("refused")),
             ("ssrf_blocked", SSRFBlockedError("private")),

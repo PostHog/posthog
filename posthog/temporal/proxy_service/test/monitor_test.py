@@ -155,6 +155,11 @@ class TestCheckProxyIsLive(TestCase):
             ("upstream_error", _non_capture_response(502), "got 502"),
             ("redirect", _non_capture_response(301), "got 301"),
             ("blocked_in_front_of_capture", _non_capture_response(403), "got 403"),
+            (
+                "deeply_nested_body",
+                Mock(status_code=200, json=Mock(side_effect=RecursionError("too deep"))),
+                "got 200",
+            ),
             ("other_json_error", Mock(status_code=401, json=Mock(return_value={"error": "unauthorized"})), "got 401"),
             (
                 "authorization_dropped",
