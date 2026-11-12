@@ -3548,6 +3548,10 @@ snapshots:
         hash: v1.k794b7964.b712ce4f5a795dc90539e20bda6585b3a03acc0f388fd41f01ec777f24b036f2.RAG-7w7-wSDiPsQfeabuy85CTTXdMnQ6XsQghlJI9O4
     experiments-healthcheckspanel--draft--light:
         hash: v1.k794b7964.5ba11cf7eabb60968f0fa39c834349108e62c9d55250b671f7abac81439846ca.tZew5BK9FcKS_yYNKgP8ZjwwIRmHmM5YdzdVJ5OQCbs
+    experiments-healthcheckspanel--flag-change-details--dark:
+        hash: v1.k794b7964.44217766ea8de1f22bd29e3c1ae21f1707a480e0d284505341ceafb047390dac.PfUn4s5dxluOrJqJ-bzmKZM1SFe7K5PqoP6vxj8LKBQ
+    experiments-healthcheckspanel--flag-change-details--light:
+        hash: v1.k794b7964.7b9f6ba63a8f395816c836598d35dcda215f286ba1de78946109498c7534654a.LM4ZkWMwOhkn8E2s8oeDD4B3Z-kgzO6fhCAo1U84L6A
     experiments-healthcheckspanel--issue-details--dark:
         hash: v1.k794b7964.4ff8b29e69fb858e0096e4d007a21110765c1482043b4b917ba0e6f2306488c0.sbNfBfaBQNNXVwqW6TdRp2bjxf_8EAvRs2ocKtRzaBo
     experiments-healthcheckspanel--issue-details--light:
