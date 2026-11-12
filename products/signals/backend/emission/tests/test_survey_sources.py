@@ -137,7 +137,7 @@ CASES = [
             {"pageId": "p5", "type": "text", "value": "jane@example.com"},
         ],
         TEXT,
-        "resp1",
+        "S1:resp1",
         id="featurebase_surveys",
     ),
 ]

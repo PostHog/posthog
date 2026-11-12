@@ -19,6 +19,15 @@ from products.signals.backend.emission.registry import SignalSourceTableConfig
 FEATUREBASE_SURVEY_FIELDS = ("id", "survey_id", "responses", "created_at")
 
 
+def _source_id(record: dict[str, Any]) -> str | None:
+    # The warehouse keys rows on (surveyId, id), so a response id alone can repeat across surveys.
+    response_id = record["id"]
+    if not response_id:
+        return None
+    survey_id = record.get("survey_id")
+    return f"{survey_id}:{response_id}" if survey_id else str(response_id)
+
+
 def _extract_answers(record: dict[str, Any]) -> Iterable[SurveyAnswer]:
     answers = parse_json(record.get("responses"))
     if not isinstance(answers, list):
@@ -34,7 +43,7 @@ FEATUREBASE_SURVEY_CONFIG = SignalSourceTableConfig(
     emitter=make_survey_emitter(
         source_product="featurebase_surveys",
         source_type="feedback",
-        build_source_id=lambda record: record["id"],
+        build_source_id=_source_id,
         extract_answers=_extract_answers,
         extra_fields=("survey_id", "created_at"),
     ),
