@@ -45,6 +45,7 @@ jobs:
             # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
             idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
+            devex-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex-rules || 'false' }}
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
@@ -162,6 +163,11 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       idor-rule:
                         - '.semgrep/rules/security/idor-team-scoped-models.yaml'
+                      # An edited devex rule can match code the pull request does not
+                      # touch, so a pull request that edits one scans the whole tree.
+                      devex-rules:
+                        - '.semgrep/rules/devex/**'
+                        - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
         needs: changes
@@ -537,20 +543,22 @@ jobs:
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
+            #
+            # Uses the shared action like every other semgrep job, so a pull
+            # request scans only the files it changes and a push scans the whole
+            # tree. Master passes the whole-tree scan, so a finding in a changed
+            # file is one the pull request introduces. A pull request that edits a
+            # devex rule keeps the whole-tree scan (devex-rules above), because an
+            # edited rule can match code the pull request does not touch.
+            # `--include` per top-level directory keeps the target set identical to
+            # the whole-tree scan this replaced.
             - name: Errors (blocking)
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/devex/" \
-                      --severity=ERROR \
-                      --exclude "products/desktop" \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.devex-rules }}
+                  args: >-
+                      --config .semgrep/rules/devex/ --severity=ERROR --include /bin --include /common --include /docs/onboarding --include /ee --include /frontend --include /hog --include /packages --include /posthog --include /products --include /services --include /tools --exclude products/desktop
 
             # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
