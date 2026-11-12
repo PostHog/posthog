@@ -953,11 +953,11 @@ export interface dashboardLogicActions {
     abortAnyRunningQuery: () => {
         value: true
     }
-    abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId; deferred?: boolean }) => {
+    abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
+        deferred?: boolean | undefined
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
-        deferred?: boolean
     }
     addTileGroup: (title?: string) => {
         title: string
