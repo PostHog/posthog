@@ -4692,7 +4692,7 @@ describe('CDP API', () => {
             it.each([
                 ['a time that has passed', 0],
                 ['a time that has passed, for a message older than 30 days', 31 * DAY_MS],
-            ])('moves a send to now for %s', async (_desc, messageAgeMs) => {
+            ])('moves a keyed send to now for %s', async (_desc, messageAgeMs) => {
                 const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
                 await manager.createJob({
                     id: messageId,
@@ -4700,6 +4700,11 @@ describe('CDP API', () => {
                     functionId: hogFlow.id,
                     queueName: 'email',
                     scheduled: new Date(Date.now() + DAY_MS),
+                    state: Buffer.from(
+                        JSON.stringify({
+                            state: { idempotencyKey: { hash: `hash-${messageId}`, fingerprint: 'request' } },
+                        })
+                    ),
                 })
                 const before = Date.now()
 

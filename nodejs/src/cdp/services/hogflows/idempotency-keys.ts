@@ -347,6 +347,11 @@ export class IdempotencyKeys {
         { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
         latestDueAt: Date
     ): Promise<boolean> {
+        const expiresAt = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000
+        if (expiresAt <= Date.now()) {
+            this.count('replay_until', 'expired')
+            return true
+        }
         if (!this.valkey) {
             this.count('replay_until', 'unavailable')
             return false
@@ -362,7 +367,7 @@ export class IdempotencyKeys {
                         ...(replayFields && { replayFields }),
                         ...(scheduledAt && { scheduledAt }),
                     },
-                    expiresAt: latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000,
+                    expiresAt,
                 },
                 'replay_until'
             )
