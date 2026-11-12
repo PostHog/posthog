@@ -85,12 +85,28 @@ function containerLength(text: string): number {
 
 // An HTTP status or a database error code is diagnostic output. A one-time code or an authorization code has four digits or more.
 // The number must be the complete value, because an authorization code can start with a short number, for example `4/0A...`.
-const DIAGNOSTIC_CODE_TEXT = /^(["']?)\d{1,3}\1(?=$|[\s,;}\])]|\.(?:\s|$))/
+// A second group of digits on the same line marks a one-time code printed in groups, for example `123 456`.
+const NO_SECOND_DIGIT_GROUP = '(?![ \\t\\u00a0]*\\d)'
+const QUOTED_DIAGNOSTIC_CODE = /^(["'])\d{1,3}\1/
+// A `=` value runs to the next whitespace, so only whitespace or `;` can end the number.
+const EQUALS_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:$|(?=[\\s;]))${NO_SECOND_DIGIT_GROUP}`)
+// A `:` value runs to the end of the line, so prose can follow the number: `Code: 60. DB::Exception`.
+const COLON_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:[,}\\]]|[.;)]?(?:$|(?=\\s)))${NO_SECOND_DIGIT_GROUP}`)
 
-function isDiagnosticCodeText(name: string, precedingCharacter: string | undefined, rest: string): boolean {
-    // A `code` query parameter is an authorization code, not a status.
-    const isQueryParameter = precedingCharacter === '?' || precedingCharacter === '&'
-    return /^code$/i.test(name) && !isQueryParameter && DIAGNOSTIC_CODE_TEXT.test(rest)
+function isDiagnosticCodeText(
+    name: string,
+    precedingCharacter: string | undefined,
+    separator: string,
+    rest: string
+): boolean {
+    // A `code` URL parameter is an authorization code, not a status. `;` covers `&amp;` and matrix parameters.
+    if (!/^code$/i.test(name) || (precedingCharacter && '?&;'.includes(precedingCharacter))) {
+        return false
+    }
+    return (
+        QUOTED_DIAGNOSTIC_CODE.test(rest) ||
+        (separator === '=' ? EQUALS_DIAGNOSTIC_CODE : COLON_DIAGNOSTIC_CODE).test(rest)
+    )
 }
 
 function isDiagnosticCodeAttribute(name: string, value: unknown): boolean {
@@ -110,7 +126,7 @@ function findCredentialRanges(text: string, rule: CredentialNameRule): Redaction
         }
         const start = match.index + match[0].length
         const rest = text.slice(start)
-        if (isDiagnosticCodeText(name, text[match.index - 1], rest)) {
+        if (isDiagnosticCodeText(name, text[match.index - 1], match[4]!, rest)) {
             continue
         }
         const quoted = rest.match(QUOTED_VALUE_PATTERN)
