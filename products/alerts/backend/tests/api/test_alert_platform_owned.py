@@ -542,16 +542,24 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         assert {key: row[key] for key in written} == written
         assert (row["threshold"]["configuration"], row["state"]) == (threshold, "Snoozed")
 
-    def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
+    @parameterized.expand([("asked_for_checks", "?checks_limit=5", True), ("plain_read", "", False)])
+    def test_a_platform_history_failure_never_shows_the_alerts_stale_checks(
+        self, _name: str, query: str, refused: bool
+    ) -> None:
         self._record(30, "firing", value=150.0)
 
         with patch(
             "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
             side_effect=RuntimeError("ClickHouse is down"),
         ):
-            row = self._row("retrieve")
+            response = self.client.get(f"{self.url}/{self.alert.id}/{query}")
 
-        assert [(check["state"], check["calculated_value"]) for check in row["checks"]] == [("Not firing", 1.0)]
+        if refused:
+            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+            assert response.json()["code"] == "alert_check_history_unavailable"
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert (response.json()["checks"], response.json()["checks_total"]) == ([], 0)
 
 
 class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
@@ -986,6 +994,17 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if not native:
             self.alert.refresh_from_db()
             assert self._copy().snooze_until == self.alert.snoozed_until
+            # The platform's history records the snooze, so the row keeps no check for it.
+            assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
+
+    def test_a_snooze_through_the_api_writes_no_check_to_an_owned_alerts_row(self) -> None:
+        snoozed = self.client.patch(
+            f"{self.url}/{self.alert.id}/", {"snoozed_until": (self.now + timedelta(hours=1)).isoformat()}
+        )
+
+        assert snoozed.status_code == status.HTTP_200_OK, snoozed.json()
+        assert self._copy().snooze_until is not None
+        assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
 
     @parameterized.expand([("copy_off", True, False), ("row_off", False, True)])
     def test_a_snooze_from_slack_refuses_a_moved_alert_unless_row_and_copy_are_on(

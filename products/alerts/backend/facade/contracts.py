@@ -233,6 +233,10 @@ class MovedAlertCheckPage:
     checks: tuple[MovedAlertCheck, ...]
 
 
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
 class PlatformCannotOwn(ValueError):
     """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
 

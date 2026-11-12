@@ -114,6 +114,8 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     MovedAlertCheck,
+    MovedAlertCheckPage,
+    MovedAlertHistoryUnavailable,
     PlatformCannotOwn,
 )
 from products.alerts.backend.facade.destinations import (
@@ -1120,7 +1122,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if not resulting_enabled:
             apply_disable(instance)
 
-        if snooze_changed:
+        # The platform records a snooze of an alert it owns in its own history.
+        if snooze_changed and not instance.platform_owned:
             AlertCheck.objects.create(
                 alert_configuration=instance,
                 calculated_value=None,
@@ -1839,6 +1842,12 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
             alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
 
 
+class AlertCheckHistoryUnavailable(APIException):
+    status_code = 503
+    default_code = "alert_check_history_unavailable"
+    default_detail = "Couldn't load this alert's check history. Try again in a moment."
+
+
 @frozen
 class _ListKey:
     """What the list sorts and pages one alert on, row or not."""
@@ -2092,18 +2101,23 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         _show_platform_status([instance], now=timezone.now())
         _show_platform_subscribers([instance])
-        platform_page = (
-            moved_alert_check_page(
-                team_id=instance.team_id,
-                alert_id=instance.id,
-                since=checks_since,
-                until=checks_until,
-                limit=limit,
-                offset=offset,
-            )
-            if instance.platform_owned
-            else None
-        )
+        platform_page = None
+        if instance.platform_owned:
+            try:
+                platform_page = moved_alert_check_page(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    since=checks_since,
+                    until=checks_until,
+                    limit=limit,
+                    offset=offset,
+                )
+            except MovedAlertHistoryUnavailable:
+                # The row's checks stopped at the move, so they are no stand-in. Only a read that asked for
+                # checks fails, so a read of the settings alone, such as Terraform's, still succeeds.
+                if has_date_filter or raw_limit is not None or raw_offset is not None:
+                    raise AlertCheckHistoryUnavailable from None
+                platform_page = MovedAlertCheckPage(total=0, checks=())
         if platform_page is not None:
             instance.checks_total = platform_page.total
             instance.checks = [_as_alert_check(instance, check) for check in platform_page.checks]
