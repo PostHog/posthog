@@ -899,7 +899,7 @@ class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
             active_milliseconds=30_000,
         )
 
-    def _experiment(self, team, creator, *, variants=("control", "test")):
+    def _experiment(self, team, creator, *, variants=("control", "test")) -> int:
         flag = FeatureFlag.objects.create(
             team=team,
             key="balanced-flag",
@@ -949,27 +949,7 @@ class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
         # Per-variant thresholds must select by each session's attributed variant, not by one
         # scanner-wide rate: a broken join projection or multiIf would sample both arms alike.
         creator = User.objects.create_and_join(team.organization, "balanced@posthog.com", "testtest")
-        flag = FeatureFlag.objects.create(
-            team=team,
-            key="balanced-flag",
-            created_by=creator,
-            filters={
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                }
-            },
-        )
-        experiment_id = create_experiment(
-            team_id=team.id,
-            name="balanced",
-            feature_flag_id=flag.id,
-            created_by_id=creator.id,
-            start_date=_NOW - dt.timedelta(days=7),
-            exposure_criteria={},
-        )
+        experiment_id = self._experiment(team, creator)
         self._exposed_session(team, "control-user", "control", "control-session")
         self._exposed_session(team, "test-user", "test", "test-session")
         flush_persons_and_events()

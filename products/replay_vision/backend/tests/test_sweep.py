@@ -208,20 +208,18 @@ class TestFindScannerCandidatesActivity:
         experiment = create_experiment(scanner.team, "over-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
-        fields: dict[str, Any] = {}
         if state == "paused":
             flag = FeatureFlag.objects.get(id=experiment.feature_flag_id)
             flag.active = False
             flag.save()
         elif state == "ended":
             # Ended before the scanner's watermark, so the run is already swept to its end.
-            fields["end_date"] = timezone.now() - dt.timedelta(days=1)
+            update_experiment(experiment, end_date=timezone.now() - dt.timedelta(days=1))
         elif state == "archived":
             # No end date: no known end to sweep up to, so it stops like a pause.
-            fields["archived"] = True
+            update_experiment(experiment, archived=True)
         else:
-            fields["deleted"] = True
-        update_experiment(experiment, **fields)
+            update_experiment(experiment, deleted=True)
 
         with (
             _patched_queries() as (fast_query, deep_query),

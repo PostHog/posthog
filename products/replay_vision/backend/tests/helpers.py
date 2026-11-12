@@ -62,6 +62,9 @@ def seed_scanner_spend(scanner: ReplayScanner, credits: int, *, observations: in
 
 @frozen
 class SeededExperiment:
+    """The ids of an experiment planted through the experiments test facade. It is not a model row,
+    so tests change the experiment with `update_experiment`."""
+
     id: int
     team_id: int
     feature_flag_id: int
