@@ -31,7 +31,7 @@ class LinkedTemplate(Protocol):
 # before the first lock. The weak keys drop both caches with the request.
 _ACCESS_FIELDS = ("id", "team_id", "created_by_id")
 _access_controls_by_request: "WeakKeyDictionary[Any, dict[tuple[Any, int], UserAccessControl]]" = WeakKeyDictionary()
-_workflows_by_request: "WeakKeyDictionary[Any, dict[tuple[int, str], HogFlow]]" = WeakKeyDictionary()
+_workflows_by_request: "WeakKeyDictionary[Any, dict[tuple[int, str], HogFlow | None]]" = WeakKeyDictionary()
 
 
 def _access_control_for(request: Any | None, user: "User", template: LinkedTemplate) -> UserAccessControl:
@@ -47,12 +47,12 @@ def _access_control_for(request: Any | None, user: "User", template: LinkedTempl
 def prepare_linked_workflows(request: Any | None, team_id: int, templates: "QuerySet[Any]") -> None:
     if request is None:
         return
-    linked = HogFlow.objects.filter(
-        team_id=team_id,
-        pk__in=templates.filter(transactional_hog_flow_id__isnull=False).values("transactional_hog_flow_id"),
-    ).only(*_ACCESS_FIELDS)
+    linked_ids = list(
+        templates.filter(transactional_hog_flow_id__isnull=False).values_list("transactional_hog_flow_id", flat=True)
+    )
     workflows = _workflows_by_request.setdefault(request, {})
-    for flow in linked:
+    workflows.update({(team_id, str(linked_id)): None for linked_id in linked_ids})
+    for flow in HogFlow.objects.filter(team_id=team_id, pk__in=linked_ids).only(*_ACCESS_FIELDS):
         workflows[(flow.team_id, str(flow.id))] = flow
 
 

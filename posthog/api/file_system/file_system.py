@@ -557,8 +557,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
 
     def _ensure_can_change_workflow_files(self, files: QuerySet) -> None:
+        # Checks every row the caller is about to write, without the visibility filter. A row can
+        # become a hidden workflow file after the caller read it, and filtering it out here would
+        # skip its check while the caller still writes it.
         workflow_files = (
-            self._filter_by_access_control(self._scope_by_project_and_environment(files))
+            self._scope_by_project_and_environment(files)
             .filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
             .exclude(shortcut=True)
         )
@@ -568,6 +571,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if ref
         ]
         self._ensure_token_can_write_workflow_objects([entry_type for entry_type, _ref, _team_id in entries])
+        scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
+        if scoped_team_ids and any(team_id not in scoped_team_ids for _type, _ref, team_id in entries):
+            raise PermissionDenied(
+                "This API key doesn't cover this environment. Use a key scoped to it to change workflow files here."
+            )
         self._ensure_can_delete_objects(entries)
 
     def _ensure_token_can_write_workflow_objects(self, file_types: Iterable[str]) -> None:

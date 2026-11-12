@@ -1942,7 +1942,10 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(self, mock_post, _flag):
+    @parameterized.expand([("linked_workflows_present", False), ("linked_workflows_deleted", True)])
+    def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(
+        self, mock_post, _flag, _name, linked_workflows_deleted
+    ):
         self._login_member("editor@example.com", {None: "editor"})
 
         def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, list[str], list[int], int]:
@@ -1961,6 +1964,12 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
                     path=f"{folder}/{template.name}", depth=2
                 )
             entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
+            if linked_workflows_deleted:
+                HogFlow.objects.filter(
+                    pk__in=MessageTemplate.objects.filter(team=self.team, name__startswith=folder).values(
+                        "transactional_hog_flow_id"
+                    )
+                ).delete()
 
             with CaptureQueriesContext(connection) as queries:
                 response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
@@ -1989,7 +1998,8 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
         one = reads_deleting_a_folder_of(1, "One")
         three = reads_deleting_a_folder_of(3, "Three")
-        assert HogFlow.objects.filter(team=self.team).count() > 3
+        if not linked_workflows_deleted:
+            assert HogFlow.objects.filter(team=self.team).count() > 3
         assert (one[0], len(one[1])) == (three[0], len(three[1])) == (one[0], 1)
         assert all('"posthog_hogflow"."id" IN' in sql for sql in one[1] + three[1])
         assert one[2] == sorted(one[2]) and three[2] == sorted(three[2])

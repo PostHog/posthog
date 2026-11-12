@@ -272,6 +272,51 @@ class TestWorkflowFolders(APIBaseTest):
         late_rows[0].refresh_from_db()
         self.assertEqual(late_rows[0].path, "Inbox/Late email")
 
+    def test_a_folder_move_checks_a_child_that_became_a_denied_template_before_its_lock(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Hidden email", "type": "email"},
+            format="json",
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        dashboard_id = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        child = FileSystem.objects.create(
+            team=self.team, path="Inbox/Report", depth=2, type="dashboard", ref=str(dashboard_id)
+        )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="none", organization_member_id=membership.id
+        )
+        self.client.force_login(member)
+        retyped = Event()
+
+        def retype_after_the_visible_read(
+            execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]
+        ) -> Any:
+            result = execute(sql, params, many, context)
+            if not retyped.is_set() and sql.startswith('SELECT "posthog_filesystem"."id" AS "pk" FROM'):
+                retyped.set()
+                FileSystem.objects.filter(pk=child.pk).update(type="message_template", ref=template_id)
+            return result
+
+        with connection.execute_wrapper(retype_after_the_visible_read):
+            moved = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
+                {"new_path": "Archive/Inbox"},
+                format="json",
+            )
+
+        self.assertTrue(retyped.is_set())
+        self.assertEqual(moved.status_code, 403, moved.content)
+        child.refresh_from_db()
+        self.assertEqual(child.path, "Inbox/Report")
+
     @parameterized.expand(
         [
             ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
