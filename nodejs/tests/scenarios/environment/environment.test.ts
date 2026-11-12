@@ -1,7 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { EventEmitter, once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
 import net from 'net'
@@ -852,6 +852,8 @@ describe('scenario environment', () => {
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const stubRoleNeverAnswering =
+            "require('http').createServer(() => undefined).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
             const port = Number(process.env.HTTP_SERVER_PORT)
             const bind = () =>
@@ -1032,6 +1034,7 @@ describe('scenario environment', () => {
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
         let exitGoesUnreported: Role | undefined
+        let neverAnswers: Role | undefined
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
@@ -1097,12 +1100,13 @@ describe('scenario environment', () => {
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
-        const environmentOf = (): Environment =>
+        const environmentOf = (roleHealthyWithinMs?: number): Environment =>
             createEnvironment({
                 hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
                 docker: path.join(fakes, 'docker'),
                 postgresUrl: templatesUrl,
                 sesRateLimiterValkey: testRedis,
+                roleHealthyWithinMs,
             })
 
         beforeAll(async () => {
@@ -1153,7 +1157,9 @@ describe('scenario environment', () => {
                         ? stubRoleBindingAfterHolder
                         : mode === exitsAfterHealth
                           ? stubRoleExitingAfterHealth
-                          : stubRole
+                          : mode === neverAnswers
+                            ? stubRoleNeverAnswering
+                            : stubRole
                 const groupAtStart = `if (require('fs').existsSync(${JSON.stringify(path.join(fakes, 'dead-member-held'))})) console.log(${JSON.stringify(STARTED_WHILE_HELD)})\n`
                 const role = realSpawn(process.execPath, ['-e', groupAtStart + script], options)
                 if (mode === losesItsPort) {
@@ -1220,6 +1226,7 @@ describe('scenario environment', () => {
             } else {
                 process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronFromEnv
             }
+            neverAnswers = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             leftover?.kill('SIGKILL')
@@ -1358,11 +1365,19 @@ describe('scenario environment', () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
                 },
             ],
+            [
+                'stays alive without answering /_health',
+                'cdp-cyclotron-worker-hogflow',
+                () => {
+                    neverAnswers = 'cdp-cyclotron-worker-hogflow'
+                },
+            ],
         ])(
-            'fails naming a role that %s and its log',
+            'fails naming a role that %s and its log, stopping every role and freeing the state dir',
             async (_name, role, arrange) => {
                 arrange()
-                environment = environmentOf()
+                const earlierRoles = new Set(stubRolePids)
+                environment = environmentOf(5000)
 
                 const failure = await environment.up().then(
                     () => null,
@@ -1371,6 +1386,19 @@ describe('scenario environment', () => {
 
                 expect(failure).toMatch(new RegExp(`^${role} `))
                 expect(failure).toContain(logOf(role))
+                const alive = [...stubRolePids].filter((pid) => {
+                    if (earlierRoles.has(pid)) {
+                        return false
+                    }
+                    try {
+                        return process.kill(pid, 0)
+                    } catch {
+                        return false
+                    }
+                })
+                expect(alive).toEqual([])
+                const release = await holdRunLock(realpathSync(path.join(cacheDir, 'posthog-scenarios')))
+                await release()
             },
             30_000
         )
