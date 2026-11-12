@@ -27,6 +27,7 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     email_dedupe_group_expr,
 )
+from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
 
 QUERY_TYPE = "workflows_audience_count_v2"
 
@@ -40,6 +41,7 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
     """
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
+        reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
@@ -61,6 +63,7 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
 
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
+        reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         database = Database.create_for(team=team)
