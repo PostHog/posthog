@@ -174,6 +174,11 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         [
             ("update_column_found", _schema("orders", _field("created_at"), _field("updated_at")), {}),
             ("single_candidate", _schema("orders", _field("created_at")), {}),
+            (
+                "insert_only_candidates",
+                _schema("orders", _field("created_at"), _field("id", IncrementalFieldType.Integer)),
+                {},
+            ),
             ("flag_off", _open_schema(), {"flag": False}),
             ("gateway_not_configured", _open_schema(), {"configured": False}),
         ]

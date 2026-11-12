@@ -39,7 +39,11 @@ from posthog.llm.system_one_client import (
 from posthog.ph_client import feature_enabled_or_false
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema, tracks_updates
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    name_is_silent,
+    tracks_updates,
+)
 from products.warehouse_sources.backend.types import IncrementalField
 
 if TYPE_CHECKING:
@@ -82,14 +86,14 @@ def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team
 
 
 def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
-    pending = [schema for schema in schemas if _is_open(schema)][: MAX_REQUESTS * GATEWAY_MAX_QUESTIONS]
+    pending = [schema for schema in schemas if _is_open(schema)]
     if not pending or not _model_allowed(team):
         return
 
     keys = {index: _cache_key(team.pk, schema) for index, schema in enumerate(pending)}
     cached = _cache_get_many(list(keys.values()))
     picks = {index: cached[key] for index, key in keys.items() if cached.get(key)}
-    uncached = [index for index, key in keys.items() if key not in cached]
+    uncached = [index for index, key in keys.items() if key not in cached][: MAX_REQUESTS * GATEWAY_MAX_QUESTIONS]
     batches = [
         uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
     ]
@@ -126,7 +130,8 @@ def _candidates(schema: SourceSchema) -> list[IncrementalField]:
 
 def _is_open(schema: SourceSchema) -> bool:
     candidates = _candidates(schema)
-    return len(candidates) >= 2 and not tracks_updates(candidates[0])
+    # With every name saying "created" or "updated", the rules already know the answer.
+    return len(candidates) >= 2 and not tracks_updates(candidates[0]) and any(map(name_is_silent, candidates))
 
 
 def _model_allowed(team: "Team") -> bool:

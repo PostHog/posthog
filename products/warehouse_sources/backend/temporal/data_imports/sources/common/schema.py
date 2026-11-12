@@ -103,6 +103,11 @@ def tracks_updates(field: IncrementalField) -> bool:
     return _change_tracking_tier(field) == 2
 
 
+def name_is_silent(field: IncrementalField) -> bool:
+    """True when the column name says neither "updated" nor "created", so only reading it can tell."""
+    return _change_tracking_tier(field) == 0
+
+
 def _rank_score(field: IncrementalField) -> int:
     """Higher is better. Each criterion outweighs all the criteria after it."""
     return (
