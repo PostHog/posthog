@@ -29,11 +29,14 @@ def compute_phase_times(
 
     ``rate_limiters_ms`` is the wait to acquire the concurrency limiters, ``cache_write_ms`` the time
     to store the result, ``flight_wait_ms`` a single-flight follower's wait for the leader, and
-    ``build_database_ms`` the time to build the HogQL database. Each is ``None`` when the run did not
-    pass through that phase. Milliseconds, two decimals. ``before`` is
-    the same tree as it stood when the run started: the tree adds up across runs of one runner, so
-    the difference is this run's own time. ClickHouse time is not derived here: the stats scope
-    already puts it on the event as ``clickhouse_duration_ms``.
+    ``build_database_ms`` the time ``QueryRunner.shared_database`` spent building the HogQL database.
+    Each is ``None`` when the run did not pass through that phase, and also when the tree does not
+    show it: a runner that clears its timings mid-run, a build on the shared-database kill-switch path
+    (left unmeasured because ``HogQLTimings`` is not thread-safe), and a build outside
+    ``shared_database``, such as ``execute_hogql_query`` called without a context. Milliseconds, two
+    decimals. ``before`` is the same tree as it stood when the run started: the tree adds up across runs
+    of one runner, so the difference is this run's own time. ClickHouse time is not derived here: the
+    stats scope already puts it on the event as ``clickhouse_duration_ms``.
     """
     before = before or {}
     return {
