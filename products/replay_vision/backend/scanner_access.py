@@ -9,7 +9,6 @@ import uuid
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Literal
 
-from django.db import models
 from django.db.models import Q
 
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -19,7 +18,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -58,40 +57,12 @@ def creator_can_scan(scanner: ReplayScanner) -> bool:
     return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
 
 
-class UnrunnableReason(models.TextChoices):
-    NO_AI_CONSENT = "no_ai_consent", "No AI consent"
-    CREATOR_LOST_ACCESS = "creator_lost_access", "Creator lost access"
-
-
-def unrunnable_reasons(scanners: list[ReplayScanner]) -> dict[uuid.UUID, UnrunnableReason | None]:
-    """`unrunnable_reason` for one team's scanners, with one batched access lookup for all their creators."""
-    if not scanners:
-        return {}
-    team = scanners[0].team
-    if not team.organization.is_ai_data_processing_approved:
-        return {scanner.id: UnrunnableReason.NO_AI_CONSENT for scanner in scanners}
-    creator_ids = {scanner.created_by_id for scanner in scanners if scanner.created_by_id is not None}
-    can_scan = {
-        user_id
-        for user_id, access in UserAccessControl.for_user_ids(user_ids=creator_ids, team=team).items()
-        if access.user.is_active
-        and access.has_project_access
-        and access.check_access_level_for_resource("session_recording", required_level="viewer")
-    }
-    return {
-        scanner.id: None
-        if scanner.created_by_id is None or scanner.created_by_id in can_scan
-        else UnrunnableReason.CREATOR_LOST_ACCESS
-        for scanner in scanners
-    }
-
-
-def unrunnable_reason(scanner: ReplayScanner) -> UnrunnableReason | None:
+def unrunnable_reason(scanner: ReplayScanner) -> ScannerDisabledReason | None:
     """Why the sweep can never spend for this scanner, or None when it can."""
     if not scanner.team.organization.is_ai_data_processing_approved:
-        return UnrunnableReason.NO_AI_CONSENT
+        return ScannerDisabledReason.NO_AI_CONSENT
     if not creator_can_scan(scanner):
-        return UnrunnableReason.CREATOR_LOST_ACCESS
+        return ScannerDisabledReason.CREATOR_LOST_ACCESS
     return None
 
 
