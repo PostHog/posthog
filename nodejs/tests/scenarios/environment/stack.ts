@@ -190,14 +190,16 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 
 export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+
+function serverOf(url: string): string {
+    const { hostname, port } = new URL(url)
+    return `${LOOPBACK_HOSTS.includes(hostname) ? 'localhost' : hostname}:${port || '5432'}`
+}
+
 export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
-    const urls = [
-        postgresUrl,
-        ...Object.entries(spec.env)
-            .filter(([name, url]) => name.endsWith('DATABASE_URL') && url?.startsWith('postgres'))
-            .map(([, url]) => url!),
-    ]
-    return urls.filter((url, i) => urls.findIndex((other) => new URL(other).host === new URL(url).host) === i)
+    const urls = [postgresUrl, ...Object.values(spec.env).filter((url): url is string => !!url?.startsWith('postgres'))]
+    return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
