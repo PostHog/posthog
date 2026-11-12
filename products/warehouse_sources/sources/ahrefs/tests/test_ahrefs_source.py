@@ -18,13 +18,21 @@ def test_invalid_project_id_prevents_probe(project_id: str) -> None:
 
 @pytest.mark.parametrize("project_id", ["123", "00123"])
 def test_valid_project_id_reaches_probe(project_id: str) -> None:
-    with scripted_network([ScriptedResponse(json={"limits_and_usage": {"subscription": "Lite"}})]) as network:
+    with scripted_network(
+        [
+            ScriptedResponse(json={"limits_and_usage": {"subscription": "Lite"}}),
+            ScriptedResponse(json={"healthscores": [{"project_id": 123, "target_url": "example.com"}]}),
+        ]
+    ) as network:
         assert AhrefsSource().validate_credentials(
             AhrefsSourceConfig(api_key="test-key", project_id=project_id), 1
         ) == (
             True,
             None,
         )
-    assert len(network.requests_log) == 1
-    assert network.requests_log[0].path == "/v3/subscription-info/limits-and-usage"
-    assert network.requests_log[0].headers["authorization"] == "Bearer test-key"
+    assert [request.path for request in network.requests_log] == [
+        "/v3/subscription-info/limits-and-usage",
+        "/v3/site-audit/projects",
+    ]
+    assert network.requests_log[1].param("project_id") == "123"
+    assert all(request.headers["authorization"] == "Bearer test-key" for request in network.requests_log)

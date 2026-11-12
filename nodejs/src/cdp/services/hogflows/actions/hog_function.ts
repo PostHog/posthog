@@ -642,8 +642,13 @@ type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolea
 // Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
 const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000
 function frequencyCapHoldExpired(invocation: CyclotronJobInvocationHogFlow): boolean {
-    const deadlineAt = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
-    return !!deadlineAt && DateTime.now() >= DateTime.fromISO(deadlineAt)
+    const currentAction = invocation.state.currentAction
+    // A continuation on the email queue already claimed its slot before the deadline, so the email queue
+    // delaying it past the deadline must not drop it.
+    if (!currentAction?.frequencyCapHoldDeadlineAt || currentAction.hogFunctionState) {
+        return false
+    }
+    return DateTime.now() >= DateTime.fromISO(currentAction.frequencyCapHoldDeadlineAt)
 }
 
 /** When the team holds capped messages and the hold has not ended, returns when to check the cap again. */

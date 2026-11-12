@@ -774,6 +774,8 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
+                actionId,
+                sentTags,
                 headerCode,
                 distinctId,
                 snsMessageId = new UUIDT().toString(),
@@ -785,6 +787,8 @@ describe('EmailTrackingService', () => {
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
+                actionId?: string
+                sentTags?: Record<string, string[]>
                 headerCode?: string
                 distinctId?: string
                 snsMessageId?: string
@@ -799,6 +803,7 @@ describe('EmailTrackingService', () => {
                         parentRunId,
                         workflowVersion,
                         distinctId,
+                        ...(actionId ? { state: { actionId } } : {}),
                     },
                     false,
                     workflowVersion !== undefined
@@ -814,7 +819,7 @@ describe('EmailTrackingService', () => {
                         ...(transactionalMessageId
                             ? {
                                   commonHeaders: { to: ['user@example.com'] },
-                                  tags: { ph_email_status: ['true'] },
+                                  tags: { ph_email_status: ['true'], ...sentTags },
                               }
                             : {}),
                     },
@@ -966,6 +971,83 @@ describe('EmailTrackingService', () => {
                     }),
                 ])
             })
+
+            it.each<[string, Record<string, unknown>, Record<string, string[]>, boolean, Record<string, string>]>([
+                [
+                    'a template send',
+                    { template_uuid: 'template-1' },
+                    { ph_template_id: ['template-1'] },
+                    true,
+                    { $email_template_id: 'template-1' },
+                ],
+                [
+                    'a template send whose step was pointed at another template before the bounce',
+                    { template_uuid: 'template-2' },
+                    { ph_template_id: ['template-1'] },
+                    true,
+                    { $email_template_id: 'template-1' },
+                ],
+                [
+                    'a code send by key',
+                    { template_key: 'welcome' },
+                    { ph_template_key: ['welcome'] },
+                    true,
+                    { $email_template_key: 'welcome' },
+                ],
+                ['a template send that carried no template tags', { template_uuid: 'template-1' }, {}, true, {}],
+                ['a transactional workflow saved without a name', {}, {}, true, {}],
+                ['a workflow email made from a template', { template_uuid: 'template-1' }, {}, false, {}],
+            ])(
+                'names the email on the bounced event of %s',
+                async (_name, emailConfig, sentTags, transactional, identity) => {
+                    hub.CDP_EMAIL_TEMPLATE_TAGS_TEAMS = String(team.id)
+                    consumer = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub))
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withWorkflow({
+                                actions: {
+                                    trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                                    email: {
+                                        type: 'function_email',
+                                        config: { template_id: 'template-email', inputs: {}, ...emailConfig },
+                                    },
+                                },
+                                edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                            })
+                            .build()
+                    )
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, true, 'off', '', '', 0)`,
+                        [team.id],
+                        'test-set-engagement-capture'
+                    )
+
+                    await recordBounce({
+                        functionId: hogFlow.id,
+                        actionId: 'email',
+                        sentTags,
+                        distinctId: 'distinct-id',
+                        transactionalMessageId: transactional ? new UUIDT().toString() : undefined,
+                    })
+
+                    const bounced = mockInternalFetch.mock.calls
+                        .map(([, options]) => parseJSON(String(options?.body)))
+                        .find(({ event }) => event === '$workflows_email_bounced')
+                    expect(
+                        Object.fromEntries(
+                            Object.entries(bounced.properties as Record<string, unknown>).filter(([key]) =>
+                                key.startsWith('$email_template_')
+                            )
+                        )
+                    ).toStrictEqual(identity)
+                }
+            )
 
             it.each<[string, (service: any) => void]>([
                 [
