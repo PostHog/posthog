@@ -1,6 +1,7 @@
 from io import StringIO
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import override_settings
@@ -9,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 
@@ -44,3 +46,21 @@ class TestDeleteUnusedFailedSesIdentities(BaseTest):
         assert set(self.world.ses.identities) == remaining
         assert "orphan.com" in out.getvalue()
         assert "used.com" not in out.getvalue()
+
+    def test_keeps_an_identity_whose_domain_gets_a_sender_after_the_listing(self) -> None:
+        list_failed = SESProvider.list_failed_domain_identities
+
+        def list_then_add_sender(provider: SESProvider) -> list[str]:
+            failed = list_failed(provider)
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="new@orphan.com",
+                config={"domain": "orphan.com", "provider": "ses", "verified": False},
+            )
+            return failed
+
+        with patch.object(SESProvider, "list_failed_domain_identities", list_then_add_sender):
+            call_command("delete_unused_failed_ses_identities", "--apply", "--pace-seconds", "0", stdout=StringIO())
+
+        assert "orphan.com" in self.world.ses.identities
