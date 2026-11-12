@@ -45992,6 +45992,27 @@ export namespace Schemas {
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -46019,6 +46040,27 @@ export namespace Schemas {
       FlagDeleted: 'flag_deleted',
       FlagRolledOut: 'flag_rolled_out',
       ShippedVariant: 'shipped_variant',
+      FlagLastCalledAt: 'flag_last_called_at',
+      SinceStartHours: 'since_start_hours',
+      DailyCalculationEndsAt: 'daily_calculation_ends_at',
+      MetricName: 'metric_name',
+      MetricRole: 'metric_role',
+      RatioSide: 'ratio_side',
+      SampleCount: 'sample_count',
+      PlannedSampleCount: 'planned_sample_count',
+      DataHours: 'data_hours',
+      Variant: 'variant',
+      DifferencePercentage: 'difference_percentage',
+      DetectableDifferencePercentage: 'detectable_difference_percentage',
+      Significant: 'significant',
+      ForcedConditionCount: 'forced_condition_count',
+      MatchedCount: 'matched_count',
+      VariantMatchedCount: 'variant_matched_count',
+      ForcedCount: 'forced_count',
+      ForcedPercentage: 'forced_percentage',
+      TrafficSinceAt: 'traffic_since_at',
+      ChangedAt: 'changed_at',
+      BeforeExposure: 'before_exposure',
     } as const;
 
     /**
@@ -46067,7 +46109,28 @@ export namespace Schemas {
        * * `flag_active` - Whether the feature flag is enabled
        * * `flag_deleted` - Whether the feature flag is deleted
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+       * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+       * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `metric_name` - The name of a metric
+       * * `metric_role` - Whether a metric is primary or secondary
+       * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+       * * `sample_count` - Users or groups in a metric's results, across the variants
+       * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+       * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+       * * `variant` - The key of a variant
+       * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+       * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+       * * `significant` - Whether a variant's difference from the control is significant
+       * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+       * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+       * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+       * * `forced_count` - Users or groups that a release condition with a variant override served
+       * * `forced_percentage` - forced_count as a share of variant_matched_count
+       * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `changed_at` - When a change of the feature flag was saved
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -46097,7 +46160,28 @@ export namespace Schemas {
        * * `flag_active` - Whether the feature flag is enabled
        * * `flag_deleted` - Whether the feature flag is deleted
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+       * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+       * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `metric_name` - The name of a metric
+       * * `metric_role` - Whether a metric is primary or secondary
+       * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+       * * `sample_count` - Users or groups in a metric's results, across the variants
+       * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+       * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+       * * `variant` - The key of a variant
+       * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+       * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+       * * `significant` - Whether a variant's difference from the control is significant
+       * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+       * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+       * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+       * * `forced_count` - Users or groups that a release condition with a variant override served
+       * * `forced_percentage` - forced_count as a share of variant_matched_count
+       * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `changed_at` - When a change of the feature flag was saved
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -46118,6 +46202,8 @@ export namespace Schemas {
      * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
      */
     export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
+
+    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -46168,6 +46254,8 @@ export namespace Schemas {
       values: ExperimentHealthCheckResultValues;
       /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
       rule: ExperimentHealthCheckRule | null;
+      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+      rows: ExperimentHealthCheckResultRowsItem[];
     }
 
     export interface ExperimentHealthReleaseCondition {
@@ -65187,6 +65275,8 @@ export namespace Schemas {
       readonly suspended: NodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching: boolean;
     }
 
     export interface LineageResponse {
@@ -65282,6 +65372,8 @@ export namespace Schemas {
        * * `Running` - Running
        * * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
+      /** When the file download batch export run was created. */
+      created_at: string;
     }
 
     export interface LlmEvalReportSignalExtra {
@@ -71073,6 +71165,11 @@ export namespace Schemas {
     export interface NodeRunResponse {
       /** The nodes included in the dependency run. */
       node_ids: string[];
+    }
+
+    export interface NodeWatching {
+      /** Whether you now get failure notifications for this node. */
+      watching: boolean;
     }
 
     /**
@@ -88822,6 +88919,8 @@ export namespace Schemas {
       readonly suspended?: PatchedNodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint?: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching?: boolean;
     }
 
     /**
