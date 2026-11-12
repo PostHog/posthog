@@ -14170,30 +14170,50 @@ snapshots:
         hash: v1.k794b7964.d0baebcb76e75b79c530d73650dd5208357a9224f87a4109366f080451653707.q9XYNba8hsN8JEhhiUrEvUpZyj7Ou_loKi1b3cSWq8U
     scenes-app-marketing-analytics-persisted-conversion-recommendations--updating--light:
         hash: v1.k794b7964.852abfd71814efc870cb2178a7acf97833babbd13866c0196d6976f8351999fb._dZPb-BB_XLmD7aRG3nBiePMXUZOzSzgVTK6xgccsF4
+    scenes-app-marketing-analytics-recommendations--all-dismissed--dark:
+        hash: v1.k794b7964.caf0360dafda5a3e674250d2d682e4a6d676e7d4a0b2a5862ba5b23abeef95fe.Ky1bQjr5ho8MC9Og7c0u4hCsWCCvTOfRrbxOehSNKqE
+    scenes-app-marketing-analytics-recommendations--all-dismissed--light:
+        hash: v1.k794b7964.00193480c5b8820ba5643954f8242914c98d5d1fcdbaa3b7df34476fd69f0f97.FZNmCS6iT9Q97V7lyJwZK9uyZuovvWRXZFgViA0fMWA
+    scenes-app-marketing-analytics-recommendations--all-dismissed-in-modal--dark:
+        hash: v1.k794b7964.378052757c44fe576c515c25fc6228d7919bc07e7884b373a319300f57317e45.MVk2q12Kl3MXc0LVUyXNAxNaq9d8_s_9vO8yw2OIjGI
+    scenes-app-marketing-analytics-recommendations--all-dismissed-in-modal--light:
+        hash: v1.k794b7964.eae0b9c6fc9d67d92f73f7afa8153b2e1248a040d504c897aa381b255770ace1.v0NVpvDh7zxE2AuT_05biefkHtG9inkJxcbgX9yjvDM
     scenes-app-marketing-analytics-recommendations--missing-tables--dark:
         hash: v1.k794b7964.58703c5e30f33bfdbeed656a63f891eae8365bd052119e7dcb3d61302bdd4417.ZwNo8CMRZmaAugiJaS-vzinFP9TjzBnPlzAiPXvvHxs
     scenes-app-marketing-analytics-recommendations--missing-tables--light:
         hash: v1.k794b7964.6c6963e844db6745139ce10efa87c6d6cd05f047688fd298110c7757e9526c16.lrAMMYx3WN3qo5fcrKF0Vx-5iyhHo1zapxB_Bk0F-C0
     scenes-app-marketing-analytics-recommendations--missing-tables-in-modal--dark:
-        hash: v1.k794b7964.bb7b64503ae0c529ffa6998ac00d89fc6bbcbc13ec26c23e0c7db6c27c351d20.ww6q-OfyUh_R-Ivqf4E34xsg7_57hUx4ViyN_8DRVC4
+        hash: v1.k794b7964.4f7c9a57d1586a4b8acd49bd1887b277fb0212081f2d50637609a9c2f73a184e.4vUXZAUAwBdIyLtuqlyHBOHSQ9sKrpSz7dohUZlji_s
     scenes-app-marketing-analytics-recommendations--missing-tables-in-modal--light:
-        hash: v1.k794b7964.77461b1988b9e81ad14e3e9e579a067fb7f3b20210d04019a5a461580ad5fcab.hbQFLX4nshppL4Q5pHs1QCsO9Y3Jawqfj26blQ2OVNM
+        hash: v1.k794b7964.451f3565149f599fdf5d8139fd95aed6e95c0b0e1e2266eea5f4df0cd7e50044.lR_x07eftEdeT94zaZ3Ob2UFgSXqqZe7mm93yogZBEk
     scenes-app-marketing-analytics-recommendations--modal--dark:
-        hash: v1.k794b7964.e533c9a0596a7c664729e2dde1bef348084581bf1abe1454d62d99cd5e86fecc.zJPIHKu3o4DxG4cCiF3jvDYy78ql2JzOALyWsvUK8Gg
+        hash: v1.k794b7964.8970dd826d0139762b0f174e782755e33128fa34073807800e836ae903fc9e7b.QoNRVlrAcCli-rzfXlKuSM8UOlZyhzGFMwHnMq-imas
     scenes-app-marketing-analytics-recommendations--modal--light:
-        hash: v1.k794b7964.6245d949b40a7ceed2fe77f37438868fb58f568d7d755a266978a633b5225f7f.AEtDXhtR9LQhnSg-iFi1YZmymEBp2miFRWHyPMz7eCM
+        hash: v1.k794b7964.0363bd391ee5d61e39a9037f6b5a39ed046af34aecd11c2c0a7aaf8678bcf272.6jY6339od5p72k_l8DLLOvv3cET73ohoaam8wG-ZDGI
     scenes-app-marketing-analytics-recommendations--modal-instructions--dark:
-        hash: v1.k794b7964.a5c02f5ddaa9cf10786dcee5796de127b92ba1dea06cabe09caf7c83d7072a41.P5avXDiI-PZM5B5hKaBa2L0t1FNgOKEoLHekEK8G5U0
+        hash: v1.k794b7964.c5443196d48b16efdd6ef545430bf7f7f18015c11cd9b32a4efbb24e412e4197.93A9TonZLdFepQ2VRIeXf72j6wpk53sWLgDNM1ujNfM
     scenes-app-marketing-analytics-recommendations--modal-instructions--light:
-        hash: v1.k794b7964.e8b9941c8a1cfa3b2b2243707fc86c45c834b62943ed586dc8e521aa8d8cc52d.-SnqD4vj4XyCSHSgQkFBZT0UaMr_EmPtoLEg6nekyrk
+        hash: v1.k794b7964.63345c341da9382723cc15cf1d36755b80e393b36f9f687fb49bd956e1298851.5AJUK5mPc_d5ROUTjqvQVjj0ps-Yc3cehlZd69TASaI
     scenes-app-marketing-analytics-recommendations--modal-keyword-tracking--dark:
-        hash: v1.k794b7964.73d21df754d3fa6f7f05044e4e03b994326f28548b2c66c27fb86ea42a91134f.8jrEv_SwM_V7c0cYUlCBxMJURKmNlLwzQJ0FxpnhGv4
+        hash: v1.k794b7964.e106696216c802230064504226ab27d4112eb5faa7c88e7e90eed0dc53f150a0._5XGm0psmZlOzO86P2DiC8ITTDEwTgQdMcTwJ9BuHkA
     scenes-app-marketing-analytics-recommendations--modal-keyword-tracking--light:
-        hash: v1.k794b7964.e5b9f9e5015a74614fef5767406693e0f044e9813039b3ae9769e690fc032b13.hQHi_SD9x6UFbULwZpvm0dZa5eq1MQpgYztJqqGLWYs
+        hash: v1.k794b7964.0259d77a42393892a9cb805af85b17d3deece8cc6b775d5e3524aef7c7954af8.SijKhDmBxTl2mvlQjAfabg8cyIjYUtL22jLOvZ4GjO4
     scenes-app-marketing-analytics-recommendations--no-sources--dark:
         hash: v1.k794b7964.a74885100a0caa51eaf3bad02c41ecd29887a9f89cedaebf1f14d5022980dcf2.lrBKwL6bsCN8fhpRucRko0MYVmaMhA6Ti2iv6LjdNg8
     scenes-app-marketing-analytics-recommendations--no-sources--light:
         hash: v1.k794b7964.ae50c8c51213bf4f21154f672cb92ffc8549e40c822a14473e8e1090a3f5d073.Omn0KDjt_1l69Lii4ueBkapbhp1dGBUXiBe42tB-eII
+    scenes-app-marketing-analytics-recommendations--resolved-in-modal--dark:
+        hash: v1.k794b7964.7f653961252eee011e6db1c71c022fac501a99d9640a26ee981c7818eaacaedb.B30Fn9zUeIwGWHtZ3opoaAOAXXmbGZfL8knMT7bOvpc
+    scenes-app-marketing-analytics-recommendations--resolved-in-modal--light:
+        hash: v1.k794b7964.c69748875f2aa32142d7bf9b6203ec0ead23ac138041e7d9cbb01017f6a6bded.kyjcFT2MMf5c3uHdwpWlYi86X0dDjlE_0odydIC9aB0
+    scenes-app-marketing-analytics-recommendations--resolving-in-modal--dark:
+        hash: v1.k794b7964.006b7abe10cc0b479fa05bf20b5fb4705eb743ab2f67e65f1f94a643919586b0.6rJ6v6JM7erZZzV-ZOfGElP84hZGhIrpV4_jmX8LD0w
+    scenes-app-marketing-analytics-recommendations--resolving-in-modal--light:
+        hash: v1.k794b7964.45f8e797b050f9a001b8ddc49cac55a61df85d3ee75021997454df43c67bb308.kCaV5KIQe9Cj0L8hMR6PsW2Kro-QPLTwwJC_oBR3fAQ
+    scenes-app-marketing-analytics-recommendations--rule-resolved-in-modal--dark:
+        hash: v1.k794b7964.1140d3a6606e48876893a31be8e0e82eef5a34286420fb305a0fdd122d5b469e.tgS9nrXGAlRtbyqRrPnzNTLpBds_50DWRVQauOrSR_s
+    scenes-app-marketing-analytics-recommendations--rule-resolved-in-modal--light:
+        hash: v1.k794b7964.d25824e601a85b35ba3f336eb788a25e51b3faa2c23d02d4addb60126b3a07a8.vGGzM6sOIzHBGfjJDSCnOq5glba1rEbMpcRNEK8DNJc
     scenes-app-marketing-analytics-recommendations--summary--dark:
         hash: v1.k794b7964.f88e6736043adbc60291029ed160c255f2551f30ed7c2ded0001239409a2823d.sGifg4aKasLhuZpeECI_CS02icclfeEvSKWnWTA8hz0
     scenes-app-marketing-analytics-recommendations--summary--light:
