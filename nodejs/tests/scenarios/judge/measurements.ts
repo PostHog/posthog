@@ -39,6 +39,10 @@ const byRole = (samples: readonly MetricSample[]): Map<string, MetricSample[]> =
 const completeness = (role: string, missed: readonly MissedScrape[]): { incomplete?: true } =>
     missed.some((miss) => miss.role === role) ? { incomplete: true } : {}
 
+const lostCpu = (role: string, ofRole: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
+    new Set(ofRole.map(({ startedAt }) => startedAt)).size > 1 ||
+    missed.some((miss) => miss.role === role && miss.at > ofRole.at(-1)!.at)
+
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
     params: z.object({}).strict(),
@@ -50,7 +54,7 @@ export const roleCpuSeconds: MeasurementDefinition = {
                 const startedWhileSampled = startedAt * 1000 >= sampledFrom
                 return sum + lifetime.at(-1)!.cpuSeconds - (startedWhileSampled ? 0 : lifetime[0].cpuSeconds)
             }, 0),
-            ...completeness(role, missed),
+            ...(lostCpu(role, ofRole, missed) ? { incomplete: true as const } : {}),
         })),
 }
 
