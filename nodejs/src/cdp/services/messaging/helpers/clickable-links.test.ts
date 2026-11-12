@@ -1,4 +1,4 @@
-import { clickableHrefs } from './clickable-links'
+import { TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_LENGTH, clickableHrefs } from './clickable-links'
 
 describe('clickableHrefs', () => {
     it.each([
@@ -20,7 +20,7 @@ describe('clickableHrefs', () => {
         [
             'an anchor in an SVG drawing',
             '<svg><a href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
-            [],
+            ['https://example.com/bye'],
         ],
         [
             'an anchor inside a script',
@@ -54,7 +54,7 @@ describe('clickableHrefs', () => {
         [
             'an anchor inside the title of an SVG drawing',
             '<svg><title><a href="https://example.com/bye">Unsubscribe</a></title></svg>',
-            [],
+            ['https://example.com/bye'],
         ],
         [
             'an anchor inside a style block in a MathML text element',
@@ -74,7 +74,7 @@ describe('clickableHrefs', () => {
         [
             'an anchor after an SVG drawing',
             '<svg><circle r="1"></circle></svg><a href="https://example.com/bye">Unsubscribe</a>',
-            [],
+            ['https://example.com/bye'],
         ],
         [
             'an anchor in CDATA after a nested SVG drawing',
@@ -112,12 +112,31 @@ describe('clickableHrefs', () => {
             [],
         ],
         [
-            'an anchor in a body a frameset replaces',
-            '<a href="https://example.com/bye">Unsubscribe</a><frameset></frameset>',
+            'an anchor before a frameset inside a comment',
+            '<a href="https://example.com/bye">Unsubscribe</a><!-- <frameset> -->',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an empty anchor in a body a frameset replaces',
+            '<a href="https://example.com/bye"></a><frameset></frameset>',
             [],
         ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
+    })
+
+    it.each([
+        ['nested deeper than the parser follows', '<div>'.repeat(TREE_MAX_DEPTH)],
+        ['longer than the parser reads', ' '.repeat(TREE_MAX_LENGTH)],
+        [
+            'that rebuilds more elements than the parser keeps',
+            '<div>' +
+                Array.from({ length: 100 }, (_, index) => `<b id="${index}">`).join('') +
+                '</div>' +
+                '<div>x</div>'.repeat(TREE_MAX_ELEMENTS / 100),
+        ],
+    ])('finds no anchor after an SVG drawing in markup %s', (_name, filler) => {
+        expect(clickableHrefs('<svg></svg>' + filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
     })
 
     it('finds the anchor after deeply nested markup', () => {
