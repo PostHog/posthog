@@ -1330,8 +1330,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=task.github_integration_id,
-        github_user_integration_id=user_github_integration_id,
+        # A GitLab task gets no GitHub credential, so the GitHub refresh loop never rewrites its remote.
+        github_integration_id=task.github_integration_id if task.repository_integration_id is None else None,
+        github_user_integration_id=user_github_integration_id if task.repository_integration_id is None else None,
         repository_integration_id=task.repository_integration_id,
         repository=run_repository,
         distinct_id=distinct_id,

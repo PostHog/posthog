@@ -16,6 +16,7 @@ from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
+from products.tasks.backend.constants import GITLAB_HOST, SANDBOX_REPOSITORIES_ROOT
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
@@ -60,11 +61,14 @@ def github_refresh_interval_seconds(token: str) -> float:
     return DEFAULT_REFRESH_INTERVAL_SECONDS
 
 
-def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str | None) -> bool:
+def set_git_remote_token(
+    sandbox: "SandboxBase", repository: str, github_token: str | None, *, gitlab_token: str | None = None
+) -> bool:
     """Rewrite ``origin`` with the current credential state; git re-reads it on every operation."""
-    org, repo = repository.lower().split("/")
-    repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-    if github_token:
+    repo_path = f"{SANDBOX_REPOSITORIES_ROOT}/{repository.lower()}"
+    if gitlab_token:
+        remote_url = f"https://oauth2:{gitlab_token}@{GITLAB_HOST}/{repository.lower()}.git"
+    elif github_token:
         remote_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
     else:
         remote_url = f"https://github.com/{repository}.git"

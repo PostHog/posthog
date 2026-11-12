@@ -24,7 +24,7 @@ from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, GITLAB_HOST, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     CredentialUnavailableError,
@@ -52,7 +52,6 @@ from products.tasks.backend.logic.services.network_policy import (
     compile_network_policy,
 )
 from products.tasks.backend.logic.services.sandbox import (
-    GITLAB_HOST,
     ExecutionResult,
     SandboxBase,
     SandboxConfig,
@@ -496,8 +495,11 @@ def _resolve_sandbox_github_token(
 
 
 def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
-    """The token a GitLab run clones and pushes with, or an empty string for any other run."""
-    if ctx.repository_integration_id is None:
+    """The token a GitLab run clones and pushes with, or an empty string for any other run.
+
+    A repo-less run, such as a code-access-exempt Inbox chat, never gets one.
+    """
+    if ctx.repository_integration_id is None or not ctx.repositories:
         return ""
     try:
         integration = IntegrationManager.gitlab.token.get(ctx.team_id, ctx.repository_integration_id)
@@ -1572,8 +1574,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.
+        gitlab_token = _resolve_sandbox_gitlab_token(ctx)
         for repository in ctx.repositories or ([input.repository] if input.repository else []):
-            set_git_remote_token(sandbox, repository, github_token or None)
+            set_git_remote_token(sandbox, repository, github_token or None, gitlab_token=gitlab_token or None)
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.

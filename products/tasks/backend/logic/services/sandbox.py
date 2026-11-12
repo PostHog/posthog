@@ -36,6 +36,7 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    GITLAB_HOST,
     SANDBOX_REPOSITORIES_ROOT,
 )
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
@@ -337,7 +338,6 @@ SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
 GITLAB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://oauth2:)[^@\s]+(?P<suffix>@gitlab\.com/)")
-GITLAB_HOST = "gitlab.com"
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:

@@ -241,6 +241,7 @@ DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
 # that tells an agent where its checkout is must read it from here (see `sandbox_repo_path`), or a
 # prompt sends the agent to a path the clone never used.
 SANDBOX_REPOSITORIES_ROOT = f"{DEFAULT_SANDBOX_WORKING_DIR}/repos"
+GITLAB_HOST = "gitlab.com"
 # Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
 # REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
 # mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out

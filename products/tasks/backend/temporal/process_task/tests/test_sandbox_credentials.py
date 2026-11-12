@@ -69,6 +69,17 @@ class TestSetGitRemoteToken:
         assert "https://github.com/owner/repo.git" in command
         assert "x-access-token" not in command
 
+    def test_rewrites_a_nested_gitlab_remote(self):
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok()
+
+        assert set_git_remote_token(sandbox, "Acme/Platform/API", None, gitlab_token="glpat-new") is True
+
+        command = sandbox.execute.call_args[0][0]
+        assert "/tmp/workspace/repos/acme/platform/api" in command
+        assert "https://oauth2:glpat-new@gitlab.com/acme/platform/api.git" in command
+        assert "github.com" not in command
+
     def test_returns_false_on_failure(self):
         sandbox = MagicMock()
         sandbox.execute.return_value = ExecutionResult(stdout="", stderr="not a git repo", exit_code=128)
