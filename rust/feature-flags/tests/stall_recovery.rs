@@ -1,13 +1,17 @@
 //! Persons DB faults under steady load, with production pool and timeout settings, except the
-//! longer persons statement timeout that `Fault::LockWait` needs.
+//! longer persons statement timeout that `Fault::LockWait` needs. Each fault runs in the
+//! production topology, through PgBouncer, and most also run straight to Postgres as a baseline.
 //! Ignored because the faults lock `posthog_person` and would stall other tests: run alone with
 //! `cargo nextest run -p feature-flags -E 'binary(stall_recovery)' --run-ignored only --test-threads=1`.
+//! The PgBouncer topology needs Docker.
 
 pub mod common;
 #[path = "stall_recovery/persons_db_proxy.rs"]
 mod persons_db_proxy;
+#[path = "stall_recovery/pgbouncer.rs"]
+mod pgbouncer;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -18,6 +22,7 @@ use feature_flags::utils::test_utils::{
 };
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use reqwest::{header::CONTENT_TYPE, StatusCode};
+use rstest::rstest;
 use serde_json::json;
 use sqlx::{Connection, PgConnection};
 use tokio::task::JoinHandle;
@@ -26,6 +31,7 @@ use tokio_util::sync::CancellationToken;
 
 use common::ServerHandle;
 use persons_db_proxy::PersonsDbProxy;
+use pgbouncer::{PgBouncer, PoolerSettings};
 
 const DB_FREE_FLAG: &str = "db-free";
 const PERSON_FLAG: &str = "person";
@@ -36,61 +42,117 @@ const BASELINE: Duration = Duration::from_secs(3);
 const RECOVERY_LIMIT: Duration = Duration::from_secs(10);
 /// Load continues this long after recovery, so connections reopened after the fault show.
 const SETTLE: Duration = Duration::from_secs(5);
-/// Longer than the 3 s acquire timeout.
-const SLOW_CONNECT: Duration = Duration::from_secs(5);
+/// Production sizes the persons read pool of a zone to the client connections of its minimum
+/// flags pods, and the write pool to a fifth of that.
+const POOLER_READ_POOL_SIZE: u32 = 8;
+const POOLER_WRITE_POOL_SIZE: u32 = 2;
+/// Longer than the 3 s acquire timeout and PgBouncer's 5 s server_connect_timeout.
+const SLOW_CONNECT: Duration = Duration::from_secs(6);
 
+#[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "locks posthog_person, which stalls other tests"]
-async fn test_cancels_heard_late_for_16s() {
-    let report = Scenario::new(Fault::CancelsHeardLate, Duration::from_secs(16))
+async fn test_cancels_heard_late(
+    #[values(Topology::Direct, Topology::PgBouncer)] topology: Topology,
+    #[values(16, 30)] fault_secs: u64,
+) {
+    let report = Scenario::new(
+        topology,
+        Fault::CancelsHeardLate,
+        Duration::from_secs(fault_secs),
+    )
+    .run()
+    .await;
+    report.assert_degrades_then_recovers();
+    report.assert_connections_reopen();
+    if let Topology::PgBouncer = topology {
+        report.assert_server_connections_survive();
+    }
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "locks posthog_person, which stalls other tests"]
+async fn test_lock_wait_for_16s(
+    #[values(Topology::Direct, Topology::PgBouncer)] topology: Topology,
+) {
+    let report = Scenario::new(topology, Fault::LockWait, Duration::from_secs(16))
         .run()
         .await;
     report.assert_degrades_then_recovers();
     report.assert_connections_reopen();
+    if let Topology::PgBouncer = topology {
+        report.assert_server_connections_survive();
+    }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "locks posthog_person, which stalls other tests"]
-async fn test_cancels_heard_late_for_30s() {
-    let report = Scenario::new(Fault::CancelsHeardLate, Duration::from_secs(30))
-        .run()
-        .await;
-    report.assert_degrades_then_recovers();
-    report.assert_connections_reopen();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "locks posthog_person, which stalls other tests"]
-async fn test_lock_wait_for_16s() {
-    let report = Scenario::new(Fault::LockWait, Duration::from_secs(16))
-        .run()
-        .await;
-    report.assert_degrades_then_recovers();
-    report.assert_connections_reopen();
-}
-
+#[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "timing-sensitive, so it runs alone"]
-async fn test_connects_slower_than_the_acquire_timeout_for_16s() {
-    let report = Scenario::new(Fault::SlowConnects, Duration::from_secs(16))
+async fn test_connects_slower_than_the_acquire_timeout_for_16s(
+    #[values(Topology::Direct, Topology::PgBouncer)] topology: Topology,
+) {
+    let report = Scenario::new(topology, Fault::SlowConnects, Duration::from_secs(16))
         .run()
         .await;
     report.assert_degrades_then_recovers();
     assert!(
         report.connect_attempts_during() > 0,
-        "the pool made no connect attempt during the fault"
+        "no connect attempt reached the database during the fault"
     );
-    assert_eq!(
-        report.connections_opened_during(),
-        0,
-        "today no connect succeeds during the fault; #122930 and #122931 change this"
-    );
+    match topology {
+        Topology::Direct => assert_eq!(
+            report.connections_opened_during(),
+            0,
+            "today no connect succeeds during the fault; #122930 and #122931 change this"
+        ),
+        Topology::PgBouncer => {
+            report.assert_database_logins_bounded();
+            assert!(
+                report.connections_opened_during() > 0,
+                "today PgBouncer accepts each connect and closes it while its own logins fail, so the pool reconnects in a loop"
+            );
+        }
+    }
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "timing-sensitive, so it runs alone"]
+async fn test_silent_pooler_connections(#[values(16, 30)] fault_secs: u64) {
+    let report = Scenario::new(
+        Topology::PgBouncer,
+        Fault::SilentConnections,
+        Duration::from_secs(fault_secs),
+    )
+    .run()
+    .await;
+    report.assert_degrades_then_recovers();
+    report.assert_database_logins_bounded();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "timing-sensitive, so it runs alone"]
+async fn test_pooler_restart() {
+    let report = Scenario::new(
+        Topology::PgBouncer,
+        Fault::PoolerRestart,
+        Duration::from_secs(10),
+    )
+    .run()
+    .await;
+    report.assert_degrades_then_recovers();
+    report.assert_database_logins_bounded();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "timing-sensitive, so it runs alone"]
 async fn test_request_timeout_counts_as_an_error_that_needed_persons() {
-    let proxy = PersonsDbProxy::start(&DEFAULT_TEST_CONFIG.persons_read_database_url).await;
+    let proxy = PersonsDbProxy::start(
+        &DEFAULT_TEST_CONFIG.persons_read_database_url,
+        Ipv4Addr::LOCALHOST.into(),
+    )
+    .await;
     let token = seed().await;
     let server = ServerHandle::for_config(Config {
         request_timeout_ms: 1_000,
@@ -114,6 +176,62 @@ async fn test_request_timeout_counts_as_an_error_that_needed_persons() {
 }
 
 #[derive(Clone, Copy, Debug)]
+enum Topology {
+    /// flags server -> fault proxy -> Postgres.
+    Direct,
+    /// flags server -> PgBouncer -> fault proxy -> Postgres, as in production.
+    PgBouncer,
+}
+
+/// The persons DB as the flags server reaches it in a topology.
+struct PersonsDb {
+    proxy: PersonsDbProxy,
+    pooler: Option<PgBouncer>,
+}
+
+impl PersonsDb {
+    async fn start(topology: Topology, pooler_settings: &PoolerSettings) -> Self {
+        let postgres_url = &DEFAULT_TEST_CONFIG.persons_read_database_url;
+        match topology {
+            Topology::Direct => Self {
+                proxy: PersonsDbProxy::start(postgres_url, Ipv4Addr::LOCALHOST.into()).await,
+                pooler: None,
+            },
+            Topology::PgBouncer => {
+                // The PgBouncer container reaches the proxy through the Docker host gateway.
+                let proxy =
+                    PersonsDbProxy::start(postgres_url, IpAddr::V4(Ipv4Addr::UNSPECIFIED)).await;
+                let pooler = PgBouncer::start(postgres_url, proxy.port(), pooler_settings).await;
+                Self {
+                    proxy,
+                    pooler: Some(pooler),
+                }
+            }
+        }
+    }
+
+    fn read_url(&self) -> String {
+        match &self.pooler {
+            Some(pooler) => pooler.url(pgbouncer::READ_DATABASE),
+            None => self.proxy.url().to_string(),
+        }
+    }
+
+    fn write_url(&self) -> String {
+        match &self.pooler {
+            Some(pooler) => pooler.url(pgbouncer::WRITE_DATABASE),
+            None => self.proxy.url().to_string(),
+        }
+    }
+
+    fn pooler(&self) -> &PgBouncer {
+        self.pooler
+            .as_ref()
+            .expect("this fault runs in the PgBouncer topology")
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 enum Fault {
     /// Postgres cancels person queries on time, and the proxy holds the cancels until the end.
     CancelsHeardLate,
@@ -121,6 +239,11 @@ enum Fault {
     LockWait,
     /// Every new connection takes longer than the acquire timeout.
     SlowConnects,
+    /// Connections between PgBouncer and Postgres go silent: the proxy holds every reply, and
+    /// releases them when the fault ends. Postgres answers on time.
+    SilentConnections,
+    /// PgBouncer stops, closing every client and server connection, and starts again empty.
+    PoolerRestart,
 }
 
 impl Fault {
@@ -128,12 +251,16 @@ impl Fault {
         match self {
             // Between the 3.5 s persons DB deadline and the lock.
             Fault::LockWait => 5_000,
-            Fault::CancelsHeardLate | Fault::SlowConnects => 1_000,
+            Fault::CancelsHeardLate
+            | Fault::SlowConnects
+            | Fault::SilentConnections
+            | Fault::PoolerRestart => 1_000,
         }
     }
 
     /// Returns when the fault took effect.
-    async fn inject(self, proxy: &PersonsDbProxy, admin: &mut PgConnection) -> Instant {
+    async fn inject(self, db: &PersonsDb, admin: &mut PgConnection) -> Instant {
+        let proxy = &db.proxy;
         match self {
             Fault::CancelsHeardLate => {
                 lock_person_table(admin).await;
@@ -153,10 +280,20 @@ impl Fault {
                 proxy.close_connections();
                 Instant::now()
             }
+            Fault::SilentConnections => {
+                proxy.hold_replies();
+                Instant::now()
+            }
+            Fault::PoolerRestart => {
+                // The pooler serves transactions until it exits.
+                db.pooler().stop().await;
+                Instant::now()
+            }
         }
     }
 
-    async fn lift(self, proxy: &PersonsDbProxy, admin: &mut PgConnection) {
+    async fn lift(self, db: &PersonsDb, admin: &mut PgConnection) {
+        let proxy = &db.proxy;
         match self {
             Fault::CancelsHeardLate => {
                 unlock_person_table(admin).await;
@@ -164,6 +301,8 @@ impl Fault {
             }
             Fault::LockWait => unlock_person_table(admin).await,
             Fault::SlowConnects => proxy.delay_connects(Duration::ZERO),
+            Fault::SilentConnections => proxy.release_replies(),
+            Fault::PoolerRestart => db.pooler().start_again().await,
         }
     }
 }
@@ -181,6 +320,7 @@ async fn unlock_person_table(admin: &mut PgConnection) {
 }
 
 struct Scenario {
+    topology: Topology,
     fault: Fault,
     fault_length: Duration,
     clients: usize,
@@ -188,8 +328,9 @@ struct Scenario {
 }
 
 impl Scenario {
-    fn new(fault: Fault, fault_length: Duration) -> Self {
+    fn new(topology: Topology, fault: Fault, fault_length: Duration) -> Self {
         Self {
+            topology,
             fault,
             fault_length,
             clients: 20,
@@ -197,8 +338,8 @@ impl Scenario {
         }
     }
 
-    fn server_config(&self, persons_url: &str) -> Config {
-        Config {
+    fn server_config(&self, db: &PersonsDb) -> Config {
+        let base = Config {
             acquire_timeout_secs: 3,
             persons_db_deadline_ms: 3_500,
             persons_db_deadline_reserve_ms: 500,
@@ -207,18 +348,39 @@ impl Scenario {
             max_concurrency: self.max_concurrency,
             persons_reader_statement_timeout_ms: self.fault.persons_statement_timeout_ms(),
             test_before_acquire: FlexBool(true),
-            persons_read_database_url: persons_url.to_string(),
-            persons_write_database_url: persons_url.to_string(),
+            persons_read_database_url: db.read_url(),
+            persons_write_database_url: db.write_url(),
             ..Config::default_test_config()
+        };
+        match self.topology {
+            Topology::Direct => base,
+            // The persons pools behind PgBouncer as production configures them.
+            Topology::PgBouncer => Config {
+                pooler_statement_timeout_pools: "persons_reader,persons_writer".parse().unwrap(),
+                min_persons_reader_connections: 2,
+                min_persons_writer_connections: 2,
+                ..base
+            },
+        }
+    }
+
+    fn pooler_settings(&self) -> PoolerSettings {
+        PoolerSettings {
+            read_pool_size: POOLER_READ_POOL_SIZE,
+            write_pool_size: POOLER_WRITE_POOL_SIZE,
+            read_statement_timeout_ms: self.fault.persons_statement_timeout_ms(),
+            write_statement_timeout_ms: DEFAULT_TEST_CONFIG.writer_statement_timeout_ms,
         }
     }
 
     async fn run(&self) -> Report {
-        let persons_url = &DEFAULT_TEST_CONFIG.persons_read_database_url;
-        let proxy = PersonsDbProxy::start(persons_url).await;
-        let mut admin = PgConnection::connect(persons_url).await.unwrap();
+        let db = PersonsDb::start(self.topology, &self.pooler_settings()).await;
+        let proxy = &db.proxy;
+        let mut admin = PgConnection::connect(&DEFAULT_TEST_CONFIG.persons_read_database_url)
+            .await
+            .unwrap();
         let token = seed().await;
-        let server = ServerHandle::for_config(self.server_config(proxy.url())).await;
+        let server = ServerHandle::for_config(self.server_config(&db)).await;
         server.wait_until_ready().await;
 
         let load = Load::start(server.addr, &token, self.clients);
@@ -229,18 +391,19 @@ impl Scenario {
         );
         tokio::time::sleep(BASELINE).await;
 
-        let at_start = Counts::read(&proxy);
-        let fault_start = self.fault.inject(&proxy, &mut admin).await;
+        let at_start = Counts::read(proxy);
+        let fault_start = self.fault.inject(&db, &mut admin).await;
         tokio::time::sleep_until(fault_start + self.fault_length).await;
-        let at_end = Counts::read(&proxy);
+        let at_end = Counts::read(proxy);
         let fault_end = Instant::now();
-        self.fault.lift(&proxy, &mut admin).await;
+        self.fault.lift(&db, &mut admin).await;
 
         load.wait_until_healthy(fault_end, RECOVERY_LIMIT).await;
         tokio::time::sleep(SETTLE).await;
-        let at_finish = Counts::read(&proxy);
+        let at_finish = Counts::read(proxy);
 
         let report = Report {
+            topology: self.topology,
             fault: self.fault,
             fault_start,
             fault_end,
@@ -510,6 +673,7 @@ impl Load {
 }
 
 struct Report {
+    topology: Topology,
     fault: Fault,
     fault_start: Instant,
     fault_end: Instant,
@@ -548,6 +712,10 @@ impl Report {
         self.at_end.connect_attempts - self.at_start.connect_attempts
     }
 
+    fn connect_attempts_after(&self) -> usize {
+        self.at_finish.connect_attempts - self.at_end.connect_attempts
+    }
+
     fn print(&self) {
         let db_free = |s: &&Sample| s.kind == RequestKind::DbFreeOnly;
         let both_flags: Vec<_> = self
@@ -559,9 +727,10 @@ impl Report {
             .filter(|s| s.answer == Answer::PersonFlagFailed)
             .count();
         println!(
-            "{:?} for {:?}",
+            "{:?} for {:?}, {:?} topology",
             self.fault,
-            self.fault_end - self.fault_start
+            self.fault_end - self.fault_start,
+            self.topology
         );
         println!(
             "  database-free latency: before {}, during {}",
@@ -579,9 +748,9 @@ impl Report {
             self.connections_opened_after()
         );
         println!(
-            "  connect attempts at the proxy: {} during, {} after",
+            "  connect attempts at Postgres: {} during, {} after",
             self.connect_attempts_during(),
-            self.at_finish.connect_attempts - self.at_end.connect_attempts
+            self.connect_attempts_after()
         );
     }
 
@@ -612,6 +781,26 @@ impl Report {
         assert!(
             self.at_finish.ok_persons_requests > self.at_end.ok_persons_requests,
             "no ok persons request counted after the fault"
+        );
+    }
+
+    /// No new login reaches Postgres, because PgBouncer keeps its server connections.
+    fn assert_server_connections_survive(&self) {
+        assert_eq!(
+            self.connect_attempts_during() + self.connect_attempts_after(),
+            0,
+            "PgBouncer opened new server connections"
+        );
+    }
+
+    /// Logins at Postgres stay within twice PgBouncer's server connections, whatever the
+    /// request rate. Straight to Postgres, a slow-connect fault makes about 100.
+    fn assert_database_logins_bounded(&self) {
+        let limit = 2 * (POOLER_READ_POOL_SIZE + POOLER_WRITE_POOL_SIZE) as usize;
+        let logins = self.connect_attempts_during() + self.connect_attempts_after();
+        assert!(
+            logins <= limit,
+            "{logins} connect attempts reached Postgres, more than {limit}"
         );
     }
 
