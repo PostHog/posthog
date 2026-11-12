@@ -116,6 +116,10 @@ const counterHogflowRenderTimeout = new Counter({
     help: 'Workflow steps whose inputs ran out of render time, by outcome.',
     labelNames: ['outcome'],
 })
+// Exported at 0 from startup, so a failure before the pod's first scrape still counts.
+for (const outcome of ['retried', 'failed']) {
+    counterHogflowRenderTimeout.inc({ outcome }, 0)
+}
 
 const counterAwaitedStepResumedWithWarnings = new Counter({
     name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
