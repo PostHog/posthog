@@ -819,13 +819,16 @@ def _replay_vision_scope_message(scope: str) -> str:
     return f"The Replay Vision step needs a key with the {scope} scope."
 
 
-def _insight_alert_trigger_error(request: Request | None, team: Team, alert_ids: list[str]) -> str | None:
+def _insight_alert_trigger_error(
+    request: Request | None, acting_user: User | None, team: Team, alert_ids: list[str]
+) -> str | None:
     """Why the caller may not start a workflow from these insight alerts, or None.
 
     The firing event carries the alert's insight data, and a workflow runs without the person who
-    saved it, so saving checks what reading each alert checks.
+    saved it, so saving checks what reading each alert checks. `acting_user` names the person behind
+    a save that has no request, such as a Canvas action.
     """
-    user = getattr(request, "user", None)
+    user = getattr(request, "user", None) or acting_user
     return workflow_trigger_refusal(
         team=team,
         alert_ids=alert_ids,
@@ -2323,7 +2326,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                     # get_team is absent outside a request (internal re-saves), where no caller needs checking.
                     elif (get_team := self.context.get("get_team")) is not None and (
-                        alert_error := _insight_alert_trigger_error(self.context.get("request"), get_team(), alert_ids)
+                        alert_error := _insight_alert_trigger_error(
+                            self.context.get("request"), self.context.get("acting_user"), get_team(), alert_ids
+                        )
                     ):
                         raise serializers.ValidationError({"filters": alert_error})
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
@@ -4164,7 +4169,8 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     the serializer rather than behind the facade.
     """
     team = Team.objects.get(id=team_id)
-    user_access_control = UserAccessControl(user=User.objects.get(id=user_id), team=team)
+    user = User.objects.get(id=user_id)
+    user_access_control = UserAccessControl(user=user, team=team)
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
@@ -4176,7 +4182,7 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
                 hog_flow,
                 data={"status": target},
                 partial=True,
-                context={"team_id": team_id, "get_team": lambda: team},
+                context={"team_id": team_id, "get_team": lambda: team, "acting_user": user},
             )
             serializer.is_valid(raise_exception=True)
             validated_data = dict(serializer.validated_data)
