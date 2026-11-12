@@ -39,7 +39,7 @@ from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ScopedCapture, ph_scoped_capture
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -391,19 +391,20 @@ def clamp_targets_to_plan_floor() -> int:
     """
     candidates = _user_set_targets_finer_than(MAX_PLAN_REFRESH_FLOOR)
     clamped = 0
-    for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
-        try:
-            dags = _dags_with_targets_finer_than_plan_floor(organization)
-        except Exception as error:
-            logger.exception("Plan floor clamp failed", organization_id=str(organization.id))
-            capture_exception(error)
-            continue
-        for dag in dags:
+    with ph_scoped_capture() as capture:
+        for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
             try:
-                clamped += _clamp_dag_targets_to_plan_floor(dag)
+                dags = _dags_with_targets_finer_than_plan_floor(organization)
             except Exception as error:
-                logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
+                logger.exception("Plan floor clamp failed", organization_id=str(organization.id))
                 capture_exception(error)
+                continue
+            for dag in dags:
+                try:
+                    clamped += _clamp_dag_targets_to_plan_floor(dag, capture)
+                except Exception as error:
+                    logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
+                    capture_exception(error)
     return clamped
 
 
@@ -426,7 +427,7 @@ def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
     )
 
 
-def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
+def _clamp_dag_targets_to_plan_floor(dag: DAG, capture: ScopedCapture) -> int:
     graph = build_frequency_graph(dag)
     floor = graph.plan_floor
     if floor is None:
@@ -462,19 +463,17 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             set_declared_target(node, floor)
             rewritten.append((node, previous))
         maybe_reconcile_dag(dag)
-    if rewritten:
-        with ph_scoped_capture() as capture:
-            for node, previous in rewritten:
-                capture(
-                    distinct_id=str(dag.team.uuid),
-                    event=PLAN_FLOOR_CLAMP_EVENT,
-                    properties={
-                        "saved_query_id": str(node.saved_query_id),
-                        "previous_cadence": format_cadence(previous),
-                        "plan_floor": format_cadence(floor),
-                    },
-                    groups=groups(team=dag.team),
-                )
+    for node, previous in rewritten:
+        capture(
+            distinct_id=str(dag.team.uuid),
+            event=PLAN_FLOOR_CLAMP_EVENT,
+            properties={
+                "saved_query_id": str(node.saved_query_id),
+                "previous_cadence": format_cadence(previous),
+                "plan_floor": format_cadence(floor),
+            },
+            groups=groups(team=dag.team),
+        )
     return len(rewritten)
 
 
