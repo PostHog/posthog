@@ -1,5 +1,5 @@
-import { createWorker } from 'lib/utils/createWorker'
 import { parseSelect } from 'lib/monaco/hogqlParser'
+import { createWorker } from 'lib/utils/createWorker'
 
 import {
     type AstRange,

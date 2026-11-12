@@ -61,18 +61,22 @@ const TILE_ROW_FALLBACK = 'h-24'
 function LazyQueryNode({
     fallbackClassName,
     children,
+    hideLoadingIndicator,
 }: {
     fallbackClassName: string
     children: ReactNode
+    hideLoadingIndicator?: boolean
 }): JSX.Element {
     return (
         <ChunkLoadErrorBoundary>
             {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
             <Suspense
                 fallback={
-                    <div className={`flex w-full items-center justify-center ${fallbackClassName}`}>
-                        <Spinner className="text-3xl" />
-                    </div>
+                    hideLoadingIndicator ? null : (
+                        <div className={`flex w-full items-center justify-center ${fallbackClassName}`}>
+                            <Spinner className="text-3xl" />
+                        </div>
+                    )
                 }
             >
                 {children}
@@ -169,7 +173,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isDataVisualizationNode(query)) {
         component = (
-            <LazyQueryNode fallbackClassName={CHART_FALLBACK}>
+            <LazyQueryNode
+                fallbackClassName={CHART_FALLBACK}
+                hideLoadingIndicator={queryContext.externalLoadingIndicator}
+            >
                 <DataVisualizationRenderer.Component
                     attachTo={props.attachTo}
                     query={query}

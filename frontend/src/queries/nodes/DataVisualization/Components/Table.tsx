@@ -551,7 +551,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 dataSource={tableRows}
                 columns={tableColumns}
                 pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
-                loading={responseLoading}
+                loading={responseLoading && !props.context?.externalLoadingIndicator}
                 useURLForSorting={false}
                 onSort={(newSorting) => {
                     if (newSorting) {

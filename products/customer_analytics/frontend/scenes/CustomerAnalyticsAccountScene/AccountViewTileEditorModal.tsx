@@ -32,6 +32,7 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                 }
             }}
             title="Edit tile"
+            width={definition?.configEditorWidth}
             footer={
                 <>
                     <LemonButton

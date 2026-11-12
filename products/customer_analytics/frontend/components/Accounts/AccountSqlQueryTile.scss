@@ -1,0 +1,28 @@
+.AccountSqlQueryTile {
+    width: 100%;
+    min-width: 0;
+
+    > .DataVisualization {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    &--chart > .DataVisualization:not(:has(.DataVisualizationTable)) {
+        overflow: hidden;
+    }
+
+    > .DataVisualization:has(.DataVisualizationTable) {
+        overflow: visible;
+    }
+
+    &--table {
+        > .DataVisualization {
+            overflow: visible;
+        }
+
+        .LemonTable {
+            width: 100%;
+            margin-inline: 0;
+        }
+    }
+}

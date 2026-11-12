@@ -239,10 +239,12 @@ def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
     return _dot_matrix_key_list_errors(config.get("selectedSeries", []), "series keys") or _dot_matrix_key_list_errors(
         config.get("metricIds", []), "metric IDs"
     )
+
+
 def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
-    if set(config) != {"query"}:
-        return ["SQL query config must contain only a query."]
-    query = config["query"]
+    if not set(config) <= {"query", "visualization"}:
+        return ["SQL query config must contain only a query and optional visualization settings."]
+    query = config.get("query")
     if not isinstance(query, str) or not query.strip():
         return ["SQL query config needs a query."]
     try:
@@ -255,6 +257,24 @@ def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
         AccountSqlQueryScopeValidator(aliases.aliases).visit(select)
     except InvalidAccountViewContent as error:
         return error.errors
+    if "visualization" in config:
+        from pydantic import ValidationError
+
+        from posthog.schema import DataVisualizationNode
+
+        visualization = config["visualization"]
+        if not isinstance(visualization, dict) or not set(visualization) <= {
+            "display",
+            "chartSettings",
+            "tableSettings",
+        }:
+            return ["SQL visualization settings are invalid."]
+        try:
+            DataVisualizationNode.model_validate(
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": query}, **visualization}
+            )
+        except ValidationError:
+            return ["SQL visualization settings are invalid."]
     return []
 
 

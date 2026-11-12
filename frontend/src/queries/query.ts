@@ -444,9 +444,7 @@ export interface QueryRequestOptions extends ApiMethodOptions {
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
     queryNode: N,
-    options?:
- QueryRequestOptions
-,
+    options?: QueryRequestOptions,
     refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,

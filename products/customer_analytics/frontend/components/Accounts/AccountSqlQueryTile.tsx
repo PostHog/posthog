@@ -1,10 +1,16 @@
+import './AccountSqlQueryTile.scss'
+
+import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
-import { ACCOUNT_SQL_QUERY_PLACEHOLDER, getAccountSqlQuery } from './accountSqlQuery'
+import { ACCOUNT_SQL_QUERY_PLACEHOLDER, createAccountSqlVisualizationNode, getAccountSqlQuery } from './accountSqlQuery'
 import { accountSqlQueryLogic } from './accountSqlQueryLogic'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
@@ -13,6 +19,8 @@ interface AccountSqlQueryTileProps {
     externalId: string
     instanceId?: string
     initialConfig?: AccountViewTileConfig
+    onVisualizationChange?: (query: DataVisualizationNode) => void
+    onLoadingChange?: (loading: boolean) => void
 }
 
 export function AccountSqlQueryTile({
@@ -20,11 +28,27 @@ export function AccountSqlQueryTile({
     externalId,
     instanceId,
     initialConfig,
+    onVisualizationChange,
+    onLoadingChange,
 }: AccountSqlQueryTileProps): JSX.Element {
+    const [resultLoading, setResultLoading] = useState(true)
     const query = getAccountSqlQuery(initialConfig)
     const { queryNode: node, queryNodeLoading } = useValues(
         accountSqlQueryLogic({ accountId, externalId, instanceId, query })
     )
+    const visualization = useMemo(
+        () =>
+            node && node.source.kind === NodeKind.HogQLQuery && (initialConfig?.visualization || onVisualizationChange)
+                ? createAccountSqlVisualizationNode(node.source, initialConfig)
+                : null,
+        [node, initialConfig, onVisualizationChange]
+    )
+    const isSavedChart =
+        !!visualization && visualization.display !== ChartDisplayType.ActionsTable && !onVisualizationChange
+    useEffect(() => {
+        onLoadingChange?.(queryNodeLoading || (!!node && resultLoading))
+    }, [onLoadingChange, queryNodeLoading, node, resultLoading])
+    useEffect(() => () => onLoadingChange?.(false), [onLoadingChange])
     if (!query.trim()) {
         return (
             <p className="m-0 pb-2 text-sm text-secondary">
@@ -34,7 +58,7 @@ export function AccountSqlQueryTile({
         )
     }
     if (queryNodeLoading) {
-        return <Spinner />
+        return onLoadingChange ? <></> : <Spinner />
     }
     if (!node) {
         return (
@@ -46,14 +70,35 @@ export function AccountSqlQueryTile({
         )
     }
     return (
-        <Query
-            query={node}
-            context={{
-                dataTableCaptureQueryTelemetry: false,
-                insightProps: { dashboardItemId: `new-account-sql-query-${instanceId ?? 'tile'}-${externalId}` },
-            }}
-            readOnly
-            embedded
-        />
+        <div
+            className={clsx('AccountSqlQueryTile', {
+                'AccountSqlQueryTile--chart flex h-80 flex-col has-[.DataVisualizationTable]:h-auto': isSavedChart,
+                'AccountSqlQueryTile--table': !onVisualizationChange && !isSavedChart,
+            })}
+        >
+            <Query
+                uniqueKey={`SQLEditor-account-sql-${accountId}-${externalId}-${instanceId ?? 'tile'}`}
+                query={visualization ?? node}
+                setQuery={
+                    onVisualizationChange
+                        ? (updated) => {
+                              if (updated.kind === NodeKind.DataVisualizationNode) {
+                                  onVisualizationChange(updated)
+                              }
+                          }
+                        : undefined
+                }
+                context={{
+                    onLoadingChange: onLoadingChange ? setResultLoading : undefined,
+                    externalLoadingIndicator: !!onLoadingChange,
+                    dataTableCaptureQueryTelemetry: false,
+                    insightProps: {
+                        dashboardItemId: `new-SQLEditor-account-sql-query-${accountId}-${instanceId ?? 'tile'}-${externalId}`,
+                    },
+                }}
+                readOnly={!onVisualizationChange}
+                embedded={!onVisualizationChange}
+            />
+        </div>
     )
 }

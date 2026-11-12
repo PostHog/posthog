@@ -1,9 +1,10 @@
 import { parseSelectAst } from 'lib/monaco/hogqlParser'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { getTileString, type AccountViewTileConfig } from './accountViewTileConfig'
+import { getTileRecord, getTileString, type AccountViewTileConfig } from './accountViewTileConfig'
 
 // pinned: saved tile queries reference this placeholder name.
 export const ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME = 'account_external_id'
@@ -66,6 +67,34 @@ export function getAccountSqlQuery(config: AccountViewTileConfig | undefined): s
     return getTileString(config, 'query')
 }
 
+export function getAccountSqlVisualizationConfig(query: DataVisualizationNode): AccountViewTileConfig {
+    return {
+        display: query.display ?? ChartDisplayType.ActionsTable,
+        ...(query.chartSettings ? { chartSettings: query.chartSettings } : {}),
+        ...(query.tableSettings ? { tableSettings: query.tableSettings } : {}),
+    }
+}
+
+export function createAccountSqlVisualizationNode(
+    source: HogQLQuery,
+    config: AccountViewTileConfig | undefined
+): DataVisualizationNode {
+    const visualization = getTileRecord(config, 'visualization') ?? {}
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source,
+        display: Object.values(ChartDisplayType).includes(visualization.display as ChartDisplayType)
+            ? (visualization.display as ChartDisplayType)
+            : ChartDisplayType.ActionsTable,
+        ...(getTileRecord(visualization, 'chartSettings')
+            ? { chartSettings: visualization.chartSettings as DataVisualizationNode['chartSettings'] }
+            : {}),
+        ...(getTileRecord(visualization, 'tableSettings')
+            ? { tableSettings: visualization.tableSettings as DataVisualizationNode['tableSettings'] }
+            : {}),
+    }
+}
+
 export function getAccountSqlQueryConfigError(config: AccountViewTileConfig): string | undefined {
     const query = getAccountSqlQuery(config)
     if (!query.trim()) {
@@ -100,5 +129,6 @@ export async function createAccountSqlQueryNode(query: string, externalId: strin
         },
         showTimings: false,
         showOpenEditorButton: false,
+        embedded: true,
     }
 }

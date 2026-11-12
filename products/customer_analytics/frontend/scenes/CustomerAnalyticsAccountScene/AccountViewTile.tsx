@@ -2,8 +2,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDialog, LemonMenu, type LemonMenuItems } from '@posthog/lemon-ui'
+
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 
 import { AccountViewComponent } from '../../components/Accounts/AccountViewComponent'
 import { getAccountViewComponentByKind } from '../../components/Accounts/accountViewComponents'
@@ -34,13 +38,23 @@ export function AccountViewTile({
     spanClassName,
 }: AccountViewTileProps): JSX.Element {
     const [headerActionsTarget, setHeaderActionsTarget] = useState<HTMLDivElement | null>(null)
+    const [widgetLoading, setWidgetLoading] = useState(false)
     const logic = accountViewsLogic({ projectId })
     const { tileSaving } = useValues(logic)
-    const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
+    const { openTileEditor, removeViewComponent, duplicateViewComponent, updateViewComponentConfig } = useActions(logic)
     const definition = getAccountViewComponentByKind(component.kind)
     const title = component.title ?? definition?.label ?? component.kind
     const insetClassName = definition?.tileInsetClassName ?? 'px-2'
     const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
+
+    const editTile = (): void => {
+        openTileEditor(
+            view.id,
+            component.nodeId,
+            title,
+            definition?.ConfigEditor ? { kind: component.kind, config: component.config ?? {}, accountId } : undefined
+        )
+    }
 
     const confirmRemove = (): void => {
         LemonDialog.open({
@@ -61,17 +75,19 @@ export function AccountViewTile({
                 {
                     label: 'Edit',
                     icon: <IconPencil />,
-                    onClick: () =>
-                        openTileEditor(
-                            view.id,
-                            component.nodeId,
-                            title,
-                            definition?.ConfigEditor
-                                ? { kind: component.kind, config: component.config ?? {}, accountId }
-                                : undefined
-                        ),
+                    onClick: editTile,
                     disabledReason: menuDisabledReason,
                 },
+                ...(definition?.canDuplicate
+                    ? [
+                          {
+                              label: 'Duplicate',
+                              icon: <IconCopy />,
+                              onClick: () => duplicateViewComponent(view.id, component.nodeId),
+                              disabledReason: menuDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Remove from view',
                     icon: <IconTrash />,
@@ -87,8 +103,26 @@ export function AccountViewTile({
     return (
         <accountViewTileHeaderContext.Provider value={headerActionsTarget}>
             <LemonCard hoverEffect={false} className={`col-span-12 min-w-0 overflow-hidden p-0 ${spanClassName}`}>
-                <div className={clsx('flex items-center gap-2 border-b py-1', insetClassName)}>
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary">{title}</span>
+                <div className={clsx('relative flex items-center gap-2 border-b py-1', insetClassName)}>
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-secondary">
+                        <span className="truncate">{title}</span>
+                        {widgetLoading ? (
+                            <span className="inline-flex shrink-0 items-center text-accent" role="status">
+                                <Spinner className="mr-1.5 text-base" textColored />
+                                Loading
+                            </span>
+                        ) : null}
+                    </span>
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconPencil />}
+                        onClick={editTile}
+                        disabledReason={menuDisabledReason}
+                        tooltip="Edit tile"
+                        aria-label="Edit tile"
+                        data-attr="account-view-tile-edit"
+                    />
                     <div ref={setHeaderActionsTarget} className="flex shrink-0 items-center gap-2" />
                     <LemonMenu items={items}>
                         <LemonButton
@@ -101,9 +135,10 @@ export function AccountViewTile({
                             data-attr="account-view-tile-actions"
                         />
                     </LemonMenu>
+                    <LemonTableLoader loading={widgetLoading} />
                 </div>
                 <div
-                    className={clsx(
+                    className={cn(
                         'min-w-0 pt-2 pb-0',
                         definition?.tileContentClassName ?? [
                             insetClassName,
@@ -118,6 +153,7 @@ export function AccountViewTile({
                         externalId={externalId}
                         instanceId={instanceId}
                         initialConfig={component.config}
+                        onLoadingChange={setWidgetLoading}
                         onConfigChange={
                             view.can_edit
                                 ? (config) => updateViewComponentConfig(view.id, component.nodeId, config)

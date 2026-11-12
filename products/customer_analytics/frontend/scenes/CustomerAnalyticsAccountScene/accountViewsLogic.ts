@@ -106,6 +106,13 @@ export interface accountViewsLogicActions {
     duplicateEditorComponent: (nodeId: string) => {
         nodeId: string
     }
+    duplicateViewComponent: (
+        viewId: string,
+        nodeId: string
+    ) => {
+        nodeId: string
+        viewId: string
+    }
     loadConfig: () => {
         value: true
     }
@@ -342,6 +349,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         setTileEditorName: (name: string) => ({ name }),
         saveTileEditor: true,
         removeViewComponent: (viewId: string, nodeId: string) => ({ viewId, nodeId }),
+        duplicateViewComponent: (viewId: string, nodeId: string) => ({ viewId, nodeId }),
         updateViewComponentConfig: (viewId: string, nodeId: string, config: AccountViewTileConfig) => ({
             viewId,
             nodeId,
@@ -544,6 +552,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             {
                 saveTileEditor: () => true,
                 removeViewComponent: () => true,
+                duplicateViewComponent: () => true,
                 saveEditorSuccess: () => false,
                 saveViewComponentFailure: () => false,
             },
@@ -814,6 +823,44 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 actions.saveConfigFailure()
                 lemonToast.error("Couldn't save the tab settings. Try again.")
             }
+        },
+        duplicateViewComponent: async ({ viewId, nodeId }) => {
+            await queueViewWrite(cache, viewId, async () => {
+                const view = values.views.find((candidate) => candidate.id === viewId)
+                const components = view ? parseAccountViewContent(view.content) : []
+                const index = components.findIndex((component) => component.nodeId === nodeId)
+                const source = components[index]
+                const definition = source ? getAccountViewComponentByKind(source.kind) : undefined
+                if (!view?.can_edit || !source || !definition?.canDuplicate) {
+                    posthog.capture(AccountsEvents.AccountViewTileDuplicationFailed, { failure_type: 'validation' })
+                    actions.saveViewComponentFailure()
+                    return
+                }
+                posthog.capture(AccountsEvents.AccountViewTileDuplicationStarted)
+                const duplicate = {
+                    ...structuredClone(source),
+                    nodeId: createAccountViewComponentInstance(source.kind).nodeId,
+                    title: `${(source.title ?? definition.label).slice(0, 393)} (copy)`,
+                }
+                const updatedComponents = [...components.slice(0, index + 1), duplicate, ...components.slice(index + 1)]
+                try {
+                    const updatedView = await updateAccountViewComponents(props.projectId, view, updatedComponents)
+                    posthog.capture(AccountsEvents.AccountViewTileDuplicated, {
+                        component_count: updatedComponents.length,
+                    })
+                    actions.saveEditorSuccess(updatedView)
+                } catch (error) {
+                    const failureType = getAccountViewFailureType(error)
+                    posthog.capture(AccountsEvents.AccountViewTileDuplicationFailed, { failure_type: failureType })
+                    lemonToast.error(
+                        failureType === 'conflict'
+                            ? 'This view changed. Refresh and try again.'
+                            : "Couldn't duplicate the tile. Try again."
+                    )
+                    actions.saveViewComponentFailure()
+                    actions.loadViews()
+                }
+            })
         },
         removeViewComponent: async ({ viewId, nodeId }) => {
             await queueViewWrite(cache, viewId, async () => {
