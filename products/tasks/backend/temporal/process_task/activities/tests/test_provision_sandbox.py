@@ -35,7 +35,10 @@ from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
-from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY,
+    TaskProcessingContext,
+)
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
@@ -1195,11 +1198,13 @@ def _create_and_record_agent_version(
     context: TaskProcessingContext | None = None,
     prepared: PrepareSandboxForRepositoryOutput | None = None,
     snapshot_restored: bool = False,
-) -> tuple[MagicMock, list[dict[str, str]]]:
+    extra_state: dict[str, str] | None = None,
+    image_fallback: str | None = None,
+) -> tuple[MagicMock, list[dict[str, str]], CreateSandboxForRepositoryOutput]:
     context = context or _context_for_desktop_bootstrap()
-    context.state = {"await_user_message": True}
+    context.state = {"await_user_message": True, **(extra_state or {})}
     sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.config.image_fallback = None
+    sandbox.config.image_fallback = image_fallback
     sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
     sandbox.start_cpu_billing_sampler.return_value = True
@@ -1238,7 +1243,7 @@ def _create_and_record_agent_version(
         for call in warning.call_args_list
         if call.args[0] == "Sandbox agent version differs from the pinned version"
     ]
-    return update_state, mismatch_extras
+    return update_state, mismatch_extras, result
 
 
 @pytest.mark.parametrize(
@@ -1279,7 +1284,7 @@ def test_create_sandbox_records_installed_agent_version(
     remove_keys: list[str],
     warns: bool,
 ) -> None:
-    update_state, mismatch_extras = _create_and_record_agent_version(mocker, manifest_result, pinned)
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(mocker, manifest_result, pinned)
 
     update_state.assert_called_once_with("run-id", updates=updates, remove_keys=remove_keys)
     expected_extras = (
@@ -1315,7 +1320,7 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
             used_snapshot=True,
         )
 
-    update_state, mismatch_extras = _create_and_record_agent_version(
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(
         mocker, _MANIFEST_1_2_3, "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
     )
 
@@ -1329,6 +1334,39 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
             "run-id", updates={"agent_version": "1.2.3"}, remove_keys=["agent_version_expected"]
         )
         assert mismatch_extras == []
+
+
+@pytest.mark.parametrize(
+    ("extra_state", "image_fallback", "expected_reason"),
+    [
+        ({"custom_image_id": "image-id"}, None, None),
+        ({"custom_image_id": "image-id"}, "custom image custom:latest unavailable -> base image", "boot_failed"),
+        (
+            {"custom_image_id": "image-id"},
+            "custom image custom:latest with local package overlay -> custom image custom:latest",
+            None,
+        ),
+        ({}, "custom image custom:latest unavailable -> base image", None),
+    ],
+    ids=["custom_image_booted", "base_image_booted", "overlay_dropped", "environment_image_fell_back"],
+)
+def test_create_records_a_per_run_custom_image_boot_fallback(
+    mocker, extra_state: dict[str, str], image_fallback: str | None, expected_reason: str | None
+) -> None:
+    context = _context_for_desktop_bootstrap(image_name="custom:latest")
+    context.use_modal_vm_sandbox = True
+
+    update_state, _, result = _create_and_record_agent_version(
+        mocker, _MANIFEST_1_2_3, "1.2.3", context=context, extra_state=extra_state, image_fallback=image_fallback
+    )
+
+    reason_writes = [
+        call.kwargs["updates"]
+        for call in update_state.call_args_list
+        if CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY in call.kwargs.get("updates", {})
+    ]
+    assert reason_writes == ([{CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: expected_reason}] if expected_reason else [])
+    assert result.custom_image_fallback_reason == expected_reason
 
 
 def test_create_reads_the_sandbox_template_from_the_run_context(mocker):

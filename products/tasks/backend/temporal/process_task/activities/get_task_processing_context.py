@@ -422,6 +422,7 @@ class TaskProcessingContext:
 
 
 PR_LOOP_FEATURE_FLAG = "tasks-pr-loop"
+CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY = "custom_image_fallback_reason"
 
 RUN_FEATURE_FLAG_KEYS: list[str] = [
     PR_LOOP_FEATURE_FLAG,
@@ -1008,7 +1009,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         "warn",
                         f"Custom image '{custom_image.name}' is private to its creator; using the default base image",
                     )
-                elif custom_image.is_ready:
+                elif custom_image.has_usable_build:
                     environment_custom_image_name = custom_image.modal_image_name
                 else:
                     emit_agent_log(
@@ -1038,14 +1039,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
+    custom_image_fallback_reason: str | None = None
     if state_custom_image_id:
         with StepTimer("load_custom_image"):
             state_custom_image = SandboxCustomImage.get_accessible_for_task(
                 image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
             )
-        if state_custom_image is not None and state_custom_image.is_ready:
+        if state_custom_image is not None and state_custom_image.has_usable_build:
             environment_custom_image_name = state_custom_image.modal_image_name
         else:
+            custom_image_fallback_reason = "unavailable" if state_custom_image is None else "not_ready"
             emit_agent_log(
                 run_id,
                 "warn",
@@ -1188,6 +1191,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             custom_image_name = environment_custom_image_name
             log_with_activity_context(f"Using custom base image: {custom_image_name}", run_id=run_id)
         else:
+            if state_custom_image_id and custom_image_fallback_reason is None:
+                custom_image_fallback_reason = "runtime_not_enabled"
             emit_agent_log(
                 run_id,
                 "warn",
@@ -1202,6 +1207,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         log_with_activity_context(
             f"Using the organization's default custom base image: {custom_image_name}", run_id=run_id
         )
+    if (
+        input.launches_agent
+        and input.resumed_sandbox_id is None
+        and (custom_image_fallback_reason is not None or CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY in state)
+    ):
+        try:
+            if custom_image_fallback_reason is None:
+                state.pop(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+                TaskRun.update_state_atomic(task_run.id, remove_keys=[CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY])
+            else:
+                state[CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY] = custom_image_fallback_reason
+                TaskRun.update_state_atomic(
+                    task_run.id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+        except Exception as e:
+            log_with_activity_context("custom_image_fallback_reason_stamp_failed", run_id=run_id, error=str(e))
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,

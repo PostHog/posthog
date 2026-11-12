@@ -1750,6 +1750,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "repository": self.context.repository,
                 "boot_path": sandbox_output.boot_path,
                 "image_source": sandbox_output.image_source,
+                "custom_image_id": None
+                if (self.context.state or {}).get("custom_image_fallback_reason")
+                or sandbox_output.custom_image_fallback_reason
+                else (self.context.state or {}).get("custom_image_id"),
                 "boot_total_ms": agent_server_output.boot_total_ms,
                 "sandbox_create_ms": sandbox_output.create_ms,
                 "repo_clone_ms": sandbox_output.clone_ms,
@@ -2229,6 +2233,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             agent_invoke_ms=agent_invoke_ms,
             dev_stack_preview_sized=created.dev_stack_preview_sized,
             agent_shadow_launched=self._agent_shadow_launched,
+            custom_image_fallback_reason=created.custom_image_fallback_reason,
         )
 
     async def _run_sandbox_creation_activity(

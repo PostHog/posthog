@@ -182,6 +182,7 @@ class CustomPromptSandboxContext:
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
     ``docs-search`` from a non-PostHog support draft."""
+    custom_image_id: str | None = None
 
 
 class TurnPollTimeout(RuntimeError):
@@ -376,6 +377,8 @@ async def _create_task_and_trigger(
         extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
+    if context.custom_image_id is not None:
+        extra_run_state["custom_image_id"] = context.custom_image_id
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:

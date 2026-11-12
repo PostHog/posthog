@@ -4584,6 +4584,14 @@ class SandboxCustomImage(TeamScopedRootMixin):
     def is_ready(self) -> bool:
         return self.status == self.Status.READY and bool(self.modal_image_name)
 
+    @property
+    def has_usable_build(self) -> bool:
+        return bool(self.modal_image_name) and self.status in (
+            self.Status.READY,
+            self.Status.SCANNING,
+            self.Status.BUILDING,
+        )
+
     def is_accessible_to_user(self, user_id: int | None) -> bool:
         if not self.private:
             return True
