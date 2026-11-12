@@ -1662,9 +1662,15 @@ export class EmailService {
             { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
             preferencesTokenSourceForInvocation(invocation)
         )
+        const htmlUrl = escapeHtml(url)
+        if (filledLength(params.html, htmlUrl) + filledLength(params.text, url) > SES_MAX_MESSAGE_LENGTH) {
+            throw new Error(
+                'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
+            )
+        }
         return {
             ...params,
-            html: params.html && replaceUnsubscribePlaceholder(params.html, escapeHtml(url)),
+            html: params.html && replaceUnsubscribePlaceholder(params.html, htmlUrl),
             text: params.text && replaceUnsubscribePlaceholder(params.text, url),
         }
     }
@@ -1719,6 +1725,16 @@ export class EmailService {
             },
         ]
     }
+}
+
+const SES_MAX_MESSAGE_LENGTH = 40 * 1024 * 1024
+
+const filledLength = (body: string | undefined, url: string): number => {
+    let length = body?.length ?? 0
+    for (const placeholder of body?.matchAll(UNSUBSCRIBE_PLACEHOLDER) ?? []) {
+        length += url.length - placeholder[0].length
+    }
+    return length
 }
 
 const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
