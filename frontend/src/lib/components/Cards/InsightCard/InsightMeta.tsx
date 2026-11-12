@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useMemo, useState } from 'react'
 
-import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -73,8 +73,6 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
-import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -229,7 +227,6 @@ function InsightMetaBody({
         })
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
-    const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
@@ -258,20 +255,6 @@ function InsightMetaBody({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
-    const showsDataRetentionWarning =
-        retentionApplies &&
-        placement !== DashboardPlacement.Public &&
-        placement !== DashboardPlacement.Export &&
-        exceedsRetention({
-            query: insight.query,
-            dateFromOverride: dateOverride.dateFromOverride,
-            resolvedDateFrom: insightData?.resolved_date_range?.date_from,
-            retentionMonths,
-        })
-    const dataRetentionWarning =
-        showsDataRetentionWarning && retentionPeriodLabel
-            ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
-            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -647,7 +630,6 @@ function InsightMetaBody({
         tags: insight.tags,
         compact: showCompactTile,
         showDescription: tile?.show_description !== false,
-        dataRetentionWarning,
         queryScanTooltip,
         warehouseSyncTooltip,
         queryScanActionable: queryScanHasActionableFinding(scanFindings),
@@ -812,7 +794,6 @@ export interface InsightMetaContentProps {
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
-    dataRetentionWarning?: string | null
     queryScanTooltip?: JSX.Element | null
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
@@ -830,16 +811,10 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
-    dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
 }: InsightMetaContentProps): JSX.Element {
-    const dataRetentionIndicator = dataRetentionWarning ? (
-        <Tooltip title={dataRetentionWarning}>
-            <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
-        </Tooltip>
-    ) : null
     const queryScanIndicator = queryScanTooltip ? (
         <Tooltip title={queryScanTooltip}>
             {queryScanActionable ? (
@@ -861,7 +836,7 @@ export function InsightMetaContent({
             </LemonTag>
         </Tooltip>
     ) : null
-    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
+    const hasTitleIndicator = !!(infoPopover || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
             <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
@@ -889,7 +864,6 @@ export function InsightMetaContent({
             ) : (
                 titleContent
             )}
-            {dataRetentionIndicator}
             {queryScanIndicator}
             {warehouseSyncIndicator}
             {infoPopover}
