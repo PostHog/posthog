@@ -44,7 +44,6 @@ _ENTITY = re.compile(r"&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _ARGUMENT = re.compile(r"""\[[^\]]*\]|"[^"]*"|'[^']*'|\S+""")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
-_ELSE_TOKEN = re.compile(r"\{\{~?-?\s*(?:else|\^)(?:\s+[^{}]*?)?\s*~?-?\}\}")
 
 Engine = Literal["handlebars", "go"]
 
@@ -210,6 +209,8 @@ class _Converter:
         self.go_value_in_tag = False
         # Per open block: the tag state where it opened, and where each earlier branch ended.
         self.tag_branches: list[tuple[tuple[bool, str], list[tuple[bool, str]]]] = []
+        # Set by the token just read when it started another branch of the open block.
+        self.took_branch = False
 
     def convert(self) -> ConvertedText:
         try:
@@ -229,8 +230,9 @@ class _Converter:
             pieces.append(before)
             self._track_tag(before)
             depth = len(self.blocks)
+            self.took_branch = False
             kept.append(self._read_token(match))
-            self._track_branches(match.group(0), depth)
+            self._track_branches(depth)
             size += len(before) + len(kept[-1][0])
             if size > _MAX_OUTPUT_CHARS:
                 raise _TooLarge
@@ -272,7 +274,7 @@ class _Converter:
             elif character == ">":
                 self.in_tag = False
 
-    def _track_branches(self, token: str, depth: int) -> None:
+    def _track_branches(self, depth: int) -> None:
         """Only one branch of an if/else renders, so after the block a value is inside a tag if any branch left one
         open."""
         if len(self.blocks) > depth:
@@ -281,7 +283,7 @@ class _Converter:
             _, ended = self.tag_branches.pop()
             states = [*ended, (self.in_tag, self.tag_quote)]
             self.in_tag, self.tag_quote = next((state for state in states if state[0]), states[-1])
-        elif _ELSE_TOKEN.fullmatch(token) and self.tag_branches:
+        elif self.took_branch and self.tag_branches:
             opened, ended = self.tag_branches[-1]
             ended.append((self.in_tag, self.tag_quote))
             self.in_tag, self.tag_quote = opened
@@ -446,6 +448,7 @@ class _Converter:
                 self.loop_depth -= 1
             self.frames.pop()
             self.blocks[-1] = _Block(closer=block.closer, pops_frame=False, saved_go_variables=block.saved_go_variables)
+        self.took_branch = True
         return "{% else %}"
 
     def _else_if(self, token: str, source: str) -> str:
@@ -453,6 +456,7 @@ class _Converter:
             return self._unsupported(token)
         parts = _ARGUMENT.findall(source)
         if len(parts) == 2 and parts[0] == "if" and (path := self._value(parts[1])) is not None:
+            self.took_branch = True
             return f"{{% elsif {self._truthy(path)} %}}"
         return self._unsupported(token)
 
@@ -536,6 +540,7 @@ class _Converter:
             if rest.startswith("if ") and self.blocks and self.blocks[-1].closer == "if":
                 condition = self._go_condition(rest[3:].strip())
                 if condition is not None:
+                    self.took_branch = True
                     return f"{{% elsif {condition} %}}"
             return self._unsupported(token)
         if keyword in ("define", "block", "template", "break", "continue"):
