@@ -153,10 +153,6 @@ class TestAutoDisabledSchemaQueries(BaseTest):
         assert _close(timeouts.newest_at, self.now - timedelta(days=1))
         assert _close(timeouts.oldest_at, self.now - timedelta(days=5))
 
-
-def _close(actual: datetime, expected: datetime) -> bool:
-    return abs(actual - expected) < timedelta(seconds=1)
-
     @parameterized.expand(
         [
             ("turns_syncing_off", {"should_sync": False}, False),
@@ -182,3 +178,7 @@ def _close(actual: datetime, expected: datetime) -> bool:
         assert response.status_code == 200, response.content
         selection = select_auto_disabled_schemas_for_staff(AutoDisabledSchemaFilter(days=7))
         assert [row.name for row in selection.rows] == (["pg_timeout"] if still_listed else [])
+
+
+def _close(actual: datetime, expected: datetime) -> bool:
+    return abs(actual - expected) < timedelta(seconds=1)
