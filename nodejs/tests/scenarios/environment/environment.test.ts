@@ -1,6 +1,6 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
-import { once } from 'events'
+import { EventEmitter, once } from 'events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
@@ -1031,6 +1031,7 @@ describe('scenario environment', () => {
         let losesItsPort: Role | undefined
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
+        let exitGoesUnreported: Role | undefined
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
@@ -1079,6 +1080,19 @@ describe('scenario environment', () => {
             (Object.keys(ROLE_PORTS) as Role[]).filter(
                 (role) => existsSync(logOf(role)) && readFileSync(logOf(role), 'utf8').includes(STARTED_WHILE_HELD)
             )
+        const teardownOf = async (edgeUrl: string): Promise<{ edge: number | string; lock: string }> => ({
+            edge: await internalFetch(`${edgeUrl}/_health`).then(
+                (answer) => answer.status,
+                () => 'unreachable'
+            ),
+            lock: await holdRunLock(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')).then(
+                async (release) => {
+                    await release()
+                    return 'free'
+                },
+                (error: Error) => error.message
+            ),
+        })
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -1156,6 +1170,15 @@ describe('scenario environment', () => {
                     }
                 })
                 stubRolePids.add(role.pid!)
+                if (mode === exitGoesUnreported) {
+                    const unreported = Object.assign(new EventEmitter(), {
+                        pid: role.pid,
+                        exitCode: null,
+                        signalCode: null,
+                    })
+                    role.once('spawn', () => unreported.emit('spawn'))
+                    return unreported
+                }
                 return role
             }) as unknown as typeof childProcess.spawn)
             const guardedExecFile = jest.spyOn(childProcess, 'execFile').mockImplementation(((
@@ -1191,6 +1214,7 @@ describe('scenario environment', () => {
             losesItsPort = undefined
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
+            exitGoesUnreported = undefined
             if (cyclotronFromEnv === undefined) {
                 delete process.env.CYCLOTRON_NODE_DATABASE_URL
             } else {
@@ -1548,17 +1572,7 @@ describe('scenario environment', () => {
                 expect(failure).toContain(logOf(role))
                 const others = CdpRole.options.filter((other) => other !== role)
                 expect({
-                    edge: await internalFetch(`${edgeUrl}/_health`).then(
-                        (answer) => answer.status,
-                        () => 'unreachable'
-                    ),
-                    lock: await holdRunLock(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')).then(
-                        async (release) => {
-                            await release()
-                            return 'free'
-                        },
-                        (error: Error) => error.message
-                    ),
+                    ...(await teardownOf(edgeUrl)),
                     rolePortsHeld: (
                         await Promise.all(
                             others.map(async (other) => ((await isPortFree(ROLE_PORTS[other])) ? [] : [other]))
@@ -1568,6 +1582,24 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it('names a role whose exit never arrives after SIGKILL and still frees the edge and the state dir on down', async () => {
+            exitGoesUnreported = 'cdp-processed-events'
+            environment = environmentOf()
+            await environment.up()
+            const edgeUrl = environment.edgeUrl()
+
+            const failure = await environment.down().then(
+                () => null,
+                (error: Error) => error.message
+            )
+
+            expect({ failure, ...(await teardownOf(edgeUrl)) }).toEqual({
+                failure: expect.stringMatching(/^cdp-processed-events \(pid \d+\) did not exit after SIGKILL/),
+                edge: 'unreachable',
+                lock: 'free',
+            })
+        }, 20_000)
 
         it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
             environment = environmentOf()

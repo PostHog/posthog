@@ -254,10 +254,13 @@ export function createEnvironment({
     }
 
     async function stop(): Promise<void> {
-        await supervisor.stop()
-        await edge?.close()
-        edge = undefined
-        await releaseLock?.()
-        releaseLock = undefined
+        try {
+            await supervisor.stop()
+        } finally {
+            await edge?.close()
+            edge = undefined
+            await releaseLock?.()
+            releaseLock = undefined
+        }
     }
 }
