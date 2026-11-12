@@ -1,4 +1,7 @@
+from datetime import datetime, timedelta
 from typing import Any
+
+from django.utils import timezone
 
 import posthoganalytics
 from rest_framework import serializers
@@ -35,14 +38,29 @@ def require_email_status_read(team: Any) -> None:
         raise NotFound()
 
 
-def require_scheduled_sends(team: Any) -> None:
+def require_scheduled_sends(
+    team: Any,
+    refusal: str = "Scheduled sends aren't on for this project, so PostHog didn't send the email. Leave out "
+    "`scheduled_at` to send it now.",
+) -> None:
     if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
-        raise serializers.ValidationError(
-            {
-                "scheduled_at": "Scheduled sends aren't on for this project, so PostHog didn't send the email. Leave "
-                "out `scheduled_at` to send it now."
-            }
-        )
+        raise serializers.ValidationError({"scheduled_at": refusal})
+
+
+LEAD_TIME_BUCKETS = (
+    (timedelta(hours=1), "under_1h"),
+    (timedelta(days=1), "1h_to_24h"),
+    (timedelta(days=3), "1d_to_3d"),
+    (timedelta(days=7), "3d_to_7d"),
+    (timedelta(days=30), "7d_to_30d"),
+)
+
+
+def lead_time_bucket(scheduled_at: datetime | None) -> str:
+    lead_time = scheduled_at - timezone.now() if scheduled_at else timedelta(0)
+    if lead_time <= timedelta(0):
+        return "now"
+    return next((bucket for limit, bucket in LEAD_TIME_BUCKETS if lead_time <= limit), "over_30d")
 
 
 def email_from_code_enabled(team: Any) -> bool:

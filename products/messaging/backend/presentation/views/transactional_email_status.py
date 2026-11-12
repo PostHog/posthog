@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 
@@ -5,8 +7,9 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import exceptions, serializers, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ErrorDetail, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,10 +20,27 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 
-from products.messaging.backend.facade.transactional_email import EmailSendStatus, EmailStatus, get_email_status
+from products.messaging.backend.facade.transactional_email import (
+    AlreadySending,
+    DeliveryUnavailable,
+    EmailCanceled,
+    EmailNotFound,
+    EmailSendStatus,
+    EmailStatus,
+    RescheduleTooFar,
+    TransactionalEmailError,
+    cancel_email,
+    get_email_status,
+    reschedule_email,
+)
+from products.messaging.backend.presentation.views.code_send_fields import ScheduledAtField
+from products.messaging.backend.presentation.views.refusals import ExplainedRefusal
 from products.messaging.backend.presentation.views.transactional_email_access import (
+    TRANSACTIONAL_EMAIL_SEND_SCOPE,
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
+    lead_time_bucket,
     require_email_status_read,
+    require_scheduled_sends,
     transactional_email_authorized_by,
     transactional_email_read_throttles,
 )
@@ -56,19 +76,79 @@ class EmailStatusSerializer(serializers.Serializer):
     )
 
 
+class CanceledEmailSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The `message_id` of the canceled email.")
+    status = serializers.CharField(help_text="Always `canceled`.")
+
+
+class RescheduleEmailSerializer(serializers.Serializer):
+    scheduled_at = ScheduledAtField(
+        help_text="When to send the email instead, in ISO 8601 with a timezone offset, such as "
+        "`2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that "
+        "already passed sends it now."
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        unknown = [name for name in self.initial_data if name not in self.fields]
+        if unknown:
+            raise serializers.ValidationError(
+                {
+                    unknown[0]: ErrorDetail(
+                        "This route only moves an email, so it takes only `scheduled_at`. Send the email again to "
+                        "change anything else.",
+                        code="invalid_request",
+                    )
+                }
+            )
+        return attrs
+
+
+class RescheduledEmailSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The `message_id` of the moved email.")
+    status = serializers.CharField(
+        help_text="Always `scheduled`. An email moved to now keeps this status until it goes out."
+    )
+    scheduled_at = serializers.DateTimeField(
+        help_text="When the email goes out. For a time that already passed, this is the time of the move."
+    )
+
+
+MANAGE_ACTIONS = ("cancel", "partial_update")
+ALREADY_SENDING_RESPONSE = OpenApiResponse(
+    description="PostHog has started sending this email, so it can't change. `code` is `already_sending`."
+)
+MANAGE_NOT_FOUND_RESPONSE = OpenApiResponse(
+    description="No email of this project with this ID waits to go out: the ID is unknown, or the email went out a "
+    "while ago."
+)
+MANAGE_UNAVAILABLE_RESPONSE = OpenApiResponse(
+    description="The email pipeline didn't answer, so the email may not have changed. A retry is safe."
+)
+
+
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["retrieve"]
+    psak_allowed_actions = ["retrieve", *MANAGE_ACTIONS]
+
+    @property
+    def required_scopes(self) -> list[str]:
+        return [TRANSACTIONAL_EMAIL_SEND_SCOPE if self.action in MANAGE_ACTIONS else TRANSACTIONAL_EMAIL_STATUS_SCOPE]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # Only a project secret API key can read, and the email read buckets count those. Any other caller gets the
-        # default API throttles on its way to a 401.
+        # Only a project secret API key can call, and the email read buckets count those. A cancel counts there and
+        # not against the send budget, so a caller that sent up to its limit can still stop what it sent. Any other
+        # caller gets the default API throttles on its way to a 401.
         if not is_authenticated_via_project_secret_api_key(self.request):
             return super().get_throttles()
         return transactional_email_read_throttles()
+
+    def handle_exception(self, exc: Exception) -> Response:
+        response = super().handle_exception(exc)
+        if isinstance(exc, ExplainedRefusal):
+            exc.explain(response)
+        return response
 
     @extend_schema(
         parameters=[MESSAGE_ID_PARAMETER],
@@ -90,10 +170,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ),
     )
     def retrieve(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
-        # The routing mixin adds session and personal API key authentication to every route. A status is read by the
-        # server that sent the email, so only its project secret API key can read it.
-        if not is_authenticated_via_project_secret_api_key(request):
-            raise exceptions.NotAuthenticated()
+        _require_project_secret_api_key(request)
         require_email_status_read(self.team)
         email_status = self._email_status(pk)
         self._report_status_read(request, email_status)
@@ -108,7 +185,134 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return None
         return get_email_status(self.team_id, message_id)
 
+    @extend_schema(
+        request=None,
+        parameters=[MESSAGE_ID_PARAMETER],
+        responses={
+            200: CanceledEmailSerializer,
+            401: OpenApiResponse(description="The request has no project secret API key."),
+            404: MANAGE_NOT_FOUND_RESPONSE,
+            409: ALREADY_SENDING_RESPONSE,
+            503: MANAGE_UNAVAILABLE_RESPONSE,
+        },
+        summary="Cancel a scheduled email",
+        description=(
+            "Cancel an email before PostHog starts sending it, by the `message_id` that the send returned. A repeat "
+            "cancel answers 200 too. Needs a project secret API key with the `transactional_email:write` scope. A key "
+            "with `hog_flow:write` also works, but that scope reaches the rest of Workflows too."
+        ),
+    )
+    @action(detail=True, methods=["post"])
+    def cancel(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
+        _require_project_secret_api_key(request)
+        require_email_status_read(self.team)
+        with self._reporting_manage(request, "cancel") as report:
+            message_id = _message_id(pk)
+            cancel_email(self.team_id, message_id)
+            report["outcome"] = "canceled"
+        return Response(CanceledEmailSerializer({"id": str(message_id), "status": EmailSendStatus.CANCELED}).data)
+
+    @extend_schema(
+        request=RescheduleEmailSerializer,
+        parameters=[MESSAGE_ID_PARAMETER],
+        responses={
+            200: RescheduledEmailSerializer,
+            400: OpenApiResponse(
+                description="`scheduled_at` is missing, has no timezone offset, or is more than 30 days after the "
+                "email was sent; the body has a field other than `scheduled_at`; or scheduled sends aren't on for "
+                "this project and the time is in the future."
+            ),
+            401: OpenApiResponse(description="The request has no project secret API key."),
+            404: MANAGE_NOT_FOUND_RESPONSE,
+            409: OpenApiResponse(
+                description="The email can't move. `code` is `already_sending` when PostHog has started sending it, "
+                "and `canceled` when it was canceled."
+            ),
+            503: MANAGE_UNAVAILABLE_RESPONSE,
+        },
+        summary="Move a scheduled email",
+        description=(
+            "Change when an email goes out, before PostHog starts sending it, by the `message_id` that the send "
+            "returned. A time that already passed sends it now. Needs a project secret API key with the "
+            "`transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the "
+            "rest of Workflows too."
+        ),
+    )
+    def partial_update(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
+        _require_project_secret_api_key(request)
+        require_email_status_read(self.team)
+        serializer = RescheduleEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_at = serializer.validated_data["scheduled_at"]
+        bucket = lead_time_bucket(requested_at)
+        if bucket != "now":
+            # Moving an email to now needs no flag, so turning the flag off still lets callers flush what waits.
+            require_scheduled_sends(
+                self.team,
+                "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time that "
+                "already passed to send it now.",
+            )
+        with self._reporting_manage(request, "reschedule", lead_time_bucket=bucket) as report:
+            message_id = _message_id(pk)
+            scheduled_at = reschedule_email(self.team_id, message_id, requested_at)
+            report["outcome"] = "scheduled"
+        return Response(
+            RescheduledEmailSerializer(
+                {"id": str(message_id), "status": EmailSendStatus.SCHEDULED, "scheduled_at": scheduled_at}
+            ).data
+        )
+
+    @contextmanager
+    def _reporting_manage(self, request: Request, action: str, **properties: Any) -> Iterator[dict[str, Any]]:
+        report: dict[str, Any] = {"outcome": "error"}
+        try:
+            yield report
+        except EmailNotFound:
+            report["outcome"] = "not_found"
+            raise NotFound() from None
+        except EmailCanceled as e:
+            report["outcome"] = "canceled_before"
+            raise _explained(e, "This email was canceled, so PostHog didn't move it.") from None
+        except AlreadySending as e:
+            report["outcome"] = "already_sending"
+            verb = "canceled" if action == "cancel" else "moved"
+            raise _explained(e, f"PostHog has started sending this email, so it can't be {verb}.") from None
+        except RescheduleTooFar as e:
+            report["outcome"] = "invalid_scheduled_at"
+            raise _explained(e, str(e), status_code=status.HTTP_400_BAD_REQUEST) from None
+        except DeliveryUnavailable:
+            report["outcome"] = "unavailable"
+            raise ExplainedRefusal(
+                "The email pipeline didn't answer, so the email may not have changed.",
+                code="delivery_unavailable",
+                why="PostHog couldn't reach the service that holds the email.",
+                fix="Try again shortly. A retry is safe.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ) from None
+        finally:
+            self._capture(
+                request,
+                "transactional email api manage",
+                {
+                    "action": action,
+                    **report,
+                    **properties,
+                    "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
+                },
+            )
+
     def _report_status_read(self, request: Request, email_status: EmailStatus | None) -> None:
+        self._capture(
+            request,
+            "transactional email api status read",
+            {
+                "outcome": "not_found" if email_status is None else "found",
+                "status": email_status.status if email_status else None,
+                "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_STATUS_SCOPE),
+            },
+        )
+
+    def _capture(self, request: Request, event: str, properties: dict[str, Any]) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly. That
         # user is not a Django User, so its distinct_id is read without a type.
         distinct_id = getattr(request.user, "distinct_id", None)
@@ -117,15 +321,40 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             posthoganalytics.capture(
                 distinct_id=distinct_id,
-                event="transactional email api status read",
+                event=event,
                 properties={
                     "team_id": self.team_id,
-                    "outcome": "not_found" if email_status is None else "found",
-                    "status": email_status.status if email_status else None,
+                    **properties,
                     "auth_method": "project_secret_api_key",
-                    "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_STATUS_SCOPE),
                 },
                 groups=groups(self.organization, self.team),
             )
         except Exception as e:
-            logger.warning("Failed to capture transactional email status read event", error=str(e))
+            logger.warning("Failed to capture transactional email event", event=event, error=str(e))
+
+
+def _require_project_secret_api_key(request: Request) -> None:
+    # The routing mixin adds session and personal API key authentication to every route. These routes serve the
+    # server that sent the email, so only its project secret API key can call them.
+    if not is_authenticated_via_project_secret_api_key(request):
+        raise exceptions.NotAuthenticated()
+
+
+def _message_id(pk: str | None) -> UUID:
+    try:
+        return UUID(str(pk))
+    except ValueError:
+        raise EmailNotFound() from None
+
+
+def _explained(
+    error: TransactionalEmailError, detail: str, *, status_code: int = status.HTTP_409_CONFLICT
+) -> ExplainedRefusal:
+    return ExplainedRefusal(
+        detail,
+        code=error.code,
+        attr=error.attr,
+        why=getattr(error, "why", ""),
+        fix=getattr(error, "fix", ""),
+        status_code=status_code,
+    )

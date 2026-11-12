@@ -339,6 +339,44 @@ def prepare_transactional_email_attachment_uploads(
     )
 
 
+# Cancel and reschedule share the send's key on their own audience, so a send token can't cancel an email or move it.
+WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
+    settings_name="WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _manage_transactional_email(
+    team_id: int, message_id: str, action: str, payload: dict, *, timeout: float
+) -> requests.Response:
+    if not WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured, so no email can be managed")
+    token = WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint(
+        {"team_id": team_id, "message_id": message_id, "action": action}
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/transactional_emails/{message_id}/{action}",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=timeout,
+    )
+
+
+def cancel_scheduled_email(team_id: int, message_id: str, *, timeout: float = 10) -> requests.Response:
+    """Cancel an email no worker has claimed. 200 means canceled, 409 `already_sending` means a worker claimed it."""
+    return _manage_transactional_email(team_id, message_id, "cancel", {}, timeout=timeout)
+
+
+def reschedule_scheduled_email(
+    team_id: int, message_id: str, scheduled_at: str, *, timeout: float = 10
+) -> requests.Response:
+    """Move an email no worker has claimed to `scheduled_at`, a UTC ISO 8601 time. A past time sends it now."""
+    return _manage_transactional_email(
+        team_id, message_id, "reschedule", {"scheduled_at": scheduled_at}, timeout=timeout
+    )
+
+
 def resume_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
     """Wake a batch run's resolver, parked until its realtime cohort finished calculating. The JSON
     `outcome` is `resumed` or `already_resumed` on success; a 409 means the resolver isn't parked."""

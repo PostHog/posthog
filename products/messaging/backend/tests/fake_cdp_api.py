@@ -9,9 +9,11 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
+import jwt
 import requests
 
 from posthog.dataclasses import frozen
+from posthog.plugins.plugin_server_api import WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE
 
 RECIPIENT_ADDRESS_PATTERN = re.compile(
     r"^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
@@ -196,14 +198,21 @@ class FakeCdpApi:
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
     replies: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The jobs of emails a worker hasn't finished with, by team and message ID: `waiting`, `claimed` or `canceled`.
+    jobs: dict[tuple[int, str], str] = field(default_factory=dict)
+    scheduled_for: dict[str, datetime] = field(default_factory=dict)
 
     @property
     def queued_sends(self) -> list[dict[str, Any]]:
         return [request["send"] for request in self.queued if "send" in request]
 
-    def post(self, url: str, *, data: Any = None, json: Any = None, **_kwargs: Any) -> requests.Response:
+    def post(
+        self, url: str, *, data: Any = None, json: Any = None, headers: dict[str, str] | None = None, **_kwargs: Any
+    ) -> requests.Response:
         request = json if json is not None else _json_loads(data)
         self.received.append(request)
+        if manage := _MANAGE_ROUTE.search(url):
+            return self._manage(int(manage["team_id"]), manage["message_id"], manage["action"], request, headers or {})
         is_code_send = url.endswith("/transactional_email/send")
         send = _accepted_send(
             TRACKING_BEFORE_THE_CONTRACT if self.before_the_contract else TRACKING,
@@ -240,6 +249,37 @@ class FakeCdpApi:
             self.replies[key] = reply
         return 202, reply
 
+    def _manage(
+        self, team_id: int, message_id: str, action: str, request: dict[str, Any], headers: dict[str, str]
+    ) -> requests.Response:
+        try:
+            claims = WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE.verify(
+                headers.get("Authorization", "").removeprefix("Bearer ")
+            )
+        except jwt.PyJWTError:
+            claims = {}
+        if claims.get("team_id") != team_id or claims.get("message_id") != message_id or claims.get("action") != action:
+            return _response(401, {"error": f"Unauthorized: Invalid transactional email {action} token"})
+        state = self.jobs.get((team_id, message_id))
+        if state is None:
+            return _response(404, {"error": "not_found"})
+        if state == "claimed":
+            return _response(409, {"error": "already_sending"})
+        if action == "cancel":
+            self.jobs[(team_id, message_id)] = "canceled"
+            return _response(200, {"id": message_id, "status": "canceled"})
+        if state == "canceled":
+            return _response(409, {"error": "canceled"})
+        requested = datetime.fromisoformat(request["scheduled_at"])
+        now = datetime.now(UTC)
+        if requested > now and requested > _created_at(message_id) + timedelta(days=30):
+            return _response(400, {"error": "invalid_scheduled_at", "reason": "too_far"})
+        self.scheduled_for[message_id] = max(requested, now)
+        return _response(
+            200,
+            {"id": message_id, "status": "scheduled", "scheduled_at": _iso(self.scheduled_for[message_id])},
+        )
+
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
         client_post.side_effect = self.post
@@ -275,6 +315,19 @@ class FakeAnalytics:
 
     def properties_of(self, name: str) -> list[dict[str, Any]]:
         return [event["properties"] for event in self.events if event.get("event") == name]
+
+
+_MANAGE_ROUTE = re.compile(
+    r"/api/projects/(?P<team_id>\d+)/transactional_emails/(?P<message_id>[^/]+)/(?P<action>cancel|reschedule)$"
+)
+
+
+def _created_at(message_id: str) -> datetime:
+    return datetime.fromtimestamp(int.from_bytes(uuid.UUID(message_id).bytes[:6], "big") / 1000, tz=UTC)
+
+
+def _iso(at: datetime) -> str:
+    return at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
 
 
 def _json_loads(data: bytes | str) -> Any:
