@@ -7,6 +7,8 @@ const account = (value: string): IntegrationAccountApi => ({
     display_name: `Account ${value}`,
     is_primary: false,
     badges: [],
+    group: null,
+    secondary_text: null,
 })
 
 describe('accountToAutoFill', () => {
