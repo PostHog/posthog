@@ -50,6 +50,12 @@ export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasPartialUpdateBody = () => zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -420,6 +426,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.o
             zod.object({
                 id: zod.string().describe('Schema identifier to update.'),
                 should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
+                live_query_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns.'
+                    ),
                 sync_type: zod
                     .union([
                         zod

@@ -237,6 +237,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.should_sync !== undefined) {
             body['should_sync'] = params.should_sync
         }
+        if (params.live_query_enabled !== undefined) {
+            body['live_query_enabled'] = params.live_query_enabled
+        }
         if (params.sync_type !== undefined) {
             body['sync_type'] = params.sync_type
         }
