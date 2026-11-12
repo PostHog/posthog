@@ -1995,6 +1995,45 @@ describe('sourceWizardLogic', () => {
             }
         })
 
+        it('stops sending batches once the confirmation opens', async () => {
+            const fields = [
+                { ...createdAt, recommended: true },
+                { ...eventTs, recommended: false },
+            ]
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
+                Array.from({ length: 513 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+            )
+            let resolveFirst: (value: RecommendationsResponse) => void = () => {}
+            const recommend = jest
+                .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
+                .mockReset()
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        resolveFirst = resolve
+                    })
+                )
+                .mockResolvedValue({ tables: [] } as unknown as RecommendationsResponse)
+
+            const logic = sourceWizardLogic({ availableSources: { [postgresSource.name]: postgresSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(postgresSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toDispatchActions([
+                    'loadIncrementalFieldRecommendations',
+                ])
+                logic.actions.setStep(3)
+                logic.actions.onSubmit()
+                await expectLogic(logic, () =>
+                    resolveFirst({ tables: [] } as unknown as RecommendationsResponse)
+                ).toFinishAllListeners()
+
+                expect(recommend).toHaveBeenCalledTimes(1)
+            } finally {
+                unmount()
+            }
+        })
+
         it('keeps the picks of the batches that answered when another batch fails', async () => {
             const fields = [
                 { ...createdAt, recommended: true },

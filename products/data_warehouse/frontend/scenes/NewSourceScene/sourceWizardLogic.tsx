@@ -478,12 +478,17 @@ const recommendationCandidates = (schema: ExternalDataSourceSyncSchema): Increme
 
 async function fetchIncrementalFieldPicks(
     teamId: number,
-    tables: ExternalDataSourceSyncSchema[]
+    tables: ExternalDataSourceSyncSchema[],
+    stillApplies: () => boolean
 ): Promise<Map<string, IncrementalField[]>> {
     // One batch at a time keeps a large discovery from sending a burst of requests, and a failed
     // batch drops only its own tables.
     const picked = new Map<string, IncrementalField[]>()
     for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
+        // An obsolete discovery would spend the team's model budget on answers nobody reads.
+        if (!stillApplies()) {
+            break
+        }
         try {
             const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(String(teamId), {
                 tables: batch.map((schema) => ({
@@ -2065,11 +2070,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             // A rediscovery, even for the same connector, makes the answer belong to another database.
             const discovery = cache.schemaDiscovery
             const selection = values.connectorSelectionCount
-            const picked = await fetchIncrementalFieldPicks(teamId, tables)
             const stillApplies = (): boolean =>
                 cache.schemaDiscovery === discovery &&
                 cache.recommendationsFrozenFor !== discovery &&
                 values.connectorSelectionCount === selection
+            const picked = await fetchIncrementalFieldPicks(teamId, tables, stillApplies)
             if (picked.size === 0 || !stillApplies()) {
                 return
             }
