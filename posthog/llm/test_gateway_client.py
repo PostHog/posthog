@@ -84,7 +84,6 @@ class TestGetLlmClient:
         "product,expected_path",
         [
             ("django", "/django/v1/"),
-            ("llm_gateway", "/llm_gateway/v1/"),
             ("posthog_code", "/posthog_code/v1/"),
             ("wizard", "/wizard/v1/"),
             ("signals", "/signals/v1/"),
@@ -343,6 +342,35 @@ class TestBuildAsyncOpenAIClient:
         assert headers["traceparent"].startswith("00-a9f9e1dd83324ad0959b36ea0a45734e-")
         assert headers["x-posthog-property-$ai_session_id"] == "summary-session-1"
         assert headers["x-posthog-property-evaluation_id"] == "evaluation-123"
+
+
+class TestOpenAIClientPrivacyMode:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @pytest.mark.parametrize(
+        "builder,client_target",
+        [(build_openai_client, "OpenAI"), (build_async_openai_client, "AsyncOpenAI")],
+    )
+    @pytest.mark.parametrize("privacy_mode", [True, False])
+    def test_gateway_mode_sends_privacy_header_only_when_asked(self, builder, client_target, privacy_mode):
+        with patch(f"posthog.llm.gateway_client.{client_target}") as mock_client:
+            builder("django", ai_product="logs", privacy_mode=privacy_mode)
+
+        headers = mock_client.call_args.kwargs["default_headers"]
+        assert ("X-PostHog-Privacy-Mode" in headers) is privacy_mode
+        if privacy_mode:
+            assert headers["X-PostHog-Privacy-Mode"] == "true"
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @pytest.mark.parametrize(
+        "builder,fallback_target",
+        [(build_openai_client, "get_llm_client"), (build_async_openai_client, "get_async_llm_client")],
+    )
+    def test_privacy_mode_never_falls_back_to_the_python_gateway(self, builder, fallback_target):
+        with patch(f"posthog.llm.gateway_client.{fallback_target}") as mock_fallback:
+            with pytest.raises(GatewayNotConfiguredError):
+                builder("django", ai_product="logs", privacy_mode=True)
+
+        mock_fallback.assert_not_called()
 
 
 class TestTeamTraceId:

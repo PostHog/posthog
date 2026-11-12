@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from posthog.egress.limiter.policies import Priority
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.facade.repo_selection import RepoSelectionUsageLimitError
 from products.tasks.evals.repo_selection import runner
 from products.tasks.evals.repo_selection.fixtures import SELECTOR_CASES
@@ -21,7 +22,7 @@ async def _run(provider: MagicMock, *, artifacts: RepoSelectionArtifacts | None 
     return await run_selector(
         _SCENARIO,
         _CONTEXT,
-        origin_product="signal_report",  # type: ignore[arg-type]
+        profile=get_task_profile("signals.repo_selection_without_report"),
         priority=Priority.BATCH,
         provider=provider,
         on_cleanup=None,

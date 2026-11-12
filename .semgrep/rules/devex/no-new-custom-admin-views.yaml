@@ -6,7 +6,8 @@ rules:
           check and OAuth step-up apply, and its pages do not break when Django changes admin
           internals. Add a Panel in products/<product>/backend/console.py; see
           posthog/admin/console/AGENTS.md. Django admin stays for plain CRUD: list_display,
-          search_fields, readonly_fields, inlines and simple actions are fine.
+          search_fields, readonly_fields and inlines are fine. For a changelist action,
+          see /extending-the-admin-console.
           Pre-existing findings are grandfathered; only newly introduced findings block CI.
       languages: [python]
       severity: WARNING
@@ -49,6 +50,138 @@ rules:
           category: maintainability
           subcategory: audit
           confidence: HIGH
+    - id: no-new-admin-workflow-hooks
+      message: |
+          Django admin stays for plain CRUD: a ModelAdmin declares fields, filters, inlines and
+          permissions, and saving writes the row and nothing else. Overriding a save or delete hook,
+          a page view or a response turns the admin page into a workflow, for example resetting a
+          status, notifying staff or starting a job. Put that workflow in a PostHog Admin console
+          operation instead; see posthog/admin/console/AGENTS.md.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-inside: |
+                class $CLASS(...):
+                    ...
+          # Report the name, not the whole method, so editing a grandfathered method keeps the same finding.
+          - pattern: |
+                def $FUNC(self, ...):
+                    ...
+          - metavariable-regex:
+                metavariable: $FUNC
+                regex: ^(save_form|save_model|delete_model|save_related|save_formset|delete_queryset|add_view|change_view|changeform_view|changelist_view|delete_view|history_view|response_add|response_change|response_delete)$
+          - focus-metavariable: $FUNC
+      paths:
+          include:
+              - '**/admin.py'
+              - '**/admin/**/*.py'
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
+    - id: no-new-admin-url-routes
+      message: |
+          New staff pages go in the PostHog Admin console, not in a view routed under /admin/ in a
+          URLconf. Such a view skips Django admin's staff check unless it adds its own, and staff
+          do not find it from the console. Add a tool or a panel instead; see
+          posthog/admin/console/AGENTS.md. Under /admin/, a URLconf only redirects old paths with
+          MovedToConsole.page_redirect or RedirectView, or includes URL lists.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-either:
+                - pattern: path("$ROUTE", $VIEW, ...)
+                - pattern: re_path("$ROUTE", $VIEW, ...)
+          # Sign-in, sign-out and impersonation routes serve the admin session, not a staff page.
+          - metavariable-regex:
+                metavariable: $ROUTE
+                regex: ^\^?admin/(?!oauth2/|auth_check|login/|logout/|impersonation/)
+          - metavariable-pattern:
+                metavariable: $VIEW
+                patterns:
+                    - pattern-not: MovedToConsole.page_redirect(...)
+                    - pattern-not: RedirectView.as_view(...)
+                    - pattern-not: include(...)
+                    - pattern-not: $X.urls
+      paths:
+          include:
+              - '**/urls.py'
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
+    - id: no-new-admin-workflow-actions
+      message: |
+          A changelist action stays in Django admin only when it writes fields of the selected rows,
+          shows no page of its own and starts nothing. This action returns a page or a redirect, or
+          starts a task or a workflow, so it is a staff workflow. Make it a PostHog Admin console
+          operation instead; see /extending-the-admin-console.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-either:
+                - pattern-inside: |
+                      @admin.action
+                      def $FUNC(...):
+                          ...
+                - pattern-inside: |
+                      @admin.action(...)
+                      def $FUNC(...):
+                          ...
+                - pattern-inside: |
+                      @django.contrib.admin.action
+                      def $FUNC(...):
+                          ...
+                - pattern-inside: |
+                      @django.contrib.admin.action(...)
+                      def $FUNC(...):
+                          ...
+          - pattern-either:
+                - pattern: render(...)
+                - pattern: TemplateResponse(...)
+                - pattern: redirect(...)
+                - pattern: FileResponse(...)
+                - pattern: StreamingHttpResponse(...)
+                - patterns:
+                      - pattern: $RESPONSE(...)
+                      - metavariable-regex:
+                            metavariable: $RESPONSE
+                            regex: ^HttpResponse
+                - pattern: $X.delay(...)
+                - pattern: $X.apply_async(...)
+                - pattern: $X.start_workflow
+                - pattern: $X.execute_workflow
+          # Sending the selected rows to a console operation is how an action moves to the console.
+          - pattern-not: redirect("=~/^admin_console_/", ...)
+          - pattern-not: redirect(<... reverse("=~/^admin_console_/", ...) ...>)
+          - pattern-not: HttpResponseRedirect(<... reverse("=~/^admin_console_/", ...) ...>)
+          - pattern-not: HttpResponsePermanentRedirect(<... reverse("=~/^admin_console_/", ...) ...>)
+      paths:
+          include:
+              - '**/admin.py'
+              - '**/admin/**/*.py'
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
     - id: no-new-custom-admin-templates
       message: |
           Django admin picks up a template under templates/admin/ by its path alone, so this file
@@ -61,6 +194,10 @@ rules:
       paths:
           include:
               - '**/templates/admin/**/*.html'
+          exclude:
+              # Admin chrome on every page: the favicon, the impersonation banner and the link to PostHog Admin.
+              # It adds no staff page or workflow, so it stays when the other overrides are gone.
+              - posthog/templates/admin/base_site.html
       metadata:
           category: maintainability
           subcategory: audit

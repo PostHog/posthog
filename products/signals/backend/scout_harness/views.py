@@ -37,7 +37,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import exceptions, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -287,6 +287,7 @@ from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigM
 from products.signals.backend.scout_report import InvalidScoutReportError
 from products.signals.backend.task_attribution import resolve_request_attribution
 from products.signals.backend.tasks import enqueue_project_profile_build
+from products.signals.backend.trial.service import TrialService
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     create_skill,
@@ -635,6 +636,7 @@ def emit_report_response_data(result: EmitReportResult) -> dict[str, Any]:
             "safety_explanation": result.safety_explanation,
             "remediation": result.remediation,
             "idempotent_replay": result.idempotent_replay,
+            "quality_hints": [dataclasses.asdict(hint) for hint in result.quality_hints],
         }
     ).data
 
@@ -1390,7 +1392,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. "
             "Title/summary edits are best-effort: the pipeline may later re-research them. "
             "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
-            "predecessor PRs close only after the replacement completes with verified open PRs."
+            "predecessor PRs close only after the replacement completes with verified open PRs. "
+            "Set `pull_requests` to link a fix that already exists, so the report resolves when it merges."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -1441,6 +1444,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority_explanation=data.get("priority_explanation"),
                 tags=data.get("tags"),
                 source_issues=_to_source_issue_urls(data.get("source_issues")),
+                pull_requests=data.get("pull_requests"),
             )
         except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1453,6 +1457,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "evidence_appended": result.evidence_appended,
                     "links_appended": result.links_appended,
                     "source_issues_appended": result.source_issues_appended,
+                    "pull_requests_linked": result.pull_requests_linked,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
                     "repository": result.repository,
@@ -1466,6 +1471,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "corroboration_collapsed": result.corroboration_collapsed,
                     "decision_fields_set": list(result.decision_fields_set),
                     "warnings": [{"field": w.field, "message": w.message} for w in result.warnings],
+                    "quality_hints": [dataclasses.asdict(hint) for hint in result.quality_hints],
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -2832,7 +2838,11 @@ def _upsert_scout_config(
         )
     )
     save_kwargs: dict[str, Any] = {}
-    if not config.enabled and update.validated_data.get("enabled"):
+    # An explicit enable also claims a row the inbox seed switched on, so it reads as chosen. Not on a
+    # locked row: `enabled_by` decides who holds the lock, and a no-op enable never passes the lock gate.
+    if update.validated_data.get("enabled") and (
+        not config.enabled or (config.enabled_by_id is None and not config.lifecycle_locked)
+    ):
         save_kwargs["enabled_by"] = request.user
     # Provenance is create-only, so the update serializer does not carry it. Stamp it here for the
     # row someone else created first, or the owning product would never find its own scout.
@@ -2886,11 +2896,16 @@ def create_scout_for_source(
     if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
         raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
 
-    # Resolved before the transaction: it reads the `signals-scout` flag, and the block below
-    # holds row locks on the skill and its config.
-    max_enabled_scouts = max_enabled_scouts_for_team(team.id)
     _assert_scout_tool_selection_access(request=request, team=team, data=config_options)
 
+    max_enabled_scouts = max_enabled_scouts_for_team(team.id)
+    enrollment = TrialService(team).enroll_on_activation(
+        user=user,
+        api_scopes=get_authenticator_scopes(request.successful_authenticator),
+        enabled=config_options.get(
+            "enabled", not SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).exists()
+        ),
+    )
     with transaction.atomic():
         try:
             skill = create_skill(
@@ -2919,53 +2934,54 @@ def create_scout_for_source(
             skill = existing_skill
             skill_created = False
 
-        tunables = dict(config_options)
-        if display_name:
-            # Only when one was given: the upsert applies every tunable to a row that already
-            # exists, and a blank would clear a label the existing scout was renamed to.
-            tunables["display_name"] = display_name
-        if not skill_created:
-            # Reusing a name adopts someone else's scout, and the tunables apply to its config as
-            # an edit — so a locked scout keeps its lifecycle gate on this route too. A scout
-            # authored in this request has no other owner to protect it from.
-            adopted_config = (
-                SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=name).first()
-            )
-            guard_scout_lifecycle_fields(
-                request=request,
-                team=team,
+        with enrollment:
+            tunables = dict(config_options)
+            if display_name:
+                # Only when one was given: the upsert applies every tunable to a row that already
+                # exists, and a blank would clear a label the existing scout was renamed to.
+                tunables["display_name"] = display_name
+            if not skill_created:
+                # Reusing a name adopts someone else's scout, and the tunables apply to its config as
+                # an edit — so a locked scout keeps its lifecycle gate on this route too. A scout
+                # authored in this request has no other owner to protect it from.
+                adopted_config = (
+                    SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=name).first()
+                )
+                guard_scout_lifecycle_fields(
+                    request=request,
+                    team=team,
+                    skill_name=name,
+                    config=adopted_config,
+                    requested=tunables,
+                    action="create_scout",
+                )
+            if source_product and source_id:
+                # Reusing a name adopts the existing config, and the source pair is what the owning
+                # product's report route trusts — so adopting an unowned scout would expose everything it
+                # filed before. A scout belongs to one object for its whole life, or to none.
+                existing_config = SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).first()
+                if existing_config is not None and (existing_config.source_product, existing_config.source_id) != (
+                    source_product,
+                    source_id,
+                ):
+                    raise Conflict("A scout with this name already exists and belongs elsewhere. Pick another name.")
+                tunables["source_product"] = source_product
+                tunables["source_id"] = source_id
+            config, config_created = _upsert_scout_config(
+                team_id=team.id,
                 skill_name=name,
-                config=adopted_config,
-                requested=tunables,
-                action="create_scout",
+                tunables=tunables,
+                request=request,
+                max_enabled_scouts=max_enabled_scouts,
+                serializer_context=serializer_context,
             )
-        if source_product and source_id:
-            # Reusing a name adopts the existing config, and the source pair is what the owning
-            # product's report route trusts — so adopting an unowned scout would expose everything it
-            # filed before. A scout belongs to one object for its whole life, or to none.
-            existing_config = SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).first()
-            if existing_config is not None and (existing_config.source_product, existing_config.source_id) != (
-                source_product,
-                source_id,
-            ):
-                raise Conflict("A scout with this name already exists and belongs elsewhere. Pick another name.")
-            tunables["source_product"] = source_product
-            tunables["source_id"] = source_id
-        config, config_created = _upsert_scout_config(
-            team_id=team.id,
-            skill_name=name,
-            tunables=tunables,
-            request=request,
-            max_enabled_scouts=max_enabled_scouts,
-            serializer_context=serializer_context,
-        )
-        # `create_skill` derives the server-owned `category` from the name prefix, so a scout under
-        # any other name lands uncategorized: off the skills UI's Scouts tab, and refused by the
-        # duplicate-name branch above, which reads the category as proof that the stored skill is a
-        # scout. Stamp after the config row exists, since that row is what makes it one. The
-        # queryset update leaves the in-memory row stale, so mirror it onto the returned instance.
-        ensure_scout_category(team.id, skill_name=name)
-        skill.category = SCOUT_SKILL_CATEGORY
+            # `create_skill` derives the server-owned `category` from the name prefix, so a scout under
+            # any other name lands uncategorized: off the skills UI's Scouts tab, and refused by the
+            # duplicate-name branch above, which reads the category as proof that the stored skill is a
+            # scout. Stamp after the config row exists, since that row is what makes it one. The
+            # queryset update leaves the in-memory row stale, so mirror it onto the returned instance.
+            ensure_scout_category(team.id, skill_name=name)
+            skill.category = SCOUT_SKILL_CATEGORY
 
     return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
 
@@ -3670,12 +3686,21 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
         _assert_scout_tool_selection_access(request=request, team=team, data=serializer.validated_data)
-        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one. The row stays locked
         # from the comparison to the save, so a grant revoked in between cannot be written back by
         # a request that compared against the old value.
-        with transaction.atomic():
+        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
+        with (
+            TrialService(team).enroll_on_activation(
+                user=cast(User, request.user),
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
+                enabled=serializer.validated_data.get(
+                    "enabled", not SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).exists()
+                ),
+            ),
+            transaction.atomic(),
+        ):
             existing = (
                 SignalScoutConfig.objects.unscoped()
                 .select_for_update()
@@ -3741,11 +3766,18 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
-        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that
         # compared against the grant before a concurrent revoke would otherwise write it back,
         # because a model save writes every column off the instance it loaded.
-        with transaction.atomic():
+        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
+        with (
+            TrialService(team).enroll_on_activation(
+                user=cast(User, request.user),
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
+                enabled=serializers.BooleanField().run_validation(request.data.get("enabled", False)),
+            ),
+            transaction.atomic(),
+        ):
             config = (
                 SignalScoutConfig.objects.unscoped().select_for_update().filter(team_id=team_id, id=config_id).first()
             )
@@ -3787,8 +3819,14 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             if enabling:
                 _reject_if_enabled_cap_reached(team_id, config.skill_name, cap=max_enabled_scouts)
             # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
+            # An explicit enable of a seeded row nobody switched on records the caller too, except on a
+            # locked row, where `enabled_by` decides who holds the lock and a no-op enable skips the gate.
             save_kwargs: dict[str, Any] = {}
-            if enabling:
+            if enabling or (
+                serializer.validated_data.get("enabled")
+                and config.enabled_by_id is None
+                and not config.lifecycle_locked
+            ):
                 save_kwargs["enabled_by"] = request.user
             instance = serializer.save(**save_kwargs)
         if suggestion_id and instance.enabled:
@@ -4056,7 +4094,16 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # seed and register against that team so child-environment requests don't fork
         # a second fleet.
         team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
-        withheld = materialize_scout_fleet(team, surface=request.validated_query_data.get("surface"))
+        surface = request.validated_query_data.get("surface")
+        withheld = materialize_scout_fleet(
+            team,
+            surface=surface,
+            activation=TrialService(team).enroll_on_activation(
+                user=cast(User, request.user),
+                enabled=surface in (None, "wizard"),
+                api_scopes=get_authenticator_scopes(request.successful_authenticator),
+            ),
+        )
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
         # previously seeded and later withheld still has a row, and surfacing it here would
         # advertise an unreleased scout despite the holdback. Storage is left untouched (no

@@ -110,4 +110,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "diluted_shares_outstanding": "Weighted average diluted shares outstanding over the period.",
         },
     },
+    "filings": {
+        "description": "Filing metadata for each configured ticker. Full refresh.",
+        "docs_url": "https://simfin.readme.io/reference/2-1",
+        "columns": {
+            "company": "Company identifiers and sector information for the filing.",
+            "filingIdentifier": "Identifier of the filing.",
+            "filingType": "Document format: PDF, HTML, or XBRL.",
+            "filingDate": "Date of the filing, when available.",
+            "fyear": "Fiscal year of the filing.",
+            "period": "Fiscal period of the filing.",
+            "sourceLink": "Link to the filing source.",
+        },
+    },
+    "data_change_log": {
+        "description": "Database changes across all companies in SimFin. Full refresh.",
+        "docs_url": "https://simfin.readme.io/reference/11-1",
+        "columns": {},
+    },
+    "changed_companies": {
+        "description": "Companies with modified data across SimFin. Full refresh.",
+        "docs_url": "https://simfin.readme.io/reference/12",
+        "columns": {},
+    },
 }

@@ -635,6 +635,10 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setRequiredAccessLevel: ({ requiredAccessLevel }) => {
             if (requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
+                const currentOrganizationId = userLogic.values.user?.organization?.id
+                if (currentOrganizationId) {
+                    actions.setOauthAuthorizationValue('scoped_organizations', [currentOrganizationId])
+                }
             } else if (requiredAccessLevel === 'team') {
                 actions.setOauthAuthorizationValue('access_type', 'teams')
                 // With a team_id hint pending, let it drive org+project selection once

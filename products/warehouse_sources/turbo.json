@@ -8,6 +8,7 @@
                 "backend/routes.py",
                 "backend/data_freshness.py",
                 "backend/integration_usages.py",
+                "backend/integration_hooks.py",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/tasks/**",
@@ -57,7 +58,17 @@
                 "!backend/temporal/data_imports/sources/salesforce/test/**",
                 "!backend/temporal/data_imports/sources/snowflake/tests/**",
                 "!backend/temporal/data_imports/sources/stripe/tests/**",
-                "!backend/temporal/data_imports/sources/trino/tests/**"
+                "!backend/temporal/data_imports/sources/trino/tests/**",
+                "backend/scopes.py",
+                "backend/activity_logging.py",
+                "backend/apps.py",
+                "backend/source_icons.py",
+                "backend/sync_alerts/registration.py",
+                "backend/sync_alerts/wording.py",
+                "backend/temporal/data_imports/person_property_update_consumer.py",
+                "backend/temporal/data_imports/pipelines/core/cdp_producer_rate.py",
+                "backend/temporal/data_imports/pipelines/pipeline_v3/load/__init__.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

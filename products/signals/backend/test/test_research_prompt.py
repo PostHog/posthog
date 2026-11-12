@@ -573,6 +573,29 @@ class TestBuildReportPresentationPrompt:
         assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
 
+    @pytest.mark.parametrize("selection", [False, True])
+    @pytest.mark.parametrize("evidence", [False, True])
+    @pytest.mark.parametrize("code", [False, True])
+    def test_assignee_evidence_requires_both_flags_and_a_repository(
+        self, selection: bool, evidence: bool, code: bool
+    ) -> None:
+        prompt = build_report_presentation_prompt(
+            1, reviewer_selection_enabled=selection, assignee_evidence_enabled=evidence, code_available=code
+        )
+        assert ("posthog-assignee-evidence" in prompt) == (selection and evidence and code)
+        if selection and evidence and code:
+            assert "--paths-file" in prompt
+            assert "`owners.yaml`, and standard CODEOWNERS rules" in prompt
+            assert "organization-qualified GitHub teams" in prompt
+            assert "without a GitHub account" in prompt
+            assert "not an eligibility list" in prompt
+            assert "If absent in an older image" in prompt
+            assert "Team membership, implementation authorship, and review alone do not establish" in prompt
+            assert "leave that candidate unselected" in prompt
+            assert "Do not add the original author as an extra reviewer" in prompt
+        else:
+            assert "leave that candidate unselected" not in prompt
+
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)
         on = build_report_presentation_prompt(2, metrics_enabled=True)

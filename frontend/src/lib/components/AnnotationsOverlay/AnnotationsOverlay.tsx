@@ -8,6 +8,7 @@ import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
 import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,9 +17,10 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { pluralize } from 'lib/utils/strings'
+import { fullName, pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
@@ -26,6 +28,8 @@ import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
+import { QuillAnnotationCard } from './QuillAnnotationCard'
+import { QuillAnnotationsPopover } from './QuillAnnotationsPopover'
 import { useAnnotationPopoverHover } from './useAnnotationPopoverHover'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
 
@@ -383,6 +387,7 @@ function AnnotationsPopover({
         useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const handleClose = (): void => {
         hover.cancel()
         closePopover()
@@ -414,6 +419,31 @@ function AnnotationsPopover({
         }
         return `${from.format(format)} – ${to.format(format)}`
     })()
+    const title = `${pluralize(popoverAnnotations.length, 'annotation')} • ${titleDate}`
+    const handleAddAnnotation = (): void =>
+        openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
+
+    if (todayRailNav) {
+        return (
+            <QuillAnnotationsPopover
+                open={isPopoverShown}
+                anchor={badgeElement}
+                popupRef={hover.popupRef}
+                insideRefs={overlayRefs}
+                title={title}
+                locked={isDateLocked}
+                annotationCount={popoverAnnotations.length}
+                onClose={handleClose}
+                onMouseEnter={hover.cancel}
+                onMouseLeave={isDateLocked ? undefined : hover.leavePopup}
+                onAddAnnotation={readOnly ? undefined : handleAddAnnotation}
+            >
+                {popoverAnnotations.map((annotation) => (
+                    <AnnotationCard key={annotation.id} annotation={annotation} />
+                ))}
+            </QuillAnnotationsPopover>
+        )
+    }
 
     return (
         <Popover
@@ -433,20 +463,10 @@ function AnnotationsPopover({
             overlay={
                 <LemonModal
                     inline
-                    title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${titleDate}`}
+                    title={title}
                     footer={
                         readOnly ? undefined : (
-                            <LemonButton
-                                type="primary"
-                                onClick={() =>
-                                    openModalToCreateAnnotation(
-                                        activeDate,
-                                        insightId,
-                                        annotationsOverlayProps.dashboardId
-                                    )
-                                }
-                                disabled={!isDateLocked}
-                            >
+                            <LemonButton type="primary" onClick={handleAddAnnotation} disabled={!isDateLocked}>
                                 Add annotation
                             </LemonButton>
                         )
@@ -474,8 +494,38 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     const { insightId, timezone, annotationsOverlayProps, readOnly } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { user: currentUser } = useValues(userLogic)
 
     const isSystemAnnotation = annotation.id === -1 || annotation.id === -2
+    const heading = `${annotation.date_marker?.format('MMM DD, YYYY h:mm A')} (${shortTimeZone(timezone)}) – ${
+        annotationScopeToName[annotation.scope]
+    }-level`
+    const author =
+        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : (annotation.created_by ?? undefined)
+    const authorName = fullName(author)
+    const authorEmail = author && 'email' in author ? author.email : undefined
+    const authorLabel =
+        authorEmail && currentUser?.email === authorEmail ? 'you' : authorName || authorEmail || 'an unknown user'
+    const createdAt = humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')
+    const editable = !isSystemAnnotation && !readOnly
+    const handleEdit = (): void => openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
+    const handleDelete = (): void => deleteAnnotation(annotation)
+
+    if (todayRailNav) {
+        return (
+            <QuillAnnotationCard
+                heading={heading}
+                emoji={annotation.emoji}
+                content={annotation.content ?? ''}
+                isSystemAnnotation={isSystemAnnotation}
+                author={{ name: authorName, email: authorEmail, label: authorLabel }}
+                createdAt={createdAt}
+                onEdit={editable ? handleEdit : undefined}
+                onDelete={editable ? handleDelete : undefined}
+            />
+        )
+    }
 
     return (
         <li
@@ -485,27 +535,21 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
         >
             <div className="flex items-center gap-2">
                 {annotation.emoji && <span className="text-lg leading-none shrink-0">{annotation.emoji}</span>}
-                <h5 className="grow m-0 text-secondary">
-                    {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
-                    {annotationScopeToName[annotation.scope]}
-                    -level
-                </h5>
-                {!isSystemAnnotation && !readOnly && (
+                <h5 className="grow m-0 text-secondary">{heading}</h5>
+                {editable && (
                     <>
                         <LemonButton
                             size="small"
                             icon={<IconPencil />}
                             tooltip="Edit this annotation"
-                            onClick={() =>
-                                openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
-                            }
+                            onClick={handleEdit}
                             noPadding
                         />
                         <LemonButton
                             size="small"
                             icon={<IconTrash />}
                             tooltip="Delete this annotation"
-                            onClick={() => deleteAnnotation(annotation)}
+                            onClick={handleDelete}
                             noPadding
                         />
                     </>
@@ -521,16 +565,12 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 <div className="leading-6 mt-2 flex flex-row items-center justify-between">
                     <div>
                         <ProfilePicture
-                            user={
-                                annotation.creation_type === 'GIT'
-                                    ? { first_name: 'GitHub automation' }
-                                    : annotation.created_by
-                            }
+                            user={author}
                             showName
                             size="md"
                             type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
                         />{' '}
-                        • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+                        • {createdAt}
                     </div>
                 </div>
             )}

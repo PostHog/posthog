@@ -23,7 +23,7 @@ import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
-import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
+import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './redesign/trace/traceDrawerLists'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { hasOwnClickHandler } from './redesign/trace/traceDrawerRows'

@@ -14,9 +14,15 @@ import {
 } from 'products/workflows/frontend/generated/api'
 import type { BroadcastConversionCandidateApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import type { BroadcastSendErrorAction } from './BroadcastSendErrorBanner'
+
 export interface ManagedBroadcast {
     id: string
     name?: string | null
+}
+
+export function createDisabledReason(): string | undefined {
+    return getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
 }
 
 /** Archive, restore and delete need editor access to the broadcast, as they do for a workflow. */
@@ -43,6 +49,104 @@ export function archiveDisabledReason(batchJobStatuses: (string | null | undefin
     return batchJobStatuses.some((status) => RUNNING_BATCH_JOB_STATUSES.includes(status ?? ''))
         ? 'This broadcast is sending. Wait for it to finish before archiving it.'
         : undefined
+}
+
+export interface BroadcastSummaryAction {
+    label: string
+    onClick: () => void
+    disabledReason: string | undefined
+    status?: 'danger'
+    'data-attr': string
+}
+
+export interface BroadcastSummaryActionsInput {
+    userAccessLevel: string | null | undefined
+    canMoveToDraft: boolean
+    canEditContent: boolean
+    isArchived: boolean
+    batchJobStatuses: (string | null | undefined)[] | null
+    onMoveToDraft: () => void
+    onSendAgain: () => void
+    onRestore: () => void
+    onArchive: () => void
+    onDelete: () => void
+}
+
+export function summaryActions(input: BroadcastSummaryActionsInput): BroadcastSummaryAction[] {
+    const manageReason = manageDisabledReason(input.userAccessLevel)
+    const actions: (BroadcastSummaryAction | null)[] = [
+        input.canMoveToDraft
+            ? {
+                  label: 'Stop and edit',
+                  onClick: input.onMoveToDraft,
+                  disabledReason: manageReason,
+                  'data-attr': 'broadcast-move-to-draft',
+              }
+            : null,
+        input.canEditContent
+            ? {
+                  label: 'Send again as a new broadcast',
+                  onClick: input.onSendAgain,
+                  disabledReason: createDisabledReason(),
+                  'data-attr': 'broadcast-send-again',
+              }
+            : null,
+        input.isArchived
+            ? {
+                  label: 'Restore as draft',
+                  onClick: input.onRestore,
+                  disabledReason: manageReason,
+                  'data-attr': 'broadcast-restore',
+              }
+            : {
+                  label: 'Archive',
+                  status: 'danger',
+                  onClick: input.onArchive,
+                  disabledReason: manageReason ?? archiveDisabledReason(input.batchJobStatuses),
+                  'data-attr': 'broadcast-archive',
+              },
+        input.isArchived
+            ? {
+                  label: 'Delete',
+                  status: 'danger',
+                  onClick: input.onDelete,
+                  disabledReason: manageReason,
+                  'data-attr': 'broadcast-delete',
+              }
+            : null,
+    ]
+    return actions.filter((action): action is BroadcastSummaryAction => action !== null)
+}
+
+export interface BroadcastSendErrorActions {
+    fixAction: BroadcastSendErrorAction | undefined
+    resendAction: BroadcastSendErrorAction | undefined
+}
+
+/** A sent broadcast can't change, so a fix goes into a copy. A broadcast with sends still scheduled is edited in place. */
+export function sendErrorActions(
+    input: Pick<
+        BroadcastSummaryActionsInput,
+        'userAccessLevel' | 'canMoveToDraft' | 'canEditContent' | 'onMoveToDraft' | 'onSendAgain'
+    >
+): BroadcastSendErrorActions {
+    const sendAgain = (label: string): BroadcastSendErrorAction => ({
+        label,
+        onClick: input.onSendAgain,
+        disabledReason: createDisabledReason(),
+    })
+    return {
+        fixAction: input.canMoveToDraft
+            ? {
+                  label: 'Stop and edit',
+                  onClick: input.onMoveToDraft,
+                  disabledReason: manageDisabledReason(input.userAccessLevel),
+              }
+            : input.canEditContent
+              ? sendAgain('Fix and send again')
+              : undefined,
+        resendAction: input.canEditContent ? sendAgain('Send again') : undefined,
+    }
 }
 
 function label(broadcast: ManagedBroadcast): string {

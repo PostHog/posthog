@@ -197,7 +197,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
 
         organization_id_ranges = await workflow.execute_activity(
             list_organization_id_ranges,
-            input.common,
+            args=[input.common, None],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,

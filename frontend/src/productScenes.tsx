@@ -97,6 +97,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
+    DataWarehouseMigrationConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/MigrationConnectScene/MigrationConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     WarehouseDestinations: () =>
         import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
@@ -153,7 +155,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
-    MCPRegistry: () => import('../../products/mcp_registry/frontend/MCPRegistryScene'),
     McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
     McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
@@ -166,6 +167,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Persons: () => import('../../products/persons/frontend/pages/PersonsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
+    ReleaseCalendar: () => import('../../products/release/frontend/ReleaseCalendar'),
+    Releases: () => import('../../products/release/frontend/ReleaseList'),
+    Release: () => import('../../products/release/frontend/Release'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
@@ -223,5 +227,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Transactional: () => import('../../products/workflows/frontend/Transactional/TransactionalScene'),
     TransactionalEmailLogEntry: () =>
         import('../../products/workflows/frontend/Transactional/log/TransactionalEmailLogEntryScene'),
+    TransactionalCodeEmail: () => import('../../products/workflows/frontend/Transactional/code/CodeEmailScene'),
     WorkflowsEmailDomain: () => import('../../products/workflows/frontend/Channels/EmailDomain/EmailDomainScene'),
 }

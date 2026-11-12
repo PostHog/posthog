@@ -15,6 +15,10 @@ INBOX_JOIN_ACTION_ID = "slack_onboarding:inbox_join"
 CHANNEL_WELCOME_ACTION_ID = "slack_onboarding:channel_welcome"
 SOURCES_ACTION_ID = "slack_onboarding:sources"
 SOURCES_BLOCK_PREFIX = "slack_onboarding_sources"
+# A button on the work focus DM. The api module handles it, because it starts a task.
+WORK_FOCUS_TASK_ACTION_ID = "slack_onboarding:work_focus_task"
+# The Start button under the request that "Do it" opens. The task only runs once the person saw the request.
+WORK_FOCUS_START_ACTION_ID = "slack_onboarding:work_focus_start"
 ONBOARDING_ACTION_PREFIX = "slack_onboarding:"
 
 

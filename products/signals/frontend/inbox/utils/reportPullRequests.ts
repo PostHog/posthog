@@ -1,3 +1,5 @@
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
+
 import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReport } from '../types'
@@ -44,7 +46,7 @@ export function primaryReportPullRequest(report: ReportWithPullRequests | null |
 }
 
 export function hasActiveReportPullRequest(report: ReportWithPullRequests | null | undefined): boolean {
-    return reportPullRequests(report).some((pr) => !pr.merged && pr.state !== 'closed' && pr.state !== 'merged')
+    return report != null && hasOpenImplementationPr(report)
 }
 
 export function hasMergedReportPullRequest(report: ReportWithPullRequests | null | undefined): boolean {

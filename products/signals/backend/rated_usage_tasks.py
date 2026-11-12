@@ -14,9 +14,11 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.models import SignalSpend
 from products.signals.backend.rated_usage_models import SignalRatedUsage
-from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
+from products.signals.backend.trial.models import SignalTrialGrant
+from products.signals.backend.trial.rated_usage import FrozenGrantAllocation, report_trial_grant, snapshot_rated_usage
 
 from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import RatedUsageItem
 
 
 def _report_day(organization_id: UUID, day: date) -> None:
@@ -25,36 +27,41 @@ def _report_day(organization_id: UUID, day: date) -> None:
     organization = Organization.objects.filter(id=organization_id).first()
     if organization is None:
         return
-    begin = datetime.combine(day, time.min, UTC)
-    credits = get_signals_spend_billing_credits_by_team(
-        begin, begin + timedelta(days=1), organization_id=organization_id
-    )
-    SignalRatedUsage.objects.unscoped().bulk_create(
-        [
-            SignalRatedUsage(team_id=team_id, organization_id=organization_id, day=day, cents=cents)
-            for team_id, cents in credits
-        ],
-        ignore_conflicts=True,
-    )
+    snapshot_rated_usage(organization_id, day)
     # Snapshot the customer and amount before POST so retries survive project moves.
     deliveries = (
         SignalRatedUsage.objects.unscoped()
-        .filter(organization_id=organization_id, day=day)
+        .filter(organization_id=organization_id, day=day, reported_at__isnull=True)
         .order_by("team_id")
-        .values_list("team_id", "cents")
+        .values("team_id", "cents", "grants")
     )
-    # Grant allocation belongs to the trial integration. This path reports all metered usage as billable.
-    items: list[dict[str, str | int]] = [
-        {"team_id": team_id, "product": "inbox_usage", "day": day.isoformat(), "cents": cents}
-        for team_id, cents in deliveries
-    ]
     manager = BillingManager(None)
-    for batch in batched(items, 1000, strict=False):
-        manager.record_rated_usage(organization, list(batch))
+    opened_pools: set[tuple[str, int, str]] = set()
+    for batch in batched(deliveries.iterator(chunk_size=1000), 1000, strict=False):
+        items: list[RatedUsageItem] = []
+        for delivery in batch:
+            item: RatedUsageItem = {
+                "team_id": delivery["team_id"],
+                "product": "inbox_usage",
+                "day": day.isoformat(),
+                "cents": delivery["cents"],
+            }
+            allocations: list[FrozenGrantAllocation] = delivery["grants"]
+            for allocation in allocations:
+                pool = (allocation["grant_id"], allocation["pool_cents"], allocation["pool_day"])
+                if pool not in opened_pools:
+                    manager.open_external_credit_pool(organization, grant_id=pool[0], cents=pool[1], day=pool[2])
+                    opened_pools.add(pool)
+            if allocations:
+                item["grants"] = [
+                    {"grant_id": allocation["grant_id"], "cents": allocation["cents"]} for allocation in allocations
+                ]
+            items.append(item)
+        manager.record_rated_usage(organization, items)
         SignalRatedUsage.objects.unscoped().filter(
             organization_id=organization_id,
             day=day,
-            team_id__in=[item["team_id"] for item in batch],
+            team_id__in=[item["team_id"] for item in items],
             reported_at__isnull=True,
         ).update(reported_at=timezone.now())
 
@@ -78,6 +85,20 @@ def report_signals_rated_usage(organization_id: str, day: str) -> None:
     queue=CeleryQueue.USAGE_REPORTS.value,
     autoretry_for=(Exception,),
     retry_backoff=True,
+    max_retries=5,
+    soft_time_limit=60,
+    time_limit=90,
+)
+@skip_team_scope_audit
+def report_signals_trial_grant(team_id: int, grant_id: str) -> None:
+    report_trial_grant(team_id, UUID(grant_id))
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.USAGE_REPORTS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
     max_retries=3,
     soft_time_limit=270,
     time_limit=300,
@@ -87,15 +108,21 @@ def enqueue_signals_rated_usage(day: str | None = None) -> None:
     end = datetime.combine(date.fromisoformat(day) + timedelta(days=1) if day else timezone.now().date(), time.min, UTC)
     if end > timezone.now():
         raise ValueError("Rated usage requires a closed UTC day")
+    for team_id, grant_id in (
+        SignalTrialGrant.objects.unscoped()
+        .filter(billing_reported_at__isnull=True, organization_id__in=Organization.objects.values("id"))
+        .values_list("team_id", "id")
+        .iterator(chunk_size=1000)
+    ):
+        report_signals_trial_grant.delay(team_id, str(grant_id))
     # Replaying closed days repairs missed deliveries; Billing deduplicates each team/day.
     begin = end - timedelta(days=1 if day else 7)
     org_days = (
         SignalSpend.objects.unscoped()
         .filter(
-            usage_billing=True,
+            Q(usage_billing=True, billing_exempt=False) | Q(trial_grant_id__isnull=False),
             finalized_at__gte=begin,
             finalized_at__lt=end,
-            billing_exempt=False,
             spend__gt=0,
         )
         .annotate(day=TruncDate("finalized_at", tzinfo=UTC))

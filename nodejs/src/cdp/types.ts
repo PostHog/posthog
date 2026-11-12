@@ -15,6 +15,7 @@ import {
 } from '../types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
+import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
 
 export type HogBytecode = any[]
 
@@ -266,13 +267,21 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
         | 'message_frequency_cap_held'
+        | 'message_frequency_cap_hold_ended'
         | 'email_suppressed'
+        | 'email_opted_out'
         | 'email_missing_recipient'
         | 'email_suspended'
         | 'email_paused'
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
+        | 'email_sandbox_sent'
+        | 'email_sandbox_failed'
+        | 'email_sandbox_blocked'
+        | 'email_sandbox_delivered'
+        | 'email_sandbox_bounced'
+        | 'email_sandbox_complained'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
@@ -324,7 +333,7 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email', 'emailsandbox'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
@@ -435,6 +444,19 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
+    scheduledAt?: string
+    renderedWorkflowVersion?: number
+    // Set when the inputs come from the stored function config, so the job queue can drop them and the
+    // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
+    inputsSource?: RebuildableInputsSource
+    inputsOmitted?: true
+}
+
+export type SandboxEmailOutcome = {
+    outcome: 'accepted' | 'skipped' | 'failed'
+    reason?: string
+    messageId?: string
+    retries?: number
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -506,7 +528,7 @@ export type HogFlowInvocationContext = {
         // invocation rebuilds its filter globals from stored state, which can arrive without the event
         // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
         delayUntilAt?: string
-        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // Set when a delay_until or time window step could not work out when to continue. The run aborts on it whatever
         // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
         // run the next step immediately, which for a "N days before X" message is worse than not sending.
         delayUntilUnresolved?: boolean
@@ -536,6 +558,9 @@ export type HogFlowInvocationContext = {
         // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
         // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
         anchorWake?: boolean
+        // Set when the matcher wakes a wait it cannot decide itself, because the condition reads data
+        // only the worker holds. Carries no eventMatched, so the worker evaluates and may re-park.
+        recheckWake?: boolean
         // The max_wait_duration this wait parked against. The timing sweep moves `scheduled` with a
         // bulk UPDATE and cannot stamp a marker the way the matcher does, so a wake that follows a
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
@@ -568,6 +593,9 @@ export type HogFlowInvocationContext = {
         // Set when a message step first finds the person at the frequency cap and the team holds capped
         // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
         frequencyCapHoldDeadlineAt?: string
+        sandboxEmail?: SandboxEmailOutcome
+        sandboxEmailRetries?: number
+        sandboxEmailUncertainSends?: number
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -582,6 +610,8 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    scheduledAt?: string
+    statusAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
@@ -669,6 +699,7 @@ export type HogFunctionTypeType =
 export const RERUNNABLE_HOG_FUNCTION_TYPES = new Set<HogFunctionTypeType>(['destination', 'internal_destination'])
 
 export interface HogFunctionMappingType {
+    name?: string | null
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null
@@ -740,7 +771,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns' | 'posthog'
+    kind: 'slack' | 'email' | 'email_sandbox' | 'oauth' | 'firebase' | 'apns' | 'posthog'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

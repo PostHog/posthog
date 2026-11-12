@@ -4,18 +4,18 @@ import type { ActorsAtPointInput, ActorsResponseApi } from '@/api/actors'
 import type { DashboardApi, DashboardBasicApi, DashboardTileApi } from '@/api/dashboards'
 import type { InsightApi, InsightBasicApi } from '@/api/insights'
 import type { FileSystemShortcutApi, ShortcutInput } from '@/api/shortcuts'
-import type { WebOverviewResponseApi } from '@/api/webAnalytics'
 import { asRecord } from '@/lib/records'
 import type { DeviceRecentEntry, PinDisplay } from '@/model/views'
 
 import { useDemoMode } from './demoMode'
+import { DEMO_SQL_INSIGHTS } from './sqlCharts'
 
 // Views demo data. Every name, number and email is invented. Responses have the API shapes, so demo mode runs through
 // the same adapters, refresh rules and status line as live mode. Ids are stable because the Argent flow selects by them.
 
 const MINUTE = 60_000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
+export const HOUR = 60 * MINUTE
+export const DAY = 24 * HOUR
 
 /** How old the demo numbers are when the demo starts: "Updated 42 min ago". */
 const DEMO_DATA_AGE_MS = 42 * MINUTE
@@ -57,6 +57,7 @@ interface DemoInsightDef {
     aggregate?: (windowDays: number) => number
     /** A SQL insight's columns and rows. */
     sql?: DemoSqlResult
+    sqlData?: { columns: string[]; rows: (string | number | null)[][] }
     /** Funnel steps over 30 days, scaled to the window. `medianSeconds` is the time from the step before. */
     funnel?: { name: string; count: number; medianSeconds: number | null }[]
     /** Weekly cohorts: the size of an average cohort and the percent that comes back in each week after. */
@@ -65,7 +66,7 @@ interface DemoInsightDef {
     breakdown?: { value: string; share: number }[]
 }
 
-function noise(day: number, salt: number): number {
+export function noise(day: number, salt: number): number {
     const value = Math.sin((day + 1) * 12.9898 + salt * 78.233) * 43_758.5453
     return value - Math.floor(value)
 }
@@ -138,6 +139,7 @@ const DEMO_SQL_COUNTRIES: DemoSqlCell[][] = [
 const signupsPerDay = daily(128, 1)
 
 const DEMO_INSIGHTS: DemoInsightDef[] = [
+    ...DEMO_SQL_INSIGHTS,
     {
         id: 9101,
         shortId: DEMO_INSIGHT_SIGNUPS,
@@ -409,6 +411,18 @@ interface DemoDashboardDef {
 
 const DEMO_DASHBOARDS: DemoDashboardDef[] = [
     {
+        id: 9006,
+        ref: 'demo-dash-shop',
+        name: 'Shop overview',
+        description: 'SQL charts with month labels and separate value scales.',
+        dateFrom: null,
+        tiles: [
+            ...DEMO_SQL_INSIGHTS.map((insight, index) => ({ id: index + 1, insight: insight.shortId })),
+            { id: 5, insight: 'demo-ins-paying' },
+            { id: 6, text: 'Review the estimates after month end.' },
+        ],
+    },
+    {
         id: 9001,
         ref: DEMO_DASHBOARD_KPIS,
         name: 'Product KPIs',
@@ -485,19 +499,19 @@ function dashboardDef(ref: string): DemoDashboardDef | undefined {
     return DEMO_DASHBOARDS.find((dashboard) => dashboard.ref === ref)
 }
 
-function startOfDay(date: Date): Date {
+export function startOfDay(date: Date): Date {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
-function addDays(date: Date, days: number): Date {
+export function addDays(date: Date, days: number): Date {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
 }
 
-function isoDay(date: Date): string {
+export function isoDay(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function offsetSuffix(date: Date): string {
+export function offsetSuffix(date: Date): string {
     const minutes = -date.getTimezoneOffset()
     const sign = minutes >= 0 ? '+' : '-'
     const absolute = Math.abs(minutes)
@@ -509,13 +523,13 @@ function parseDay(value: string): Date | null {
     return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null
 }
 
-interface DemoWindow {
+export interface DemoWindow {
     start: Date
     end: Date
 }
 
 /** The days a range covers in the demo, like the server resolves them: "Last 7 days" is 8 days ending today. */
-function demoWindow(dateFrom: string | null, dateTo: string | null, anchor: Date): DemoWindow {
+export function demoWindow(dateFrom: string | null, dateTo: string | null, anchor: Date): DemoWindow {
     const today = startOfDay(anchor)
     const weekStart = addDays(today, -((today.getDay() + 6) % 7))
     const window = ((): DemoWindow => {
@@ -559,7 +573,7 @@ function demoWindow(dateFrom: string | null, dateTo: string | null, anchor: Date
     return { start: window.start > end ? end : window.start, end }
 }
 
-function windowDays(window: DemoWindow): Date[] {
+export function windowDays(window: DemoWindow): Date[] {
     const days: Date[] = []
     for (let day = window.start; day <= window.end; day = addDays(day, 1)) {
         days.push(day)
@@ -666,6 +680,9 @@ function breakdownResult(def: DemoInsightDef, window: DemoWindow, anchor: Date):
 }
 
 function demoResult(def: DemoInsightDef, window: DemoWindow, anchor: Date, compare: boolean): unknown {
+    if (def.sqlData) {
+        return def.sqlData.rows
+    }
     if (def.sql) {
         return def.sql.rows(window, anchor)
     }
@@ -684,7 +701,7 @@ function demoResult(def: DemoInsightDef, window: DemoWindow, anchor: Date, compa
     return [trendsEntry(def, window, anchor, 'current'), trendsEntry(def, previousWindow(window), anchor, 'previous')]
 }
 
-interface DemoFreshness {
+export interface DemoFreshness {
     last_refresh: string
     cache_target_age: string
     next_allowed_client_refresh: string
@@ -692,7 +709,7 @@ interface DemoFreshness {
 }
 
 /** Before a demo refresh the numbers are 42 minutes old and may be forced; after one, the next force waits 3 minutes. */
-function demoFreshness(anchor: number, refreshedAt: number | undefined): DemoFreshness {
+export function demoFreshness(anchor: number, refreshedAt: number | undefined): DemoFreshness {
     const lastRefresh = refreshedAt ?? anchor - DEMO_DATA_AGE_MS
     const window = refreshedAt ? 3 * MINUTE : 15 * MINUTE
     return {
@@ -703,7 +720,7 @@ function demoFreshness(anchor: number, refreshedAt: number | undefined): DemoFre
     }
 }
 
-function resolvedRange(window: DemoWindow): { date_from: string; date_to: string } {
+export function resolvedRange(window: DemoWindow): { date_from: string; date_to: string } {
     const suffix = offsetSuffix(window.end)
     return {
         date_from: `${isoDay(window.start)}T00:00:00${suffix}`,
@@ -735,6 +752,13 @@ function withRange(query: JsonRecord, dateFrom: string | null, dateTo: string | 
 
 /** The fields the server adds to a SQL insight's response. */
 function sqlFields(def: DemoInsightDef): Pick<InsightApi, 'columns' | 'types' | 'hasMore'> {
+    if (def.sqlData) {
+        return {
+            columns: def.sqlData.columns,
+            types: def.sqlData.columns.map((name) => [name, name === 'month' ? 'String' : 'Nullable(Float64)']),
+            hasMore: false,
+        }
+    }
     if (!def.sql) {
         return {}
     }
@@ -784,7 +808,7 @@ export function demoInsightResponse(request: DemoInsightRequest, anchor: number)
         ...sqlFields(def),
         ...demoFreshness(anchor, request.refreshedAt),
         timezone: 'UTC',
-        resolved_date_range: resolvedRange(window),
+        resolved_date_range: def.sqlData ? undefined : resolvedRange(window),
         created_by: DEMO_AUTHOR,
         created_at: '2026-03-03T10:00:00Z',
     }
@@ -873,47 +897,6 @@ export function demoInsightRows(): InsightBasicApi[] {
         description: insight.description,
         last_modified_at: null,
     }))
-}
-
-const WEB_METRICS: { key: string; kind: string; perWeek: number; previous: number; isIncreaseBad?: boolean }[] = [
-    { key: 'visitors', kind: 'unit', perWeek: 8412, previous: 7930 },
-    { key: 'views', kind: 'unit', perWeek: 31_207, previous: 30_118 },
-    { key: 'sessions', kind: 'unit', perWeek: 10_906, previous: 10_450 },
-    { key: 'session duration', kind: 'duration_s', perWeek: 194, previous: 188 },
-    { key: 'bounce rate', kind: 'percentage', perWeek: 41.6, previous: 43.2, isIncreaseBad: true },
-]
-
-/** A demo web analytics overview for the query's range. Counts scale with the window; durations and rates do not. */
-export function demoWebOverviewResponse(
-    query: JsonRecord,
-    anchor: number,
-    refreshedAt?: number
-): WebOverviewResponseApi {
-    const range = (query.dateRange as JsonRecord | undefined) ?? {}
-    const window = demoWindow(
-        (range.date_from as string | null) ?? null,
-        (range.date_to as string | null) ?? null,
-        new Date(anchor)
-    )
-    const scale = windowDays(window).length / 8
-    return {
-        results: WEB_METRICS.map((metric) => {
-            const counts = metric.kind === 'unit'
-            const value = counts ? Math.round(metric.perWeek * scale) : metric.perWeek
-            const previous = counts ? Math.round(metric.previous * scale) : metric.previous
-            return {
-                key: metric.key,
-                kind: metric.kind,
-                value,
-                previous,
-                changeFromPreviousPct: Math.round(((value - previous) / previous) * 1000) / 10,
-                isIncreaseBad: metric.isIncreaseBad ?? false,
-            }
-        }),
-        ...demoFreshness(anchor, refreshedAt),
-        timezone: 'UTC',
-        resolved_date_range: resolvedRange(window),
-    }
 }
 
 const DEMO_ACTORS: { id: string; email: string; recordings: string[] }[] = [

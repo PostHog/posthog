@@ -53,6 +53,16 @@ export interface analyticsPinnedLogicActions {
         id: string
         successMessage: string | undefined
     } // projectTreeDataLogic
+    reorderShortcuts: (orderedIds: string[]) => {
+        orderedIds: string[]
+    } // projectTreeDataLogic
+    movePinned: (
+        shortcutId: string,
+        overShortcutId: string
+    ) => {
+        overShortcutId: string
+        shortcutId: string
+    }
     togglePinned: (target: PinTarget) => {
         target: PinTarget
     }
@@ -82,9 +92,10 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
     path(['scenes', 'analytics', 'analyticsPinnedLogic']),
     connect(() => ({
         values: [projectTreeDataLogic, ['shortcutData', 'shortcutDataLoading']],
-        actions: [projectTreeDataLogic, ['addShortcutItem', 'deleteShortcut']],
+        actions: [projectTreeDataLogic, ['addShortcutItem', 'deleteShortcut', 'reorderShortcuts']],
     })),
     actions({
+        movePinned: (shortcutId: string, overShortcutId: string) => ({ shortcutId, overShortcutId }),
         togglePinned: (target: PinTarget) => ({ target }),
     }),
     selectors({
@@ -127,6 +138,17 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        movePinned: ({ shortcutId, overShortcutId }) => {
+            // Pins are a subset of all shortcuts, so the move happens in the full list to keep the others in place.
+            const ids = values.shortcutData.map((shortcut) => shortcut.id).filter((id): id is string => !!id)
+            const from = ids.indexOf(shortcutId)
+            const to = ids.indexOf(overShortcutId)
+            if (from < 0 || to < 0 || from === to) {
+                return
+            }
+            ids.splice(to, 0, ...ids.splice(from, 1))
+            actions.reorderShortcuts(ids)
+        },
         togglePinned: ({ target }) => {
             // Every pin control is disabled while a change saves. This also stops a repeated dispatch.
             if (values.shortcutDataLoading) {

@@ -2,7 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
-import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { inStorybook, uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import * as api from './generated/api'
@@ -87,8 +87,7 @@ export const conversionRecordingsLogic = kea<conversionRecordingsLogicType>([
                 ): Promise<ConversionRecordingsPage> => {
                     await breakpoint(250)
                     const pageIndex = payload.pageIndex ?? 0
-                    const queryId =
-                        inStorybook() || inStorybookTestRunner() ? '00000000-0000-4000-8000-000000000000' : uuid()
+                    const queryId = inStorybook() ? '00000000-0000-4000-8000-000000000000' : uuid()
                     let response: ConversionRecordingsResponseApi
                     try {
                         response = await api.marketingAnalyticsConversionRecordingsList(String(values.currentTeamId), {

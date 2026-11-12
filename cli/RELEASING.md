@@ -93,6 +93,16 @@ A release that fails to upload therefore breaks npm installs for that version, w
 The upload step shipped one release ahead of this setting for that reason.
 
 If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
+If changesets are already pending, you can start a new run manually, for example after fixing a failed release preparation.
+Open [Release CLI in GitHub Actions](https://github.com/PostHog/posthog/actions/workflows/release-cli.yml), select **Run workflow**, choose `master`, and select **Run workflow** again.
+You can also use the GitHub CLI:
+
+```bash
+gh workflow run release-cli.yml --repo PostHog/posthog --ref master
+```
+
+Manual runs use the workflow on `master` and still require approval in the `Release SDK` environment.
+They do not bypass changesets or release checks, and runs on other branches are skipped.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.
 Any failed job in `Release CLI` posts to the approval thread and to the [#alerts-posthog-js channel in Slack](https://posthog.slack.com/archives/C07HTMN9X47).

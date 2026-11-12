@@ -373,8 +373,9 @@ pub struct Config {
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
-    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
-    /// cover the whole pool. Small values maximize sub-batch consolidation.
+    /// is the smallest multiple of `pool / dispatchers` workers at or above
+    /// this value, so every worker gets the same share of the fleet's slices.
+    /// Small values maximize sub-batch consolidation.
     #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
     pub min_aperture: usize,
 

@@ -58,9 +58,13 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
+from products.signals.backend.trial.models import (  # noqa: F401 -- register Signals' durable trial ledger
+    SignalTrialGrant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +97,7 @@ def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalSourceConfig.SourceType.choices)
 
 
-class SignalSourceConfig(UUIDModel):
+class SignalSourceConfig(ModelActivityMixin, UUIDModel):
     # Source-product taxonomy is owned by products.signals.backend.enums (the same StrEnum the payload
     # contracts and frontend codegen use). Aliased here so `SignalSourceConfig.SourceProduct.X` keeps
     # working; choices are frozen-equivalent to the prior nested TextChoices, so no migration is needed.
@@ -254,6 +258,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    default_slack_notification_min_priority = models.CharField(
+        max_length=2, choices=AutonomyPriority, null=True, blank=True
+    )
     # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
     # id from one of them fails in every other. Null on rows saved before the binding existed.
     # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
@@ -413,6 +420,7 @@ class SignalReport(UUIDModel):
     # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
     # flipped afterwards, so no usage report can observe the value changing. Null = billable.
     billing_exempt_reason = models.CharField(max_length=30, choices=BillingExemptReason, null=True, blank=True)
+    self_driving_funding = models.JSONField(null=True, blank=True)
     # The status held immediately before the report was suppressed (archived). Lets "restore"
     # return the report to where it was instead of always dropping it back to POTENTIAL.
     # Null for reports that were never suppressed (and cleared again on restore).
@@ -576,6 +584,12 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the stuck-research sweep reads IN_PROGRESS reports across all teams by run start.
+            models.Index(
+                fields=["last_run_at"],
+                condition=models.Q(status="in_progress"),
+                name="signals_report_in_progress",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -2968,6 +2982,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        TRIAL_SCOUT_LIMIT = "trial_scout_limit", "Free trial scout limit"
         # PostHog retired the scout this config runs: its canonical skill declared a sunset that
         # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
         # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that
@@ -3381,7 +3396,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        super().save(*args, **kwargs)
+        from products.signals.backend.trial.scouts import (
+            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
+        )
+
+        with scout_capacity(self):
+            super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
@@ -3739,6 +3759,39 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
+        ]
+
+
+class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
+    """A workflow "Run scout" fire that arrived while its scout was busy, waiting for a run.
+
+    Written when the workflow cooldown or the in-flight gate turns a fire away, and deleted when a
+    run takes it: the coordinator attaches it to a due scheduled run, or dispatches one
+    workflow-triggered run carrying every pending fire of the lane. See
+    `scout_harness/workflow_trigger_queue.py`. Rows exist only while a fire waits, so the table
+    stays small and the coordinator can read all of it each tick.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: the coordinator drains with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # No single-column index: the lane index below leads with team_id.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    skill_name = models.CharField(max_length=200)
+    # The note the step rendered from its triggering event. Blank means the event fired with no note.
+    note = models.TextField(blank=True, default="")
+    # The HogFlow whose step fired. Not a foreign key: workflows belong to another product.
+    workflow_id = models.CharField(max_length=64, null=True, blank=True)
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal scout pending trigger"
+        verbose_name_plural = "Signal scout pending triggers"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name", "received_at"], name="signal_scout_pending_lane_idx"),
         ]
 
 
@@ -4141,6 +4194,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Kind(models.TextChoices):
         RESEARCH = "research"
         REPO_SELECTION = "repo_selection"
+        CUSTOM_AGENT = "custom_agent"
         AD_HOC = "ad-hoc"
         SCOUT_RUN = "scout_run"
         REVIEWER_TRIGGERED_IMPLEMENTATION = "reviewer_triggered_implementation"
@@ -4158,11 +4212,23 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SignalReport, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
     )
     task_run_id = models.UUIDField(null=True, blank=True, unique=True)
+    trial_grant = models.ForeignKey(
+        "signals.SignalTrialGrant",
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        db_index=False,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    pending_requests = models.JSONField(default=dict, db_default={})
+    finalization_requested_at = models.DateTimeField(null=True, blank=True)
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
     spend = models.DecimalField(
         max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
     )
     accounting_failed = models.BooleanField(default=False)
+    accounting_pending = models.BooleanField(default=False, db_default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False, db_default=False)
     # Freeze the meter at admission: a later plan change must not bill the same work twice.
@@ -4172,7 +4238,15 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
+            models.Index(
+                fields=["updated_at"],
+                condition=models.Q(accounting_pending=True, accounting_failed=False),
+                name="signals_spend_pending",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"
@@ -4185,6 +4259,13 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                         & (
                             models.Q(kind="ad-hoc", task_run_id__isnull=True)
                             | models.Q(kind__in=["research", "repo_selection"], task_run_id__isnull=False)
+                        )
+                        | models.Q(
+                            kind="custom_agent",
+                            task_run_id__isnull=False,
+                            signal_id__isnull=True,
+                            scout_run__isnull=True,
+                            report__isnull=True,
                         )
                         | models.Q(
                             kind="scout_run",
@@ -4209,7 +4290,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                         spend=0,
                     )
                 ),
-                name="signals_owner_spend_kind_owner",
+                name="signals_owner_spend_kind_owner_v2",
             ),
             models.CheckConstraint(condition=models.Q(spend__gte=0), name="signals_owner_spend_nonnegative"),
         ]

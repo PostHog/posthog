@@ -118,7 +118,24 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
             override_settings(**{**BYPASS_ON, "BUCKET_URL": "s3://warehouse.example/dlt"}),
             patch.dict(os.environ, proxy_env(proxy_url)),
         ):
-            assert delta_proxy_storage_options() == {}
+            assert delta_proxy_storage_options() == {"AWS_REGION": "us-east-1"}
+
+    @parameterized.expand(
+        [
+            ("no_proxy", {}, None, "us-east-1"),
+            ("with_proxy", {}, PROXY, "us-east-1"),
+            ("region_unknown", {"DATA_WAREHOUSE_S3_REGION": ""}, PROXY, None),
+        ]
+    )
+    def test_pins_the_bucket_region_so_the_process_environment_cannot_change_it(
+        self, _name: str, settings_override: dict[str, object], proxy_url: str | None, expected: str | None
+    ) -> None:
+        # deltalake copies AWS_REGION from each open's storage options into the process environment,
+        # so an open of a customer's table in another region would redirect later opens of our bucket.
+        env = {**proxy_env(proxy_url), "AWS_REGION": "eu-central-1"}
+        with override_settings(**{**BYPASS_ON, **settings_override}), patch.dict(os.environ, env):
+            options = delta_proxy_storage_options()
+        assert options.get("AWS_REGION") == expected
 
     @parameterized.expand(
         [

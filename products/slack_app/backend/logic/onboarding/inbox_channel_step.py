@@ -1,5 +1,7 @@
 from typing import Any
 
+from posthog.models.integration import SlackIntegration
+
 from products.slack_app.backend.inbox_channel import (
     ensure_inbox_channel,
     has_inbox_scopes,
@@ -17,6 +19,8 @@ from products.slack_app.backend.logic.onboarding.step import (
 )
 from products.slack_app.backend.services.slack_messages import section_block
 
+INBOX_MEMBERSHIP_SCOPES = frozenset({"channels:read"})
+
 
 class InboxChannelStep(OnboardingStep):
     key = OnboardingStepKey.INBOX_CHANNEL
@@ -25,7 +29,12 @@ class InboxChannelStep(OnboardingStep):
     action_ids = frozenset({INBOX_JOIN_ACTION_ID})
 
     def applies(self, ctx: OnboardingContext) -> bool:
-        return ctx.is_workspace_admin and has_inbox_scopes(ctx.integration)
+        # Without channels:read the membership check always fails, so the step would never count as done.
+        return (
+            ctx.is_workspace_admin
+            and has_inbox_scopes(ctx.integration)
+            and not SlackIntegration(ctx.integration).missing_scopes(INBOX_MEMBERSHIP_SCOPES)
+        )
 
     def is_done(self, ctx: OnboardingContext) -> bool:
         return is_in_team_inbox_channel(ctx.integration, ctx.slack_user_id)

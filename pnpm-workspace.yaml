@@ -55,7 +55,7 @@ fetchRetries: 3
 overrides:
     axios: ^1.15.0
     '@modelcontextprotocol/sdk': ^1.29.0
-    '@types/react': 18.3.27
+    '@types/react': 18.3.31
     '@types/react-dom': 18.3.7
     cipher-base: '>=1.0.5'
     d3-geo: '>=3.1.0'
@@ -74,6 +74,9 @@ overrides:
     jest-playwright-preset>playwright-core: 1.60.0
     '@smithy/node-http-handler': 4.4.9
     '@smithy/core': 3.24.6
+    # 3.972.70 pulls @aws-sdk/nested-clients@3.997.40, which imports exports that the pinned
+    # @smithy/core above does not have, so the web identity (STS) path cannot load or bundle.
+    '@aws-sdk/credential-provider-ini@3.972.5>@aws-sdk/credential-provider-web-identity': 3.972.5
     rolldown: 1.1.4
     '@tiptap/core': 3.20.6
     '@tiptap/extensions': 3.20.6
@@ -129,6 +132,11 @@ patchedDependencies:
     # passes enableUserSelectHack=false to both drag and resize.
     # Track https://github.com/react-grid-layout/react-draggable/issues/709.
     react-draggable@4.5.0: patches/react-draggable@4.5.0.patch
+    # A dragged or resized grid item repaints only when its memoized props change, which with stable tile
+    # children means once per grid cell, so the tile trails the pointer. The patch writes the item's position to
+    # its node on each move, so the tile body does not re-render. Remove it after an upstream release moves the
+    # item on its own.
+    react-grid-layout@2.3.0: patches/react-grid-layout@2.3.0.patch
     # Browser process shims must not select v86's Node-only scheduler.
     v86@0.5.458: patches/v86@0.5.458.patch
     jest-junit@16.0.0: patches/jest-junit@16.0.0.patch
@@ -190,40 +198,40 @@ catalog:
     '@posthog/icons': ^0.39.0
     '@posthog/brand': 0.17.0
     '@posthog/react': ^1.11.3
-    posthog-js: ^1.447.1
+    posthog-js: ^1.447.13
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
     typescript: 6.0.3
     oxfmt: ^0.57.0
-    vite: ^8.1.0
-    '@vitejs/plugin-react': ^5.2.0
+    vite: ^8.1.4
+    '@vitejs/plugin-react': ^6.2.1
     # Testing
     jest: ^29.7.0
     jest-junit: ^16.0.0
     '@types/jest': ^29.5.12
-    '@types/node': ^26.6.5
+    '@types/node': ^26.6.6
     '@playwright/test': 1.60.0
     # Storybook
-    '@storybook/react': ^10.4.3
-    '@storybook/react-vite': ^10.4.3
-    storybook: ^10.4.3
+    '@storybook/react': ^10.6.1
+    '@storybook/react-vite': ^10.6.1
+    storybook: ^10.6.1
     # Common utilities
     fast-equals: ^6.0.0
     fuse.js: ^7.1.0
     query-selector-shadow-dom: ^1.0.0
-    '@types/query-selector-shadow-dom': ^1.0.0
+    '@types/query-selector-shadow-dom': ^1.0.4
     ts-pattern: '4.3'
-    use-debounce: ^9.0.3
+    use-debounce: ^9.0.4
     # React types
-    '@types/react': ^18.3.27
+    '@types/react': ^18.3.31
     '@types/react-dom': ^18.3.7
     '@base-ui/react': 1.9.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3
-    concurrently: ^5.3.0
-    yaml: ^2.8.2
+    concurrently: ^10.0.6
+    yaml: ^2.9.1
 
 # PostHog packages are released by our own workflows. posthog-js is also
 # uploaded to the browser SDK CDN from the posthog-js release workflow, so

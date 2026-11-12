@@ -536,6 +536,12 @@ class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThr
     rate = "30/day"
 
 
+# Each lookup calls the workload provider's API, often on a budget shared with the team's integration.
+class WorkloadSubjectLookupThrottle(UserRateThrottle):
+    scope = "workload_subject_lookup"
+    rate = "30/minute"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -718,6 +724,31 @@ class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# A metric catalog search can embed its query through the shared embedding worker, which spends model
+# provider budget on every call. The project-global pair skips session-authenticated requests, so this
+# team bucket caps browser and agent callers alike. An agent makes a few searches per question.
+class MetricSearchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_burst"
+    rate = "60/minute"
+
+
+class MetricSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_sustained"
+    rate = "1200/hour"
+
+
+# A metric write that changes its name, description or unit schedules an embedding call, so writes get
+# the same kind of team bucket. Setting up a catalog creates a few dozen metrics at a time.
+class MetricWriteBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_burst"
+    rate = "60/minute"
+
+
+class MetricWriteSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_sustained"
+    rate = "600/hour"
+
+
 # Site discovery can fetch several small public resources per request and holds the web worker for
 # the complete chain. The project-wide API throttles do not cover session-authenticated requests,
 # so this separate team bucket also limits browser callers.
@@ -741,6 +772,20 @@ class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
 class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_prompt_suggestions_sustained"
     rate = "30/hour"
+
+
+# The AEO keyword report and modifiers recompute their numbers from every answered check in the window
+# on each request, matching each keyword against each answer text in Postgres or scanning every search in
+# Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
+# team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_burst"
+    rate = "30/minute"
+
+
+class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_sustained"
+    rate = "300/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
@@ -1127,6 +1172,20 @@ class AIObservabilityBackfillEstimateSustainedThrottle(_TeamBucketRateThrottle):
 class AIObservabilityBackfillCreateSustainedThrottle(_TeamBucketRateThrottle):
     scope = "llma_eval_backfill_create_sustained"
     rate = "100/hour"
+
+
+# Each `test_on_sample` call runs up to three judge calls on the team's own provider key, so a loop
+# spends the customer's model quota and holds a web worker per call. Per credential, so one user
+# testing a prompt cannot lock the rest of the team out, with a team bucket capping the total.
+# Both windows are a minute, so someone who hits a limit waits seconds, not an hour.
+class AIObservabilityEvaluationJudgeTestThrottle(_UserBucketRateThrottle):
+    scope = "llma_eval_judge_test"
+    rate = "10/minute"
+
+
+class AIObservabilityEvaluationJudgeTestTeamThrottle(_TeamBucketRateThrottle):
+    scope = "llma_eval_judge_test_team"
+    rate = "30/minute"
 
 
 class _CustomSourceAIBuilderThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -1839,6 +1898,22 @@ class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+class ContextSelectionTaskThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Caps prepare calls per sandbox task, whether or not the task is eligible for selection.
+
+    The project-wide selection limits count only eligible selections, so this per-task ceiling is
+    what stops one looping sandbox from holding the shared request slots or flooding outcome events.
+    """
+
+    scope = "context_selection_task"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        access_token = getattr(getattr(request, "successful_authenticator", None), "access_token", None)
+        ident = getattr(access_token, "sandbox_task_id", None) or request.user.pk or self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
     # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
     # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.
@@ -2143,3 +2218,27 @@ class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottl
 class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "batch_exports_count_rows_burst"
     rate = "20/minute"
+
+
+class WarehouseMigrationCrawlThrottle(_TeamBucketRateThrottle):
+    """Creating or refreshing a warehouse migration starts a full read of the vendor account on the
+    metadata worker. One project-wide bucket, so new keys or members cannot multiply the crawls."""
+
+    scope = "warehouse_migration_crawl"
+    rate = "20/hour"
+
+
+class WarehouseMigrationUploadStartThrottle(_TeamBucketRateThrottle):
+    """Starting an uploaded warehouse migration creates a migration row. One project-wide bucket bounds how many
+    rows any caller can create."""
+
+    scope = "warehouse_migration_upload_start"
+    rate = "20/hour"
+
+
+class WarehouseMigrationUploadThrottle(_TeamBucketRateThrottle):
+    """Each upload of warehouse migration connections loads, plans again and rewrites the stored snapshot under the
+    migration row lock. The budget sits far above an agent that sends batches one after another."""
+
+    scope = "warehouse_migration_upload"
+    rate = "60/minute"

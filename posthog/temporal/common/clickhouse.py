@@ -25,6 +25,7 @@ from posthog.hogql.escape_sql import backquote_clickhouse_identifier
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.security.outbound_proxy import internal_requests_session
@@ -1079,6 +1080,9 @@ class ClickHouseClient:
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
+        if clickhouse_test_setup.is_pending:
+            # The setup runs blocking ClickHouse queries, so keep it off the event loop.
+            await asyncio.to_thread(clickhouse_test_setup.run)
 
         def socket_factory(addr_info):
             family, type_, proto, _, _ = addr_info

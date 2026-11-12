@@ -17,9 +17,9 @@ from posthog.clickhouse.client.connection import (
     Workload,
     get_default_clickhouse_workload_type,
 )
-from posthog.clickhouse.client.execute import query_with_columns, sync_execute
+from posthog.clickhouse.client.execute import clickhouse_query_counter, query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, QueryCounter, tags_context
 
 
 @pytest.fixture
@@ -51,6 +51,7 @@ def llm_analytics_slots():
         (Workload.DEFAULT, AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
         (Workload.ONLINE, AccessMethod.PROJECT_SECRET_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
         (Workload.LOGS, AccessMethod.PERSONAL_API_KEY, Workload.LOGS, ClickHouseUser.API),
+        (Workload.METRICS, None, Workload.METRICS, ClickHouseUser.APP),
     ],
 )
 def test_process_query_task_workload_routing(
@@ -58,7 +59,7 @@ def test_process_query_task_workload_routing(
 ):
     # The async query worker forces app traffic onto the online cluster while API-key traffic
     # keeps the offline routing it gets when run synchronously. Neither may override
-    # cluster-pinned workloads: LOGS-workload tables only exist on the logs cluster.
+    # cluster-pinned workloads: logs and metrics tables only exist on their own clusters.
     with tags_context(kind="celery", id="posthog.tasks.tasks.process_query_task", access_method=access_method):
         sync_execute("SELECT 1", workload=workload, flush=False)
 
@@ -86,11 +87,12 @@ def test_celery_cache_warming_workload_routing(client_from_pool, access_method, 
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
         (Workload.LOGS, Workload.LOGS),
+        (Workload.METRICS, Workload.METRICS),
     ],
 )
 def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):
     # The ENDPOINTS tag reroutes queries to the endpoints cluster, but must not override
-    # the LOGS cluster pin either.
+    # a logs or metrics cluster pin either.
     with tags_context(kind="request", id="api/endpoint", workload=Workload.ENDPOINTS):
         sync_execute("SELECT 1", workload=workload, flush=False)
 
@@ -255,6 +257,35 @@ def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, ex
     if expected_workload == "default":
         expected_workload = get_default_clickhouse_workload_type().value
     assert stats.workload() == expected_workload
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_sync_execute_records_query_counts_and_durations(client_from_pool, fails: bool) -> None:
+    counter = QueryCounter()
+    client = client_from_pool.return_value.__enter__.return_value
+    durations = iter([0.01, 0.125])
+
+    with patch("posthog.clickhouse.client.execute.perf_counter", return_value=0.0) as clock:
+
+        def execute(*args: Any, **kwargs: Any) -> list[tuple[int]]:
+            clock.return_value += next(durations)
+            if fails:
+                raise ValueError("Query failed")
+            return [(1,)]
+
+        client.execute.side_effect = execute
+        with clickhouse_query_counter(counter):
+            for _ in range(2):
+                if fails:
+                    with pytest.raises(ValueError, match="Query failed"):
+                        sync_execute("SELECT 1", workload=Workload.ONLINE, flush=False)
+                else:
+                    assert sync_execute("SELECT 1", workload=Workload.ONLINE, flush=False) == [(1,)]
+
+    assert counter.count == 2
+    assert counter.query_time_ms == pytest.approx(135.0)
+    assert counter.max_query_time_ms == pytest.approx(125.0)
+    assert counter.slow_count == 1
 
 
 @pytest.mark.parametrize(
