@@ -43,7 +43,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
-from products.messaging.backend.provider_imports.emails import normalized_email
+from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.postmark_templates import convert_template
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -53,7 +53,7 @@ from products.messaging.backend.services.imported_data import (
     import_opt_outs,
     import_suppressions,
 )
-from products.messaging.backend.services.message_templates import create_template
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.postmark_client import (
     DUMP_TIMEOUT_SECONDS,
     MAX_DUMP_BYTES,
@@ -91,7 +91,9 @@ MAX_SUPPRESSED_ADDRESSES = 500_000
 TOO_MANY_SUPPRESSIONS_MESSAGE = (
     "This Postmark account has more suppressed addresses than PostHog can import at once. Contact support to import it."
 )
-TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,400}")
+# Sending by key caps it at 256 characters, the longest tag value SES takes.
+TEMPLATE_KEY_MAX_LENGTH = 256
+TEMPLATE_KEY_PATTERN = re.compile(rf"[A-Za-z0-9_-]{{1,{TEMPLATE_KEY_MAX_LENGTH}}}")
 CATEGORY_KEY_PREFIX = "postmark_"
 # The stream every server has for broadcasts. Mail on it is plain marketing email in PostHog, with no category.
 DEFAULT_BROADCAST_STREAM = "broadcast"
@@ -428,16 +430,17 @@ def _dump_rows(client: PostmarkClient, stream_id: str) -> list[dict[str, Any]]:
 def _fetch_suppressions(
     client: PostmarkClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
-    importable = _importable_servers(client).importable
+    # A sandbox server never delivers, so its suppressions aren't real even when someone picked it with its own token.
+    importable = [server for server in _importable_servers(client).importable if server.delivery_type != "Sandbox"]
     merged: dict[str, _Suppression] = {}
     invalid = 0
     for server in importable:
         server_client = client.for_server(server)
         for stream in _sending_streams(server_client):
             rows = _dump_rows(server_client, str(stream.get("ID")))
-            if len(merged) + len(rows) > MAX_SUPPRESSED_ADDRESSES:
-                raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE)
             invalid += _merge(merged, rows, stream.get("MessageStreamType") == "Transactional")
+            if len(merged) > MAX_SUPPRESSED_ADDRESSES:
+                raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE)
 
     after = str(checkpoint.get("after_address", "")) if checkpoint else ""
     addresses = [address for address in sorted(merged) if address > after]
@@ -468,7 +471,7 @@ def _merge(merged: dict[str, _Suppression], rows: list[dict[str, Any]], is_trans
             continue
         current = merged.get(address)
         on_transactional_stream = is_transactional or (current is not None and current.on_transactional_stream)
-        spellings = frozenset({str(row["EmailAddress"]).strip()}) | (
+        spellings = frozenset({exact_email(row.get("EmailAddress")) or address}) | (
             current.original_addresses if current else frozenset()
         )
         if current is None or _rank(reason, origin) > _rank(current.reason, current.origin):
@@ -609,7 +612,7 @@ def _read_template(client: PostmarkClient, reference: Any) -> dict[str, Any] | N
 
 
 def _alias_key(alias: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_-]", "-", alias)[:400]
+    return re.sub(r"[^A-Za-z0-9_-]", "-", alias)[:TEMPLATE_KEY_MAX_LENGTH]
 
 
 def _alias_shadowed(client: PostmarkClient, template: dict[str, Any]) -> bool:
@@ -625,15 +628,19 @@ def _template_key(template: dict[str, Any], shadowed: frozenset[int]) -> tuple[s
     """The key and any note about it. Postmark allows a `.` in an alias, and PostHog's keys don't."""
     alias = str(template.get("Alias") or "").strip()
     if not alias:
-        return f"postmark-{template.get('TemplateId')}"[:400], ()
+        return f"postmark-{template.get('TemplateId')}"[:TEMPLATE_KEY_MAX_LENGTH], ()
     if TEMPLATE_KEY_PATTERN.fullmatch(alias):
         return alias, ()
     key = _alias_key(alias)
     if template.get("TemplateId") in shadowed:
         # The template whose alias is the key keeps it, whichever of the two an import reads first.
         suffix = f"-{template['TemplateId']}"
-        key = f"{key[: 400 - len(suffix)]}{suffix}"
+        key = _with_suffix(key, suffix)
     return key, (f"PostHog keys can't contain every character in the alias {alias}, so the key is {key}.",)
+
+
+def _with_suffix(key: str, suffix: str) -> str:
+    return f"{key[: TEMPLATE_KEY_MAX_LENGTH - len(suffix)]}{suffix}"
 
 
 def _server_tag(server: PostmarkServer) -> str:
@@ -650,7 +657,7 @@ def _save_templates(
     missing: int,
 ) -> SavedPage:
     keys = [_template_key(template, shadowed)[0] for template in templates]
-    keys += [f"{key}-{server.id}" for key in keys]
+    keys += [_with_suffix(key, f"-{server.id}") for key in keys]
     # A deleted template counts too: importing again must not bring back one someone deleted.
     taken = {
         str(row.key): {item.tag.name for item in row.tagged_items.all()}
@@ -685,7 +692,7 @@ def _save_templates(
         layout = layouts.get(template["LayoutTemplate"]) if template.get("LayoutTemplate") else None
         converted = convert_template(template, layout)
         notes = (*key_notes, *((key_note,) if key_note else ()), *converted.notes)
-        email: dict[str, Any] = {"subject": converted.subject, "html": converted.html}
+        email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
         if converted.text:
             email["text"] = converted.text
         created = create_template(
@@ -728,7 +735,7 @@ def _choose_key(key: str, server: PostmarkServer, taken: dict[str, set[str]]) ->
     tags = taken[key]
     if IMPORT_TAG not in tags or _server_tag(server) in tags:
         return _KeyChoice(key=None)
-    longer = f"{key}-{server.id}"[:400]
+    longer = _with_suffix(key, f"-{server.id}")
     if longer in taken:
         return _KeyChoice(key=None)
     return _KeyChoice(

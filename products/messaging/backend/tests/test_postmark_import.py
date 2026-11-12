@@ -327,6 +327,13 @@ class TestPostmarkImport(BaseTest):
             MessageTemplate.objects.filter(team_id=self.team.id)
         )
 
+    def test_a_sandbox_server_token_imports_its_templates_but_not_its_suppressions(self) -> None:
+        run = self._run(["suppressions", "templates"], token="server-token-sandbox")
+
+        assert run.status == "completed"
+        assert MessageTemplate.objects.filter(team_id=self.team.id, key="sandbox-template").exists()
+        assert "sandbox-only@example.com" not in self._sources()
+
     @parameterized.expand([("dotted_alias_first", True), ("exact_alias_first", False)])
     def test_an_alias_that_turns_into_another_templates_alias_gets_its_own_key(
         self, _name: str, dotted_first: bool
