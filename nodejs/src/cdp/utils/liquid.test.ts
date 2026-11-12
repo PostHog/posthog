@@ -63,7 +63,27 @@ describe('LiquidRenderer', () => {
                 'utf8'
             )
         )
-        const sameCharacters = (html: string): string => html.replace(/&#39;/g, "'").replace(/&#34;/g, '"')
+        // Engines spell entities differently. Escaped characters stay escaped, so an escaped quote never equals a raw one.
+        const escapedCharacters: Record<string, string> = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#39;',
+            '=': '&#x3D;',
+            '`': '&#x60;',
+        }
+        const namedEntities: Record<string, string> = { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }
+        const sameCharacters = (html: string): string =>
+            html.replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (_, entity: string) => {
+                const lower = entity.toLowerCase()
+                const character = lower.startsWith('#x')
+                    ? String.fromCodePoint(parseInt(lower.slice(2), 16))
+                    : lower.startsWith('#')
+                      ? String.fromCodePoint(Number(lower.slice(1)))
+                      : namedEntities[lower]
+                return escapedCharacters[character] ?? character
+            })
 
         it.each(renders)('$name', ({ liquid, data, expected, text }) => {
             const result = LiquidRenderer.renderWithHogFunctionGlobals(
