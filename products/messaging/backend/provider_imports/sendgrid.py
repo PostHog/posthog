@@ -49,7 +49,7 @@ from products.messaging.backend.services.imported_data import (
     import_opt_outs,
     import_suppressions,
 )
-from products.messaging.backend.services.message_templates import create_template
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.sendgrid_client import (
     SUPPRESSION_PAGE_SIZE,
     TEMPLATE_PAGE_SIZE,
@@ -613,6 +613,10 @@ def _save_templates(context: ImportContext, templates: list[tuple[dict[str, Any]
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
 
 
+SENDERS_NEED_FULL_ACCESS = (
+    "Only a full access SendGrid key can read your verified senders, so they weren't listed. Add the addresses you "
+    "send from as senders in PostHog."
+)
 _SENDER_NOTE = "SendGrid sets the sender on each send. Choose one on this template before you send it."
 
 
@@ -621,7 +625,12 @@ def _version_notes(template: dict[str, Any], version: dict[str, Any]) -> tuple[s
     others = [str(other.get("name") or other.get("id")) for other in versions if other.get("id") != version.get("id")]
     notes: list[str] = []
     if version.get("active") != 1:
-        notes.append(f"No version is active in SendGrid, so PostHog imported {version.get('name')}, the newest.")
+        name = version.get("name")
+        notes.append(
+            f"No version is active in SendGrid, so PostHog imported {name}, the newest."
+            if name
+            else "No version is active in SendGrid, so PostHog imported the newest version."
+        )
     if others:
         notes.append(f"Only one version came across. These stay in SendGrid: {', '.join(others)}.")
     return tuple(notes)
@@ -654,7 +663,7 @@ def _create(
     category_id: str | None = None,
     reply_to: str = "",
 ) -> ImportItem:
-    email: dict[str, Any] = {"subject": converted.subject, "html": converted.html}
+    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
     if converted.text:
         email["text"] = converted.text
     if sender:
@@ -893,7 +902,7 @@ def _save_lists(lists: list[dict[str, Any]], contacts: int) -> SavedPage:
                 label=str(row.get("name") or row.get("id")),
                 status="listed",
                 url="/cohorts",
-                notes=(f"{row.get('contact_count', 0)} contacts. Rebuild this list as a cohort of your users.",),
+                notes=(f"{row.get('contact_count') or 0} contacts. Rebuild this list as a cohort of your users.",),
             )
             for row in lists
         ),
@@ -909,7 +918,12 @@ def _fetch_senders(
         params: dict[str, Any] = {"limit": page_size}
         if last_seen is not None:
             params["lastSeenID"] = last_seen
-        body = client.get("/v3/verified_senders", params)
+        try:
+            body = client.get("/v3/verified_senders", params)
+        except SendGridScopeMissing:
+            # No restricted scope reads verified senders, so a key made for this import usually can't.
+            yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(SENDERS_NEED_FULL_ACCESS,)))
+            return
         results = body.get("results") if isinstance(body, dict) else None
         if not isinstance(results, list):
             raise SendGridAPIError("SendGrid sent an unexpected response for /v3/verified_senders.")

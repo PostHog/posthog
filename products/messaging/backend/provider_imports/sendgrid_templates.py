@@ -1003,7 +1003,21 @@ _HTML_LINE_BREAK = re.compile(r"<br\s*/?>|</(?:p|div|tr|li|h[1-6]|table|ul|ol)\s
 _HTML_TAG = re.compile(r"<[^<>]*>")
 _LIQUID_TAG = re.compile(r"\{\{(?:(?!\{\{).){0,2000}?\}\}|\{%(?:(?!\{%).){0,2000}?%\}", re.DOTALL)
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
+_RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")
+_RAW_CLOSE = re.compile(r"\{%-?\s*endraw\s*-?%\}")
 _RAW_OUTPUT_FILTER = re.compile(r"\s*\|\s*raw\s*\}\}\Z")
+
+
+def _hold_raw_blocks(text: str, tags: list[str]) -> str:
+    """Holds each `{% raw %}...{% endraw %}` block whole. Held in parts, removing an HTML tag around one part could
+    drop the opening and leave what the block kept literal free to run."""
+    parts: list[str] = []
+    position = 0
+    while (opening := _RAW_OPEN.search(text, position)) and (closing := _RAW_CLOSE.search(text, opening.end())):
+        tags.append(text[opening.start() : closing.end()])
+        parts.append(f"{text[position : opening.start()]}\x01{len(tags) - 1}\x01")
+        position = closing.end()
+    return "".join(parts) + text[position:]
 
 
 def plain_text_from_html(html: str) -> str:
@@ -1016,7 +1030,8 @@ def plain_text_from_html(html: str) -> str:
         return f"\x01{len(tags) - 1}\x01"
 
     # Source text can't hold the slot marker, or it could stand in for a tag held here.
-    text = _LIQUID_TAG.sub(hold, html.replace("\x01", ""))
+    text = _hold_raw_blocks(html.replace("\x01", ""), tags)
+    text = _LIQUID_TAG.sub(hold, text)
     spans = list(_not_content_spans(text))
     text = "".join(
         text[start:end]
