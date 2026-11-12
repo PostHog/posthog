@@ -81,6 +81,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
     task.mcp_gateway_server_allowlist = None
+    task.repository_integration_id = None
     if created_by_id is not None:
         task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
     else:
@@ -470,6 +471,19 @@ class TestSandboxGithubIdentityGate:
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_token"
         mock_clear.assert_not_called()
+
+    def test_gitlab_task_never_receives_github_credentials(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
+    ):
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = _gate_lookup()
+        mock_get_token.return_value = "ghu_token"
+        task_run = _make_task_run_mock()
+        task_run.task.repository_integration_id = 5
+
+        assert _refresh_sandbox_github(task_run, MagicMock(id=42), None) is None
+        mock_upgrade.assert_not_called()
+        mock_apply.assert_not_called()
 
     def test_revoked_connection_logs_the_sandbox_out_on_the_same_actor(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade

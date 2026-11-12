@@ -802,6 +802,9 @@ def _refresh_sandbox_github(
 
     run_id = str(task_run.id)
     task = task_run.task
+    # A GitLab run never receives a GitHub token, on its first turn or any later one.
+    if task.repository_integration_id is not None:
+        return None
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
     # have been the one that asked them to connect. Promote it so the turn that follows the
     # connection is the one that gets their identity.
