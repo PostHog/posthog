@@ -531,6 +531,8 @@ function SubscriptionContentStep({
                     {({ value, onChange }) => (
                         <InsightSelector
                             tiles={dashboard.tiles}
+                            groups={dashboard.customization?.groups}
+                            groupDisplay={dashboard.customization?.group_display}
                             selectedInsightIds={value ?? []}
                             onChange={onChange}
                             onDefaultsApplied={applyDefaultSelectedInsights}

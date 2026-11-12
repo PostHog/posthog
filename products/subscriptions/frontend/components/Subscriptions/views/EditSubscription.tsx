@@ -215,6 +215,8 @@ function DashboardInsightsField({
             {({ value, onChange }) => (
                 <InsightSelector
                     tiles={dashboard.tiles}
+                    groups={dashboard.customization?.groups}
+                    groupDisplay={dashboard.customization?.group_display}
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
                     // The logic decides whether the auto-selection resets the form to a clean state

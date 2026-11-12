@@ -3,6 +3,10 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import { ComponentProps } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { DashboardTile } from '~/types'
@@ -12,6 +16,8 @@ import { MAX_INSIGHTS } from './insightSelectorLogic'
 
 function renderInsightSelector(props: {
     tiles: DashboardTile[]
+    groups?: ComponentProps<typeof InsightSelector>['groups']
+    groupDisplay?: ComponentProps<typeof InsightSelector>['groupDisplay']
     selectedInsightIds: number[]
     onChange: jest.Mock
     onDefaultsApplied?: jest.Mock
@@ -86,6 +92,22 @@ describe('InsightSelector', () => {
 
         await userEvent.click(screen.getByText('Sessions'))
         expect(onChange).toHaveBeenCalledWith([101, 102])
+    })
+
+    it('selects every insight in a tab from its checkbox', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true })
+        const onChange = jest.fn()
+        const tiles = createMockTiles().map((tile) => ({ ...tile, group_key: tile.id === 1 ? null : 'retention' }))
+        renderInsightSelector({
+            tiles: tiles as DashboardTile[],
+            groups: { retention: { title: 'Retention' } },
+            groupDisplay: 'tabs',
+            selectedInsightIds: [101],
+            onChange,
+        })
+
+        await userEvent.click(screen.getByText('Retention'))
+        expect(onChange).toHaveBeenCalledWith([101, 102, 103])
     })
 
     it('calls onChange when deselecting an insight', async () => {
