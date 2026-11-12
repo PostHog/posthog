@@ -175,11 +175,8 @@ const cancelMarkedCounter = new Counter({
     labelNames: ['status'] as const,
 })
 
-// A rerun must not bring back a job its owner canceled before any worker claimed it.
 const CANCELED_BEFORE_CLAIM = `(cyclotron_jobs.status = 'canceled' AND cyclotron_jobs.transition_count = 0)`
 
-// The guard of a job no worker has claimed yet. A claim takes the row lock and bumps transition_count, so an
-// update that waits on a claim re-checks this guard after the claim commits and then matches nothing.
 const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND queue_name = 'email' AND status = 'available' AND transition_count = 0`
 
 type UnclaimedJobRow = {
@@ -194,7 +191,6 @@ type UnclaimedJobRow = {
     state: Buffer | null
 }
 
-// The server's pools install a parser that returns timestamps as ISO strings; a bare pool returns Dates.
 const toDateTime = (value: string | Date): DateTime =>
     typeof value === 'string' ? DateTime.fromISO(value, { zone: 'utc' }) : DateTime.fromJSDate(value, { zone: 'utc' })
 
@@ -756,8 +752,6 @@ export class CyclotronV2Manager {
         return { marked, remaining, done: remaining === 0 }
     }
 
-    // No worker ever sees this job, so the caller writes the run's terminal rows from the returned job.
-    // transition_count stays 0 to mark the row as canceled before it ran.
     async cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult> {
         const result = await this.pool.query<UnclaimedJobRow>(
             `UPDATE cyclotron_jobs
@@ -777,8 +771,6 @@ export class CyclotronV2Manager {
         return { outcome: 'canceled', job: unclaimedJob(row) }
     }
 
-    // Also moves the state's `scheduledAt`, which the email queue wait metric starts from. The state decodes
-    // in JS because a jsonb rewrite in SQL fails on a \u0000 in the content.
     async rescheduleUnclaimed(
         teamId: number,
         id: string,
@@ -797,7 +789,6 @@ export class CyclotronV2Manager {
             if (!row) {
                 await client.query('ROLLBACK')
             } else {
-                // Read after the row lock, so two reschedules of one job get their times in commit order.
                 const clock = await client.query<{ now: string }>('SELECT clock_timestamp() AS now')
                 const { state, rescheduledAt } = withReschedule(
                     row.state,

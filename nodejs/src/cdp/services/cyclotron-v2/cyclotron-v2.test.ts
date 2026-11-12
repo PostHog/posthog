@@ -1204,7 +1204,6 @@ describe('Cyclotron V2', () => {
                 const functionId = uuidv7()
                 const id = await seedParked(functionId)
                 await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
-                // A worker cancels only a job it claimed, and the claim counted a transition.
                 await assertPool.query(
                     `UPDATE cyclotron_jobs SET status = 'canceled', transition_count = transition_count + 1 WHERE id = $1`,
                     [id]
@@ -1251,7 +1250,6 @@ describe('Cyclotron V2', () => {
                 return id
             }
 
-            // What a worker's dequeue writes when it claims the row.
             const claimSql = `UPDATE cyclotron_jobs
                 SET status = 'running', lock_id = gen_random_uuid(), transition_count = transition_count + 1
                 WHERE id = $1`

@@ -86,10 +86,6 @@ export function decodeJobState(row: Pick<CyclotronV2DequeuedJob, 'id' | 'state'>
     }
 }
 
-// Throws on a blob it cannot parse, because writing back a fallback would lose the job's state.
-// The status time stays after the job's previous status row, which the send may have timed by another clock,
-// because a row's version has only millisecond precision and two rows with the same version may replace each
-// other in either order.
 export function withReschedule(
     state: Buffer | null,
     scheduledAt: string,

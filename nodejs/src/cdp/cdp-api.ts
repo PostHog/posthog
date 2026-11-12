@@ -518,7 +518,6 @@ export class CdpApi {
             '/api/projects/:team_id/transactional_email/attachments/uploads',
             asyncHandler(this.postAttachmentUploads)
         )
-        // `:message_id`, not `:id`: verifyScopedWorkflowJwt matches `:id` against a workflow claim.
         router.post(
             '/api/projects/:team_id/transactional_emails/:message_id/cancel',
             asyncHandler(this.postTransactionalEmailCancel)

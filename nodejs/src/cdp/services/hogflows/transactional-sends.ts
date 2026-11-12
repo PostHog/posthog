@@ -93,7 +93,6 @@ const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefi
     return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
 }
 
-// The send route puts the recipient on the trigger event, so a status row written from the job can name it.
 const recipientOf = (job: CyclotronJobInvocation): string | undefined => {
     const to = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.event?.properties?.to
     return typeof to === 'string' ? to : undefined
@@ -408,7 +407,6 @@ export class ScheduledTransactionalSends {
             return { outcome: 'not_found' }
         }
         const now = new Date()
-        // A time that has passed sends now, even past the bound, as the send route does.
         if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
             return { outcome: 'invalid_scheduled_at' }
         }
@@ -430,10 +428,8 @@ export class ScheduledTransactionalSends {
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
-    // No worker ever sees a job canceled before its claim, so this writes what the worker writes for a canceled run.
     private async recordCanceledRun(job: CyclotronJobInvocation): Promise<void> {
         const { monitoringService, invocationResultsRowsService } = this.deps.invocationResults
-        // The loaded flow gives the metrics their version. A flow that is gone still cancels.
         const hogFlow = await this.deps.hogFlows.getHogFlowCheckingPrimaryOnMiss(job.functionId).catch(() => null)
         const result = createCanceledInvocationResult(job, 'Run canceled before it was sent', hogFlow ?? undefined)
         result.invocation.queueScheduledAt = scheduledAtOfRunningRow(job)
