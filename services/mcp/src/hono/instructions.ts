@@ -230,9 +230,7 @@ export class InstructionsBuilder {
             guidelines: this.guidelines,
             metricCatalog: state?.metricCatalog,
         })
-        const schemaDiscovery = [metricDiscovery, SCHEMA_DISCOVERY.trim(), CATALOG_TRUST_DISCOVERY.trim()]
-            .filter(Boolean)
-            .join('\n\n')
+        const schemaDiscovery = `${metricDiscovery}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
             schema_discovery: schemaDiscovery,
