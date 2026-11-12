@@ -785,9 +785,8 @@ class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
-# A manual AEO citation run makes paid web-search calls for every prompt not yet checked that day.
-# The runner skips prompts already checked, so repeated runs add little cost, but each one still holds a
-# long-running worker.
+# Each manual AEO run holds a long-running worker; the runner skips prompts already checked that day,
+# so repeat runs add little engine cost.
 class AEOCitationRunRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_citation_run"
 
@@ -795,7 +794,6 @@ class AEOCitationRunRateThrottle(_TeamBucketRateThrottle):
         return f"{settings.AEO_MANUAL_RUNS_PER_DAY}/day"
 
 
-# Manual sentiment scoring runs the classifier over the project's unscored answers on the AEO worker.
 class AEOSentimentScoringRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_sentiment_scoring"
     rate = "10/hour"
