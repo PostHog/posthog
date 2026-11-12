@@ -1139,7 +1139,7 @@ class TestOauthIntegrationModel(BaseTest):
                 400,
                 {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
                 "stripe",
-                "invalid_client",
+                "app_rejected",
             ),
             (
                 "stripe_other_invalid_request",
