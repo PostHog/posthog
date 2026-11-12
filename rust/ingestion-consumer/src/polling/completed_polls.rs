@@ -4,32 +4,18 @@ use std::time::Instant;
 
 use common_kafka_consumer::{Offset, TopicPartition};
 
-use super::poll::InFlightPoll;
+use super::poll::{InFlightPoll, PartitionDeliveries};
 use crate::debug_recorder::{DebugEventKind, DebugRecorder, PartitionOffset};
+
+type PollKey = u64;
 
 // Not the partition frontier: polls finish in any order, and the frontier
 // passes a poll only after every earlier poll on the partition finishes.
 pub(super) struct CompletedPolls {
     recorder: Arc<DebugRecorder>,
-    polls: HashMap<u64, PendingPoll>,
-    next_poll: u64,
-    slices: HashMap<TopicPartition, BTreeMap<i64, PollSlice>>,
-}
-
-struct PendingPoll {
-    poll_id: String,
-    dispatched_at: Instant,
-    messages: u32,
-    unsettled: u32,
-    partitions: Vec<PartitionOffset>,
-    slice_starts: Vec<(TopicPartition, i64)>,
-}
-
-struct PollSlice {
-    last: i64,
-    poll: u64,
-    messages: u32,
-    unsettled: u32,
+    polls: HashMap<PollKey, PendingPoll>,
+    next_poll: PollKey,
+    partitions: HashMap<TopicPartition, PartitionShares>,
 }
 
 impl CompletedPolls {
@@ -38,7 +24,7 @@ impl CompletedPolls {
             recorder,
             polls: HashMap::new(),
             next_poll: 0,
-            slices: HashMap::new(),
+            partitions: HashMap::new(),
         }
     }
 
@@ -56,64 +42,32 @@ impl CompletedPolls {
         }
         let key = self.next_poll;
         self.next_poll += 1;
-        let messages = charged
-            .iter()
-            .map(|(_, deliveries)| deliveries.delivered)
-            .sum();
-        let mut pending = PendingPoll {
-            poll_id: poll.poll_id.clone(),
-            dispatched_at: poll.dispatched_at,
-            messages,
-            unsettled: messages,
-            partitions: Vec::with_capacity(charged.len()),
-            slice_starts: Vec::with_capacity(charged.len()),
-        };
-        for (topic_partition, deliveries) in charged {
-            pending.partitions.push(PartitionOffset {
-                topic: topic_partition.topic.clone(),
-                partition: topic_partition.partition,
-                offset: deliveries.span.last,
-                lag_ms: deliveries.max_lag_ms.unwrap_or(0),
-            });
-            pending
-                .slice_starts
-                .push((topic_partition.clone(), deliveries.span.first));
-            self.slices
+        for &(topic_partition, deliveries) in &charged {
+            self.partitions
                 .entry(topic_partition.clone())
                 .or_default()
-                .insert(
-                    deliveries.span.first,
-                    PollSlice {
-                        last: deliveries.span.last,
-                        poll: key,
-                        messages: deliveries.delivered,
-                        unsettled: deliveries.delivered,
-                    },
-                );
+                .add(PartitionShare::new(key, deliveries));
         }
-        self.polls.insert(key, pending);
+        self.polls.insert(key, PendingPoll::new(poll, &charged));
     }
 
     pub(super) fn settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
-        let Some(slices) = self.slices.get_mut(topic_partition) else {
+        let Some(shares) = self.partitions.get_mut(topic_partition) else {
             return;
         };
-        // The ledger fails a second settle of an offset, so no offset counts twice.
         let mut done = Vec::new();
-        for offset in offsets {
-            let Some((_, slice)) = slices.range_mut(..=offset.0).next_back() else {
+        // The ledger fails a second settle of an offset, so no offset counts twice.
+        for &offset in offsets {
+            let Some(share) = shares.share_of(offset).filter(|share| !share.is_settled()) else {
                 continue;
             };
-            if slice.last < offset.0 || slice.unsettled == 0 {
-                continue;
-            }
-            slice.unsettled -= 1;
-            let Some(poll) = self.polls.get_mut(&slice.poll) else {
+            share.settle_one();
+            let Some(poll) = self.polls.get_mut(&share.poll) else {
                 continue;
             };
-            poll.unsettled -= 1;
-            if poll.unsettled == 0 {
-                done.push(slice.poll);
+            poll.settle_one();
+            if poll.is_settled() {
+                done.push(share.poll);
             }
         }
         for key in done {
@@ -124,21 +78,16 @@ impl CompletedPolls {
     pub(super) fn forget(&mut self, topic_partitions: &[TopicPartition]) {
         let mut done = Vec::new();
         for topic_partition in topic_partitions {
-            let Some(slices) = self.slices.remove(topic_partition) else {
+            let Some(shares) = self.partitions.remove(topic_partition) else {
                 continue;
             };
-            for slice in slices.into_values() {
-                let Some(poll) = self.polls.get_mut(&slice.poll) else {
+            for share in shares.into_shares() {
+                let Some(poll) = self.polls.get_mut(&share.poll) else {
                     continue;
                 };
-                poll.messages -= slice.messages;
-                poll.unsettled -= slice.unsettled;
-                poll.partitions.retain(|partition| {
-                    partition.partition != topic_partition.partition
-                        || partition.topic != topic_partition.topic
-                });
-                if poll.unsettled == 0 {
-                    done.push(slice.poll);
+                poll.leave(topic_partition, &share);
+                if poll.is_settled() {
+                    done.push(share.poll);
                 }
             }
         }
@@ -147,26 +96,151 @@ impl CompletedPolls {
         }
     }
 
-    fn complete(&mut self, key: u64) {
+    fn complete(&mut self, key: PollKey) {
         let Some(poll) = self.polls.remove(&key) else {
             return;
         };
-        // After a revoke or an assignment, a new poll can start at the same offset.
-        for (topic_partition, first) in &poll.slice_starts {
-            if let Some(slices) = self.slices.get_mut(topic_partition) {
-                if slices.get(first).is_some_and(|slice| slice.poll == key) {
-                    slices.remove(first);
-                }
+        for (topic_partition, first) in &poll.share_starts {
+            if let Some(shares) = self.partitions.get_mut(topic_partition) {
+                shares.remove(*first, key);
             }
         }
-        if poll.messages == 0 {
-            return;
+        if let Some(event) = poll.into_event() {
+            self.recorder.record(event);
         }
-        self.recorder.record(DebugEventKind::PollCompleted {
-            batch_id: poll.poll_id,
-            accepted: poll.messages,
-            duration_ms: poll.dispatched_at.elapsed().as_millis() as u64,
-            partitions: poll.partitions,
+    }
+}
+
+struct PendingPoll {
+    poll_id: String,
+    dispatched_at: Instant,
+    messages: u32,
+    unsettled: u32,
+    partitions: Vec<PartitionOffset>,
+    share_starts: Vec<(TopicPartition, i64)>,
+}
+
+impl PendingPoll {
+    fn new(poll: &InFlightPoll, charged: &[(&TopicPartition, &PartitionDeliveries)]) -> Self {
+        let messages = charged
+            .iter()
+            .map(|(_, deliveries)| deliveries.delivered)
+            .sum();
+        Self {
+            poll_id: poll.poll_id.clone(),
+            dispatched_at: poll.dispatched_at,
+            messages,
+            unsettled: messages,
+            partitions: charged
+                .iter()
+                .map(|&(topic_partition, deliveries)| PartitionOffset {
+                    topic: topic_partition.topic.clone(),
+                    partition: topic_partition.partition,
+                    offset: deliveries.span.last,
+                    lag_ms: deliveries.max_lag_ms.unwrap_or(0),
+                })
+                .collect(),
+            share_starts: charged
+                .iter()
+                .map(|&(topic_partition, deliveries)| {
+                    (topic_partition.clone(), deliveries.span.first)
+                })
+                .collect(),
+        }
+    }
+
+    fn settle_one(&mut self) {
+        self.unsettled -= 1;
+    }
+
+    fn is_settled(&self) -> bool {
+        self.unsettled == 0
+    }
+
+    fn leave(&mut self, topic_partition: &TopicPartition, share: &PartitionShare) {
+        self.messages -= share.messages;
+        self.unsettled -= share.unsettled;
+        self.partitions.retain(|partition| {
+            partition.partition != topic_partition.partition
+                || partition.topic != topic_partition.topic
         });
+    }
+
+    fn into_event(self) -> Option<DebugEventKind> {
+        (self.messages > 0).then(|| DebugEventKind::PollCompleted {
+            batch_id: self.poll_id,
+            accepted: self.messages,
+            duration_ms: self.dispatched_at.elapsed().as_millis() as u64,
+            partitions: self.partitions,
+        })
+    }
+}
+
+struct PartitionShare {
+    poll: PollKey,
+    first: i64,
+    last: i64,
+    messages: u32,
+    unsettled: u32,
+}
+
+impl PartitionShare {
+    fn new(poll: PollKey, deliveries: &PartitionDeliveries) -> Self {
+        Self {
+            poll,
+            first: deliveries.span.first,
+            last: deliveries.span.last,
+            messages: deliveries.delivered,
+            unsettled: deliveries.delivered,
+        }
+    }
+
+    fn contains(&self, offset: Offset) -> bool {
+        (self.first..=self.last).contains(&offset.0)
+    }
+
+    fn settle_one(&mut self) {
+        self.unsettled -= 1;
+    }
+
+    fn is_settled(&self) -> bool {
+        self.unsettled == 0
+    }
+}
+
+#[derive(Default)]
+struct PartitionShares {
+    by_first: BTreeMap<i64, PartitionShare>,
+}
+
+impl PartitionShares {
+    fn add(&mut self, share: PartitionShare) {
+        self.by_first.insert(share.first, share);
+    }
+
+    /// Shares never overlap: the ledger rejects a charge that is not above
+    /// every offset charged before it in the same generation.
+    fn share_of(&mut self, offset: Offset) -> Option<&mut PartitionShare> {
+        self.by_first
+            .range_mut(..=offset.0)
+            .next_back()
+            .map(|(_, share)| share)
+            .filter(|share| share.contains(offset))
+    }
+
+    /// After a revoke or an assignment, a new poll's share can start at the
+    /// same offset, so only the given poll's share is removed.
+    fn remove(&mut self, first: i64, poll: PollKey) {
+        if self
+            .by_first
+            .get(&first)
+            .is_some_and(|share| share.poll == poll)
+        {
+            self.by_first.remove(&first);
+        }
+    }
+
+    fn into_shares(self) -> impl Iterator<Item = PartitionShare> {
+        self.by_first.into_values()
     }
 }
