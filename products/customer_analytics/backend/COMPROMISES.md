@@ -25,6 +25,8 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 - **Each segment run holds its account external IDs in memory.**
   A run loads the segment's external IDs once and diffs only the staged keys in that set, so rows for other segments cost no account lookups.
   Worker memory grows with the segment's account count.
+  With per-source fanout, each source activity loads its own copy, so a view with N sources scans the segment N times and up to `source_concurrency` copies are in memory at once.
+  Filtering the staged keys once per segment before the fanout would remove both costs.
 - **No save-time column validation.** Creating/updating a source does not check that `source_column`
   / `key_column` exist in the view's schema. A bad column surfaces as a per-source sync error (and
   advances the auto-disable streak) on the next run, not as a 400 on save. Validate against the saved
