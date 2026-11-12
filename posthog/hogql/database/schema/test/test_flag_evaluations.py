@@ -654,7 +654,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "group_0.properties.industry", where=f"{where} AND timestamp >= now() - INTERVAL 1 DAY", source=source
         )
 
-        assert ("in(key," in response.clickhouse) == key_bound
+        assert ("globalIn(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_group_join_of_a_swapped_events_scan_reads_only_the_groups_of_the_matched_rows(self):
@@ -671,7 +671,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert response.clickhouse is not None
         assert "FROM flag_evaluations" in response.clickhouse
-        assert "in(key," in response.clickhouse
+        assert "globalIn(key," in response.clickhouse
         assert response.results == [("software",)]
 
     @parameterized.expand(
@@ -727,7 +727,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             )
 
         assert response.clickhouse is not None
-        assert ("in(key," in response.clickhouse) == key_bound
+        assert ("globalIn(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_session_join_reads_only_sessions_near_the_query_date_range(self):

@@ -121,7 +121,9 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
     "watermark), skipped because its experiment is paused, ended, or archived (experiment_over), disabled "
     "because its experiment was deleted (experiment_deleted), kept on because the deleted experiment's "
-    "scout could not be paused (experiment_deleted_pause_failed), skipped because an experiment scanner has "
+    "scout could not be paused (experiment_deleted_pause_failed), disabled because a free-only scanner used "
+    "the organization's free credits (free_credits_used), kept on because its scout could not be paused "
+    "(free_credits_used_pause_failed), skipped because an experiment scanner has "
     "no creator to authorize as (no_principal), no candidates, or "
     "candidates found",
     ["outcome"],
