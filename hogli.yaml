@@ -1339,6 +1339,9 @@ environment:
         bin_script: semgrep_ratchet.py
         description: 'Compare semgrep findings per file with a checked-in baseline'
         hidden: true
+    lint:semgrep-devex:
+        bin_script: semgrep_devex_report.py
+        description: 'Grade one devex semgrep report into the backlog, ERROR and ratchet verdicts'
     devbox:worktree:hook:
         bin_script: devbox-worktree-hook
         description: 'Start or stop the devbox of this worktree from an app create or remove hook'
