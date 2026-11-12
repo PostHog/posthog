@@ -151,7 +151,7 @@ def assert_flag_releasable_by(flag: "FeatureFlag", *, product: str) -> None:
         raise serializers.ValidationError(
             f"Changes to the feature flag {flag.key} need approval, and a flag that no product owns "
             f"cannot keep that. Ask an organization admin to add an approval policy for feature flags, "
-            f"or point another product at this flag first."
+            f"or link another experiment to this flag first."
         )
 
 

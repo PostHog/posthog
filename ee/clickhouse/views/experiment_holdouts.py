@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
@@ -15,7 +16,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
-from products.experiments.backend.models.experiment import ExperimentHoldout
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.facade.filters import set_holdout
 
@@ -23,6 +24,16 @@ from products.feature_flags.backend.facade.filters import set_holdout
 # re-enter the flag gate: a second gate inside the transaction would roll its own change
 # request back. See products/approvals/backend/actions/experiment_holdouts.py.
 HOLDOUT_GATED_AT_OPERATION = {"approval_apply": True}
+
+
+def experiments_in_holdout(holdout: ExperimentHoldout) -> QuerySet[Experiment]:
+    """The experiments whose flag a change to this holdout rewrites.
+
+    A deleted experiment is left out because it no longer owns its flag. That flag is unowned or
+    belongs to another product, so the approval that gates the holdout change does not cover a
+    write to it.
+    """
+    return holdout.experiment_set(manager="live_objects").all()
 
 
 @extend_schema_field(FeatureFlagConditionGroupSchemaSerializer(many=True))
@@ -122,11 +133,10 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
     def update(self, instance: ExperimentHoldout, validated_data):
         filters = validated_data.get("filters")
         if filters and instance.filters != filters:
-            # update flags on all experiments in this holdout group
             new_filters = self._get_filters_with_holdout_id(instance.id, filters)
             validated_data["filters"] = new_filters
             with transaction.atomic():
-                for experiment in instance.experiment_set.all():
+                for experiment in experiments_in_holdout(instance):
                     flag = experiment.feature_flag
                     update_flag(
                         flag,
@@ -149,13 +159,13 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
 
 
 def delete_holdout_and_clear_flags(holdout: ExperimentHoldout, *, user: Any, request: Any = None) -> None:
-    """Delete a holdout and drop its exclusion from every linked experiment's flag.
+    """Delete a holdout and drop its exclusion from the flag of each experiment in it.
 
     Shared by the endpoint and by the apply path of an approved delete, so both write the same
     rows in the same transaction.
     """
     with transaction.atomic():
-        for experiment in holdout.experiment_set.all():
+        for experiment in experiments_in_holdout(holdout):
             flag = experiment.feature_flag
             update_flag(
                 flag,

@@ -470,6 +470,19 @@ class TestExperimentHoldoutApprovals(APILicensedTest):
         self.flag.refresh_from_db()
         assert self.flag.filters.get("holdout") is None
 
+    @parameterized.expand([("update", status.HTTP_200_OK), ("delete", status.HTTP_204_NO_CONTENT)])
+    def test_a_holdout_change_leaves_the_flag_of_a_deleted_experiment_alone(self, operation, expected_status):
+        Experiment.objects.filter(pk=self.experiment.pk).update(deleted=True)
+
+        if operation == "delete":
+            response = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}")
+        else:
+            response = self._patch_exclusion(40)
+
+        assert response.status_code == expected_status
+        self.flag.refresh_from_db()
+        assert self.flag.filters["holdout"]["exclusion_percentage"] == 20
+
     @parameterized.expand(
         [
             ("update", "experiment_holdout.update", {}),

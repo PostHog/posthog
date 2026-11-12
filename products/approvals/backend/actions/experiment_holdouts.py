@@ -20,9 +20,11 @@ HOLDOUT_WRITABLE_FIELDS = ("name", "description", "filters")
 
 def _affected_experiments(holdout) -> list[dict[str, Any]]:
     """The experiments whose flag this holdout rewrites, as stable display data."""
+    from ee.clickhouse.views.experiment_holdouts import experiments_in_holdout
+
     return [
         {"id": experiment.id, "name": experiment.name, "flag_key": experiment.feature_flag.key}
-        for experiment in holdout.experiment_set.select_related("feature_flag")
+        for experiment in experiments_in_holdout(holdout).select_related("feature_flag")
         if experiment.feature_flag is not None
     ]
 

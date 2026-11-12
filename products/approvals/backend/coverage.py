@@ -113,11 +113,13 @@ def _adoption_guard_applies(organization) -> bool:
 
 def adoption_drops_approval_cover(
     current_owner_kind: Optional[str],
-    target_owner_kind: str,
+    target_owner_kind: Optional[str],
     team,
     organization,
 ) -> bool:
     """Whether pointing this product at the flag would leave some write of it less governed.
+
+    A target of None is the unowned family, which is where a release moves the flag.
 
     Compared write by write. For each write governed now, the target family must gate at least
     the same changes, which a policy does in two cases:
@@ -160,12 +162,7 @@ def release_drops_approval_cover(
     Without this the release is a way around a policy, and a cheaper one than adoption,
     because it needs no second product to adopt the flag.
     """
-    if not _adoption_guard_applies(organization):
-        return False
-    return cover_dropped(
-        governing_gates(current_owner_kind, team, organization),
-        governing_gates(None, team, organization),
-    )
+    return adoption_drops_approval_cover(current_owner_kind, None, team, organization)
 
 
 def adoption_skips_enable_review(

@@ -2827,7 +2827,10 @@ class TestExperimentService(APIBaseTest):
 
         assert "linked feature flag has been deleted" in str(ctx.exception)
 
-    def test_update_experiment_restore_with_flag_adopted_by_another_product_raises(self):
+    @parameterized.expand([("false", False), ("null", None)])
+    def test_update_experiment_restore_with_flag_adopted_by_another_product_raises(
+        self, _name: str, restored_value: bool | None
+    ):
         experiment = self._create_draft_experiment()
         service = self._service()
         experiment.deleted = True
@@ -2835,7 +2838,7 @@ class TestExperimentService(APIBaseTest):
         Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=experiment.feature_flag)
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"deleted": False})
+            service.update_experiment(experiment, {"deleted": restored_value})
 
         assert "now belongs to a survey" in str(ctx.exception)
 

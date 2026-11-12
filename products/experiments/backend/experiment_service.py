@@ -4154,8 +4154,9 @@ class ExperimentService:
             # Every flag write in this method runs before the restore reaches the database, so
             # the flag would still read as owned by nothing and the experiment approval policies
             # would not match it. Ordering the writes the other way would put the flag change
-            # outside the approval gate it has to pass, so a restore carries nothing else.
-            if feature_flag_config or any(update_data.get(field) is not None for field in ("start_date", "holdout")):
+            # outside the approval gate it has to pass, so a restore carries nothing else. A null
+            # `holdout` counts too, because it clears the holdout from the flag.
+            if feature_flag_config or update_data.get("start_date") is not None or "holdout" in update_data:
                 raise ValidationError(
                     "Cannot restore an experiment and change its feature flag in one step. "
                     "Restore the experiment first, then make the other change."
