@@ -163,7 +163,11 @@ function blocksInColumnsFrom(columns: ProseMirrorNode, first: number): ProseMirr
     const blocks: ProseMirrorNode[] = []
     for (let index = first; index < columns.childCount; index++) {
         const column = columns.child(index)
-        if (!(column.childCount === 1 && column.firstChild?.content.size === 0)) {
+        const onlyAnEmptyLine =
+            column.childCount === 1 &&
+            column.firstChild?.type.name === 'paragraph' &&
+            column.firstChild.content.size === 0
+        if (!onlyAnEmptyLine) {
             column.forEach((block) => blocks.push(block))
         }
     }

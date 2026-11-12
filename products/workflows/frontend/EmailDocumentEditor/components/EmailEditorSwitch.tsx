@@ -22,6 +22,8 @@ function UseOldButton(): JSX.Element {
     const { logicProps, convertedEmailDocument } = useValues(emailTemplaterLogic)
     const { setPrefersOldEmailEditor } = useActions(emailTemplaterLogic)
     const savedInNewEditor = !!emailDocumentFromValue(logicProps.value).document
+    // A modal that only saves on Save holds its edits in the canvas, and switching drops them.
+    const holdsUnsavedEdits = !logicProps.liveChanges && logicProps.layout !== 'inline'
     const switchToOld = (): void => {
         captureSwitch(
             'old',
@@ -35,14 +37,15 @@ function UseOldButton(): JSX.Element {
             size="xsmall"
             data-attr="email-editor-use-old"
             onClick={() => {
-                if (!savedInNewEditor) {
+                if (!savedInNewEditor && !holdsUnsavedEdits) {
                     switchToOld()
                     return
                 }
                 LemonDialog.open({
                     title: 'Use the old editor?',
-                    description:
-                        "This email was made in the new editor. The old one opens it with the same blocks, and saving there replaces the new editor's version. Changes you haven't saved here won't carry over.",
+                    description: savedInNewEditor
+                        ? "This email was made in the new editor. The old one opens it with the same blocks, and saving there replaces the new editor's version. Changes you haven't saved here won't carry over."
+                        : "Changes you haven't saved here won't carry over to the old editor.",
                     primaryButton: { children: 'Use the old editor', onClick: switchToOld },
                     secondaryButton: { children: 'Keep the new editor' },
                 })
@@ -58,8 +61,10 @@ function ConvertedNotice(): JSX.Element | null {
     const { logicProps, emailConversion, convertedEmailDocument } = useValues(emailTemplaterLogic)
     const [comparing, setComparing] = useState(false)
     const html = logicProps.value?.html ?? ''
-    const convertedHtml = useMemo(
-        () => (comparing && convertedEmailDocument ? renderEmailHtml(convertedEmailDocument.doc) : ''),
+    // Both previews parse a whole email, so they're only built while the comparison is open.
+    const currentPreview = useMemo(() => (comparing ? withInertLinks(html) : ''), [comparing, html])
+    const convertedPreview = useMemo(
+        () => (comparing && convertedEmailDocument ? withInertLinks(renderEmailHtml(convertedEmailDocument.doc)) : ''),
         [comparing, convertedEmailDocument]
     )
     useEffect(() => {
@@ -104,7 +109,7 @@ function ConvertedNotice(): JSX.Element | null {
                         <iframe
                             title="Current email"
                             sandbox=""
-                            srcDoc={withInertLinks(html)}
+                            srcDoc={currentPreview}
                             className="w-full h-[60vh] border bg-white"
                         />
                     </div>
@@ -113,7 +118,7 @@ function ConvertedNotice(): JSX.Element | null {
                         <iframe
                             title="Converted email"
                             sandbox=""
-                            srcDoc={withInertLinks(convertedHtml)}
+                            srcDoc={convertedPreview}
                             className="w-full h-[60vh] border bg-white"
                             data-attr="email-editor-convert-preview"
                         />

@@ -153,8 +153,53 @@ export interface EmailDocument {
     html?: string
 }
 
+const PAGE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)$/i
+
+function pageValue(key: keyof EmailPageStyle, value: unknown): unknown {
+    const fallback = DEFAULT_EMAIL_PAGE_STYLE[key]
+    if (typeof fallback === 'number') {
+        const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+        return typeof number === 'number' && Number.isFinite(number) ? number : fallback
+    }
+    if (typeof fallback === 'boolean') {
+        return typeof value === 'boolean' ? value : fallback
+    }
+    if (key === 'bodyPadding') {
+        const sides = (value ?? {}) as Record<string, unknown>
+        const defaults = DEFAULT_EMAIL_PAGE_STYLE.bodyPadding
+        const side = (name: keyof EmailSides): number =>
+            typeof sides[name] === 'number' && Number.isFinite(sides[name]) ? (sides[name] as number) : defaults[name]
+        return value && typeof value === 'object'
+            ? { top: side('top'), right: side('right'), bottom: side('bottom'), left: side('left') }
+            : fallback
+    }
+    if (typeof value !== 'string') {
+        return fallback
+    }
+    if (key.endsWith('Color')) {
+        return PAGE_COLOR.test(value.trim()) ? value.trim() : fallback
+    }
+    if (key === 'align') {
+        return value === 'left' || value === 'center' || value === 'right' ? value : fallback
+    }
+    if (key === 'fontFamily') {
+        return value.replace(/[;"<>{}()\\]/g, '')
+    }
+    if (key === 'fontUrl') {
+        return /^https:\/\/[^\s"'()<>]+$/i.test(value) ? value : ''
+    }
+    return value
+}
+
+/** The page style with defaults filled in. A saved value can come from any writer, and the canvas puts it into the app page. */
 export function resolvePageStyle(page: Partial<EmailPageStyle> | null | undefined): EmailPageStyle {
-    return { ...DEFAULT_EMAIL_PAGE_STYLE, ...page }
+    const resolved = { ...DEFAULT_EMAIL_PAGE_STYLE } as Record<string, unknown>
+    for (const key of Object.keys(DEFAULT_EMAIL_PAGE_STYLE) as (keyof EmailPageStyle)[]) {
+        if (page && key in page) {
+            resolved[key] = pageValue(key, page[key])
+        }
+    }
+    return resolved as unknown as EmailPageStyle
 }
 
 export function emptyEmailDoc(): JSONContent {

@@ -65,7 +65,7 @@ function chipsInText(nodes: JSONContent[] | undefined): JSONContent[] | undefine
                 .split(LIQUID_OUTPUT)
                 .filter(Boolean)
                 .map((part): JSONContent => {
-                    const match = part.match(/^\{\{\s*([^{}]+?)\s*\}\}$/)
+                    const match = part.match(/^\{\{(?!-)([^{}]*[^{}-])\}\}$/)
                     return match
                         ? { type: 'variable', attrs: parseLiquidOutput(match[1]), marks: node.marks }
                         : { ...node, text: part }
@@ -515,6 +515,7 @@ function textStyleFrom(values: Record<string, any>, defaults: TextDefaults): Ema
         letterSpacing: parsePx(values.letterSpacing) || undefined,
         textAlign: align(values.textAlign),
         padding: containerPadding(values),
+        backgroundColor: values.backgroundColor || undefined,
         linkColor: linkStyle?.linkColor && !linkStyle.inherit ? linkStyle.linkColor : undefined,
         linkUnderline: linkStyle?.linkUnderline === false && !linkStyle.inherit ? false : undefined,
     }
@@ -831,6 +832,9 @@ export function unlayerToEmailDocument(
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
     const bodyWidth = parsePx(bodyValues.contentWidth) ?? 500
+    if (bodyValues.backgroundImage?.url) {
+        unsupported.add('background images')
+    }
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''

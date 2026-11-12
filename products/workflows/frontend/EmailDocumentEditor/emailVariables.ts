@@ -1,4 +1,4 @@
-export const EMAIL_LIQUID_OUTPUT = /\{\{\s*([\s\S]*?)\s*\}\}/
+export const EMAIL_LIQUID_OUTPUT = /\{\{([\s\S]*?)\}\}/
 
 export interface ParsedLiquidOutput {
     expression: string

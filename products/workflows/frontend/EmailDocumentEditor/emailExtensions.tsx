@@ -334,9 +334,10 @@ export const EmailColumns = Node.create({
     },
 })
 
-// Finds `{{ … }}`. `}` can't appear inside, which also keeps a typed `{% … %}` out of it.
-const VARIABLE_INPUT = /\{\{\s*([^{}]+?)\s*\}\}$/
-const VARIABLE_PASTE = /\{\{\s*([^{}]+?)\s*\}\}/g
+// Finds `{{ … }}`. `}` can't appear inside, which also keeps a typed `{% … %}` out of it. A tag with Liquid's
+// whitespace trimming (`{{- … -}}`) stays text, since a chip can't write the hyphens back.
+const VARIABLE_INPUT = /\{\{(?!-)([^{}]*[^{}-])\}\}$/
+const VARIABLE_PASTE = /\{\{(?!-)([^{}]*[^{}-])\}\}/g
 
 export const EmailVariable = Node.create({
     name: 'variable',

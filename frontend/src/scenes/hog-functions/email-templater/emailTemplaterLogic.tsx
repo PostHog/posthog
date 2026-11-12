@@ -942,6 +942,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!values.needsEmailConversion || !value) {
                 return
             }
+            // A closed modal only shows the html preview, so the conversion waits until the editor opens.
+            if (props.layout !== 'inline' && !values.isModalOpen) {
+                return
+            }
             const html = value.html ?? ''
             if (values.emailConversion && cache.lastConvertedHtml === html) {
                 return
@@ -1094,6 +1098,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         setIsModalOpen: ({ isModalOpen }) => {
+            if (isModalOpen) {
+                actions.runEmailConversion()
+            }
             if (isModalOpen && props.value) {
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
                 const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design

@@ -33,13 +33,22 @@ export function EmailImagePickerModal({
     onPick: (image: PickedEmailImage) => void
 }): JSX.Element {
     const { currentProjectId } = useValues(teamLogic)
-    const { images, imagesLoading, search } = useValues(emailMediaLibraryLogic)
-    const { loadImages, setSearch } = useActions(emailMediaLibraryLogic)
+    const { images, imagesLoading, search, hasMoreImages } = useValues(emailMediaLibraryLogic)
+    const { loadImages, loadMoreImages, setSearch } = useActions(emailMediaLibraryLogic)
     const [tab, setTab] = useState<PickerTab>('upload')
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [url, setUrl] = useState('')
     const inputRef = useRef<HTMLInputElement>(null)
+    // Bumped whenever the picker opens, closes or goes away, so an upload that finishes after that is ignored.
+    const session = useRef(0)
+
+    useEffect(() => {
+        session.current += 1
+        return () => {
+            session.current += 1
+        }
+    }, [isOpen])
 
     useEffect(() => {
         if (isOpen) {
@@ -63,10 +72,14 @@ export function EmailImagePickerModal({
             setError('That file is not an image. Choose a PNG, JPEG or GIF.')
             return
         }
+        const uploadSession = session.current
         setUploading(true)
         setError(null)
         try {
             const media = await uploadEmailImage(String(currentProjectId), file)
+            if (session.current !== uploadSession) {
+                return
+            }
             onPick({
                 src: media.image_location,
                 alt: '',
@@ -84,7 +97,8 @@ export function EmailImagePickerModal({
     const urlIsValid = /^(https?:\/\/\S+|\{\{[\s\S]+\}\})$/i.test(url.trim())
     const addFromLink = (): void => {
         if (urlIsValid) {
-            onPick({ src: url.trim(), alt: '' })
+            // A replaced image's size belongs to the old picture, and the new one is measured once it loads.
+            onPick({ src: url.trim(), alt: '', naturalWidth: null, naturalHeight: null })
         }
     }
 
@@ -175,6 +189,18 @@ export function EmailImagePickerModal({
                                                 />
                                             </button>
                                         ))}
+                                        {hasMoreImages ? (
+                                            <LemonButton
+                                                type="secondary"
+                                                center
+                                                className="col-span-3"
+                                                loading={imagesLoading}
+                                                onClick={() => loadMoreImages()}
+                                                data-attr="email-editor-image-library-more"
+                                            >
+                                                Show more images
+                                            </LemonButton>
+                                        ) : null}
                                     </div>
                                 ) : (
                                     <p className="text-secondary m-0 p-4 text-center">

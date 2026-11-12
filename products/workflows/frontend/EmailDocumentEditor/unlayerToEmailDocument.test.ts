@@ -102,7 +102,9 @@ describe('unlayerToEmailDocument', () => {
     it('turns Liquid in copy into variables, keeping its fallback and the marks around it', () => {
         const { document } = unlayerToEmailDocument(
             design([
-                content('text', { text: `<p>Hi <strong>{{ person.properties.name | default: 'you' }}</strong></p>` }),
+                content('text', {
+                    text: `<p>Hi <strong>{{ person.properties.name | default: 'you' }}</strong> {{- event.name -}}</p>`,
+                }),
             ])
         )
 
@@ -111,6 +113,8 @@ describe('unlayerToEmailDocument', () => {
             attrs: { expression: 'person.properties.name', fallback: 'you' },
             marks: [{ type: 'bold' }],
         })
+        // A chip can't write Liquid's whitespace-trimming hyphens back, so that tag stays as written.
+        expect(JSON.stringify(document?.doc)).toContain('{{- event.name -}}')
     })
 
     it("spreads a text block's padding over its paragraphs without doubling the gaps between them", () => {

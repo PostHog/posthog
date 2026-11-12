@@ -92,7 +92,8 @@ function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides
         values: {
             src: {
                 url: src,
-                width: number(width, contentWidth),
+                // The image's own size, as the old editor stores it. A resize is the maxWidth below.
+                width: number(node.attrs?.naturalWidth ?? width, contentWidth),
                 ...(node.attrs?.naturalHeight ? { height: number(node.attrs.naturalHeight, 0) } : {}),
                 autoWidth,
                 ...(!autoWidth
@@ -134,7 +135,15 @@ function buttonText(style: EmailBlockStyle, page: EmailPageStyle): UnlayerValues
         fontSize: `${number(style.fontSize, page.fontSize)}px`,
         fontWeight: number(style.fontWeight, 600),
         lineHeight: `${number(style.lineHeight, 120)}%`,
-        ...(style.fontFamily ? { fontFamily: { label: style.fontFamily, value: style.fontFamily } } : {}),
+        ...(style.fontFamily
+            ? {
+                  fontFamily: {
+                      label: style.fontFamily,
+                      value: style.fontFamily,
+                      ...(style.fontUrl ? { url: style.fontUrl } : {}),
+                  },
+              }
+            : {}),
     }
 }
 
@@ -261,10 +270,12 @@ function columnsRow(
             left: index === 0 ? 0 : gap / 2,
             right: index === columns.length - 1 ? 0 : gap / 2,
         }
+        // A row's padding only works above and below it there, so the section's side padding goes on its outer columns.
+        const sectionPadding = style.padding ?? NO_SIDES
         const columnOuter = {
             ...outer,
-            left: index === 0 ? outer.left : 0,
-            right: index === columns.length - 1 ? outer.right : 0,
+            left: index === 0 ? outer.left + number(sectionPadding.left, 0) : 0,
+            right: index === columns.length - 1 ? outer.right + number(sectionPadding.right, 0) : 0,
         }
         const innerWidth = Math.max(1, width - number(padding.left, 0) - number(padding.right, 0))
         const contents = withoutTrailingEmptyParagraphs(child.content ?? [])
@@ -280,11 +291,13 @@ function columnsRow(
         return column(contents, ids, {
             padding: sidesCss(addSides(padding, columnOuter)),
             backgroundColor: columnStyle.backgroundColor ?? style.backgroundColor ?? page.bodyBackgroundColor,
-            border: {},
+            border: buttonBorder(columnStyle, '#e5e5e5').border ?? {},
         })
     })
+    const sectionPadding = style.padding ?? NO_SIDES
     return row(unlayerColumns, ratios, ids, {
         ...ROW_VALUES,
+        padding: `${number(sectionPadding.top, 0)}px 0px ${number(sectionPadding.bottom, 0)}px 0px`,
         ...(style.backgroundColor ? { columnsBackgroundColor: style.backgroundColor } : {}),
     })
 }
@@ -343,7 +356,11 @@ export function emailDocumentToUnlayer(doc: JSONContent): Record<string, any> {
                 backgroundColor: page.backgroundColor,
                 contentWidth: `${page.bodyWidth}px`,
                 contentAlign: page.align,
-                fontFamily: { label: page.fontFamily, value: page.fontFamily },
+                fontFamily: {
+                    label: page.fontFamily,
+                    value: page.fontFamily,
+                    ...(page.fontUrl ? { url: page.fontUrl } : {}),
+                },
                 textColor: page.textColor,
                 linkStyle: {
                     body: true,

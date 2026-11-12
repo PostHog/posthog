@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 
+import { resolvePageStyle } from './emailDocument'
 import { blockStyleToCanvasCss } from './emailExtensions'
 import { renderEmailHtml, renderEmailText, withoutLiquidBetweenRows } from './renderEmailHtml'
 
@@ -94,6 +95,21 @@ describe('renderEmailHtml', () => {
             expect(output).not.toMatch(/position:fixed|url\(|onclick/)
         }
         expect(canvas).toContain('font-size:18px')
+        // The page style goes into the editor's own stylesheet in the app.
+        expect(
+            resolvePageStyle({ h1Size: '32px}body{background:url(x)}' as any, bodyBackgroundColor: 'red;x' })
+        ).toMatchObject({ h1Size: 32, bodyBackgroundColor: '#ffffff' })
+    })
+
+    it('starts a numbered list where it started in the old editor, in the html and the plain text', () => {
+        const list: JSONContent = {
+            type: 'orderedList',
+            attrs: { start: 3 },
+            content: [{ type: 'listItem', content: [paragraph('Third')] }],
+        }
+
+        expect(renderEmailHtml(doc(list))).toContain('<ol start="3"')
+        expect(renderEmailText(doc(list))).toContain('3. Third')
     })
 
     it('leaves out the empty line the editor keeps at the end', () => {

@@ -317,7 +317,8 @@ function renderList(node: JSONContent, ctx: RenderContext): string {
         padding: 0,
         ...textProperties(style, ctx, ctx.page.fontSize),
     })
-    return `<${tag} style="${listCss}">${items}</${tag}>`
+    const start = tag === 'ol' ? Math.floor(px(node.attrs?.start, 1)) : 1
+    return `<${tag}${start > 1 ? ` start="${start}"` : ''} style="${listCss}">${items}</${tag}>`
 }
 
 function headingSize(level: number, page: EmailPageStyle): number {
@@ -765,7 +766,8 @@ function blockText(node: JSONContent): string {
         case 'orderedList':
             return (node.content ?? [])
                 .map((item, index) => {
-                    const marker = node.type === 'orderedList' ? `${index + 1}. ` : '- '
+                    const start = Math.max(1, Math.floor(px(node.attrs?.start, 1)))
+                    const marker = node.type === 'orderedList' ? `${start + index}. ` : '- '
                     return marker + (item.content ?? []).map(blockText).join('\n')
                 })
                 .join('\n')

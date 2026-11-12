@@ -278,8 +278,22 @@ describe('emailTemplaterLogic', () => {
             })
             logic = emailTemplaterLogic(makeProps({ value }))
             logic.mount()
+            logic.actions.setIsModalOpen(true)
 
             await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: expected })
+        })
+
+        it('converts an old-editor email only once its editor opens', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ emailConversion: null })
+
+            logic.actions.setIsModalOpen(true)
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
         })
 
         it('keeps someone who chose the old editor there until they switch back', async () => {
@@ -288,6 +302,7 @@ describe('emailTemplaterLogic', () => {
             })
             logic = emailTemplaterLogic(makeProps({ value: DEFAULT_EMAIL_TEMPLATE }))
             logic.mount()
+            logic.actions.setIsModalOpen(true)
             await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
 
             logic.actions.setPrefersOldEmailEditor(true)
