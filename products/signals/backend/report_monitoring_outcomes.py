@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, Exists, F, Func, IntegerField, OuterRef, Q, Subquery, Value
+from django.db.models import Count, F, Func, IntegerField, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -59,6 +59,10 @@ def _member_results(
         and result.window_end == end
         and end <= result.evaluated_at <= now
     ]
+
+
+def _cancelled_checks(report_id: UUID | OuterRef) -> QuerySet[SignalReportCheck]:
+    return SignalReportCheck.objects.unscoped().filter(report_id=report_id, status=SignalReportCheck.Status.CANCELLED)
 
 
 def _member_state(results: list[SignalReportMonitoringResult]) -> MonitoringMemberState:
@@ -119,7 +123,14 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
         attempt.aggregation_state = decision
         attempt.aggregation_checked_at = now
         attempt.aggregation_result_ids = [str(result.id) for result in results]
-        fields = ["aggregation_state", "aggregation_checked_at", "aggregation_result_ids"]
+        # Every open check is locked above, so a cancel that has not committed yet is excluded from this count.
+        attempt.aggregation_cancelled_check_count = _cancelled_checks(report.id).count()
+        fields = [
+            "aggregation_state",
+            "aggregation_checked_at",
+            "aggregation_result_ids",
+            "aggregation_cancelled_check_count",
+        ]
         reason = {
             MonitoringAggregation.WAITING: "Verification is waiting for the remaining follow-up checks.",
             MonitoringAggregation.PASSED: "All follow-up checks passed with sufficient evidence.",
@@ -207,11 +218,12 @@ def aggregate_due_monitoring_attempts(*, deadline: float, limit: int) -> None:
         .annotate(total=Count("id"))
         .values("total")
     )
-    cancelled_since_aggregation = SignalReportCheck.objects.unscoped().filter(
-        team_id=OuterRef("team_id"),
-        report_id=OuterRef("report_id"),
-        status=SignalReportCheck.Status.CANCELLED,
-        updated_at__gt=Coalesce(OuterRef("aggregation_checked_at"), OuterRef("monitoring_started_at")),
+    cancelled_count = (
+        _cancelled_checks(OuterRef("report_id"))
+        .order_by()
+        .values("report_id")
+        .annotate(total=Count("id"))
+        .values("total")
     )
     candidates = (
         SignalReportMonitoringAttempt.objects.unscoped()
@@ -221,8 +233,10 @@ def aggregate_due_monitoring_attempts(*, deadline: float, limit: int) -> None:
             _seen_count=Coalesce(
                 Func(F("aggregation_result_ids"), function="jsonb_array_length", output_field=IntegerField()), Value(0)
             ),
+            _cancelled_count=Coalesce(Subquery(cancelled_count[:1]), Value(0)),
+            _seen_cancelled_count=Coalesce(F("aggregation_cancelled_check_count"), Value(0)),
         )
-        .filter(Q(_result_count__gt=F("_seen_count")) | Exists(cancelled_since_aggregation))
+        .filter(Q(_result_count__gt=F("_seen_count")) | Q(_cancelled_count__gt=F("_seen_cancelled_count")))
     )
     disabled = disabled_monitoring_organizations(
         candidates.values_list("report__team__organization_id", flat=True).distinct()

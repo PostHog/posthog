@@ -449,8 +449,14 @@ class TestReportMonitoringAggregation(BaseTest):
         if not cancel_all:
             with self.captureOnCommitCallbacks(execute=True):
                 save_monitoring_result(self._evaluation(0))
+        if lost_callback:
+            assert self._aggregate() == MonitoringAggregation.WAITING
         for check in self.checks if cancel_all else self.checks[1:]:
-            with self.captureOnCommitCallbacks(execute=not lost_callback):
+            # A cancel that waited on aggregation's lock carries a timestamp from before that aggregation ran.
+            with (
+                time_machine.travel(self.now - timedelta(minutes=1) if lost_callback else self.now, tick=False),
+                self.captureOnCommitCallbacks(execute=not lost_callback),
+            ):
                 assert cancel_check(check, reason="stopped_by_person", attribution=ArtefactAttribution.system())
         if lost_callback:
             self.report.refresh_from_db()
