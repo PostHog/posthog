@@ -8071,6 +8071,66 @@
             "readOnlyHint": true
         }
     },
+    "inbox-repo-routing-rules-create": {
+        "description": "Add a repo routing rule that sends a kind of request to a repository. Call inbox-repo-routing-rules-list first: if a rule already covers the same requests, update it with inbox-repo-routing-rules-update. The new rule gets the lowest priority, so an existing rule that matches the same requests still wins. The API cannot change a priority. To move a rule ahead of other rules, delete those rules and add them again after it. A rule can only point at a repository: there is no rule that stops the selection of a repository. Set `repository` to a repository that is connected to the project, because the selector ignores other rules. Keep `rule_text` short and specific (at most 300 characters). The call fails when the project has reached its rule limit. Task agents in a sandbox cannot add rules.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Add a repo routing rule",
+        "title": "Add a repo routing rule",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/tasks/repo_routing_rules/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-repo-routing-rules-delete": {
+        "description": "Delete a repo routing rule. The selector stops using the rule for new repository selections. Get the rule `id` from inbox-repo-routing-rules-list. Task agents in a sandbox cannot delete rules.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Delete a repo routing rule",
+        "title": "Delete a repo routing rule",
+        "required_scopes": ["task:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/tasks/repo_routing_rules/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-repo-routing-rules-list": {
+        "description": "List the project's repo routing rules in `priority` order, lowest first. A rule maps a kind of request (`rule_text`) to a `repository`. The agent that selects a repository for a task or an Inbox report weighs a matching rule as strong evidence, not as a hard constraint. When more than one rule matches, the earlier rule wins. The selector ignores a rule whose repository is not connected to the project, and reads at most the first 20 rules that remain. Read this list before you add or change a rule, so that you do not add a duplicate or shadow an existing rule.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List repo routing rules",
+        "title": "List repo routing rules",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/tasks/repo_routing_rules/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-repo-routing-rules-update": {
+        "description": "Change the `rule_text` or the `repository` of a repo routing rule. Send only the fields to change. The rule keeps its priority. Get the rule `id` from inbox-repo-routing-rules-list. Task agents in a sandbox cannot change rules.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update a repo routing rule",
+        "title": "Update a repo routing rule",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/tasks/repo_routing_rules/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-report-actions-list": {
         "description": "List the actions on an inbox report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the report or request general work on it.",
         "category": "Signals",
