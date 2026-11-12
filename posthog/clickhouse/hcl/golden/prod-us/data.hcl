@@ -1896,8 +1896,8 @@ database "posthog" {
       alias = "exposure_event_uuid"
     }
     column "inserted_at" {
-      type  = "DateTime64(6, 'UTC')"
-      alias = "computed_at"
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1954,8 +1954,8 @@ database "posthog" {
       alias = "event_uuid"
     }
     column "inserted_at" {
-      type  = "DateTime64(6, 'UTC')"
-      alias = "computed_at"
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "distributed" {
       cluster_name    = "aux"
@@ -5645,8 +5645,8 @@ database "posthog" {
       alias = "exposure_event_uuid"
     }
     column "inserted_at" {
-      type  = "DateTime64(6, 'UTC')"
-      alias = "computed_at"
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"

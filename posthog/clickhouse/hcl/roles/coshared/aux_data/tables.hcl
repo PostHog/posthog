@@ -166,8 +166,8 @@ database "posthog" {
       alias = "event_uuid"
     }
     column "inserted_at" {
-      type  = "DateTime64(6, 'UTC')"
-      alias = "computed_at"
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
   }
   table "_ingestion_warnings_v2_columns" {

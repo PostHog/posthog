@@ -10,18 +10,19 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
 )
 
 # Adds the column names the deletion sweep matches on (see posthog/dags/deletes.py) to both
-# experiment precompute tables, as aliases of the columns that already hold those values. An alias
-# stores nothing, so the ALTER is metadata only. The SQL files carry the rationale.
+# experiment precompute tables, as aliases of the columns that already hold those values, and a
+# NULL inserted_at. An alias stores nothing, so the ALTER is metadata only. The SQL files carry the
+# rationale.
 #
 # Unqualified table names, as in 0365, so the ALTER reaches the tables in the configured database.
 ADD_EXPOSURES_ALIASES = (
     "ADD COLUMN IF NOT EXISTS timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time, "
     "ADD COLUMN IF NOT EXISTS uuid UUID ALIAS exposure_event_uuid, "
-    "ADD COLUMN IF NOT EXISTS inserted_at DateTime64(6, 'UTC') ALIAS computed_at"
+    "ADD COLUMN IF NOT EXISTS inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL"
 )
 ADD_METRIC_EVENTS_ALIASES = (
     "ADD COLUMN IF NOT EXISTS uuid UUID ALIAS event_uuid, "
-    "ADD COLUMN IF NOT EXISTS inserted_at DateTime64(6, 'UTC') ALIAS computed_at"
+    "ADD COLUMN IF NOT EXISTS inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL"
 )
 
 operations = [
