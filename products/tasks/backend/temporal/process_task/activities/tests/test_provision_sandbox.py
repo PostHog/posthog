@@ -17,7 +17,7 @@ from asgiref.sync import async_to_sync
 
 from posthog.integrations import RepositoryCache
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
-from posthog.models.integration import Integration
+from posthog.models.integration import GitLabIntegrationError, Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
@@ -25,6 +25,7 @@ from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     CredentialUnavailableError,
     OrganizationExecutionError,
+    ProcessTaskTransientError,
     RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
@@ -121,20 +122,32 @@ def test_environment_variables_name_the_git_provider(mocker, github_token, gitla
     assert {key: environment.get(key) for key in expected} == expected
 
 
-@pytest.mark.parametrize("token_bound", [True, False], ids=["project_token", "broader_token"])
-def test_gitlab_token_reaches_the_sandbox_only_when_bound_to_the_project(mocker, token_bound: bool) -> None:
+@pytest.mark.parametrize(
+    "check, expected",
+    [
+        (True, "glpat-synthetic"),
+        (False, CredentialUnavailableError),
+        (GitLabIntegrationError("rate limited", transient=True), ProcessTaskTransientError),
+        (GitLabIntegrationError("revoked"), CredentialUnavailableError),
+    ],
+    ids=["project_token", "broader_token", "gitlab_unavailable", "revoked_token"],
+)
+def test_gitlab_token_reaches_the_sandbox_only_when_bound_to_the_project(mocker, check, expected) -> None:
     context = _context_for_desktop_bootstrap()
     context.repository_integration_id = 5
     mocker.patch.object(provision_sandbox_module.IntegrationManager.gitlab.token, "get", return_value=mocker.Mock())
     gitlab = mocker.Mock()
-    gitlab.token_reaches_only_connected_project.return_value = token_bound
+    if isinstance(check, Exception):
+        gitlab.token_reaches_only_connected_project.side_effect = check
+    else:
+        gitlab.token_reaches_only_connected_project.return_value = check
     gitlab.credentials.access_token.return_value.token = "glpat-synthetic"
     mocker.patch.object(provision_sandbox_module, "GitLabIntegration", return_value=gitlab)
 
-    if token_bound:
-        assert provision_sandbox_module._resolve_sandbox_gitlab_token(context) == "glpat-synthetic"
+    if isinstance(expected, str):
+        assert provision_sandbox_module._resolve_sandbox_gitlab_token(context) == expected
     else:
-        with pytest.raises(CredentialUnavailableError):
+        with pytest.raises(expected):
             provision_sandbox_module._resolve_sandbox_gitlab_token(context)
         gitlab.credentials.access_token.assert_not_called()
 

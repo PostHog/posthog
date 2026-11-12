@@ -504,14 +504,22 @@ def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
     error_context = {"repository_integration_id": ctx.repository_integration_id, "task_id": ctx.task_id}
     try:
         gitlab = GitLabIntegration(IntegrationManager.gitlab.token.get(ctx.team_id, ctx.repository_integration_id))
-        # The agent holds the token, so a token that reaches other projects would expose them.
-        # Checked on every run, because a token's project access can grow after the task exists.
+        # The agent holds the token, so only the connected project's access token may reach it.
+        # Checked on every run, because the connection's token can be replaced after the task exists.
         if not gitlab.token_reaches_only_connected_project():
             raise CredentialUnavailableError(
-                "The GitLab token reaches projects other than the connected one", error_context, cause=None
+                "The GitLab token is not the connected project's access token", error_context, cause=None
             )
         return gitlab.credentials.access_token().token
-    except (IntegrationNotFound, GitLabIntegrationError) as e:
+    except GitLabIntegrationError as e:
+        if e.transient:
+            raise ProcessTaskTransientError(
+                "GitLab is unavailable while checking the task's token", error_context, cause=e
+            )
+        raise CredentialUnavailableError(
+            "The GitLab connection for this task is missing or unusable", error_context, cause=e
+        )
+    except IntegrationNotFound as e:
         raise CredentialUnavailableError(
             "The GitLab connection for this task is missing or unusable", error_context, cause=e
         )
