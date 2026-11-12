@@ -976,6 +976,8 @@ const inboxReportsList = (): ToolBase<
                     'inbox_merge_key',
                     'personal_tier',
                     'personal_reason',
+                    'monitoring_started_at',
+                    'monitoring_summary',
                     'created_at',
                     'updated_at',
                 ])

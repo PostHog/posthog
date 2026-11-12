@@ -620,6 +620,11 @@ tools:
             `source_products` and `scout_name` come from a separate read with a short time limit. When the response has
             `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null
             `scout_name` does not mean the report has none. Say so instead of reporting them as values.
+
+            A report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome.
+            `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began
+            and `monitoring_summary` says where it stands, for example whether the latest reading meets its target.
+            `monitoring_summary` is null outside Monitoring. Read inbox-report-checks-list for each check's own timing and result.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -667,6 +672,8 @@ tools:
                 - inbox_merge_key
                 - personal_tier
                 - personal_reason
+                - monitoring_started_at
+                - monitoring_summary
                 - created_at
                 - updated_at
     inbox-reports-merge:
