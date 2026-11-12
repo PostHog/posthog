@@ -17,6 +17,11 @@ from .sources import (
     read_pull_request,
 )
 
+NOT_ON_DEFAULT_BRANCH_REASON = "not_on_default_branch"
+NO_PULL_REQUEST_REASON = "no_pull_request"
+DOCS_SOURCE_UNCONFIGURED_REASON = "docs_source_unconfigured"
+UNDECIDED_REASONS = frozenset({NOT_ON_DEFAULT_BRANCH_REASON, NO_PULL_REQUEST_REASON, DOCS_SOURCE_UNCONFIGURED_REASON})
+
 
 class MergeNotConfirmed(Exception):
     pass
@@ -71,16 +76,16 @@ def merge_reports_by_variant(
         if not is_final_attempt:
             raise MergeNotOnDefaultBranch(commit_sha)
         return dict.fromkeys(
-            variants, no_docs_report(change, title=listed.get("title") or "", reason="not_on_default_branch")
+            variants, no_docs_report(change, title=listed.get("title") or "", reason=NOT_ON_DEFAULT_BRANCH_REASON)
         )
     pull_request = merged_pull_request(listed, commit_sha)
     if pull_request is None and not is_final_attempt:
         raise MergeNotConfirmed(commit_sha)
     if pull_request is None:
-        return dict.fromkeys(variants, no_docs_report(change, title="", reason="no_pull_request"))
+        return dict.fromkeys(variants, no_docs_report(change, title="", reason=NO_PULL_REQUEST_REASON))
     if source is None:
         return dict.fromkeys(
-            variants, no_docs_report(change, title=pull_request.title, reason="docs_source_unconfigured")
+            variants, no_docs_report(change, title=pull_request.title, reason=DOCS_SOURCE_UNCONFIGURED_REASON)
         )
     evidence = gather_merge(
         change,

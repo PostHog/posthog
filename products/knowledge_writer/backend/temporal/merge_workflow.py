@@ -1,12 +1,15 @@
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.db import DatabaseError
 
 import httpx
 import requests
 import structlog
 from anthropic import APIError
+from django_redis.exceptions import ConnectionInterrupted
+from redis.exceptions import RedisError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
@@ -21,7 +24,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 
-from ...merge_check.check import run_merge_check
+from ...merge_check.check import UNDECIDED_REASONS, run_merge_check
 from ...merge_check.deadline import CheckDeadline, CheckDeadlineExceeded, DeadlineGitHub, deadline_http
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import (
@@ -49,6 +52,7 @@ MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
 DOCS_CHECK_WAITERS_PER_TELL = 50
+REUSED_REPORT_TTL = timedelta(hours=6)
 GITHUB_READ_ERRORS = (
     requests.RequestException,
     GitHubIntegrationError,
@@ -208,7 +212,44 @@ def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github
     return landed_change(inputs.repository, read_pull_request(github, inputs.repository, pull_request_number))
 
 
+def reused_report_key(change: LandedChange) -> str:
+    return (
+        f"knowledge_writer:merge_check_report:{change.repository.lower()}:{change.pull_request_number}:{change.after}"
+    )
+
+
 def judged_report(
+    change: LandedChange, github: GitHubReader, deadline: CheckDeadline, *, is_final_attempt: bool
+) -> MergeCheckReport | None:
+    reused_report = cached_report(change)
+    if reused_report is not None:
+        return reused_report
+    report = fresh_judged_report(change, github, deadline, is_final_attempt=is_final_attempt)
+    if report is not None and is_reusable(report):
+        cache_report(change, report)
+    return report
+
+
+def is_reusable(report: MergeCheckReport) -> bool:
+    return not report.low_confidence and report.reason not in UNDECIDED_REASONS
+
+
+def cached_report(change: LandedChange) -> MergeCheckReport | None:
+    try:
+        return cache.get(reused_report_key(change))
+    except (ConnectionInterrupted, RedisError):
+        logger.warning("knowledge_writer_reused_report_unavailable", exc_info=True)
+        return None
+
+
+def cache_report(change: LandedChange, report: MergeCheckReport) -> None:
+    try:
+        cache.set(reused_report_key(change), report, timeout=REUSED_REPORT_TTL.total_seconds())
+    except (ConnectionInterrupted, RedisError):
+        logger.warning("knowledge_writer_reused_report_unavailable", exc_info=True)
+
+
+def fresh_judged_report(
     change: LandedChange, github: GitHubReader, deadline: CheckDeadline, *, is_final_attempt: bool
 ) -> MergeCheckReport | None:
     try:

@@ -14,6 +14,7 @@ from django.core.cache import cache, caches
 from django.test import RequestFactory
 
 import requests
+from django_redis.exceptions import ConnectionInterrupted
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
@@ -46,6 +47,7 @@ from products.knowledge_writer.backend.temporal.merge_workflow import (
     MergeCheckWorkflow,
     check_merge,
     merge_check_budget_key,
+    reused_report_key,
     tell_docs_check_waiters_activity,
 )
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
@@ -369,9 +371,41 @@ async def test_every_docs_command_that_joins_a_running_check_hears_how_it_ended(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_reason, cache_error, expected_check_count",
+    [
+        pytest.param("judge", None, 1, id="decided_report_reused"),
+        pytest.param("no_pull_request", None, 2, id="undecided_report_checked_again"),
+        pytest.param("judge", ConnectionInterrupted("redis down"), 2, id="cache_down_checks_again"),
+    ],
+)
+def test_a_repeat_check_of_the_same_merge_reuses_only_a_decided_report_and_still_reaches_intake(
+    team, writer_env, report_reason, cache_error, expected_check_count
+) -> None:
+    inputs = MergeCheckInputs(commit_sha=MERGE_COMMIT_SHA, team_id=team.id, pull_request_number=PULL_REQUEST_NUMBER)
+    cache.delete(reused_report_key(LANDED))
+    broken_cache = MagicMock(**{"get.side_effect": cache_error, "set.side_effect": cache_error})
+    with (
+        patch(f"{MERGE_WORKFLOW_MODULE}.cache", broken_cache if cache_error else cache),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(
+            f"{MERGE_WORKFLOW_MODULE}.run_merge_check",
+            return_value=no_docs_report(LANDED, title="", reason=report_reason),
+        ) as run_merge_check,
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit", return_value=IntakeOutcome(status="no_docs")) as submit,
+    ):
+        check_merge(inputs, is_final_attempt=True)
+        check_merge(inputs, is_final_attempt=True)
+
+    assert (run_merge_check.call_count, submit.call_count) == (expected_check_count, 2)
+
+
+@pytest.mark.django_db
 def test_a_team_past_its_check_budget_records_capped_merges_without_reading_github(team, writer_env) -> None:
     inputs = MergeCheckInputs(commit_sha=MERGE_COMMIT_SHA, team_id=team.id, pull_request_number=PULL_REQUEST_NUMBER)
     get_client().delete(merge_check_budget_key(team.id))
+    cache.delete(reused_report_key(LANDED))
     with (
         patch(f"{MERGE_WORKFLOW_MODULE}.MERGE_CHECK_BUDGET", Budget(burst=1, per_hour=1)),
         patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", side_effect=[MagicMock(), None]) as docs_github,
