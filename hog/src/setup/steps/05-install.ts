@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { SKILL_COMMANDS } from '@/core/skill-commands'
 import { INGESTION_HOSTS, regionOf } from '@/posthog/host'
 import { ProjectTokenSchema } from '@/posthog/tokens'
 
@@ -13,7 +14,8 @@ export const RULES_READ: SkillFile = { skill: INSTALL_SKILL, path: 'references/C
 const ProjectSchema = z.looseObject({ api_token: ProjectTokenSchema })
 
 export function readCommand({ skill, path }: SkillFile): string {
-    return path === 'SKILL.md' ? `hog learn ${skill}` : `hog learn ${skill} ${path}`
+    const name = skill.replace(/^posthog:/, '')
+    return path === 'SKILL.md' ? SKILL_COMMANDS.read(name) : SKILL_COMMANDS.read(name, path)
 }
 
 async function fillInstallContext(run: SetupRun): Promise<void> {
@@ -25,9 +27,9 @@ async function fillInstallContext(run: SetupRun): Promise<void> {
     run.context.apiHost = region ? INGESTION_HOSTS[region] : host
 }
 
-// `hog learn` records the reads. Both files count only when read whole.
+// `hog skills read` records the reads. Both files count only when read whole.
 export const install: Step = {
-    summary: () => 'Read the install skill and installed PostHog',
+    summary: () => 'Installed PostHog with the install skill',
 
     async advance(run) {
         await fillInstallContext(run)
@@ -42,7 +44,7 @@ export const install: Step = {
         if (read) {
             return runNext(
                 'setup_install_pending',
-                `Install PostHog in this app as the skill says, with the project token and host in context. Then run \`${SETUP_NEXT}\` yourself.`
+                `Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`
             )
         }
 
@@ -52,7 +54,7 @@ export const install: Step = {
                 kind: 'read',
                 read: [readCommand(SKILL_READ), readCommand(RULES_READ)],
                 command: SETUP_NEXT,
-                instructions: `Run both commands, and follow the skill to install PostHog in this app with the project token and host in context. Then run \`${SETUP_NEXT}\` yourself.`,
+                instructions: `Run both commands and read each file in full, without \`--lines\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`,
             },
         }
     },
