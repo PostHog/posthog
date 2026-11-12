@@ -2,6 +2,8 @@ export type ReplayLayout = 'classic' | 'compact' | 'youtube' | 'landing'
 
 export const NEW_REPLAY_LAYOUTS: ReplayLayout[] = ['compact', 'youtube', 'landing']
 
+export const STAFF_REPLAY_LAYOUTS: ReplayLayout[] = ['classic', 'compact', 'youtube']
+
 export function offeredReplayLayout(flagValue: string | boolean | undefined): ReplayLayout | null {
     return typeof flagValue === 'string' && (NEW_REPLAY_LAYOUTS as string[]).includes(flagValue)
         ? (flagValue as ReplayLayout)
@@ -18,6 +20,10 @@ export function replayLayoutFrom(
     }
     const offered = offeredReplayLayout(flagValue)
     return offered && !preferClassicLayout ? offered : 'classic'
+}
+
+export function staffReplayLayout(storedOverride: ReplayLayout | null): ReplayLayout {
+    return storedOverride && STAFF_REPLAY_LAYOUTS.includes(storedOverride) ? storedOverride : 'classic'
 }
 
 export function isNewReplayLayout(layout: ReplayLayout): boolean {

@@ -92,9 +92,10 @@ export function WatchPanelSections({
                         itemRefs.current.observations = el
                     }}
                 >
-                    <div className="flex items-center gap-1 [&>h3]:m-0 [&>h3]:min-w-0 [&>h3]:flex-1 [&>h3]:font-[inherit]">
+                    {/* Subgrid puts the action between the trigger's label and chevron. */}
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center [&>h3]:col-span-full [&>h3]:row-start-1 [&>h3]:grid [&>h3]:grid-cols-subgrid [&>h3]:m-0 [&>h3]:font-[inherit]">
                         <AccordionTrigger
-                            className="min-w-0 [&>span]:min-w-0 [&>span]:flex-1"
+                            className="col-span-full grid grid-cols-subgrid items-center gap-0 [&>span]:min-w-0 [&>svg]:col-start-3"
                             data-attr="watch-panel-section-observations"
                         >
                             <span className="flex items-center gap-1.5 min-w-0">
@@ -103,7 +104,9 @@ export function WatchPanelSections({
                                 {observations.count > 0 && <Badge className="shrink-0">{observations.count}</Badge>}
                             </span>
                         </AccordionTrigger>
-                        {observations.action && <div className="shrink-0 pr-2">{observations.action}</div>}
+                        {observations.action && (
+                            <div className="relative col-start-2 row-start-1 px-2">{observations.action}</div>
+                        )}
                     </div>
                     <AccordionContent>{observations.content}</AccordionContent>
                 </AccordionItem>
