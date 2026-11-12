@@ -87,6 +87,7 @@ import {
     buildAttachmentStore,
 } from './services/messaging/attachment-store'
 import { ATTACHMENT_VERIFICATION_DEADLINE_MS, AttachmentUploads } from './services/messaging/attachment-uploads'
+import { cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { UTM_VALUE_LIMIT_CHARS } from './services/messaging/helpers/utm'
 import { InFlightRegistry } from './services/messaging/in-flight-registry'
@@ -2696,6 +2697,10 @@ describe('CDP API', () => {
             })
 
             it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
+                const queuedEmails = async () =>
+                    (await cdpEmailQueuedTotal.get()).values.find((v) => v.labels.priority_class === 'fast')?.value ?? 0
+                const queuedBefore = await queuedEmails()
+
                 const res = await send(hogFlow.id, authorized())
 
                 expect(res.status).toEqual(202)
@@ -2706,6 +2711,7 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
                 expect(emailStatusRows()).toEqual([])
                 expect(producedTo('hog_invocation_results')).toEqual([])
+                expect(await queuedEmails()).toBe(queuedBefore)
             })
 
             it('answers 503 intake_unavailable when the broker refuses the run', async () => {
