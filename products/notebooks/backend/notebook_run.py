@@ -10,7 +10,7 @@ Document order is dependency order: a cell can only read exports of earlier cell
 the rule the editor's staleness chain already relies on. So the plan needs no sorting.
 """
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -59,6 +59,8 @@ class PlannedCell(TypedDict):
     code: str
     connection_id: str | None
     send_raw_query: bool
+    # Absent from plans stored before warehouse tables existed.
+    warehouse_table_name: NotRequired[str | None]
 
 
 class NotebookRunNothingToRun(Exception):
@@ -98,6 +100,7 @@ def plan_notebook_cells(notebook: Notebook, *, include_prepared_insights: bool =
             code=cell.code,
             connection_id=cell.connection_id,
             send_raw_query=cell.send_raw_query,
+            warehouse_table_name=cell.warehouse_table_name,
         )
         for cell in extract_cells(notebook.content)
         if (cell.cell_type in RUNNABLE_CELL_TYPES or (include_prepared_insights and cell.cell_type == "saved_insight"))
@@ -170,6 +173,7 @@ class NotebookRunStarted:
     cell_count: int
     starts_sandbox: bool
     sandbox_hourly_price: float | None
+    saves_warehouse_tables: bool
 
 
 def start_notebook_run(
@@ -199,6 +203,7 @@ def start_notebook_run(
         cell_count=start.cell_count,
         starts_sandbox=start.starts_sandbox,
         sandbox_hourly_price=start.sandbox_hourly_price,
+        saves_warehouse_tables=any(cell.get("warehouse_table_name") for cell in start.notebook_run.cell_plan),
     )
 
 
@@ -269,6 +274,7 @@ def node_run_request_for(notebook_run: NotebookRun, index: int) -> NodeRunReques
         connection_id=UUID(connection_id) if connection_id else None,
         send_raw_query=bool(cell.get("send_raw_query")) and connection_id is not None,
         notebook_run_id=notebook_run.id,
+        warehouse_table_name=cell.get("warehouse_table_name") if is_python else None,
     )
 
 

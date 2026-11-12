@@ -27,3 +27,31 @@ class TestValidateDataWarehouseTableColumns(APIBaseTest):
         assert some_columns is not None
         valid = some_columns.get("valid")
         assert valid is True
+
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_keeps_columns_a_writer_replaced_during_validation(self, _mock_get_client: MagicMock) -> None:
+        table = DataWarehouseTable.objects.create(
+            name="table_name",
+            format="Parquet",
+            team=self.team,
+            columns={
+                "kept": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+                "retyped": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+                "dropped": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+            },
+        )
+        replaced = {
+            "kept": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+            "retyped": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)"},
+            "added": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+        }
+
+        def replace_columns(*_args: object, **_kwargs: object) -> bool:
+            DataWarehouseTable.objects.filter(id=table.id).update(columns=replaced)
+            return False
+
+        with patch.object(DataWarehouseTable, "validate_column_type", side_effect=replace_columns):
+            validate_data_warehouse_table_columns(self.team.pk, str(table.id))
+
+        table.refresh_from_db()
+        assert table.columns == {**replaced, "kept": {**replaced["kept"], "valid": False}}

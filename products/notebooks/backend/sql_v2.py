@@ -27,6 +27,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
+from products.data_warehouse.backend.facade.api import presign_notebook_table_upload
 from products.notebooks.backend.kernel_package import (
     BAKED_PACKAGE_ROOT,
     BAKED_VERSION_PATH,
@@ -39,6 +40,7 @@ from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class
 logger = structlog.get_logger(__name__)
 
 REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
+NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE_FLAG = "notebook-save-as-warehouse-table"
 NOTEBOOKS_FRAME_STORE_FLAG = "notebooks-frame-store"
 NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG = "notebooks-frame-store-ch-writes"
 
@@ -122,6 +124,10 @@ def _flag_enabled_for(flag: str, user: User | None) -> bool:
 
 def is_sql_v2_enabled(user: User | None) -> bool:
     return _flag_enabled_for(REVAMPED_PY_NOTEBOOKS_FLAG, user)
+
+
+def is_notebook_warehouse_table_save_enabled(user: User | None) -> bool:
+    return _flag_enabled_for(NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE_FLAG, user)
 
 
 def is_frame_store_enabled(user: User | None) -> bool:
@@ -454,6 +460,12 @@ def dispatch_sql_v2_run(
             "output_name": output_name,
             "variables": variables or {},
         }
+        if run.warehouse_table_name:
+            # The URL only reaches the key for this team and table name, so the sandbox can't
+            # write anywhere else in the bucket.
+            payload["node"]["warehouse_upload_url"] = presign_notebook_table_upload(
+                notebook.team_id, run.warehouse_table_name, str(run.id)
+            )
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code

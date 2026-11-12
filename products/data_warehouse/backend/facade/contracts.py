@@ -15,6 +15,10 @@ from model objects to data reads.
 from pydantic.dataclasses import dataclass
 
 
+class NotebookTableError(Exception):
+    """A notebook can't write the warehouse table it asked for. The message is user-facing."""
+
+
 @dataclass(frozen=True)
 class TeamDataWarehouseConfig:
     """A team's data-warehouse configuration (the data-ops overview surface)."""

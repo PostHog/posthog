@@ -1,6 +1,8 @@
 from collections import defaultdict
 from datetime import timedelta
+from typing import Any
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -139,6 +141,10 @@ def sweep_stopped_schema_syncs() -> None:
         logger.info("sweep_stopped_schema_syncs_dispatched", count=len(stopped))
 
 
+def _without_valid(column: Any) -> Any:
+    return {key: value for key, value in column.items() if key != "valid"} if isinstance(column, dict) else column
+
+
 # Name pinned to where this task used to live in core: a rename would strand any message
 # already queued under the old name across a deploy.
 @shared_task(ignore_result=True, name="posthog.tasks.warehouse.validate_data_warehouse_table_columns")
@@ -148,12 +154,21 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
 
     try:
         table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
-        columns = table.columns or {}
-        for column in columns.keys():
-            # Background validation is userless; validate table schema, not requester permissions.
-            columns[column]["valid"] = table.validate_column_type(column, bypass_warehouse_access_control=True)
-        table.columns = columns
-        table.save()
+        validated = table.columns or {}
+        # Background validation is userless; validate table schema, not requester permissions.
+        valid = {
+            column: table.validate_column_type(column, bypass_warehouse_access_control=True) for column in validated
+        }
+        # Validation queries ClickHouse and can take a long time. A writer can replace the columns
+        # in that time, so only a column that is still the one this task validated gets the result.
+        with transaction.atomic():
+            table = DataWarehouseTable.objects.select_for_update(of=("self",)).get(team_id=team_id, id=table_id)
+            columns = table.columns or {}
+            for column, is_valid in valid.items():
+                if column in columns and _without_valid(columns[column]) == _without_valid(validated[column]):
+                    columns[column]["valid"] = is_valid
+            table.columns = columns
+            table.save()
 
         if ph_client:
             ph_client.capture(distinct_id=team_id, event="validate_data_warehouse_table_columns succeeded")

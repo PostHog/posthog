@@ -8,6 +8,7 @@ posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 import json
 
 from django.core import signing
+from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
@@ -15,11 +16,19 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
+from posthog.exceptions_capture import capture_exception
+
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
+from products.notebooks.backend.tasks.warehouse_tables import save_notebook_warehouse_table
+from products.notebooks.backend.warehouse_tables import (
+    save_failed_outcome,
+    store_warehouse_table_outcome,
+    upload_outcome,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -98,6 +107,9 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         "interrupted": NotebookNodeRun.Status.INTERRUPTED,
     }
     run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
+    warehouse_upload = envelope.pop("warehouse_upload", None)
+    if run.status == NotebookNodeRun.Status.DONE and run.warehouse_table_name:
+        envelope["warehouse_table"] = upload_outcome(run.warehouse_table_name, warehouse_upload)
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
@@ -117,7 +129,29 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         )
     )
     if not won_transition:
-        run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+        # Only the winning delivery starts the save, so this one keeps the outcome that is
+        # stored and never adds a pending one that no task would resolve. The save task writes
+        # its outcome under the same row lock, so the read can't miss a finished save.
+        with transaction.atomic():
+            stored = (
+                NotebookNodeRun.objects.for_team(team_id)
+                .select_for_update()
+                .filter(id=run.id)
+                .values_list("envelope", flat=True)
+                .first()
+            )
+            stored_warehouse_table = stored.get("warehouse_table") if isinstance(stored, dict) else None
+            if stored_warehouse_table is not None:
+                envelope["warehouse_table"] = stored_warehouse_table
+            else:
+                envelope.pop("warehouse_table", None)
+            run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+    elif envelope.get("warehouse_table", {}).get("pending"):
+        try:
+            save_notebook_warehouse_table.delay(team_id, str(run.id))
+        except Exception as e:
+            capture_exception(e)
+            store_warehouse_table_outcome(team_id, str(run.id), save_failed_outcome(run.warehouse_table_name))
 
     _store_frame_snapshot(run, frames, team_id)
 
