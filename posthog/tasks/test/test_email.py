@@ -191,7 +191,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             is_setup_delegation=is_setup_delegation,
         )
 
-        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+        with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"):
             send_invite(invite.id)
 
         invite.refresh_from_db()

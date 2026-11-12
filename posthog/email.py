@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core import exceptions, mail
-from django.core.cache import cache
 from django.core.mail.backends.smtp import EmailBackend
 from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
@@ -57,11 +56,14 @@ def inline_css(value: str) -> str:
 
 
 def is_http_email_service_available() -> bool:
-    """
-    Returns whether HTTP email services are available on this instance (i.e. settings are in place).
-    This currently only supports Customer.io. Workflows only takes over emails that this path sends.
-    """
-    return bool(settings.CUSTOMER_IO_API_KEY)
+    """Whether this instance can send templated email through the Workflows transactional email API."""
+    if not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
+        return False
+    if not settings.POSTHOG_HOST.startswith("https://") and not settings.DEBUG:
+        # The request carries the secret key and the email's contents, such as a password reset link.
+        logger.warning("email_workflows_insecure_host")
+        return False
+    return True
 
 
 def is_smtp_email_service_available() -> bool:
@@ -140,49 +142,7 @@ _TRANSIENT_SMTP_ERRORS = (
     ConnectionError,  # reset / refused / aborted
 )
 
-CUSTOMER_IO_TEMPLATE_ID_MAP = {
-    # Set up in customer.io
-    "2fa_enabled": "31",
-    "2fa_disabled": "30",
-    "2fa_backup_code_used": "29",
-    "2fa_reset": "62",
-    "password_reset": "32",
-    "invite": "33",
-    "member_join": "34",
-    "email_change_old_address": "36",
-    "email_change_new_address": "37",
-    "password_changed": "42",
-    "login_notification": "44",
-    "personal_api_key_exposed": "45",
-    "code_based_verification": "75",
-    "email_verification_code": "79",
-    "feature_flags_secure_api_key_exposed": "49",
-    "project_secret_api_key_exposed": "76",
-    "oauth_token_exposed": "50",
-    "passkey_added": "51",
-    "passkey_removed": "52",
-    "new_conversation_ticket": "53",
-    "project_deleted": "54",
-    "organization_deleted": "55",
-    "approval_requested": "60",
-    "approval_approved": "57",
-    "approval_rejected": "58",
-    "approval_expired": "59",
-    "approval_applied": "61",
-    "conversation_restore": "63",
-    "proxy_provisioned": "64",
-    "delegation_invite": "66",
-    "provisioning_welcome": "67",
-    "baa_signed_ai_disabled": "68",
-    "integration_access_requested": "70",
-    "posthog_ai_access_requested": "72",
-    "wizard_pr_ready": "74",
-    "loop_run_summary": "77",
-    "workload_trust_policy_changed": "80",
-}
-
-# Message template ids in the US project, for templates that can send through Workflows instead of Customer.io.
-# A template sends through Workflows only for recipients the flag below matches.
+# Message template ids in the US project. Both regions send through it.
 WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "2fa_enabled": "01a1645b-71b3-0000-6894-2ea67c11761f",
     "2fa_disabled": "01a16464-c956-0000-a67a-e8014f9566bd",
@@ -223,22 +183,13 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
 }
 
-# Release conditions match the `email`, `transactional_email_template` and `region` person properties passed at
-# evaluation, so one flag picks the recipients, the templates that move and the instances that move them. Both regions
-# send to the US project, so a condition on `region` lets each one roll out on its own.
+# Read by the weekly digest send.
 WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
-
-# Matches how long the send API keeps an idempotency key, which outlasts every Celery retry.
-WORKFLOWS_PIN_TTL_SECONDS = 24 * 60 * 60
 
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
 # is invalid, the domain has no mail servers, or the address hard bounced and is on the suppression list. Every
-# provider would bounce it, so the email is dropped. It is not retried and Customer.io does not send it.
+# provider would bounce it, so the email is dropped and not retried.
 WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable", "recipient_suppressed"})
-
-# 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
-# the workflow.
-WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused"})
 
 
 def get_email_team_and_org_context(
@@ -272,18 +223,10 @@ def get_email_team_and_org_context(
     return context
 
 
-def get_customer_io_template_id(template_name: str) -> str:
-    """Get Customer.io template ID from template name"""
-    template_id = CUSTOMER_IO_TEMPLATE_ID_MAP.get(template_name)
-    if not template_id:
-        raise Exception(f"Unknown template name: {template_name}")
-    return template_id
-
-
 class WorkflowsEmailError(Exception):
     """Workflows did not queue the email, or the caller could not tell whether it did.
 
-    `code` and `status_code` match posthog-python's `EmailError`, so the fallback rule keeps working when the
+    `code` and `status_code` match posthog-python's `EmailError`, so the drop and retry rules keep working when the
     SDK sends instead. `status_code` is None when no response came back.
     """
 
@@ -294,31 +237,16 @@ class WorkflowsEmailError(Exception):
         self.attr = attr
 
 
-# Waits between worker attempts of an HTTP send that failed with one of the errors below. Customer.io no longer sends
-# an email that Workflows could not take, so the retries span about 19 minutes to outlast a short Workflows outage.
+# Waits between worker attempts of an HTTP send that failed with one of the errors below. No other provider sends an
+# email that Workflows could not take, so the retries span about 19 minutes to outlast a short Workflows outage.
 # They stop there, because a login code or a password reset link that arrives later is of no use to the recipient.
 # SMTP sends keep the shorter retries in EMAIL_TASK_KWARGS.
 HTTP_SEND_RETRY_COUNTDOWNS_SECONDS = (10, 30, 60, 120, 300, 600)
 
 # Errors that a later attempt can fix. A database error can come before the send, when the record is read, or after
-# it, when the record is marked sent. A Workflows send is pinned before that write, so its retry replays under the
-# same idempotency key. A Customer.io send can go out a second time.
+# it, when the record is marked sent. The retry sends the same idempotency key, so Workflows replays an email it
+# already queued instead of sending it again.
 RETRYABLE_HTTP_SEND_ERRORS = (WorkflowsEmailError, OperationalError, InterfaceError)
-
-
-def _workflows_queued_nothing(err: WorkflowsEmailError) -> bool:
-    """Whether the email is certain not to be queued, so a retry can pick its provider again."""
-    if err.status_code is None:
-        # A connection that was never made and a client that queued nothing sent nothing. Any other network
-        # failure can come after Workflows queued the email.
-        return err.code in ("connection_error", "not_queued")
-    if err.status_code == 422:
-        # The send API refuses these before it queues anything. Any other 422 means this key already queued an email.
-        return err.code in WORKFLOWS_NOT_QUEUED_422_CODES
-    # Redirects and 4xx answers come before anything is queued, apart from 408 and 409 (an attempt with this key is
-    # in flight). A 5xx can follow a queued email, because the send API also returns 503 when the workflow service
-    # queued it but failed to answer.
-    return 300 <= err.status_code < 500 and err.status_code not in (408, 409)
 
 
 def _never_connected(err: requests.ConnectionError) -> bool:
@@ -332,43 +260,18 @@ def _never_connected(err: requests.ConnectionError) -> bool:
     return isinstance(reason, urllib3.exceptions.NewConnectionError)
 
 
-def get_workflows_template_id(
-    template_name: str, dest: dict[str, str], pinned_template_id: str | None = None
-) -> str | None:
-    """The message template to send this email with through Workflows, or None to send it through Customer.io.
-
-    A pinned template skips only the flag. The settings checks still apply, because they turn Workflows off.
-    """
-    template_id = pinned_template_id or WORKFLOWS_TEMPLATE_ID_MAP.get(template_name)
-    if not template_id or not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
-        return None
-    if not settings.POSTHOG_HOST.startswith("https://") and not settings.DEBUG:
-        # The request carries the secret key and the email's contents, such as a password reset link.
-        logger.warning("email_workflows_insecure_host", template_name=template_name)
-        return None
-    if pinned_template_id:
-        return pinned_template_id
-    person_properties = {"email": dest["raw_email"], "transactional_email_template": template_name}
-    if region := get_instance_region():
-        person_properties["region"] = region
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG,
-            dest.get("distinct_id") or dest["raw_email"],
-            person_properties=person_properties,
-            send_feature_flag_events=False,
-        )
-    except Exception as err:
-        logger.warning("email_workflows_flag_check_failed", template_name=template_name, error=str(err))
-        return None
-    return template_id if enabled else None
+def get_workflows_template_id(template_name: str) -> str:
+    template_id = WORKFLOWS_TEMPLATE_ID_MAP.get(template_name)
+    if not template_id:
+        raise Exception(f"Unknown template name: {template_name}")
+    return template_id
 
 
 def _unescape_for_liquid(value: Any, key: Any = None) -> Any:
     """Undo the html.escape in sanitize_email_properties, and keep the URL defang.
 
-    Customer.io outputs Liquid values as they are, so the properties arrive pre-escaped. Workflows escapes Liquid
-    output itself, so a pre-escaped value renders as `&amp;amp;` and shows the entity to the reader.
+    The properties arrive pre-escaped. Workflows escapes Liquid output itself, so a pre-escaped value renders as
+    `&amp;amp;` and shows the entity to the reader.
     """
     if key is not None and _classify_key(key) == "passthrough":
         return value
@@ -430,7 +333,7 @@ def _queue_workflows_email(
     except ValueError:
         body = {}
     if not body.get("message_id"):
-        # A 202 means Workflows may have queued the email, so this must not fall back to Customer.io.
+        # A 202 means Workflows may have queued the email, so a retry must replay it under the same idempotency key.
         raise WorkflowsEmailError("202 without a message_id", code="invalid_response", status_code=response.status_code)
     return {"message_id": body["message_id"], "replayed": bool(body.get("replayed", False))}
 
@@ -440,26 +343,10 @@ def _workflows_idempotency_key(campaign_key: str, raw_email: str) -> str:
     return hashlib.sha256(f"{campaign_key}\n{raw_email}".encode()).hexdigest()
 
 
-def _pinned_workflows_template_id(idempotency_key: str) -> str | None:
-    """The template of an earlier attempt that Workflows may have queued, so a retry sends it the same way."""
-    try:
-        return cache.get(f"email_workflows_pin:{idempotency_key}")
-    except Exception as err:
-        logger.warning("email_workflows_pin_read_failed", error=str(err))
-        return None
-
-
-def _pin_to_workflows(idempotency_key: str, template_id: str) -> None:
-    try:
-        cache.set(f"email_workflows_pin:{idempotency_key}", template_id, timeout=WORKFLOWS_PIN_TTL_SECONDS)
-    except Exception as err:
-        logger.warning("email_workflows_pin_write_failed", error=str(err))
-
-
 def _send_one_via_workflows(
     dest: dict[str, str], campaign_key: str, template_id: str, properties: dict
 ) -> dict[str, Any]:
-    # Workflows templates read only `variables.*`, so the Customer.io `customer.*` attributes travel in the data.
+    # Workflows templates read only `variables.*`, so the `customer.*` attributes they use travel in the data.
     customer = {"email": dest["raw_email"]}
     if dest.get("distinct_id"):
         customer["id"] = dest["distinct_id"]
@@ -479,37 +366,6 @@ def _send_one_via_workflows(
     return result
 
 
-def _send_one_via_customer_io(dest: dict[str, str], template_name: str, properties: dict) -> dict[str, Any]:
-    if not settings.CUSTOMER_IO_API_KEY:
-        raise Exception("Missing Customer.io API key")
-
-    identifiers: dict[str, str] = {"email": dest["raw_email"]}
-    if dest.get("distinct_id"):
-        identifiers["id"] = dest["distinct_id"]
-
-    payload = {
-        "transactional_message_id": get_customer_io_template_id(template_name),
-        "to": dest["raw_email"],
-        "identifiers": identifiers,
-        "message_data": properties,
-    }
-
-    response = requests.post(
-        f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {settings.CUSTOMER_IO_API_KEY}",
-        },
-        json=payload,
-        timeout=30,
-    )
-
-    if response.status_code != 200:
-        raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
-
-    return response.json()
-
-
 def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: str, properties: dict[str, Any]) -> None:
     try:
         capture(
@@ -523,48 +379,28 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
 
 def _send_one(
     capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, properties: dict
-) -> tuple[str, dict] | None:
-    """Send one email and return the provider that sent it with the provider's response.
+) -> dict[str, Any] | None:
+    """Send one email through Workflows and return its response.
 
-    Returns None when Workflows refused the recipient as undeliverable, so no provider sent the email.
+    Returns None when Workflows refused the recipient as undeliverable, so the email is dropped.
     """
-    idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    # After an attempt Workflows may have queued, a retry skips the flag. Otherwise a flag change on the retry would
-    # send the same email again through Customer.io.
-    pinned_template_id = _pinned_workflows_template_id(idempotency_key)
-    workflows_template_id = get_workflows_template_id(template_name, dest, pinned_template_id)
-    if workflows_template_id:
-        try:
-            response = _send_one_via_workflows(dest, campaign_key, workflows_template_id, properties)
-            # Marking the record sent can still fail, and the retry must then replay this send, not move providers.
-            _pin_to_workflows(idempotency_key, workflows_template_id)
-            return "workflows", response
-        except WorkflowsEmailError as err:
-            if (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
-                err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
-            ):
-                # The send API replays an idempotency key before it checks the recipient, so this refusal also
-                # means that no earlier attempt queued the email. The pin keeps a retry of the batch on Workflows, so a
-                # flag change cannot send this recipient through Customer.io, where the email would hard bounce.
-                _pin_to_workflows(idempotency_key, workflows_template_id)
-                logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
-                _capture_email_event(
-                    capture,
-                    dest,
-                    "transactional email workflows rejected",
-                    {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
-                )
-                return None
-            # Workflows sends the retry. An email it certainly did not queue stays unpinned, so turning the flag off
-            # moves the retry to Customer.io.
-            if pinned_template_id or not _workflows_queued_nothing(err):
-                _pin_to_workflows(idempotency_key, workflows_template_id)
-            raise
-    return "customer_io", _send_one_via_customer_io(dest, template_name, properties)
+    try:
+        return _send_one_via_workflows(dest, campaign_key, get_workflows_template_id(template_name), properties)
+    except WorkflowsEmailError as err:
+        if (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
+            err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
+        ):
+            logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
+            _capture_email_event(
+                capture,
+                dest,
+                "transactional email workflows rejected",
+                {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
+            )
+            return None
+        raise
 
 
-# Note: this http sender is set up to send via templates, so all the configuration is done in Customer.io or in
-# the Workflows message template - i.e. no subject, body, etc.
 def _send_via_http(
     to: list[dict[str, str]],
     campaign_key: str,
@@ -572,9 +408,9 @@ def _send_via_http(
     properties: dict,
     will_retry: bool = True,
 ) -> list[str]:
-    """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
+    """Sends emails using the Workflows transactional email API"""
     if not is_http_email_service_available():
-        raise Exception("Missing Customer.io API key")
+        raise Exception("Missing Workflows transactional email API key")
 
     if not current_task or current_task.request.is_eager:
         # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
@@ -612,13 +448,12 @@ def _send_via_http_batch(
                     already_sent_count += 1
                     continue
 
-                sent = _send_one(capture, dest, campaign_key, template_name, properties)
-                if sent is None:
+                provider_response = _send_one(capture, dest, campaign_key, template_name, properties)
+                if provider_response is None:
                     # sent_at stays unset, so raise_if_delivery_rejected tells a synchronous caller nothing went out.
                     EMAIL_SEND_COUNTER.labels(outcome="undeliverable", transport="http").inc()
                     undeliverable.append(dest["raw_email"])
                     continue
-                provider, provider_response = sent
 
                 # Mark delivery before any non-essential step so a delivered email is never
                 # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
@@ -633,7 +468,7 @@ def _send_via_http_batch(
                     {
                         "template_name": template_name,
                         "campaign_key": campaign_key,
-                        "provider": provider,
+                        "provider": "workflows",
                         **provider_response,
                     },
                 )
@@ -807,8 +642,8 @@ def raise_if_delivery_rejected(campaign_key: str, email: str) -> None:
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never
 # user-controlled. It must pass through verbatim so the `&` separators don't
-# get HTML-escaped before reaching Customer.io — Liquid renders the value raw,
-# and mail clients expect the literal `&` between query parameters.
+# get HTML-escaped before reaching the email template, and mail clients expect
+# the literal `&` between query parameters.
 _PASSTHROUGH_KEYS = {"utm_tags"}
 
 # Keys whose values are PostHog-generated URLs (built from `settings.SITE_URL`
@@ -1030,7 +865,7 @@ class EmailMessage:
 
     def add_user_recipient(self, user: "User", email_override: Optional[str] = None) -> None:
         """
-        Add a user as a recipient, include their distinct_id for Customer.io reporting wenhooks.
+        Add a user as a recipient with their distinct_id, which Workflows uses to identify the person.
         Use this instead of add_recipient when you have a User object.
         """
         email = email_override or user.email

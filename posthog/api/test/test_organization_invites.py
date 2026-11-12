@@ -285,7 +285,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         capture = mock_scoped_capture.return_value.__enter__.return_value
 
-        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com", CUSTOMER_IO_API_KEY="test-key"):
+        with self.settings(
+            EMAIL_ENABLED=True,
+            SITE_URL="http://test.posthog.com",
+            POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+            POSTHOG_HOST="https://us.posthog.com",
+        ):
             response = self.client.post("/api/organizations/@current/invites/", {"target_email": "x@x.com"})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

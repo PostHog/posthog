@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
+from posthog.email import WORKFLOWS_TEMPLATE_ID_MAP
 from posthog.models import Organization, OrganizationMembership
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
@@ -84,8 +84,8 @@ class TestCustomerIOTemplateIDs(TestApprovalNotifications):
         ]
 
         for template in expected_templates:
-            self.assertIn(template, CUSTOMER_IO_TEMPLATE_ID_MAP)
-            self.assertIsNotNone(CUSTOMER_IO_TEMPLATE_ID_MAP[template])
+            self.assertIn(template, WORKFLOWS_TEMPLATE_ID_MAP)
+            self.assertIsNotNone(WORKFLOWS_TEMPLATE_ID_MAP[template])
 
 
 class TestBuildChangeRequestUrl(TestApprovalNotifications):
