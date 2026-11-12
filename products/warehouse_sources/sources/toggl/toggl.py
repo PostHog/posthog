@@ -12,11 +12,14 @@ from products.warehouse_sources.sources.sdk import (
     HttpBasicAuth,
     IncrementalConfig,
     PageNumberPaginator,
+    ResponseAction,
     RESTAPIConfig,
     RESTClient,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    create_response_hooks,
+    frozen,
     make_tracked_session,
     parse_datetime_value,
     rename_parent_fields,
@@ -44,6 +47,15 @@ API_TOKEN_PASSWORD = "api_token"
 # Workspace fields that hold credentials: a deprecated workspace API token, and a calendar feed URL
 # that embeds a private token.
 _WORKSPACE_SECRET_FIELDS = ("api_token", "ical_url")
+# Toggl answers 402 for two reasons: the hourly request quota ran out, which a later run recovers
+# from, or the workspace's plan lacks the feature the request needs, which no retry fixes. Only the
+# second carries this text. That workspace is skipped, so one workspace on a smaller plan does not
+# stop the table for the others.
+_SKIP_WORKSPACE_WITHOUT_FEATURE: ResponseAction = {
+    "status_code": 402,
+    "content": "feature enabled",
+    "action": "ignore",
+}
 
 
 @dataclasses.dataclass(frozen=False)
@@ -173,8 +185,11 @@ def _endpoint_spec(config: TogglEndpointConfig, extra_params: dict[str, Any]) ->
     }
     if config.data_selector is not None:
         endpoint["data_selector"] = config.data_selector
-    if config.skip_forbidden_workspaces:
-        endpoint["response_actions"] = [{"status_code": 403, "action": "ignore"}]
+    if config.name != "workspaces":
+        response_actions: list[ResponseAction] = [_SKIP_WORKSPACE_WITHOUT_FEATURE]
+        if config.skip_forbidden_workspaces:
+            response_actions.append({"status_code": 403, "action": "ignore"})
+        endpoint["response_actions"] = response_actions
     return endpoint
 
 
@@ -242,6 +257,9 @@ def _v9_source(
         "client": {
             "base_url": TOGGL_BASE_URL,
             "auth": {"type": "http_basic", "username": api_token, "password": API_TOKEN_PASSWORD},
+            # Every v9 table reads `/me/workspaces`, whose rows hold workspace tokens. The sample
+            # scrubber does not know those field names, and `data_map` runs after capture.
+            "capture": False,
         },
         "resource_defaults": {},
         "resources": resources,
@@ -301,7 +319,15 @@ def _time_entries_first_date(workspace: dict[str, Any], db_incremental_field_las
     return first
 
 
-def _windows(first: date, last: date) -> Iterator[tuple[date, date]]:
+@frozen
+class DateWindow:
+    """An inclusive date range for one time entries search."""
+
+    start: date
+    end: date
+
+
+def _windows(first: date, last: date) -> Iterator[DateWindow]:
     """Inclusive date windows of at most `REPORTS_WINDOW_DAYS` from `first` to `last`.
 
     The search needs an end date after its start date, so a window never has one day only.
@@ -309,12 +335,12 @@ def _windows(first: date, last: date) -> Iterator[tuple[date, date]]:
     start = first
     while start <= last:
         end = max(min(start + timedelta(days=REPORTS_WINDOW_DAYS - 1), last), start + timedelta(days=1))
-        yield start, end
+        yield DateWindow(start=start, end=end)
         start = end + timedelta(days=1)
 
 
 def _search_pages(
-    client: RESTClient, workspace_id: int, window_start: date, window_end: date, first_row_number: Optional[int]
+    client: RESTClient, workspace_id: int, window: DateWindow, first_row_number: Optional[int]
 ) -> Iterator[tuple[list[Any], Optional[int]]]:
     """Yield each page of one time entries search, with the row number of the page after it."""
     next_rows: list[Optional[int]] = []
@@ -326,8 +352,8 @@ def _search_pages(
         REPORTS_TIME_ENTRIES_PATH.format(workspace_id=workspace_id),
         method="post",
         json={
-            "start_date": window_start.isoformat(),
-            "end_date": window_end.isoformat(),
+            "start_date": window.start.isoformat(),
+            "end_date": window.end.isoformat(),
             "order_by": "date",
             "order_dir": "ASC",
             "page_size": REPORTS_PAGE_SIZE,
@@ -335,6 +361,7 @@ def _search_pages(
             "enrich_response": True,
         },
         paginator=TogglReportsPaginator(),
+        hooks=create_response_hooks([_SKIP_WORKSPACE_WITHOUT_FEATURE]),
         initial_paginator_state={"first_row_number": first_row_number} if first_row_number is not None else None,
         page_state_hook=record_next_row,
     )
@@ -352,9 +379,11 @@ def _time_entries_source(
 
     def items() -> Iterator[list[dict[str, Any]]]:
         client = RESTClient(base_url=TOGGL_BASE_URL, auth=_auth(api_token))
+        # Workspace rows hold workspace tokens, so this read stays out of HTTP sample capture.
+        workspaces_client = RESTClient(base_url=TOGGL_BASE_URL, auth=_auth(api_token), capture=False)
         workspaces = [
             workspace
-            for page in client.paginate(f"{API_V9_PREFIX}/me/workspaces", paginator=SinglePagePaginator())
+            for page in workspaces_client.paginate(f"{API_V9_PREFIX}/me/workspaces", paginator=SinglePagePaginator())
             for workspace in page
             if isinstance(workspace, dict) and isinstance(workspace.get("id"), int)
         ]
@@ -371,20 +400,22 @@ def _time_entries_source(
             first_date = _time_entries_first_date(workspace, db_incremental_field_last_value, today)
             first_row_number: Optional[int] = None
             if resume is not None and resume.workspace_id == workspace_id and resume.window_start:
-                first_date = max(first_date, date.fromisoformat(resume.window_start))
-                first_row_number = resume.first_row_number
+                saved_window_start = date.fromisoformat(resume.window_start)
+                # A row number counts from the start of its window. When retention has since moved
+                # the first date past that start, the window differs and the row number with it.
+                if saved_window_start >= first_date:
+                    first_date = saved_window_start
+                    first_row_number = resume.first_row_number
 
             windows = list(_windows(first_date, last_date))
-            for index, (window_start, window_end) in enumerate(windows):
-                next_window_start = windows[index + 1][0] if index + 1 < len(windows) else None
-                for groups, next_row_number in _search_pages(
-                    client, workspace_id, window_start, window_end, first_row_number
-                ):
+            for index, window in enumerate(windows):
+                next_window_start = windows[index + 1].start if index + 1 < len(windows) else None
+                for groups, next_row_number in _search_pages(client, workspace_id, window, first_row_number):
                     if next_row_number is not None:
                         state = TogglResumeConfig(
                             completed_workspace_ids=list(completed),
                             workspace_id=workspace_id,
-                            window_start=window_start.isoformat(),
+                            window_start=window.start.isoformat(),
                             first_row_number=next_row_number,
                         )
                     elif next_window_start is not None:

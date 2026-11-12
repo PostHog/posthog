@@ -19,7 +19,11 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.toggl._config import TogglSourceConfig
-from products.warehouse_sources.sources.toggl.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.toggl.settings import (
+    DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.sources.toggl.toggl import (
     TogglResumeConfig,
     toggl_source,
@@ -67,7 +71,9 @@ Find the token at the bottom of your [Toggl Track profile settings](https://trac
 
 The token reads what your Toggl Track user can read. Use a workspace admin's token to sync the time entries of every member and the list of workspace users.
 
-Toggl Track limits API requests per hour based on your plan, so the first sync of a large workspace can take several runs to finish.""",
+Toggl Track limits API requests per hour based on your plan, so the first sync of a large workspace can take several runs to finish. A table skips any workspace whose plan does not include that data.
+
+Incremental time entry syncs re-read the last 7 days. Run a full refresh to pick up edits to older entries.""",
             iconPath="/static/warehouse-sources/toggl/icon.png",
             docsUrl="https://posthog.com/docs/cdp/sources/toggl",
             fields=cast(
@@ -97,12 +103,13 @@ Toggl Track limits API requests per hour based on your plan, so the first sync o
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Toggl answers 402 when the hourly request quota of the user's plan runs out.
-        return {"402 Client Error: Payment Required for url: https://api.track.toggl.com"}
+        # A 402 that reaches here is the hourly request quota. A 402 for a feature the workspace's
+        # plan lacks never raises: toggl.py skips that workspace.
+        return {"402 Client Error"}
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         return {
-            "402 Client Error: Payment Required for url: https://api.track.toggl.com": (
+            "402 Client Error": (
                 "Your Toggl Track plan's hourly API request limit ran out before this sync finished. "
                 "The next sync continues where this one stopped."
             ),
@@ -122,7 +129,12 @@ Toggl Track limits API requests per hour based on your plan, so the first sync o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            default_incremental_lookback_seconds=DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,

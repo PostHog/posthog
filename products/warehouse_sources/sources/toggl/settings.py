@@ -105,6 +105,11 @@ TOGGL_ENDPOINTS: dict[str, TogglEndpointConfig] = {
 
 ENDPOINTS = tuple(TOGGL_ENDPOINTS.keys())
 
+# Time entries filter only on `start`, and Toggl has no workspace-wide "changed since" filter, so an
+# edit to an older entry is invisible to an incremental run. Re-reading the last week by default
+# picks up the usual timesheet corrections at the cost of a few extra requests per run.
+DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {"time_entries": 7 * 24 * 60 * 60}
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in TOGGL_ENDPOINTS.items() if config.incremental_fields
 }

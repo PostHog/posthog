@@ -112,11 +112,20 @@ class TestTimeEntries:
         assert result.requests[1].json()["start_date"] == expected_start
         assert result.requests[1].json()["end_date"] == "2026-03-11"
 
-    def test_resume_skips_finished_workspaces_and_continues_the_saved_page(self) -> None:
+    @parameterized.expand(
+        [
+            ("saved_window_inside_retention", 400, "2026-02-03", 51),
+            # Retention moved past the saved window start, so its row number counts from another start.
+            ("retention_moved_past_saved_window", 30, "2026-02-08", None),
+        ]
+    )
+    def test_resume_skips_finished_workspaces_and_continues_the_saved_page(
+        self, _name: str, retention_days: int, expected_start: str, expected_row: int | None
+    ) -> None:
         result = _driver().run(
             "time_entries",
             [
-                ScriptedResponse(json=[{"id": 1}, {"id": 2, "max_data_retention_days": 400}]),
+                ScriptedResponse(json=[{"id": 1}, {"id": 2, "max_data_retention_days": retention_days}]),
                 ScriptedResponse(json=[_group([201])]),
             ],
             resume_state=TogglResumeConfig(
@@ -127,9 +136,34 @@ class TestTimeEntries:
         assert result.raised is None
         assert result.paths == [WORKSPACES_PATH, _search_path(2)]
         body = result.requests[1].json()
-        assert (body["start_date"], body["first_row_number"]) == ("2026-02-03", 51)
+        assert (body["start_date"], body.get("first_row_number")) == (expected_start, expected_row)
         assert [row["id"] for row in result.rows] == [201]
         assert result.committed_states[-1] == TogglResumeConfig(completed_workspace_ids=[1, 2])
+
+    @parameterized.expand(
+        [
+            ("plan_without_the_feature_skips_the_workspace", b'"Workspace needs to have this feature enabled"', None),
+            ("quota_exhausted_fails_the_run", b'"Quota exceeded"', "402 Client Error"),
+        ]
+    )
+    def test_payment_required(self, _name: str, body: bytes, expected_error: str | None) -> None:
+        result = _driver().run(
+            "time_entries",
+            [
+                ScriptedResponse(
+                    json=[{"id": 1, "max_data_retention_days": 30}, {"id": 2, "max_data_retention_days": 30}]
+                ),
+                ScriptedResponse(status=402, body=body),
+                ScriptedResponse(json=[_group([201])]),
+            ],
+        )
+
+        if expected_error is None:
+            assert result.raised is None
+            assert [(row["id"], row["workspace_id"]) for row in result.rows] == [(201, 2)]
+        else:
+            assert expected_error in str(result.raised)
+            assert result.rows == []
 
     def test_sends_the_token_with_the_api_token_password(self) -> None:
         result = _driver().run("time_entries", [ScriptedResponse(json=[])])
@@ -152,7 +186,7 @@ class TestWindows:
         ]
     )
     def test_windows(self, _name: str, first: date, last: date, expected: list[tuple[str, str]]) -> None:
-        assert [(start.isoformat(), end.isoformat()) for start, end in _windows(first, last)] == expected
+        assert [(w.start.isoformat(), w.end.isoformat()) for w in _windows(first, last)] == expected
 
 
 class TestWorkspaceChildren:
@@ -214,13 +248,20 @@ class TestWorkspaceChildren:
         assert result.params("page")[1:] == ["1", "2"]
         assert [row["id"] for row in result.rows] == [1]
 
-    def test_workspace_users_skip_a_workspace_the_user_cannot_read(self) -> None:
+    @parameterized.expand(
+        [
+            ("workspace_users", 403, b"User does not have access to this resource."),
+            ("tasks", 402, b'"Workspace needs to have this feature enabled"'),
+        ]
+    )
+    def test_skip_a_workspace_the_user_cannot_read(self, schema: str, status: int, body: bytes) -> None:
+        page = [{"id": 7, "email": "ada@example.com", "role": "admin"}]
         result = _driver().run(
-            "workspace_users",
+            schema,
             [
                 ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
-                ScriptedResponse(status=403, body=b"User does not have access to this resource."),
-                ScriptedResponse(json=[{"id": 7, "email": "ada@example.com", "role": "admin"}]),
+                ScriptedResponse(status=status, body=body),
+                ScriptedResponse(json={"data": page, "per_page": 200, "total_count": 1} if schema == "tasks" else page),
             ],
         )
 
@@ -236,6 +277,13 @@ class TestWorkspaceChildren:
         assert result.raised is None
         assert result.requests[1].param("status") == "both"
         assert [(row["id"], row["workspace_id"]) for row in result.rows] == [(5, 9)]
+
+    @parameterized.expand([("workspaces",), ("time_entries",)])
+    def test_workspace_reads_stay_out_of_sample_capture(self, schema: str) -> None:
+        result = _driver().run(schema, [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        assert any(options.get("capture") is False for options in result.session_options)
 
     def test_workspaces_drop_fields_that_hold_tokens(self) -> None:
         result = _driver().run(
