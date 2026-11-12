@@ -1,4 +1,4 @@
-import { AddressInfo, Socket, createServer } from 'net'
+import { AddressInfo, Socket, connect, createServer } from 'net'
 import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
@@ -1823,6 +1823,34 @@ describe('Cyclotron V2', () => {
                     open.forEach((socket) => socket.destroy())
                     silent.close()
                     await stalled.disconnect()
+                }
+            })
+
+            it('keeps a connection that finished after the lookup gave up, so the next lookup uses it', async () => {
+                const slow = createServer((socket) => {
+                    socket.pause()
+                    setTimeout(() => {
+                        const db = connect(5432, 'localhost')
+                        socket.pipe(db).pipe(socket)
+                    }, 300)
+                })
+                await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve))
+                const { port } = slow.address() as AddressInfo
+                const lagging = createManager({
+                    pool: {
+                        dbUrl: `postgres://posthog:posthog@127.0.0.1:${port}/test_cyclotron_node`,
+                        maxConnections: 1,
+                    },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                try {
+                    await expect(lagging.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    await waitForExpect(() => expect(lagging['lookupPool'].idleCount).toBe(1), 2000, 10)
+
+                    expect(await lagging.findIdempotencyKey(uuidv7())).toBeNull()
+                } finally {
+                    await lagging.disconnect()
+                    slow.close()
                 }
             })
 

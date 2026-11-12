@@ -319,12 +319,14 @@ export class CyclotronV2Manager {
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
         this.idempotencyKeyLookupTimeoutMs = config.idempotencyKeyLookupTimeoutMs ?? IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS
         // Its own pool, because a connect timeout is the only way to close a handshake that never answers, and on the
-        // main pool it would also cut how long inserts wait for a free client.
+        // main pool it would also cut how long inserts wait for a free client. The timeout outlasts the lookup, so a
+        // slow connect still finishes and leaves a warm connection, and `min` keeps one through quiet spells.
         this.lookupPool = createCyclotronPool('manager_lookup', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
+            min: 1,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
-            connectionTimeoutMillis: this.idempotencyKeyLookupTimeoutMs,
+            connectionTimeoutMillis: this.idempotencyKeyLookupTimeoutMs * 5,
         })
         this.reschedule = {
             floorSeconds: config.rescheduleFloorSeconds ?? 600,
