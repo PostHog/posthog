@@ -1344,7 +1344,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "vercel": "credentials",
     "vespa": "credentials",
     "vimeo": "token",
-    "virtuous": "credentials",
+    "virtuous": "token",
     "visma-economic": "credentials",
     "vitally": "credentials",
     "vonage": "credentials",
