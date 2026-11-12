@@ -182,7 +182,7 @@ def owned_copy_ids(*, team_id: int, source_kind: str, created_by_uuid: UUID | No
     )
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
-    return tuple(rows.values_list("legacy_configuration_id", flat=True))
+    return tuple(cast(UUID, legacy_id) for legacy_id in rows.values_list("legacy_configuration_id", flat=True))
 
 
 def owned_copies(
