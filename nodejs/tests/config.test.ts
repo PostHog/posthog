@@ -46,6 +46,17 @@ describe('config', () => {
         expect(config.TASK_TIMEOUT).toEqual(expected)
     })
 
+    test('reads a quoted number into the config built at import', () => {
+        process.env.TASK_TIMEOUT = '"3008"'
+        try {
+            jest.isolateModules(() => {
+                expect(jest.requireActual('~/common/config/config').defaultConfig.TASK_TIMEOUT).toEqual(3008)
+            })
+        } finally {
+            delete process.env.TASK_TIMEOUT
+        }
+    })
+
     test.each(['"3008', 'abc', '', 'Infinity'])('keeps the default and logs an error for the env value %p', (value) => {
         const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
 

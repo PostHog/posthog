@@ -33,10 +33,8 @@ export function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-const SURROUNDING_QUOTES = /^(["'])(.*)\1$/
-
 function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
-    const value = parseFloat(raw.trim().replace(SURROUNDING_QUOTES, '$2'))
+    const value = parseFloat(raw.trim().replace(/^(["'])(.*)\1$/, '$2'))
     if (Number.isFinite(value)) {
         return value
     }
