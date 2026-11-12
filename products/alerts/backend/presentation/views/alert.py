@@ -126,6 +126,7 @@ from products.alerts.backend.facade.destinations import (
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
     customized_alert_destination_ids,
+    list_alert_destination_groups,
     owned_alert_destination_ids,
     redact_destination_data,
     soft_delete_alert_destinations,
@@ -2592,7 +2593,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def list_destinations(self, request, *args, **kwargs):
         alert = self._alert_or_native()
         destinations = list_source_destinations(
-            team_id=self.team_id, public_id=alert.id, hog_function_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+            team_id=self.team_id,
+            public_id=alert.id,
+            hog_function_groups=list_alert_destination_groups(
+                team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+            ),
         )
         customized = customized_alert_destination_ids(
             team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
@@ -2723,7 +2728,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data=data,
                     event_kinds=_ROW_EVENT_KINDS.get(data["type"], (AlertEventKind.FIRING,)),
                     hog_function_ids=hog_function_ids,
-                    hog_function_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                    hog_function_groups=list_alert_destination_groups(
+                        team_id=alert.team_id,
+                        alert_id=str(alert.id),
+                        allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                    ),
                 )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
