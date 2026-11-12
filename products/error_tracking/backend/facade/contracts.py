@@ -179,7 +179,8 @@ class ErrorTrackingIssueTag:
     label: str
     description: str
     value: bool | None
-    source: str
+    # The tagger that wrote the answer. Postgres stores it, the ClickHouse copy of the answers does not.
+    source: str | None = None
 
 
 @dataclass(frozen=True)

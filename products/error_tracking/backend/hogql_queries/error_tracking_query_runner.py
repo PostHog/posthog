@@ -1,4 +1,5 @@
 import datetime
+import dataclasses
 from functools import cached_property
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY
 from posthog.hogql.parser import parse_select
@@ -35,8 +37,9 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
-from products.error_tracking.backend.hogql_queries.issue_tag_answers import latest_issue_tag_answers
+from products.error_tracking.backend.hogql_queries.issue_tag_answers import latest_issue_tag_answers_query
 from products.error_tracking.backend.logic.issue_tags.enabled import enabled_issue_tag_definitions
+from products.error_tracking.backend.logic.issue_tags.reader import group_issue_tags
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 
 logger = structlog.get_logger(__name__)
@@ -190,44 +193,38 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=self._attach_tags(builder.process_results(columns, results)),
+            results=self._attach_tags(builder.process_results(columns, results), context.database),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
 
-    def _attach_tags(self, results: list[dict]) -> list[dict]:
+    def _attach_tags(self, results: list[dict], database: Database | None) -> list[dict]:
         if not results or not self._enabled_tag_definitions:
             return results
-        definitions_by_key = {definition.key: definition for definition in self._enabled_tag_definitions}
-        issue_ids = [result["id"] for result in results]
-        answers = latest_issue_tag_answers(definitions_by_key, issue_ids)
-        # Without an explicit limit, execute_hogql_query returns at most 100 rows and drops the rest.
-        answers.limit = ast.Constant(value=len(issue_ids) * len(definitions_by_key))
+        keys = [definition.key for definition in self._enabled_tag_definitions]
         with self.timings.measure("error_tracking_query_tags"):
             response = execute_hogql_query(
-                query=answers,
+                query=latest_issue_tag_answers_query(keys, [result["id"] for result in results]),
                 team=self.team,
                 query_type="ErrorTrackingIssueTagsQuery",
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
                 user=self.user,
+                # The list query built this database already, and building another costs tens of milliseconds.
+                context=HogQLContext(
+                    team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+                ),
             )
-        tags_by_issue: dict[str, list[dict[str, object]]] = {}
-        for issue_id, key, answer in sorted(response.results, key=lambda row: row[1]):
-            definition = definitions_by_key[key]
-            tags_by_issue.setdefault(str(issue_id), []).append(
-                {
-                    "key": key,
-                    "label": definition.label,
-                    "description": definition.description,
-                    "value": None if answer is None else bool(answer),
-                }
-            )
+        rows = (
+            (issue_id, key, None if answer is None else bool(answer), None)
+            for answer, issue_id, key in response.results
+        )
+        tags_by_issue = group_issue_tags(rows, self._enabled_tag_definitions)
         for result in results:
-            result["tags"] = tags_by_issue.get(result["id"], [])
+            result["tags"] = [dataclasses.asdict(tag) for tag in tags_by_issue.get(result["id"], [])]
         return results
 
     # Aggregation queries return only event uuids for first/last event (reading the
