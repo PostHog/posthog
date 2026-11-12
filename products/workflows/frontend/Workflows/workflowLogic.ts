@@ -415,6 +415,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    actionsWithErrors: HogFlowAction[]
     addingSchedule: boolean
     aiEmailDraft: AiEmailDraftResult | null
     aiEmailDraftApplied: boolean
@@ -3225,10 +3226,11 @@ export interface workflowLogicMeta {
             saveAttemptedActionIds: string[] | null,
             integrations: IntegrationType[] | null
         ) => Record<string, HogFlowActionValidationResult | null>
-        workflowHasActionErrors: (
+        actionsWithErrors: (
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-        ) => boolean
+        ) => HogFlowAction[]
+        workflowHasActionErrors: (actionsWithErrors: HogFlowAction[]) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
         keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
@@ -3594,11 +3596,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         keepsFormEdits,
                         editVersion: values.workflowEditVersion,
                         // The validation results describe the form, which this save does not send.
-                        stepsNeedingWork: keepsFormEdits
-                            ? []
-                            : updates.actions
-                                  .filter((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                                  .map((action) => action.name),
+                        stepsNeedingWork: keepsFormEdits ? [] : values.actionsWithErrors.map((action) => action.name),
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -4334,14 +4332,19 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
-        workflowHasActionErrors: [
+        actionsWithErrors: [
             (s) => [s.workflow, s.actionValidationErrorsById],
             (
                 workflow: HogFlow,
                 actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-            ): boolean => {
-                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
+            ): HogFlowAction[] => {
+                return workflow.actions.filter((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
             },
+        ],
+
+        workflowHasActionErrors: [
+            (s) => [s.actionsWithErrors],
+            (actionsWithErrors: HogFlowAction[]): boolean => actionsWithErrors.length > 0,
         ],
 
         // Only a missing name blocks auto-save; the payload itself is unsaveable without one.
@@ -4548,11 +4551,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
+            // check below reads the form, so it describes the staged draft only once the form is saved.
+            if (values.publishDisabledReason) {
+                lemonToast.warning(values.publishDisabledReason)
+                return
+            }
             // Publish stays clickable with step errors, like enabling: the attempt is what reveals the
             // per-field messages, which stay hidden until then.
             if (values.workflowHasActionErrors) {
                 actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
-                lemonToast.error('Fix all errors before publishing')
+                const names = values.actionsWithErrors.map((action) => action.name).join(', ')
+                lemonToast.error(`Fix these steps before publishing: ${names}`)
                 return
             }
             actions.setDraftActionPending('publish')

@@ -60,6 +60,12 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     ...overrides,
 })
 
+const [TRIGGER, EXIT] = makeWorkflow().actions
+const VALID_TRIGGER = {
+    ...TRIGGER,
+    config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+} as HogFlow['actions'][number]
+
 describe('workflowLogic auto-save', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let updateCalls: number
@@ -139,16 +145,11 @@ describe('workflowLogic auto-save', () => {
             expect(updateCalls).toBe(1)
         })
 
-        const validTrigger = {
-            ...workflow.actions[0],
-            config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
-        } as HogFlow['actions'][number]
         it.each([
             {
                 case: 'a clean workflow',
-                actions: [validTrigger, workflow.actions[1]],
+                actions: [VALID_TRIGGER, EXIT],
                 editedWhileSaving: null,
-                respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
                 message: 'Workflow saved',
                 kind: 'success-toast',
             },
@@ -156,21 +157,19 @@ describe('workflowLogic auto-save', () => {
                 case: 'a workflow with a step error',
                 actions: workflow.actions,
                 editedWhileSaving: null,
-                respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
                 message: 'Workflow saved. These steps still need work: Trigger',
                 kind: 'warning-toast',
             },
             {
                 case: 'a step error fixed only after the save was sent',
                 actions: workflow.actions,
-                editedWhileSaving: [validTrigger, workflow.actions[1]],
-                respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
+                editedWhileSaving: [VALID_TRIGGER, EXIT],
                 message: 'Workflow saved. These steps still need work: Trigger',
                 kind: 'warning-toast',
             },
         ])(
             'a manual save of $case says whether steps still need work',
-            async ({ actions, editedWhileSaving, respond, message, kind }) => {
+            async ({ actions, editedWhileSaving, message, kind }) => {
                 let release: () => void = () => {}
                 const held = new Promise<void>((resolve) => {
                     release = resolve
@@ -179,7 +178,7 @@ describe('workflowLogic auto-save', () => {
                     patch: {
                         '/api/environments/:team_id/hog_flows/:id/': async () => {
                             await held
-                            return [200, respond(actions)]
+                            return [200, makeWorkflow({ actions })]
                         },
                     },
                 })
@@ -1295,47 +1294,89 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.discardDisabledReason).toBeUndefined()
         })
 
-        it('refuses to publish a staged step with errors and reveals its field messages', async () => {
-            // The default trigger has no event, which the trigger panel shows as an error.
-            const invalidSteps = makeWorkflow().actions
-            let publishRequests = 0
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/hog_flows/:id/': {
-                        ...staged,
-                        draft: { ...staged.draft, actions: invalidSteps },
+        describe('a refused publish', () => {
+            let publishRequests: number
+            let draftActions: HogFlow['actions']
+
+            beforeEach(() => {
+                publishRequests = 0
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': () => [
+                            200,
+                            { ...staged, draft: { ...staged.draft, actions: draftActions } },
+                        ],
                     },
-                },
-                post: {
-                    '/api/environments/:team_id/hog_flows/:id/publish/': () => {
-                        publishRequests += 1
-                        return [200, { published: false, confirm_token: 'preview-token', impact: null }]
+                    post: {
+                        '/api/environments/:team_id/hog_flows/:id/publish/': () => {
+                            publishRequests += 1
+                            return [200, { published: false, confirm_token: 'preview-token', impact: null }]
+                        },
                     },
-                },
+                })
             })
-            logic.actions.loadWorkflow()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-            showToasts()
 
-            await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+            const loadStaged = async (actions: HogFlow['actions']): Promise<void> => {
+                draftActions = actions
+                logic.actions.loadWorkflow()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+                showToasts()
+            }
 
-            expect(publishRequests).toBe(0)
-            expect(await toastShown('Fix all errors before publishing')).toBe('error-toast')
-            expect(logic.values.saveAttemptedActionIds).toEqual(invalidSteps.map((action) => action.id))
-            cleanup()
+            it('names the staged steps with errors and reveals their field messages', async () => {
+                const emailWithoutSubject = {
+                    id: 'email_node',
+                    type: 'function_email',
+                    name: 'Send email',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: {
+                        template_id: 'template-email',
+                        inputs: {
+                            email: {
+                                value: {
+                                    to: { email: 'recipient@example.com' },
+                                    from: { integrationId: 1, email: 'sender@example.com' },
+                                    subject: '',
+                                    html: '<p>Hello</p>',
+                                },
+                                templating: 'liquid',
+                            },
+                        },
+                    },
+                } as HogFlow['actions'][number]
+                await loadStaged([VALID_TRIGGER, emailWithoutSubject, EXIT])
+                expect(logic.values.actionValidationErrorsById['email_node']?.emailErrors).toBeUndefined()
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+                expect(publishRequests).toBe(0)
+                expect(await toastShown('Fix these steps before publishing: Send email')).toBe('error-toast')
+                expect(logic.values.actionValidationErrorsById['email_node']?.emailErrors).toMatchObject({
+                    subject: 'Add a subject line',
+                })
+                cleanup()
+            })
+
+            it('waits for unsaved edits, so the check describes the draft that would go live', async () => {
+                await loadStaged([VALID_TRIGGER, EXIT])
+                logic.actions.setWorkflowValue('name', 'Still typing')
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+                expect(publishRequests).toBe(0)
+                expect(await toastShown('Save your changes first')).toBe('warning-toast')
+                cleanup()
+            })
         })
 
         it('keeps the plain save toast when disabling sends the stored copy, not the broken form', async () => {
-            const [trigger, exit] = makeWorkflow().actions
-            const validTrigger = {
-                ...trigger,
-                config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
-            } as HogFlow['actions'][number]
             useMocks({
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': {
                         ...staged,
-                        draft: { ...staged.draft, actions: [validTrigger, exit] },
+                        draft: { ...staged.draft, actions: [VALID_TRIGGER, EXIT] },
                     },
                 },
                 patch: {
@@ -1348,7 +1389,7 @@ describe('workflowLogic auto-save', () => {
             logic.actions.loadWorkflow()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
             showToasts()
-            logic.actions.setWorkflowValues({ actions: [trigger, exit] })
+            logic.actions.setWorkflowValues({ actions: [TRIGGER, EXIT] })
 
             await expectLogic(logic, () => logic.actions.saveWorkflowPartial({ status: 'draft' }))
                 .toDispatchActions(['saveWorkflowSuccess'])
