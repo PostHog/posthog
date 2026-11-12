@@ -339,7 +339,7 @@ def flush_pending_email_replies() -> None:
 )
 @skip_team_scope_audit
 def cleanup_mailgun_domains(dry_run: bool = False) -> None:
-    """Free Mailgun domain slots held by domains this region registered and no support email channel references."""
+    """Free Mailgun domain slots held by domains this region registered and no live support email setup uses."""
     try:
         result = run_mailgun_domain_cleanup(dry_run=dry_run)
     except MailgunNotConfigured:
@@ -350,6 +350,7 @@ def cleanup_mailgun_domains(dry_run: bool = False) -> None:
         dry_run=dry_run,
         mailgun_domain_count=result.mailgun_domain_count,
         candidates=result.candidates if dry_run else len(result.candidates),
+        abandoned_setups=result.abandoned_setups if dry_run else len(result.abandoned_setups),
         unowned_orphans=result.unowned_orphans,
         kept=result.kept,
         adopted_registrations=result.adopted_registrations,

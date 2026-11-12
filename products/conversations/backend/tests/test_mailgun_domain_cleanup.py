@@ -72,11 +72,23 @@ class TestMailgunDomainCleanup(BaseTest):
             ("orphan_just_registered", [], "mg-1", "unverified", timedelta(minutes=5), False, False),
             ("active_orphan", [], "mg-1", "active", DAYS_60, False, False),
             ("inbound_domain", [], "mg-1", "unverified", DAYS_60, True, False),
-            ("old_unverified_channel", [(False, DAYS_365)], "mg-1", "unverified", DAYS_365, False, False),
+            ("abandoned_setup", [(False, DAYS_365)], "mg-1", "unverified", DAYS_365, False, True),
+            ("unverified_setup_too_young", [(False, DAYS_60)], "mg-1", "unverified", DAYS_365, False, False),
+            ("abandoned_setup_registered_again", [(False, DAYS_365)], "mg-1", "unverified", DAYS_60, False, False),
+            (
+                "abandoned_setup_with_verified_sibling",
+                [(False, DAYS_365), (True, DAYS_365)],
+                "mg-1",
+                "unverified",
+                DAYS_365,
+                False,
+                False,
+            ),
+            ("abandoned_setup_of_another_region", [(False, DAYS_365)], None, "unverified", DAYS_365, False, False),
             ("verified_channel", [(True, DAYS_60)], "mg-1", "active", DAYS_60, False, False),
         ]
     )
-    def test_deletes_only_unverified_domains_this_region_registered_with_no_support_channel(
+    def test_deletes_only_unverified_domains_this_region_registered_that_no_live_setup_uses(
         self,
         _name: str,
         channels: list[tuple[bool, timedelta]],
