@@ -45,6 +45,7 @@ from products.messaging.backend.provider_imports.resend_templates import Convert
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -461,11 +462,10 @@ def _template_key(template: dict[str, Any]) -> str:
 def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> SavedPage:
     senders = _senders(context.team_id)
     # A deleted template counts too: importing again must not bring back one someone deleted.
+    keys = [_template_key(t) for t in templates]
     taken = set(
-        MessageTemplate.objects.filter(
-            team_id=context.team_id, key__in=[_template_key(t) for t in templates]
-        ).values_list("key", flat=True)
-    )
+        MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
+    ) | code_email_keys(context.team_id, keys)
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
     for template in templates:
