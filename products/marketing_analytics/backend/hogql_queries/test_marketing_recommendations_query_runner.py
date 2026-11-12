@@ -7,13 +7,19 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MarketingAnalyticsRecommendationsQuery, MarketingAnalyticsRecommendationsSource
+from posthog.schema import (
+    CachedMarketingAnalyticsRecommendationsQueryResponse,
+    DateRange,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsRecommendationsSource,
+)
 
 from posthog.models.utils import uuid7
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
+from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -99,6 +105,72 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert budget == (
             [("Campaign 101", "Raise the daily budget from $100 to $300", "1234567890", "101")] if has_status else []
         )
+
+    def test_resolved_recommendations_leave_the_results_until_restored(self) -> None:
+        campaign_columns = "campaign_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros,campaign_primary_status,campaign_primary_status_reasons,campaign_budget_recommended_budget_amount_micros,customer_id"
+        campaigns = self._table(
+            "campaign",
+            {
+                "campaign_id": "Int64",
+                "campaign_name": "String",
+                "campaign_advertising_channel_type": "String",
+                "campaign_budget_amount_micros": "Int64",
+                "campaign_primary_status": "String",
+                "campaign_primary_status_reasons": "String",
+                "campaign_budget_recommended_budget_amount_micros": "Int64",
+                "customer_id": "Int64",
+            },
+            f'{campaign_columns}\n1,Search,SEARCH,100000000,LIMITED,"[""BUDGET_CONSTRAINED""]",300000000,1234567890\n',
+        )
+        stats = self._table(
+            "campaign_stats",
+            {
+                "campaign_id": "Int64",
+                "segments_date": "Date",
+                "metrics_cost_micros": "Int64",
+                "metrics_conversions": "Float64",
+            },
+            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+        )
+
+        def run(include_resolved: bool = False) -> tuple[bool, list[tuple[str, str | None]]]:
+            response = MarketingAnalyticsRecommendationsQueryRunner(
+                query=MarketingAnalyticsRecommendationsQuery(
+                    dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
+                    sources=[
+                        MarketingAnalyticsRecommendationsSource(
+                            sourceType="GoogleAds", campaignTable=campaigns, campaignStatsTable=stats
+                        )
+                    ],
+                    includeResolved=include_resolved,
+                ),
+                team=self.team,
+                user=self.user,
+            ).run()
+            assert isinstance(response, CachedMarketingAnalyticsRecommendationsQueryResponse)
+            return response.is_cached or False, [
+                (rec.rule, rec.resolution.resolution if rec.resolution else None) for rec in response.results
+            ]
+
+        assert run() == (False, [("budget_constrained", None)])
+        resolution = RecommendationResolution.objects.for_team(self.team.pk).create(
+            team=self.team,
+            rule="budget_constrained",
+            source_type="google_ads",
+            customer_id="1234567890",
+            campaign_id="1",
+            resolution="dismissed",
+        )
+
+        assert run() == (True, [])
+        assert run(include_resolved=True) == (True, [("budget_constrained", "dismissed")])
+
+        resolution.resolution = "applied"
+        resolution.save()
+        assert run(include_resolved=True) == (True, [("budget_constrained", "applied")])
+
+        resolution.delete()
+        assert run() == (True, [("budget_constrained", None)])
 
     def test_ranking_page_is_the_page_with_most_impressions_for_the_query(self) -> None:
         query_page = self._table(

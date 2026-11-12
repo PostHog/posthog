@@ -40462,6 +40462,17 @@
                 "reason": {
                     "type": "string"
                 },
+                "resolution": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationResolution"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied."
+                },
                 "rule": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
                 },
@@ -40572,6 +40583,24 @@
             "enum": ["account", "campaign", "search_term"],
             "type": "string"
         },
+        "MarketingAnalyticsRecommendationResolution": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "The resolution id. Delete it through the resolutions API to show the recommendation again.",
+                    "type": "string"
+                },
+                "resolution": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationResolutionState"
+                },
+                "resolved_at": {
+                    "description": "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp.",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "resolution", "resolved_at"],
+            "type": "object"
+        },
         "MarketingAnalyticsRecommendationResolutionState": {
             "enum": ["dismissed", "applied"],
             "type": "string"
@@ -40647,6 +40676,11 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeResolved": {
+                    "default": false,
+                    "description": "Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsRecommendationsQuery",

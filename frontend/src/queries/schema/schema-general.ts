@@ -9135,6 +9135,11 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
     /**
+     * Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.
+     * @default false
+     */
+    includeResolved?: boolean
+    /**
      * Resource names of the Google Ads conversion actions that count as conversions, such as
      * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
      * account with none of them counts its primary actions. Selected actions count every conversion, including
@@ -9192,6 +9197,14 @@ export interface MarketingAnalyticsRecommendationIdentity {
 
 export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
 
+export interface MarketingAnalyticsRecommendationResolution {
+    /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+    id: string
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+    resolved_at: string
+}
+
 /**
  * The benchmark a recommendation compares a CPA with, in this order of preference:
  * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
@@ -9241,6 +9254,8 @@ export interface MarketingAnalyticsRecommendation {
     identity: MarketingAnalyticsRecommendationIdentity
     /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
     key: string
+    /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+    resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */
