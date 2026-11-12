@@ -11,7 +11,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr
-from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
@@ -184,31 +183,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
 
         return ast.And(exprs=filter_expr)
 
-    def _oldest_sampled_timestamp(self, subquery_filter: ast.Expr) -> ast.SelectQuery | ast.SelectSetQuery:
-        """
-        The timestamp of the oldest event in the sample.
-
-        ClickHouse evaluates the properties document for every row that passes WHERE, before it sorts and applies
-        LIMIT. The native events table builds that document from separate columns, which is expensive for each row.
-        A lower bound on this timestamp makes WHERE pass only the sampled rows.
-        """
-        return parse_select(
-            """
-                SELECT min(timestamp)
-                FROM (
-                    SELECT timestamp
-                    FROM events
-                    WHERE {subquery_filter}
-                    ORDER BY timestamp DESC
-                    LIMIT {sampled_events}
-                )
-            """,
-            placeholders={
-                "subquery_filter": subquery_filter,
-                "sampled_events": ast.Constant(value=SAMPLED_EVENTS),
-            },
-        )
-
     def _get_subquery(self) -> ast.SelectQuery:
         if self.query.properties:
             query = parse_select(
@@ -249,7 +223,9 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 },
             )
         else:
-            subquery_filter = self._get_subquery_filter()
+            # ClickHouse evaluates the properties document for every row that passes WHERE, before it sorts and
+            # applies LIMIT. The native events table builds that document from separate columns, which is expensive
+            # for each row. The lower bound on the timestamp makes WHERE pass only the sampled rows.
             query = parse_select(
                 """
                         SELECT
@@ -263,7 +239,16 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                                 timestamp
                             FROM
                                 events
-                            WHERE {subquery_filter} AND timestamp >= {oldest_sampled_timestamp}
+                            WHERE {subquery_filter} AND timestamp >= (
+                                SELECT min(timestamp)
+                                FROM (
+                                    SELECT timestamp
+                                    FROM events
+                                    WHERE {subquery_filter}
+                                    ORDER BY timestamp desc
+                                    LIMIT {sampled_events}
+                                )
+                            )
                             ORDER BY timestamp desc
                             LIMIT {sampled_events}
                         )
@@ -273,8 +258,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     """,
                 placeholders={
                     "properties_doc": self._properties_document_expr(),
-                    "subquery_filter": subquery_filter,
-                    "oldest_sampled_timestamp": self._oldest_sampled_timestamp(clone_expr(subquery_filter)),
+                    "subquery_filter": self._get_subquery_filter(),
                     "sampled_events": ast.Constant(value=SAMPLED_EVENTS),
                     "omit_filter": self._get_omit_filter(),
                 },
