@@ -503,17 +503,21 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
 
 
 @pytest.mark.parametrize(
-    "delivery,origin,has_original,expected_origin",
+    "delivery,origin,has_original,surface,expected_origin",
     [
-        ("exec", None, True, "eval"),
-        ("exec", None, False, "eval"),
-        ("bundled", None, True, None),
-        ("bundled", None, False, None),
-        ("exec", "eval", True, "eval"),
-        ("exec", "slack", True, "slack"),
-        ("exec", "posthog_ai", True, "posthog_ai"),
-        ("exec", "posthog-code", True, "posthog-code"),
-        ("bundled", "slack", True, "slack"),
+        ("exec", None, True, None, "eval"),
+        ("exec", None, False, None, "eval"),
+        ("bundled", None, True, None, None),
+        ("bundled", None, False, None, None),
+        ("exec", "eval", True, None, "eval"),
+        ("exec", "slack", True, None, "slack"),
+        ("exec", "posthog_ai", True, None, "posthog_ai"),
+        ("exec", "posthog-code", True, None, "posthog-code"),
+        ("bundled", "slack", True, None, "slack"),
+        ("bundled", None, True, "app", "posthog_ai"),
+        ("bundled", None, False, "app", "posthog_ai"),
+        ("bundled", "slack", True, "app", "slack"),
+        ("exec", None, True, "mcp", "eval"),
     ],
 )
 @pytest.mark.asyncio
@@ -523,8 +527,13 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
     delivery: SkillDelivery,
     origin: str | None,
     has_original: bool,
+    surface: str | None,
     expected_origin: str | None,
 ) -> None:
+    if surface is None:
+        monkeypatch.delenv(base.EVAL_SURFACE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(base.EVAL_SURFACE_ENV, surface)
     monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
     sandbox_context = CustomPromptSandboxContext(team_id=1, user_id=2)
     ctx = MagicMock(

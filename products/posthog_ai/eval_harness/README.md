@@ -225,6 +225,19 @@ hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude
 Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
+### PostHog AI surface
+
+`EVAL_SURFACE=app` runs every case that sets no `interaction_origin` as PostHog AI in the app, with the in-app system prompt.
+`EVAL_SURFACE=mcp`, or no value, keeps the skill-delivery default.
+Use bundled skill delivery for the app surface, because the app does not get exec skills:
+
+```bash
+EVAL_SURFACE=app hogli evals eval_governed_metrics --skill-delivery bundled
+EVAL_SURFACE=mcp hogli evals eval_governed_metrics --skill-delivery exec
+```
+
+The experiment metadata records `eval_surface`, so both runs can share one experiment name.
+
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
