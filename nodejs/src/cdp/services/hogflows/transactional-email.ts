@@ -199,11 +199,12 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
+        message_category: SendCategorySchema.optional(),
     })
     .strict()
     .readonly()
 
-export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
+export type AcceptedSend = Omit<z.infer<typeof AcceptedSendSchema>, 'message_category'>
 
 export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
 
@@ -317,7 +318,9 @@ export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 
-export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
+export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.omit({ message_category: true })
+    .extend({ send: AcceptedSendSchema })
+    .transform(({ send: { message_category, ...send }, ...request }) => ({ ...request, send, message_category }))
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
 

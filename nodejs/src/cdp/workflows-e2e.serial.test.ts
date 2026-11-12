@@ -3458,8 +3458,7 @@ describe('Workflows E2E (email queue)', () => {
         })
 
         const codeSendIn = (category: Category, send: Record<string, unknown> = {}) => ({
-            send: codeSend(send),
-            message_category: category,
+            send: codeSend({ ...send, message_category: category }),
         })
 
         const post = async (
@@ -3898,13 +3897,13 @@ describe('Workflows E2E (email queue)', () => {
             {
                 name: 'a code send whose category is a key, not an id',
                 kind: 'code',
-                payload: { send: codeSend(), message_category: { id: 'newsletter', type: 'marketing' } },
+                payload: { send: codeSend({ message_category: { id: 'newsletter', type: 'marketing' } }) },
                 status: 400,
             },
             {
                 name: 'a code send whose category has an unknown type',
                 kind: 'code',
-                payload: { send: codeSend(), message_category: { id: newsletterId, type: 'promo' } },
+                payload: { send: codeSend({ message_category: { id: newsletterId, type: 'promo' } }) },
                 status: 400,
             },
         ])('refuses $name', async (row) => {
@@ -4009,7 +4008,18 @@ describe('Workflows E2E (email queue)', () => {
                 scheduled: true,
                 sent: true,
             },
-        ] as const)('$name after the API accepted it', async ({ step, category, optedOutOf, scheduled, sent }) => {
+            {
+                name: 'sends a code send whose marketing category sits outside send as transactional to a recipient who opted out of it',
+                step: 'transactional',
+                category: newsletter,
+                categoryOutsideSend: true,
+                optedOutOf: newsletterId,
+                scheduled: false,
+                sent: true,
+            },
+        ] as const)('$name after the API accepted it', async (row) => {
+            const { step, category, optedOutOf, scheduled, sent } = row
+            const categoryOutsideSend = 'categoryOutsideSend' in row
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO workflows_teamworkflowsconfig
@@ -4025,7 +4035,9 @@ describe('Workflows E2E (email queue)', () => {
             const res = await post('code', flow, {
                 to,
                 distinct_id: 'reader',
-                ...codeSendIn(category, { tracking: { captureEngagement: true } }),
+                ...(categoryOutsideSend
+                    ? { send: codeSend({ tracking: { captureEngagement: true } }), message_category: category }
+                    : codeSendIn(category, { tracking: { captureEngagement: true } })),
                 ...(scheduled && { scheduled_at: tomorrow() }),
             })
             expect(res.status).toEqual(202)
@@ -4046,7 +4058,7 @@ describe('Workflows E2E (email queue)', () => {
                         .map(([, options]) => parseJSON((options as { body: string }).body))
                         .filter(({ event }) => event === '$workflows_email_sent')
                         .map(({ properties }) => [properties.$email_to, properties.$email_transactional])
-                ).toEqual([[to, category.type !== 'marketing']])
+                ).toEqual([[to, categoryOutsideSend || category.type !== 'marketing']])
             }, 15000)
         })
 
