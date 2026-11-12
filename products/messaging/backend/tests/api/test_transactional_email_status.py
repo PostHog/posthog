@@ -346,6 +346,43 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
     @parameterized.expand(
         [
+            ("before_any_status_landed", True, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("before_its_cancel_status_landed", True, [("scheduled", 0, "")], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("once_its_cancel_status_landed", True, [("scheduled", 0, "")], [("canceled", 60, "")], status.HTTP_200_OK),
+            (
+                "after_it_went_out_unchanged",
+                False,
+                [("scheduled", 0, "")],
+                [("sent", 60, "")],
+                status.HTTP_404_NOT_FOUND,
+            ),
+        ]
+    )
+    def test_a_retry_after_a_lost_cancel_answer(
+        self, mock_post, _flag, _name, applied, status_rows, later_rows, expected_status
+    ):
+        self._job("waiting")
+        self._status_rows(status_rows)
+        mock_post.side_effect = self._lose_the_answer(applied)
+        lost = self.client.post(f"{self._url(self.message_id)}cancel/")
+        self.cdp.jobs.pop((self.team.id, self.message_id), None)
+        self._status_rows(later_rows)
+
+        response = self._cancel(mock_post)
+
+        assert lost.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.status_code == expected_status, response.json()
+
+    def _lose_the_answer(self, applied: bool) -> Any:
+        def post(*args: Any, **kwargs: Any) -> requests.Response:
+            if applied:
+                self.cdp.post(*args, **kwargs)
+            raise requests.Timeout()
+
+        return post
+
+    @parameterized.expand(
+        [
             ("writing_the_mark", "set", "waiting", []),
             ("reading_the_mark", "get", None, [("canceled", 60, "")]),
         ]
