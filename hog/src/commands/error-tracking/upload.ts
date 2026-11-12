@@ -7,7 +7,6 @@ import {
     PATHS,
     readOptions,
     RELEASE_OPTIONS,
-    renderRelease,
     renderUpload,
     SELECTION_OPTIONS,
     UPLOAD_OPTIONS,
@@ -48,7 +47,6 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        renderRelease(out, result.release)
         renderUpload(out, result)
     },
 })

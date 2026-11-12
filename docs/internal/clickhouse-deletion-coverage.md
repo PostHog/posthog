@@ -150,6 +150,7 @@ Memory, read, thread, and result limits come from the ClickHouse profile.
 Unavailable shards and overflow limits fail queries instead of returning partial results.
 Queries use the `OFFLINE` workload because discovery runs in the background.
 Discovery queries carry the Customer analytics product tag and the data deletion feature tag.
+Per-team queries also pass the team ID to the ClickHouse client so team settings and incident limits apply.
 The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
 The scan duration includes waiting between scheduled runs. It is not the duration of one workflow execution.
 Batch histograms cover durations through ten minutes. Scan histograms cover durations through seven days.

@@ -114,7 +114,7 @@ function placeSpans(spans: ReleaseSpan[], start: dayjs.Dayjs, total: number): Pl
 }
 
 export function ReleaseTimeline(): JSX.Element {
-    const { filteredRows, dataLoading, search, stageFilter, decisionOnly } = useValues(releaseLogic)
+    const { filteredRows, dataLoading, search, stageFilter, decisionOnly, releases } = useValues(releaseLogic)
     const today = dayjs().startOf('day')
     const start = today.subtract(BEFORE, 'day')
     const windowStart = start.format('YYYY-MM-DD')
@@ -322,7 +322,11 @@ export function ReleaseTimeline(): JSX.Element {
                 {last < filteredRows.length && <div style={{ height: (filteredRows.length - last) * ROW }} />}
                 {!filteredRows.length && (
                     <div className="sticky left-0 p-8 text-xs text-muted-foreground">
-                        {dataLoading ? 'Loading releases…' : 'No release matches these filters.'}
+                        {dataLoading
+                            ? 'Loading releases…'
+                            : releases.length
+                              ? 'No release matches these filters.'
+                              : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
                     </div>
                 )}
             </div>

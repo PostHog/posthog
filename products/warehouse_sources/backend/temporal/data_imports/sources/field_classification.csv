@@ -607,7 +607,7 @@ HighLevel,,,,,,high-level
 Hightouch,api_key,,,,,hightouch
 Hitpay,api_key platform_api_key environment,,,,,hitpay
 Hivebrite,,,,,,hivebrite
-Holded,,,,,,holded
+Holded,api_key,,,,,holded
 Honeybadger,api_key,,,,,honeybadger
 Honeycomb,api_key region,,,,,honeycomb
 Hookdeck,api_key,,,,,hookdeck
@@ -1083,7 +1083,7 @@ Salesflare,api_key,,,,,salesflare
 Salesforce,,salesforce_integration_id,,,,salesforce
 SalesforceMarketingCloud,,,,,,salesforce-marketing-cloud
 Salestrics,,,,,,salestrics
-SamCart,,,,,,sam-cart
+SamCart,api_key,,,,,sam-cart
 Sanity,project_id dataset api_token,,,,,sanity
 SapConcur,,,,,,sap-concur
 SapErp,,,,,,sap-erp
