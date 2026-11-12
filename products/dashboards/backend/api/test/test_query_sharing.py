@@ -18,9 +18,13 @@ from parameterized import parameterized
 
 from posthog.hogql.query import sync_execute
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -51,6 +55,33 @@ class TestDashboardQuerySharingAccess(APIBaseTest):
             self.assertEqual(self.client.get(url, params, HTTP_AUTHORIZATION=f"Bearer {token}").status_code, 403)
             self.client.logout()
             self.assertIn(self.client.get(url, params).status_code, (401, 403))
+
+    def test_masks_insights_restricted_in_a_sibling_environment(self) -> None:
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        dashboard = Dashboard.objects.create(team=sibling, name="Sharing test")
+        insight = Insight.objects.create(
+            team=sibling, name="Revenue by account", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=sibling, resource="insight", resource_id=str(insight.id), access_level="none")
+        self.client.force_login(self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER))
+
+        with patch("posthog.hogql.multi_query.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/dashboards/{dashboard.pk}/stream_query_results/",
+                {"tile_ids": str(tile.pk), "client_query_id": str(uuid4()), "refresh": "blocking"},
+            )
+            self.assertEqual(response.status_code, 200)
+            body = b"".join(cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content))
+            response.close()
+
+        tiles = [json.loads(chunk) for chunk in body.decode().split("data: ") if '"type":"tile"' in chunk]
+        self.assertEqual(tiles, [{"type": "tile", "tile": {"id": tile.pk, "error": {"type": "access_denied"}}}])
+        self.assertNotIn("Revenue by account", body.decode())
 
 
 class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTest):

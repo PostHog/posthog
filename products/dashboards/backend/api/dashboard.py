@@ -3613,7 +3613,13 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         if context.get("is_shared"):
             raise exceptions.PermissionDenied("Shared dashboards cannot use query sharing.")
-        self.user_access_control.preload_object_access_controls([tile.insight for tile in tiles])
+        # Dashboards are project-wide, so each insight is resolved against its own environment's rules, not the URL's.
+        insights_by_team: dict[int, list[Model]] = {}
+        for tile in tiles:
+            insights_by_team.setdefault(tile.insight.team_id, []).append(tile.insight)
+        access_by_team = self.user_access_control.for_team_ids(insights_by_team.keys())
+        for team_id, team_insights in insights_by_team.items():
+            access_by_team[team_id].preload_object_access_controls(team_insights)
         context["insight_variables"] = list(context["insight_variables"])
         access_method = dashboard_access_method(request)
         record_dashboard_access(access_method)
@@ -3628,7 +3634,7 @@ class DashboardsViewSet(
         jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
         for order, tile_id in enumerate(tile_ids):
             tile = by_id[tile_id]
-            level = self.user_access_control.get_user_access_level(tile.insight)
+            level = access_by_team[tile.insight.team_id].get_user_access_level(tile.insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
                 jobs.append(partial(_shared_tile_access_denied, tile_id))
             else:
