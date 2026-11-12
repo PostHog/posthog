@@ -39,7 +39,7 @@ _NOTIFICATION_TYPES: Final[dict[AlertEventKind, NotificationType]] = {
 
 
 def body_for(message: AlertMessage) -> str:
-    return "; ".join([*(f"{detail.label}: {detail.value}" for detail in message.details), *message.context])
+    return "; ".join([*(f"{detail.label}: {detail.value}" for detail in message.all_details), *message.context])
 
 
 class InAppTransport:
