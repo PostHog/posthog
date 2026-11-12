@@ -36,6 +36,7 @@ import {
     MinimalAppMetric,
 } from '../../../types'
 import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
+import { JobQueue } from '../../job-queue/job-queue.interface'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxEmailEvents } from './sandbox-email-events'
@@ -61,6 +62,86 @@ const hideIntegrationsFromReplica = (postgres: PostgresRouter, ids: number[]): v
     })
 }
 
+type FakeJob = {
+    invocation: CyclotronJobInvocation
+    status: 'available' | 'running' | 'completed' | 'failed' | 'canceled'
+    dueAt: number
+}
+
+const copyOf = (invocation: CyclotronJobInvocation): CyclotronJobInvocation => parseJSON(JSON.stringify(invocation))
+
+const dueAtOf = (invocation: CyclotronJobInvocation): number =>
+    invocation.queueScheduledAt ? new Date(String(invocation.queueScheduledAt)).getTime() : 0
+
+const createFakeCyclotron = () => {
+    const jobs = new Map<string, FakeJob>()
+    const add = (invocation: CyclotronJobInvocation): void => {
+        jobs.set(invocation.id, { invocation: copyOf(invocation), status: 'available', dueAt: dueAtOf(invocation) })
+    }
+    const running = (id: string): FakeJob | undefined => {
+        const job = jobs.get(id)
+        return job?.status === 'running' ? job : undefined
+    }
+    const queue: JobQueue = {
+        ...createMockJobQueue(),
+        queueInvocations: (invocations) => {
+            invocations.forEach(add)
+            return Promise.resolve()
+        },
+        queueInvocationResults: (results) => {
+            for (const result of results) {
+                const job = running(result.invocation.id)
+                if (!job) {
+                    if (!result.finished && !result.error) {
+                        add(result.invocation)
+                    }
+                } else if (result.error) {
+                    job.status = 'failed'
+                } else if (result.canceled) {
+                    job.status = 'canceled'
+                } else if (result.finished) {
+                    job.status = 'completed'
+                } else {
+                    add(result.invocation)
+                }
+            }
+            return Promise.resolve()
+        },
+        dequeueInvocations: (invocations) => {
+            for (const invocation of invocations) {
+                const job = running(invocation.id)
+                if (job) {
+                    job.status = 'failed'
+                }
+            }
+            return Promise.resolve()
+        },
+        deferInvocations: (deferrals) => {
+            for (const { invocation, scheduledAt } of deferrals) {
+                if (running(invocation.id)) {
+                    jobs.set(invocation.id, {
+                        invocation: copyOf(invocation),
+                        status: 'available',
+                        dueAt: scheduledAt.getTime(),
+                    })
+                }
+            }
+            return Promise.resolve()
+        },
+    }
+    const release = (until: number): CyclotronJobInvocation | null => {
+        const [job] = [...jobs.values()]
+            .filter((candidate) => candidate.status === 'available' && candidate.dueAt <= until)
+            .sort((a, b) => a.dueAt - b.dueAt)
+        if (!job) {
+            return null
+        }
+        job.status = 'running'
+        return copyOf(job.invocation)
+    }
+    return { queue, release, clear: () => jobs.clear() }
+}
+
 describe('a transactional email sent from code on the sandbox sender', () => {
     const world = useSandboxWorld()
     let hub: Hub
@@ -68,6 +149,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     let app: express.Application
     let server: Server
     let queued: CyclotronJobInvocation[]
+    const cyclotron = createFakeCyclotron()
     let hogFlow: HogFlow
     let sandboxSenderId: number
     let clickhouse: ClickHouseClient
@@ -88,10 +170,10 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: {
-                    ...createMockJobQueue(),
+                    ...cyclotron.queue,
                     queueInvocations: (invocations: CyclotronJobInvocation[]) => {
-                        queued.push(...invocations.map((invocation) => parseJSON(JSON.stringify(invocation))))
-                        return Promise.resolve()
+                        queued.push(...invocations.map(copyOf))
+                        return cyclotron.queue.queueInvocations(invocations)
                     },
                 },
             }
@@ -143,6 +225,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     beforeEach(async () => {
         mockProducerObserver.resetKafkaProducer()
         queued.length = 0
+        cyclotron.clear()
         hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
         hub.HOG_INVOCATION_RESULTS_ENABLED = false
         hub.SES_SANDBOX_TENANT_NAME = world.tenantName
@@ -193,13 +276,13 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         ...extra,
     })
 
-    const roundTrip = (invocation: CyclotronJobInvocation): CyclotronJobInvocation =>
-        parseJSON(JSON.stringify(invocation))
-
-    const deliver = async (
-        job: CyclotronJobInvocation,
-        prepare: (invocation: CyclotronJobInvocation) => void = () => {}
-    ): Promise<CyclotronJobInvocationResult[]> => {
+    const deliver = async ({
+        prepare = () => {},
+        until = Infinity,
+    }: {
+        prepare?: (invocation: CyclotronJobInvocation) => void
+        until?: number
+    } = {}): Promise<CyclotronJobInvocationResult[]> => {
         const deps = {
             ...createCdpConsumerDeps(hub),
             sandboxEmail: {
@@ -209,22 +292,21 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             },
         }
         const workers = {
-            email: new CdpCyclotronWorkerEmail(hub, deps, createMockJobQueue()),
-            emailsandbox: new CdpCyclotronWorkerEmailSandbox(hub, deps, createMockJobQueue()),
-            hogflow: new CdpCyclotronWorkerHogFlow(hub, deps, createMockJobQueue()),
+            email: new CdpCyclotronWorkerEmail(hub, deps, cyclotron.queue),
+            emailsandbox: new CdpCyclotronWorkerEmailSandbox(hub, deps, cyclotron.queue),
+            hogflow: new CdpCyclotronWorkerHogFlow(hub, deps, cyclotron.queue),
         } as Record<string, { processBatch: CdpCyclotronWorkerEmail['processBatch'] }>
         const results: CyclotronJobInvocationResult[] = []
-        let next: CyclotronJobInvocation | null = job
-        while (next && results.length < 30) {
-            const invocation = roundTrip(next)
+        for (let invocation = cyclotron.release(until); invocation; invocation = cyclotron.release(until)) {
+            if (results.length >= 30) {
+                throw new Error('the queue never drained')
+            }
             prepare(invocation)
             const batch: Awaited<ReturnType<CdpCyclotronWorkerEmail['processBatch']>> = await workers[
-                next.queue
+                invocation.queue
             ].processBatch([invocation])
             await batch.backgroundTask
-            const [result] = batch.invocationResults
-            results.push(result)
-            next = result.finished || result.error ? null : result.invocation
+            results.push(...batch.invocationResults)
         }
         return results
     }
@@ -273,10 +355,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             })
             expect(queued).toHaveLength(1)
             if (scheduledAt) {
-                expect(new Date(String(queued[0].queueScheduledAt)).toISOString()).toEqual(scheduledAt)
+                expect(await deliver({ until: Date.now() })).toEqual([])
+                expect(world.ses.delivered).toEqual([])
             }
 
-            const results = await deliver(queued[0])
+            const results = await deliver({ until: scheduledAt ? Date.parse(scheduledAt) : Infinity })
 
             expect(results.at(-1)).toMatchObject({ finished: true })
             expect(world.ses.delivered).toEqual([
@@ -344,7 +427,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(res.status).toEqual(202)
         await arrange()
 
-        const results = await deliver(queued[0])
+        const results = await deliver()
 
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
@@ -358,7 +441,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(res.status).toEqual(202)
         hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = false
 
-        const results = await deliver(queued[0])
+        const results = await deliver()
 
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
@@ -371,11 +454,13 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(res.status).toEqual(202)
         let sent = false
 
-        const results = await deliver(queued[0], (invocation) => {
-            sent ||= world.ses.delivered.length > 0
-            if (sent && invocation.queue === 'hogflow') {
-                invocation.cancelRequestedAt = DateTime.now()
-            }
+        const results = await deliver({
+            prepare: (invocation) => {
+                sent ||= world.ses.delivered.length > 0
+                if (sent && invocation.queue === 'hogflow') {
+                    invocation.cancelRequestedAt = DateTime.now()
+                }
+            },
         })
 
         expect(world.ses.delivered).toHaveLength(1)
@@ -402,7 +487,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(res.status).toEqual(202)
         arrange()
 
-        const results = await deliver(queued[0])
+        const results = await deliver()
 
         expect(world.ses.delivered).toHaveLength(delivered)
         expect(results.at(-1)).toMatchObject({ finished: true })
@@ -430,8 +515,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 hog_flow: {
                     ...createMockJobQueue(),
                     queueInvocations: (invocations: CyclotronJobInvocation[]) => {
-                        rerunQueued.push(...invocations.map(roundTrip))
-                        return Promise.resolve()
+                        rerunQueued.push(...invocations.map(copyOf))
+                        return cyclotron.queue.queueInvocations(invocations)
                     },
                 },
             } as unknown as RerunJobQueues,
@@ -468,15 +553,15 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     }
 
-    const rerunCases: [string, (job: CyclotronJobInvocation) => Promise<unknown>, () => void, number][] = [
-        ['SES rejected the send', (job) => (world.ses.replyNext(SES_REJECTED), deliver(job)), () => {}, 0],
+    const rerunCases: [string, () => Promise<unknown>, () => void, number][] = [
+        ['SES rejected the send', () => (world.ses.replyNext(SES_REJECTED), deliver()), () => {}, 0],
         [
             'SES throttled every attempt',
-            (job) => (world.ses.replyAlways(SES_THROTTLE), deliver(job)),
+            () => (world.ses.replyAlways(SES_THROTTLE), deliver()),
             () => (world.ses.replyAlways(null), world.ses.replyNext(SES_THROTTLE)),
             0,
         ],
-        ['SES accepted the send and the run was canceled', (job) => deliver(job, cancelOnceSent()), () => {}, 1],
+        ['SES accepted the send and the run was canceled', () => deliver({ prepare: cancelOnceSent() }), () => {}, 1],
     ]
 
     const expectOneDeliveryToMember = (): void =>
@@ -495,13 +580,13 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             hogFlow = await insertFlow({ ...codeSendEmail, on_error: 'abort' })
             const res = await sendFromCode(request(sandboxSend()))
             expect(res.status).toEqual(202)
-            await firstRun(queued[0])
+            await firstRun()
             expect(world.ses.delivered).toHaveLength(sentBeforeRerun)
             beforeRerun()
 
             const rerun = await rerunFromStoredRun(queued[0].id)
             expect(rerun).toHaveLength(1)
-            const results = await deliver(rerun[0])
+            const results = await deliver()
 
             expect(results.at(-1)).toMatchObject({ finished: true })
             expectOneDeliveryToMember()
@@ -535,13 +620,14 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                     event: { distinct_id: member, properties: {} } as HogFlowInvocationContext['event'],
                 }),
             }
-            await firstRun(job)
+            await cyclotron.queue.queueInvocations([job])
+            await firstRun()
             expect(world.ses.delivered).toHaveLength(sentBeforeRerun)
             beforeRerun()
 
             const rerun = await rerunFromStoredRun(job.id)
             expect(rerun).toHaveLength(1)
-            const results = await deliver(rerun[0])
+            const results = await deliver()
 
             expect(results.at(-1)).toMatchObject({ finished: true })
             expectOneDeliveryToMember()
