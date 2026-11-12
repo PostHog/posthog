@@ -17,7 +17,7 @@ from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.notebook.prompts import LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE
+from ee.hogai.context.notebook.prompts import SQL_V2_CELL_GUIDANCE
 from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -45,22 +45,11 @@ class TestCreateNotebookTool(BaseTest):
         assert "editor: Edit the flag status" in self.tool.description
         assert "Cohort" in self.tool.description
 
-    @parameterized.expand(
-        [
-            ("sql_v2", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("legacy_sql", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
-        ]
-    )
-    def test_description_offers_only_runnable_cell_tags(
-        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
-    ) -> None:
-        with (
-            patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
-        ):
-            tool = async_to_sync(CreateNotebookTool.create_tool_class)(team=self.team, user=self.user)
+    def test_description_offers_only_runnable_cell_tags(self) -> None:
+        tool = async_to_sync(CreateNotebookTool.create_tool_class)(team=self.team, user=self.user)
 
-        assert expected in tool.description
-        assert unexpected not in tool.description
+        assert SQL_V2_CELL_GUIDANCE in tool.description
+        assert "Do not add `<SQLV2 />`" not in tool.description
         assert '<Widget title="' in tool.description
         assert "click Generate widget" in tool.description
 

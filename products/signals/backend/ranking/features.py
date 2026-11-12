@@ -15,8 +15,9 @@ time, and reads the latest priority judgment only for a model whose set declares
 state column. `report_embeddings_priority_sources` adds the source products of the report's signals.
 Training reads them as of the moment from the emission log, and the sweep reads the live ones at
 scoring time. Both turn a report's products into columns through the one `source_columns`.
-`report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Only an
-experiment family trains on it, and the sweep cannot build it yet.
+`report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Training
+reads them from the report-state snapshot, and the sweep reads them from `ReportFacts` at scoring time.
+Both turn them into columns through the one `report_fact_matrix`.
 
 The pair sets (`PairUserHistoryFeatureSet`) build one row per (report, user) for the pair-grain
 experiments: the priority set's columns, then the user's history and reviewer columns.
@@ -519,9 +520,9 @@ class ReportEmbeddingsPriorityMLFeaturesFeatureSet(ReportEmbeddingsPrioritySourc
     so every column here is 0 or 1: counts and lengths go into the buckets of their `*_EDGES`, the
     actionability judgment one column per level of `ACTIONABILITY_LEVELS`, `already_addressed` one
     column per value, and the creation time into a weekday and a 4-hour bucket in UTC. A missing
-    value gives zero in every column of its bucket set. The facts come from the row's own snapshot,
-    taken at the end of the day, while the sweep scores a report minutes after creation, so the
-    counts can have grown in between. The coarse buckets limit that.
+    value gives zero in every column of its bucket set. In training, the facts come from the row's
+    own snapshot, taken at the end of the day. The sweep reads them from `ReportFacts` when it scores a
+    report, minutes after creation, so the training counts can be higher. The coarse buckets limit that.
 
     The content columns and `already_addressed` are optional state columns: snapshots written before
     they were recorded lack them (`report_fact_matrix`). `total_weight`, `run_count`,

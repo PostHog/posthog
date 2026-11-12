@@ -1134,6 +1134,9 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `azure_application_insights` - Azure Application Insights
  * * `appsignal` - AppSignal
  * * `cursor` - Cursor
+ * * `github_dependabot` - GitHub Dependabot
+ * * `github_code_scanning` - GitHub code scanning
+ * * `github_secret_scanning` - GitHub secret scanning
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1251,6 +1254,9 @@ export const SignalSourceProductEnumApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
 } as const
 
 /**
@@ -1418,7 +1424,10 @@ export interface InboxOnboardingSourceApi {
      * * `google_play_console` - Google Play Console
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
-     * * `cursor` - Cursor */
+     * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4286,6 +4295,9 @@ export interface SignalReportLeaveReviewersApi {
  * * `azure_application_insights` - azure_application_insights
  * * `appsignal` - appsignal
  * * `cursor` - cursor
+ * * `github_dependabot` - github_dependabot
+ * * `github_code_scanning` - github_code_scanning
+ * * `github_secret_scanning` - github_secret_scanning
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4403,6 +4415,9 @@ export const SignalSourceProductApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
 } as const
 
 /**
@@ -5562,6 +5577,47 @@ export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi {
     timestamp: string | null
 }
 
+export interface GithubDependabotScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    severity: string | null
+    ghsa_id: string | null
+    cve_id: string | null
+    package_ecosystem: string | null
+    package_name: string | null
+    vulnerable_version_range: string | null
+    first_patched_version: string | null
+    manifest_path: string | null
+    dependency_scope: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubCodeScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    rule_id: string | null
+    rule_severity: string | null
+    security_severity_level: string | null
+    tool_name: string | null
+    location_path: string | null
+    location_start_line: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubSecretScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    secret_type: string | null
+    validity: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -5679,6 +5735,9 @@ export type SignalExtraApi =
     | AwsGuarddutyScannerFindingSignalExtraApi
     | AwsInspectorScannerFindingSignalExtraApi
     | MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi
+    | GithubDependabotScannerFindingSignalExtraApi
+    | GithubCodeScanningScannerFindingSignalExtraApi
+    | GithubSecretScanningScannerFindingSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -5837,7 +5896,10 @@ export interface SignalNodeApi {
      * * `google_play_console` - google_play_console
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
-     * * `cursor` - cursor */
+     * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
