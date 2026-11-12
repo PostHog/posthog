@@ -300,9 +300,8 @@ function matchedAtMaxWait(
     }
 }
 
-// The step result becomes the test run's `execResult` and can feed an output variable. The next action
-// carries its decrypted secret inputs, so the result keeps only its id, at the same path as before
-// (`conditionResult.nextAction.id`) so that existing output variable mappings still resolve.
+// The step result reaches the test run's `execResult` and output variables. The next action carries decrypted
+// secret inputs, so the result keeps only its id, at the path that existing output variable mappings read.
 function toStepResult(conditionResult: Awaited<ReturnType<typeof checkConditions>>): {
     conditionResult: { nextAction?: { id: string }; scheduledAt?: DateTime }
 } {

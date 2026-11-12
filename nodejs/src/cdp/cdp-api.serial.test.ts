@@ -1365,6 +1365,7 @@ describe('CDP API', () => {
                             name: 'Branch',
                             type: 'conditional_branch',
                             config: { conditions: [{ filters: { bytecode: ALWAYS_TRUE_BYTECODE } }] },
+                            output_variable: { key: 'next_step', result_path: 'conditionResult.nextAction.id' },
                         },
                         {
                             id: 'fetch_node',
@@ -1394,6 +1395,7 @@ describe('CDP API', () => {
             status: 'success',
             nextActionId: 'fetch_node',
             execResult: { conditionResult: { nextAction: { id: 'fetch_node' } } },
+            variables: { next_step: 'fetch_node' },
         })
         expect(JSON.stringify(res.body)).not.toContain(SECRET_TOKEN)
     })
