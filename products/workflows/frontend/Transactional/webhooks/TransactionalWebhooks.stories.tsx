@@ -56,6 +56,13 @@ function WebhooksStory({ engagementEvents, addOpen }: { engagementEvents: boolea
                 results: engagementEvents ? [webhook] : [],
                 next: null,
             },
+            '/api/projects/:team_id/messaging_templates/': {
+                results: [
+                    { id: 'template-receipt', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt' },
+                    { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset' },
+                    { id: 'template-welcome', name: 'Welcome', transactional_hog_flow_id: 'flow-welcome' },
+                ],
+            },
         },
     })
     const { loadCurrentTeamSuccess } = useActions(teamLogic)

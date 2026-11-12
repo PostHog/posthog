@@ -62,10 +62,12 @@ function shortPath(pathname: string): string {
 export function buildDeliveryWebhookPayload({
     url,
     events,
+    workflowIds,
     signingSecret,
 }: {
     url: string
     events: DeliveryWebhookEventName[]
+    workflowIds: string[]
     signingSecret: string
 }): DeliveryWebhookCreateBody {
     const { host, pathname } = new URL(url)
@@ -84,7 +86,19 @@ export function buildDeliveryWebhookPayload({
         filters: {
             source: 'events',
             events: events.map((event) => ({ id: event, name: event, type: 'events' })),
-            properties: [TRANSACTIONAL_EMAIL_PROPERTY],
+            properties: [
+                TRANSACTIONAL_EMAIL_PROPERTY,
+                ...(workflowIds.length > 0
+                    ? [
+                          {
+                              key: '$workflow_id',
+                              type: PropertyFilterType.Event,
+                              operator: PropertyOperator.Exact,
+                              value: workflowIds,
+                          },
+                      ]
+                    : []),
+            ],
         },
         enabled: true,
     }

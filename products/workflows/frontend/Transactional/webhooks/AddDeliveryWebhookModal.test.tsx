@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -15,11 +15,30 @@ type CreateResponse = [number, Record<string, any>]
 describe('AddDeliveryWebhookModal', () => {
     let releaseCreate: ((response: CreateResponse) => void) | null
     let createdBody: Record<string, any> | null
+    let templatesLoad: 'fails' | 'denied' | 'succeeds'
 
     beforeEach(() => {
         releaseCreate = null
         createdBody = null
+        templatesLoad = 'succeeds'
         useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': () =>
+                    templatesLoad === 'fails'
+                        ? [500, { detail: 'A server error occurred.' }]
+                        : templatesLoad === 'denied'
+                          ? [403, { detail: 'You do not have permission to perform this action.' }]
+                          : [
+                                200,
+                                {
+                                    count: 1,
+                                    next: null,
+                                    results: [
+                                        { id: 'template-1', name: 'Receipt', transactional_hog_flow_id: 'flow-1' },
+                                    ],
+                                },
+                            ],
+            },
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
                     createdBody = (await request.json()) as Record<string, any>
@@ -125,6 +144,49 @@ describe('AddDeliveryWebhookModal', () => {
 
         expect(isDialogOpen()).toBe(true)
         expect(input).toHaveValue('https://example.com/hooks')
+    })
+
+    it('closes only the email picker on Escape, keeping the dialog and the typed URL', async () => {
+        openModal()
+        const url = screen.getByPlaceholderText('https://example.com/webhooks/email')
+        fireEvent.change(url, { target: { value: 'https://example.com/hooks' } })
+        const picker = screen.getByPlaceholderText('All transactional emails')
+        fireEvent.click(picker)
+        expect(await screen.findByText('Receipt')).toBeInTheDocument()
+
+        fireEvent.keyDown(picker, { key: 'Escape', keyCode: 27 })
+
+        await waitFor(() => expect(screen.queryByText('Receipt')).not.toBeInTheDocument())
+        expect(isDialogOpen()).toBe(true)
+        expect(url).toHaveValue('https://example.com/hooks')
+    })
+
+    it('says when the transactional emails fail to load, and loads them again on retry', async () => {
+        templatesLoad = 'fails'
+        openModal()
+
+        const banner = (
+            await screen.findByText(
+                "Couldn't load your transactional emails: A server error occurred. Try again, or leave the field empty to get updates for all of them."
+            )
+        ).closest('.LemonBanner')!
+        expect(screen.queryByText(/No transactional emails yet/)).not.toBeInTheDocument()
+        expect(document.querySelector('.Toastify__toast')).toBeNull()
+
+        templatesLoad = 'succeeds'
+        fireEvent.click(within(banner as HTMLElement).getAllByText('Try again')[0])
+        fireEvent.click(screen.getByPlaceholderText('All transactional emails'))
+
+        expect(await screen.findByText('Receipt')).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't load your transactional emails/)).not.toBeInTheDocument()
+    })
+
+    it('says which access is missing when the user cannot read email templates', async () => {
+        templatesLoad = 'denied'
+        openModal()
+
+        expect(await screen.findByText(/You don't have access to this project's email templates/)).toBeInTheDocument()
+        expect(screen.queryByText('Try again')).not.toBeInTheDocument()
     })
 
     it('shows a bad URL as a field error, without a failure toast', async () => {

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
@@ -31,11 +33,55 @@ const HAND_BUILT_WEBHOOK = {
 describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
+    let requestedTeamIds: Set<string>
+    const environment = { ...MOCK_DEFAULT_TEAM, id: 2001 }
 
     beforeEach(() => {
         created = []
+        requestedTeamIds = new Set()
         useMocks({
             get: {
+                '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
+                    requestedTeamIds.add(String(params.team_id))
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    return offset === '0'
+                        ? [
+                              200,
+                              {
+                                  next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
+                                  results: [
+                                      {
+                                          id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                                          name: 'Receipt',
+                                          transactional_hog_flow_id: 'flow-receipt',
+                                      },
+                                      {
+                                          id: 'template-newsletter',
+                                          name: 'Newsletter',
+                                          transactional_hog_flow_id: null,
+                                      },
+                                  ],
+                              },
+                          ]
+                        : [
+                              200,
+                              {
+                                  next: null,
+                                  results: [
+                                      {
+                                          id: 'template-reset',
+                                          name: 'Password reset',
+                                          transactional_hog_flow_id: 'flow-reset',
+                                      },
+                                      {
+                                          id: '0190e3a1-aaaa-7000-8000-00000000ef01',
+                                          name: 'Receipt',
+                                          transactional_hog_flow_id: 'flow-receipt-copy',
+                                      },
+                                  ],
+                              },
+                          ]
+                },
                 '/api/environments/:team_id/hog_functions/': ({ request }) => {
                     const groups = JSON.parse(new URL(request.url).searchParams.get('filter_groups') ?? '[]')
                     const results = [HAND_BUILT_WEBHOOK, ...created].filter(
@@ -47,14 +93,15 @@ describe('deliveryWebhooksLogic', () => {
                 },
             },
             post: {
-                '/api/projects/:team_id/hog_functions/': async ({ request }) => {
+                '/api/projects/:team_id/hog_functions/': async ({ request, params }) => {
+                    requestedTeamIds.add(String(params.team_id))
                     const body = (await request.json()) as Record<string, any>
                     created.push({ id: 'new-webhook', ...body })
                     return [201, { id: 'new-webhook', ...body }]
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(true, environment)
         logic = deliveryWebhooksLogic()
         logic.mount()
     })
@@ -63,18 +110,31 @@ describe('deliveryWebhooksLogic', () => {
         logic.unmount()
     })
 
-    it('creates a signed webhook that the webhooks list finds, and shows its secret once', async () => {
+    it.each<[string, string[], string[] | undefined]>([
+        ['every transactional email', [], undefined],
+        ['the picked transactional emails', ['Password reset'], ['flow-reset']],
+    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
         const list = hogFunctionsListLogic(DELIVERY_WEBHOOK_LIST_PROPS)
         list.mount()
         logic.actions.openAddModal()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual([
+            'Receipt (0000abcd)',
+            'Password reset',
+            'Receipt (0000ef01)',
+        ])
         logic.actions.setWebhookFormValues({
             url: ' https://example.com/hooks/prod ',
             events: ['$workflows_email_delivered', '$workflows_email_bounced'],
+            workflowIds: logic.values.transactionalEmailOptions
+                .filter(({ label }) => picked.includes(label))
+                .map(({ key }) => key),
         })
         logic.actions.submitWebhookForm()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(created).toHaveLength(1)
+        expect([...requestedTeamIds]).toEqual([String(environment.id)])
         const [webhook] = created
         expect(webhook.template_id).toEqual('template-webhook')
         expect(webhook.inputs.url.value).toEqual('https://example.com/hooks/prod')
@@ -85,6 +145,9 @@ describe('deliveryWebhooksLogic', () => {
         ])
         await expectLogic(list).toFinishAllListeners()
         expect(list.values.hogFunctions.map(({ id }) => id)).toEqual(['new-webhook'])
+        expect(webhook.filters.properties.find((p: { key: string }) => p.key === '$workflow_id')?.value).toEqual(
+            workflowIds
+        )
 
         const secret = logic.values.createdSecret
         expect(webhook.inputs.signing_secret.value).toEqual(secret)

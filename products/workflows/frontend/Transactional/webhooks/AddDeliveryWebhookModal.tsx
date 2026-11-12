@@ -5,14 +5,24 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonModal } from 
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { DELIVERY_WEBHOOK_EVENTS } from './deliveryWebhookPayload'
 import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
 
 export function AddDeliveryWebhookModal(): JSX.Element {
-    const { isAddModalOpen, createdSecret, isWebhookFormSubmitting, webhookFormChanged } =
-        useValues(deliveryWebhooksLogic)
-    const { closeAddModal, submitWebhookForm } = useActions(deliveryWebhooksLogic)
+    const {
+        isAddModalOpen,
+        createdSecret,
+        isWebhookFormSubmitting,
+        webhookFormChanged,
+        transactionalEmailOptions,
+        transactionalEmailOptionsLoading,
+        transactionalEmailOptionsError,
+    } = useValues(deliveryWebhooksLogic)
+    const { closeAddModal, submitWebhookForm, loadTransactionalEmailOptions } = useActions(deliveryWebhooksLogic)
+    const noTransactionalEmailsYet =
+        !transactionalEmailOptionsLoading && !transactionalEmailOptionsError && transactionalEmailOptions.length === 0
 
     if (createdSecret) {
         return (
@@ -79,6 +89,44 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                 <LemonField name="url" label="Endpoint URL">
                     <LemonInput placeholder="https://example.com/webhooks/email" autoFocus />
                 </LemonField>
+                <LemonField
+                    name="workflowIds"
+                    label="Transactional emails"
+                    help="Leave empty to get updates for every transactional email, including ones you add later."
+                >
+                    <LemonInputSelect
+                        mode="multiple"
+                        options={transactionalEmailOptions}
+                        loading={transactionalEmailOptionsLoading}
+                        emptyStateComponent={
+                            transactionalEmailOptionsError ? (
+                                <p className="text-secondary italic p-1 m-0">
+                                    Couldn't load your transactional emails.
+                                </p>
+                            ) : noTransactionalEmailsYet ? (
+                                <p className="text-secondary italic p-1 m-0">
+                                    No transactional emails yet. This webhook gets updates for every one you add.
+                                </p>
+                            ) : undefined
+                        }
+                        placeholder="All transactional emails"
+                        data-attr="transactional-webhook-emails"
+                    />
+                </LemonField>
+                {transactionalEmailOptionsError?.accessDenied ? (
+                    <LemonBanner type="warning">
+                        You don't have access to this project's email templates, so you can't pick emails here. Leave
+                        the field empty to get updates for every transactional email.
+                    </LemonBanner>
+                ) : transactionalEmailOptionsError ? (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: () => loadTransactionalEmailOptions() }}
+                    >
+                        Couldn't load your transactional emails: {transactionalEmailOptionsError.message}. Try again, or
+                        leave the field empty to get updates for all of them.
+                    </LemonBanner>
+                ) : null}
                 <LemonField name="events" label="Events">
                     {({ value, onChange }) => (
                         <div
