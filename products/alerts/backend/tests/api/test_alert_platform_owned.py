@@ -376,6 +376,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         )
         assert (row["state"], row["last_value"], row["checks_total"]) == ("Firing", 160.0, 2)
         assert (row["schedule_start_time"], row["threshold"]["created_at"] is not None) == ("09:30", True)
+        assert row["threshold"]["id"] == str(self.copy_id)
         assert [check["notification_suppressed_by_agent"] for check in row["checks"]] == [False, True]
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
         # An alert with no insight row passes the same insight access gate as one with a row.
@@ -1015,6 +1016,65 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if begun:
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
+
+    @parameterized.expand(
+        [
+            ("hourly", {"calculation_interval": "hourly"}, (60, None, None), None),
+            (
+                "weekly_from_a_start_time",
+                {"calculation_interval": "weekly", "schedule_start_time": "09:30"},
+                (60 * 24 * 7, "week", "09:30"),
+                None,
+            ),
+            (
+                "snoozed",
+                {"calculation_interval": "hourly", "snoozed_until": "2099-01-01T00:00:00Z"},
+                (60, None, None),
+                datetime(2099, 1, 1, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_a_create_in_a_team_creating_native_alerts_writes_only_the_platform(
+        self,
+        _name: str,
+        schedule: dict[str, str],
+        cadence: tuple[int, str | None, str | None],
+        snooze_until: datetime | None,
+    ) -> None:
+        insight = create_insight_alert(self.team).insight
+        payload = {
+            "insight": insight.id,
+            "subscribed_users": [self.user.id],
+            "condition": {"type": "absolute_value"},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "A new alert",
+            "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+            **schedule,
+        }
+        row = self.client.post(f"{self.url}", payload, format="json")
+        rows_before = AlertConfiguration.objects.filter(team=self.team).count()
+
+        with patch("products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(f"{self.url}", payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert AlertConfiguration.objects.filter(team=self.team).count() == rows_before
+        created_id = UUID(response.json()["id"])
+        with team_scope(self.team.id):
+            created = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=created_id
+            )
+        assert created is not None
+        assert (created.legacy_configuration_id, created.created_by_id) == (None, self.user.id)
+        assert (created.check_interval_minutes, created.recurrence_unit, created.anchor_time) == cadence
+        assert created.snooze_until == snooze_until
+        assert (response.json()["snoozed_until"] is not None) == (snooze_until is not None)
+        assert created.source_config["condition"]["threshold"]["bounds"] == {"upper": 100}
+        assert set(response.json()) == set(row.json())
+        assert [user["id"] for user in response.json()["subscribed_users"]] == [self.user.id]
+        assert subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[created_id]) == {
+            created_id: (self.user.id,)
+        }
 
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):

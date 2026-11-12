@@ -23,6 +23,8 @@ from products.alerts.backend.platform_insight_alert import (
 )
 from products.alerts.backend.platform_ownership import (
     close_moved_alert_firings,
+    create_native_alert,
+    creates_native_alert,
     delete_alert_destinations_and_copy,
     hand_over_new_alert,
     platform_takes_new_alert_with,
@@ -46,6 +48,8 @@ def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
 
 __all__ = [
     "close_moved_alert_firings",
+    "create_native_alert",
+    "creates_native_alert",
     "delete_alert_destinations_and_copy",
     "delete_native_insight_alert",
     "enable_native_insight_alert",

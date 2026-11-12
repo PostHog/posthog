@@ -129,6 +129,8 @@ from products.alerts.backend.facade.destinations import (
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.facade.platform import (
     close_moved_alert_firings,
+    create_native_alert,
+    creates_native_alert,
     delete_alert_destinations_and_copy,
     delete_native_insight_alert,
     enable_native_insight_alert,
@@ -175,6 +177,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NativeConfigurationMatch,
     PagerDutyRegion,
     PagerDutySeverity,
+    PlatformAlertCreateRefused,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -931,6 +934,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         team = self.context["get_team"]()
+        # Before the locks below, so the flag read never runs while they are held.
+        native = creates_native_alert(team.id)
         if DetectorType.LLM.value in _detector_types(validated_data.get("detector_config")):
             insight = validated_data["insight"]
             if not lock_insight_for_evaluation(team_id=team.id, insight_id=insight.id):
@@ -966,6 +971,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 enabled=validated_data.get("enabled", True) is True,
             ):
                 raise ValidationError({refusal.field: [refusal.message]})
+            if native:
+                return self._create_native(validated_data, subscribed_users, threshold_data)
             if threshold_data:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
@@ -993,6 +1000,38 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
+
+    def _create_native(
+        self, validated_data: dict, subscribed_users: list[User], threshold_data: dict | None
+    ) -> AlertConfiguration:
+        """`create` for a team whose new alerts get no insight row, after the same checks. The platform
+        keeps the alert and its subscribers, and the response carries the platform's id."""
+        fields = dict(validated_data)
+        _, fields["snoozed_until"] = _popped_snooze(fields)
+        team_id = fields.pop("team_id")
+        insight = fields.pop("insight")
+        created_by = fields.pop("created_by")
+        if threshold_data:
+            fields["threshold"] = threshold_data.get("configuration")
+        with _platform_write_errors():
+            view = create_native_alert(
+                team_id=team_id, insight_id=insight.id, created_by_id=created_by.id, fields=fields
+            )
+        set_native_subscribers(
+            team_id=team_id,
+            alert_id=view.id,
+            user_ids=[user.id for user in subscribed_users],
+            insight_short_id=insight.short_id,
+        )
+        created = AlertConfiguration.from_platform_view(view, team_id=team_id)
+        assert created is not None
+        _show_platform_status([created], now=timezone.now())
+        _show_platform_subscribers([created])
+        created.report_created(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
+        return created
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -1474,6 +1513,8 @@ def _platform_write_errors() -> Iterator[None]:
         raise ValidationError(str(error)) from error
     except InvalidPlatformAlertEdit as error:
         raise ValidationError({error.field_name: str(error)}) from error
+    except PlatformAlertCreateRefused as error:
+        raise ValidationError(str(error)) from error
 
 
 class AlertSimulateSerializer(serializers.Serializer):

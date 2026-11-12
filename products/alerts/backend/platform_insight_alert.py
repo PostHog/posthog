@@ -236,8 +236,10 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
         alert.threshold = Threshold(
             team=alert.team, insight=alert.insight, configuration={"type": InsightThresholdType.ABSOLUTE.value}
         )
-    # An unsaved threshold has no `created_at`, which the API's readers expect.
+    # An unsaved threshold has no `created_at`, which the API's readers expect, and a fresh id on
+    # every read. The alert's id keeps the threshold's id the same from one read to the next.
     alert.threshold.created_at = configuration.created_at
+    alert.threshold.id = configuration.id
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
     # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
