@@ -116,6 +116,12 @@
         "name": "Nyheter och tips 🦔",
         "description": "Månadens tips, på svenska.",
         "subscription": "opt_in"
+      },
+      {
+        "id": "a1b2c3d4-0000-4000-8000-000000000003",
+        "name": "Beta invitations",
+        "description": "Only for people who asked to join.",
+        "subscription": "opt_out"
       }
     ],
     "c0000000-0000-4000-8000-000000000003": [

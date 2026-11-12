@@ -314,10 +314,13 @@ def _save_opt_outs(context: ImportContext, contacts: list[dict[str, Any]]) -> Sa
 def _fetch_topic_opt_outs(
     client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
+    topics = [topic for page in client.pages("/topics") for topic in page.data]
     # Each contact costs one request, so an account without topics shouldn't read its whole contact list.
-    if not next(client.pages("/topics")).data:
+    if not topics:
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
         return
+    # A contact's topic list doesn't say which topics are private, and the topics step leaves those out.
+    private = {str(topic.get("id")) for topic in topics if topic.get("visibility") == "private"}
     for page in client.pages("/contacts", _after(checkpoint)):
         opted_out_of_all = _emails_opted_out_of_all(context.team_id, page.data)
         topics_by_email: dict[str, list[dict[str, Any]]] = {}
@@ -329,7 +332,7 @@ def _fetch_topic_opt_outs(
                     topic
                     for topics in client.pages(f"/contacts/{contact_id}/topics")
                     for topic in topics.data
-                    if topic.get("subscription") == "opt_out"
+                    if topic.get("subscription") == "opt_out" and str(topic.get("id")) not in private
                 ]
         yield ImportPage(
             processed=len(page.data),
