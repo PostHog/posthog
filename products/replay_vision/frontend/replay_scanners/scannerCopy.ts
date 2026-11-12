@@ -26,7 +26,7 @@ export const FREE_ONLY_STOPS = 'It stops when they run out.'
 
 const DISABLED_REASON_DETAIL: Record<ScannerDisabledReasonEnumApi, string> = {
     manual: 'Someone turned this scanner off.',
-    free_credits_used: 'Stopped when your free credits ran out.',
+    free_credits_used: 'Your free credits ran out.',
     no_ai_consent: "Your organization hasn't allowed AI analysis of recordings.",
     creator_lost_access: 'Its creator can no longer view recordings. Turn it on to take it over.',
     experiment_deleted: 'Its experiment was deleted.',
