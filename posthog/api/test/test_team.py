@@ -1687,7 +1687,19 @@ def team_api_test_factory():
 
         @parameterized.expand(
             [
-                ("environments", {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}, None, None),
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useWebAnalyticsDimensionalTables": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useWebAnalyticsDimensionalTables": True},
+                ),
+                ("environments", {"bounceRateDurationSeconds": 30}, None, None),
                 ("environments", True, None, None),
                 ("projects", ["useNewEventsSchema"], None, None),
                 ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),

@@ -74,7 +74,7 @@ def ready_dimensional_job_ids(
 ) -> DimensionalJobIds | None:
     """The job ids to read when the query or its team opted in and `tables` cover its whole range,
     including the compare period. None means the caller uses its next path."""
-    if not _reads_dimensional(runner):
+    if not reads_dimensional(runner):
         return None
     if _has_inexact_property_filter(runner):
         return None
@@ -147,15 +147,23 @@ def dimensional_precomputed_at(job_ids: DimensionalJobIds | None) -> str | None:
     return job_ids.computed_at.astimezone(UTC).isoformat()
 
 
-def _reads_dimensional(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+def reads_dimensional(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+    """Whether the query tries the dimensional tables first. Runners put this in their cache key, so flipping
+    the kill switch or the enrollment stops serving results cached under the other choice."""
     web_query_modifiers = runner.query.webQueryModifiers
     requested = web_query_modifiers.useDimensionalTables if web_query_modifiers else None
-    if requested is False or _dimensional_reads_disabled(runner):
+    if requested is False:
         return False
-    # The team modifier also selects the teams the writer fills, so a team that reads by default has its tables.
-    if runner.modifiers.useWebAnalyticsDimensionalTables:
-        return True
-    return bool(requested) and _query_modifiers_flag_enabled(runner)
+    wanted = _team_enrolled(runner) or (bool(requested) and _query_modifiers_flag_enabled(runner))
+    return wanted and not _dimensional_reads_disabled(runner)
+
+
+def _team_enrolled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+    # Read from the stored project settings, not `runner.modifiers`: a request can supply its own modifiers,
+    # and those must not enroll a project the rollout left out. The writer selects teams by the same stored
+    # value, so an enrolled team has its tables.
+    stored = runner.team.modifiers
+    return isinstance(stored, dict) and stored.get("useWebAnalyticsDimensionalTables") is True
 
 
 def _dimensional_reads_disabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:

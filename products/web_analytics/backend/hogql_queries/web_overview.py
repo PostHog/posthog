@@ -36,6 +36,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     classify_dimensional_read_failure,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
+    reads_dimensional,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -267,6 +268,11 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         )
         assert isinstance(combined, ast.SelectQuery)
         return combined
+
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        # Cached results from the dimensional tables must not outlive the kill switch or the enrollment.
+        return f"{variant}_dim" if reads_dimensional(self) else variant
 
     def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
         if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():

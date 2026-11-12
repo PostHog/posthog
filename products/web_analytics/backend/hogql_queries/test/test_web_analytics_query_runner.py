@@ -31,6 +31,8 @@ from products.data_tools.backend.models.expression import DataWarehouseExpressio
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
+_DIMENSIONAL_RANGE = DateRange(date_from="2023-12-08", date_to="2023-12-15")
+
 
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -172,6 +174,28 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert user_run.get_cache_key() != bypass_run.get_cache_key()
         assert user_run.single_flight_variant() != bypass_run.single_flight_variant()
+
+    @parameterized.expand(
+        [
+            ("overview", WebOverviewQueryRunner, WebOverviewQuery(dateRange=_DIMENSIONAL_RANGE, properties=[])),
+            (
+                "stats_table",
+                WebStatsTableQueryRunner,
+                WebStatsTableQuery(dateRange=_DIMENSIONAL_RANGE, properties=[], breakdownBy=WebStatsBreakdown.PAGE),
+            ),
+        ]
+    )
+    def test_dimensional_read_kill_switch_changes_the_cache_key(self, _name, runner_class, query) -> None:
+        self.team.modifiers = {"useWebAnalyticsDimensionalTables": True}
+
+        def cache_key(reads_disabled: bool) -> str:
+            with mock.patch(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+                return_value=reads_disabled,
+            ):
+                return runner_class(team=self.team, query=query).get_cache_key()
+
+        assert cache_key(reads_disabled=False) != cache_key(reads_disabled=True)
 
 
 class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):

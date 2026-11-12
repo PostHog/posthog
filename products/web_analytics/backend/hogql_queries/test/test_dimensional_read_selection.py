@@ -90,9 +90,11 @@ def _runner(
     properties: list | None = None,
     kind: str = "WebStatsTableQuery",
     modifiers: HogQLQueryModifiers | None = None,
+    team_modifiers: dict | None = None,
 ) -> MagicMock:
     runner = MagicMock()
     runner.team.pk = 1
+    runner.team.modifiers = team_modifiers
     runner.query.kind = kind
     runner.query.webQueryModifiers = (
         None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
@@ -273,14 +275,19 @@ class TestDimensionalReadSelection(SimpleTestCase):
             ("team_on_and_request_opts_in_without_the_modifiers_flag", True, True, False, False, True),
             ("team_on_and_reads_disabled", None, True, True, True, False),
             ("request_opts_in_and_reads_disabled", True, False, True, True, False),
+            ("team_off_and_the_request_supplies_the_team_modifier", None, False, True, False, False, True),
         ]
     )
     def test_opt_in_follows_the_request_then_the_team_modifier(
-        self, _name, requested, team_modifier, modifiers_flag, reads_disabled, serves
+        self, _name, requested, team_modifier, modifiers_flag, reads_disabled, serves, request_modifier=None
     ):
         self.flags[WEB_ANALYTICS_QUERY_MODIFIERS_FLAG] = modifiers_flag
         self.flags[WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG] = reads_disabled
-        runner = _runner(requested, modifiers=HogQLQueryModifiers(useWebAnalyticsDimensionalTables=team_modifier))
+        runner = _runner(
+            requested,
+            modifiers=HogQLQueryModifiers(useWebAnalyticsDimensionalTables=request_modifier),
+            team_modifiers={"useWebAnalyticsDimensionalTables": team_modifier},
+        )
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,

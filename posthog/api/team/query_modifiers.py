@@ -21,7 +21,9 @@ def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
     stored = existing if isinstance(existing, dict) else {}
     if requested is not None:
         return {**stored, **requested}
-    return None
+    # The API cannot set the staff-only modifiers, so clearing the others must not drop them.
+    staff_only = {key: value for key, value in stored.items() if key in STAFF_ONLY_MODIFIERS}
+    return staff_only or None
 
 
 def validate_modifiers(value: dict | None) -> dict | None:

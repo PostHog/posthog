@@ -69,6 +69,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     classify_dimensional_read_failure,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
+    reads_dimensional,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -240,6 +241,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # entry-attributed runs must not share cache entries — and rolling the
         # flag back to 0% must instantly serve the old key again.
         variant = super().get_cache_key_variant()
+        # Cached results from the dimensional tables must not outlive the kill switch or the enrollment.
+        if reads_dimensional(self):
+            variant = f"{variant}_dim"
         effective_breakdown = self._effective_breakdown()
         if effective_breakdown != self.query.breakdownBy:
             return f"{variant}_{effective_breakdown.value}"
