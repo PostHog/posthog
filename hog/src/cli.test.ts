@@ -144,6 +144,7 @@ describe('hog', () => {
             'config check',
             'config schema',
             'commands',
+            'feedback',
             ...Object.keys(LEGACY_COMMANDS),
         ])
     })

@@ -85,6 +85,9 @@ class SchemaStaffReads:
             available_columns=tuple(sorted((schema.table.columns or {}).keys()))
             if schema.table and schema.table.columns
             else None,
+            should_sync=schema.should_sync,
+            deleted=bool(schema.deleted),
+            auto_disabled_at=schema.auto_disabled_at,
         )
 
     @staticmethod

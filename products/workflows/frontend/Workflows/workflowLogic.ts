@@ -27,6 +27,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
+import { integrationsList } from 'products/integrations/frontend/generated/api'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
@@ -47,6 +49,7 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -66,6 +69,14 @@ import {
     stateToRRule,
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
+import { getTeamUtmDefaults } from './hogflows/steps/components/utmDefaults'
+import {
+    type EmailStepAction,
+    hasOwnSender,
+    isEmailStep,
+    needsSandboxSender,
+    sandboxSenderAllowed,
+} from './hogflows/steps/email/emailStepVariants'
 import { getTemplatingError } from './hogflows/steps/templatingError'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
@@ -85,6 +96,7 @@ import {
     prefilledWorkflow,
     withEmailBrand,
     withEmailSender,
+    withSandboxSender,
     withPrefilledEmail,
 } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
@@ -194,15 +206,33 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
+async function loadEmailSenders(): Promise<IntegrationConfigApi[]> {
+    const teamId = String(ApiConfig.getCurrentTeamId())
+    const senders: IntegrationConfigApi[] = []
+    let hasNext = true
+    while (hasNext) {
+        const page = await integrationsList(teamId, { kind: 'email', limit: 100, offset: senders.length })
+        senders.push(...page.results)
+        hasNext = !!page.next && page.results.length > 0
+    }
+    return senders
+}
+
 async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     try {
         const team = teamLogic.findMounted()?.values.currentTeam
-        const sender = resolveDefaultEmailSender(
-            (await api.integrations.list()).results,
-            team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
-        )
+        const workflowsConfig = team && 'workflows_config' in team ? team.workflows_config : null
+        const integrations = await loadEmailSenders()
+        const sender = resolveDefaultEmailSender(integrations, workflowsConfig?.default_email_integration_id)
         if (!sender) {
-            return workflow
+            const teamUtmDefaults = getTeamUtmDefaults(workflowsConfig)
+            const needsSender =
+                !hasOwnSender(integrations) &&
+                sandboxSenderAllowed(workflow, false) &&
+                workflow.actions.some((action) => needsSandboxSender(action, true, teamUtmDefaults))
+            return needsSender && (await readySandboxSender(String(ApiConfig.getCurrentTeamId()), 'first_run'))
+                ? withSandboxSender(workflow, teamUtmDefaults)
+                : workflow
         }
         const result = withEmailSender(workflow, sender.integrationId)
         if (result.filled) {
@@ -669,6 +699,60 @@ export interface workflowLogicActions {
                                 | null
                                 | undefined
                             type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
                             updated_at?: number | undefined
                         }
                       | {
@@ -1559,6 +1643,60 @@ export interface workflowLogicActions {
                                 | null
                                 | undefined
                             type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
                             updated_at?: number | undefined
                         }
                       | {
@@ -2468,6 +2606,28 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
+              }
+            | {
                   cohort_id: number | null
                   transition: 'entered' | 'left'
                   type: 'cohort'
@@ -2879,6 +3039,28 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   max_delay_duration?: string | undefined
+              }
+            | {
+                  inputs: {
+                      email: {
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: {
+                              design?: any
+                              html?: string | undefined
+                              preheader?: string | undefined
+                              subject?: string | undefined
+                              text?: string | undefined
+                              to?:
+                                  | {
+                                        email: string
+                                        name?: string | undefined
+                                    }
+                                  | undefined
+                          }
+                      }
+                  }
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   cohort_id: number | null
@@ -3426,6 +3608,22 @@ function getSaveQueue(
             ((cache.saveContexts as SaveContext[] | undefined) ?? []).length > 0 ||
             !!values.draftActionPending,
     }))
+}
+
+function senderErrors(
+    action: EmailStepAction,
+    emailValue: any,
+    templating: string | undefined
+): Pick<EmailFieldErrors, 'from'> {
+    if (action.type === 'email_sandbox') {
+        return {}
+    }
+    return {
+        from: !emailValue?.from?.integrationId
+            ? 'Choose an email sender, or connect a new one'
+            : (getTemplatingError(emailValue?.from?.email, templating) ??
+              getTemplatingError(emailValue?.from?.name, templating)),
+    }
 }
 
 export const workflowLogic = kea<workflowLogicType>([
@@ -4183,8 +4381,8 @@ export const workflowLogic = kea<workflowLogicType>([
                         if (!schemaValidation.success) {
                             result.valid = false
                             result.schema = schemaValidation.error
-                        } else if (action.type === 'function_email') {
-                            // special case for function_email which has nested email inputs, so basic hog input validation is not enough
+                        } else if (isEmailStep(action)) {
+                            // special case for email steps which have nested email inputs, so basic hog input validation is not enough
                             // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
                             const emailValue = action.config.inputs?.email?.value as any | undefined
                             const emailTemplating = action.config.inputs?.email?.templating
@@ -4204,10 +4402,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.integrationId
-                                    ? 'Choose an email sender, or connect a new one'
-                                    : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
-                                      getTemplatingError(emailValue?.from?.name, emailTemplating)),
+                                ...senderErrors(action, emailValue, emailTemplating),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
