@@ -3,7 +3,7 @@ import re
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
-from posthog.temporal.data_modeling.activities.utils import is_externally_aborted
+from products.data_modeling.backend.temporal.activities.utils import is_externally_aborted
 
 # custom latency histogram buckets,
 # since we lose some important granularity with default max at 60s

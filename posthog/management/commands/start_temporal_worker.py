@@ -60,12 +60,6 @@ from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
-from posthog.temporal.data_modeling import (
-    ACTIVITIES as DATA_MODELING_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_WORKFLOWS,
-    WORKFLOWS as DATA_MODELING_WORKFLOWS,
-)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
@@ -219,6 +213,12 @@ from products.customer_analytics.backend.facade.temporal import (
 from products.data_catalog.backend.facade.temporal import (
     ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
     WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
+)
+from products.data_modeling.backend.temporal import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
 )
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,

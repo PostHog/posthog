@@ -19,16 +19,6 @@ from posthog.hogql.database.database import Database
 from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
-    is_managed_warehouse_shadow_enabled,
-)
-from posthog.temporal.data_modeling.workflows.execute_dag import (
-    TRINO_SHADOW_RUN_TIMEOUT,
-    ExecuteDAGInputs,
-    manual_trino_workflow_id,
-    trino_build_workflow_id,
-)
-from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import (
@@ -55,6 +45,16 @@ from products.data_modeling.backend.models import (
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+from products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse import (
+    is_managed_warehouse_shadow_enabled,
+)
+from products.data_modeling.backend.temporal.workflows.execute_dag import (
+    TRINO_SHADOW_RUN_TIMEOUT,
+    ExecuteDAGInputs,
+    manual_trino_workflow_id,
+    trino_build_workflow_id,
+)
+from products.data_modeling.backend.temporal.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 

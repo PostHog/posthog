@@ -11,14 +11,14 @@ from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities.preempt_dag_run import (
+
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
+from products.data_modeling.backend.temporal.activities.preempt_dag_run import (
     ABANDONED_ERROR,
     PREEMPTED_ERROR,
     PreemptDAGRunInputs,
     preempt_dag_run_activity,
 )
-
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -104,7 +104,7 @@ async def _run_activity(
     client.get_workflow_handle = unittest.mock.MagicMock(side_effect=get_workflow_handle)
 
     with unittest.mock.patch(
-        "posthog.temporal.data_modeling.activities.preempt_dag_run.async_connect",
+        "products.data_modeling.backend.temporal.activities.preempt_dag_run.async_connect",
         unittest.mock.AsyncMock(return_value=client),
     ):
         await ActivityEnvironment().run(
@@ -325,7 +325,7 @@ async def test_owned_workflows_are_cancelled_even_if_reaping_blows_up(ateam, tie
     )
 
     with unittest.mock.patch(
-        "posthog.temporal.data_modeling.activities.preempt_dag_run._abandoned_jobs",
+        "products.data_modeling.backend.temporal.activities.preempt_dag_run._abandoned_jobs",
         unittest.mock.AsyncMock(side_effect=RuntimeError("reaping exploded")),
     ):
         cancelled = await _run_activity(ateam.pk, [NODE_QUARTER_HOURLY])

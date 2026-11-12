@@ -21,14 +21,13 @@ from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from posthog.temporal.data_modeling.activities.utils import (
+from products.data_modeling.backend.logic.node_suspension import suspension_reset_at, suspension_state, unsuspend_nodes
+from products.data_modeling.backend.models.node import Node
+from products.data_modeling.backend.temporal.activities.utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     count_leading_failures,
     is_externally_aborted,
 )
-
-from products.data_modeling.backend.logic.node_suspension import suspension_reset_at, suspension_state, unsuspend_nodes
-from products.data_modeling.backend.models.node import Node
 
 RESUMED_BY = "suspension_recheck"
 

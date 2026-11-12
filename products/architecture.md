@@ -138,8 +138,8 @@ Four products hold entries.
 `data_modeling`: `DataWarehouseSavedQuery`, `DataWarehouseSavedQueryDraft`, `DataWarehouseSavedQueryColumnAnnotation`, `DataWarehouseManagedViewSet`, `DataModelingJob`, `DAG`, `Node` and `Edge`.
 Core HogQL reads saved queries to build the views a query can name, the same reason the `warehouse_sources` table models cross.
 The saved-query, draft and column-annotation `ModelViewSet`s live in `data_warehouse` `presentation/` and need the classes for `Meta.model`, querysets and writes.
-The materialization activities in `posthog/temporal/data_modeling/` lock and update `Node` and `DataModelingJob` rows, and `endpoints` holds a ForeignKey into `DataWarehouseSavedQuery`.
-Retiring the entries means moving those viewsets and activities into the product, so that consumers keep only ids and contracts.
+`endpoints` holds a ForeignKey into `DataWarehouseSavedQuery`.
+Retiring the entries means moving those viewsets into the product, so that consumers keep only ids and contracts.
 `product_analytics`: `Insight` and `InsightVariable`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightVariable` has no consumer left outside the product; its entry survives only because the SQL-variables `ModelViewSet` in `presentation/` needs the class and presentation may reach internals only through the facade, so retiring the entry means converting that viewset off `ModelSerializer` first.

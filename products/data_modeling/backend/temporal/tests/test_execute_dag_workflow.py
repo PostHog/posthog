@@ -22,7 +22,17 @@ from temporalio.workflow import ParentClosePolicy
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities import (
+
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJobEngine,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
+from products.data_modeling.backend.temporal.activities import (
     GetDAGStructureInputs,
     NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
@@ -31,8 +41,8 @@ from posthog.temporal.data_modeling.activities import (
     get_dag_structure_activity,
     preempt_dag_run_activity,
 )
-from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
-from posthog.temporal.data_modeling.workflows.execute_dag import (
+from products.data_modeling.backend.temporal.activities.get_dag_structure import DAG as DAGPlan
+from products.data_modeling.backend.temporal.workflows.execute_dag import (
     TRINO_CHILD_LOCK_PATCH,
     EmptyDAGOrCycleError,
     ExecuteDAGInputs,
@@ -43,19 +53,9 @@ from posthog.temporal.data_modeling.workflows.execute_dag import (
     _get_downstream_lookup,
     _get_edge_lookup,
 )
-from posthog.temporal.data_modeling.workflows.materialize_view import (
+from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
-)
-
-from products.data_modeling.backend.facade.models import (
-    DAG,
-    DataModelingJobEngine,
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    Edge,
-    Node,
-    NodeType,
 )
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -191,7 +191,7 @@ class TestGetDagStructureActivity:
     async def test_reports_a_suspended_node_under_the_engine_that_marked_it(
         self, activity_environment, ateam, dag_nodes, adag
     ):
-        from posthog.temporal.data_modeling.activities.utils import mark_node_suspended
+        from products.data_modeling.backend.temporal.activities.utils import mark_node_suspended
 
         suspended_node = dag_nodes[1]
         mark_node_suspended(suspended_node, engine=DataModelingJobEngine.CLICKHOUSE, reason="boom", job_id="j")
@@ -1204,7 +1204,7 @@ class TestTrinoShadowRun:
             patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
             patch.object(temporal_workflow, "logger"),
             patch.object(temporal_workflow, "patched", return_value=patched),
-            patch("posthog.temporal.data_modeling.workflows.execute_dag.capture_exception"),
+            patch("products.data_modeling.backend.temporal.workflows.execute_dag.capture_exception"),
         ):
             result = await ExecuteDAGWorkflow().run(inputs)
         return ShadowRunOutcome(result=result, start_child=start_child_mock, execute_activity=execute_activity_mock)
@@ -1251,7 +1251,7 @@ class TestTrinoShadowRun:
     )
     async def test_dag_metrics_carry_the_runs_engine(self, managed_warehouse_only: bool, expected_engine: str) -> None:
         # Production alerts on DAG failure ratio and duration exclude shadow runs by this label.
-        module = "posthog.temporal.data_modeling.workflows.execute_dag"
+        module = "products.data_modeling.backend.temporal.workflows.execute_dag"
         with (
             patch(f"{module}.get_dag_finished_metric") as finished,
             patch(f"{module}.get_dag_duration_metric") as duration,
@@ -1281,7 +1281,9 @@ class TestTrinoShadowRun:
         self, error: Exception | None, expected_outcome: str
     ) -> None:
         # A shadow that hangs until its timeout emits no DAG metric, so the skip count is what alerts on it.
-        with patch("posthog.temporal.data_modeling.workflows.execute_dag.get_trino_shadow_start_metric") as start:
+        with patch(
+            "products.data_modeling.backend.temporal.workflows.execute_dag.get_trino_shadow_start_metric"
+        ) as start:
             outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
 
         assert [call.args[0] for call in start.call_args_list] == [expected_outcome]

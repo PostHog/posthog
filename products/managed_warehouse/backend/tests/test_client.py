@@ -288,7 +288,7 @@ class TestSelfManagedS3Secrets:
 class TestManagedWarehouseShadowCompilation:
     @mock.patch("products.managed_warehouse.backend.client.compile_hogql_to_ducklake_sql")
     def test_materialization_compile_bypasses_warehouse_access_control(self, mock_compile):
-        from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+        from products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse import (
             _compile_hogql_for_ducklake,
         )
 

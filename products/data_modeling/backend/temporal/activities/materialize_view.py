@@ -51,18 +51,6 @@ from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_modeling.activities.incremental_write import (
-    DuplicateUniqueKeyError,
-    IncrementalWriteError,
-    SchemaDriftError,
-    UniqueKeyTracker,
-    assert_schema_matches,
-    max_of,
-    table_exists,
-    upsert_batch,
-    upsert_stats_fields,
-)
-from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context, strip_hostname_from_error
 
 from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
@@ -79,6 +67,21 @@ from products.data_modeling.backend.facade.api import (
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.temporal.activities.incremental_write import (
+    DuplicateUniqueKeyError,
+    IncrementalWriteError,
+    SchemaDriftError,
+    UniqueKeyTracker,
+    assert_schema_matches,
+    max_of,
+    table_exists,
+    upsert_batch,
+    upsert_stats_fields,
+)
+from products.data_modeling.backend.temporal.activities.utils import (
+    bind_data_modeling_log_context,
+    strip_hostname_from_error,
+)
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client

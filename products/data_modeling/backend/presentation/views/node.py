@@ -523,7 +523,7 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
-# - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
+# - products/data_modeling/backend/temporal/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
 # - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
 # the temporal workflow and lineage API should migrate to Graph
 

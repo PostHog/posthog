@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from posthog.temporal.data_modeling.metrics import tier_label
+from products.data_modeling.backend.temporal.metrics import tier_label
 
 
 @parameterized.expand(
