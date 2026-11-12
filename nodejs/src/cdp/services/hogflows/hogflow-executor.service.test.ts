@@ -3459,15 +3459,28 @@ describe('Hogflow Executor', () => {
             verified?: boolean
             suspended?: boolean
             outcome: string
+            alsoFailsStep?: boolean
         }>([
             { label: 'the sender id is not a number', senderId: 'not-a-number', outcome: 'failed' },
             { label: 'the sender no longer exists', senderId: 999_999_999, outcome: 'email_failed' },
             { label: 'the sender domain is not verified', verified: false, outcome: 'email_failed' },
             { label: 'email sending is suspended for the team', suspended: true, outcome: 'email_suspended' },
-            { label: 'the recipient has no email address', toEmail: '', outcome: 'email_missing_recipient' },
+            {
+                label: 'the recipient has no email address',
+                toEmail: '',
+                outcome: 'email_missing_recipient',
+                alsoFailsStep: false,
+            },
         ])(
             'does not bill an email step when $label',
-            async ({ senderId, toEmail = 'recipient@example.com', verified = true, suspended = false, outcome }) => {
+            async ({
+                senderId,
+                toEmail = 'recipient@example.com',
+                verified = true,
+                suspended = false,
+                outcome,
+                alsoFailsStep,
+            }) => {
                 await insertIntegration(hub.postgres, team.id, {
                     id: integrationId,
                     kind: 'email',
@@ -3485,7 +3498,8 @@ describe('Hogflow Executor', () => {
                 await insertHogFunctionTemplate(hub.postgres, {
                     id: 'template-email',
                     name: 'Test Email Template',
-                    code: `sendEmail(inputs.email)`,
+                    code: `let res := sendEmail(inputs.email)
+                    if (not res.success) { throw Error(res.error) }`,
                     inputs_schema: [
                         {
                             type: 'native_email',
@@ -3532,6 +3546,10 @@ describe('Hogflow Executor', () => {
                 const emailStepMetrics = metrics.filter((m) => m.instance_id === 'email').map((m) => m.metric_name)
                 expect(emailStepMetrics).toContain(outcome)
                 expect(emailStepMetrics).not.toContain('billable_invocation')
+                if (alsoFailsStep === false) {
+                    // The broadcast audience breakdown would count this person twice otherwise.
+                    expect(emailStepMetrics).not.toContain('failed')
+                }
             }
         )
     })

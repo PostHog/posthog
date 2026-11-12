@@ -267,6 +267,7 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
         | 'message_frequency_cap_held'
+        | 'message_frequency_cap_hold_ended'
         | 'email_suppressed'
         | 'email_opted_out'
         | 'email_missing_recipient'

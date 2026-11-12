@@ -2,7 +2,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -295,9 +295,18 @@ function RunStatusTag({
 }
 
 function SentBroadcastStatusTag({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
-    const { audience } = useValues(
-        broadcastPerformanceLogic({ runId: job.id, runStartedAt: job.created_at, channel: 'email' })
-    )
+    const logic = broadcastPerformanceLogic({ runId: job.id, runStartedAt: job.created_at, channel: 'email' })
+    const { audience, totalsFailed } = useValues(logic)
+    const { loadTotals } = useActions(logic)
+    if (totalsFailed) {
+        return (
+            <Tooltip title="Couldn't load who this run reached. Click to try again.">
+                <LemonTag type="muted" onClick={() => loadTotals()} forceClickable>
+                    Status unknown
+                </LemonTag>
+            </Tooltip>
+        )
+    }
     return <BroadcastStatusTag status={audience?.stillSending ? 'sending' : 'sent'} />
 }
 
@@ -318,12 +327,14 @@ function LatestRunLabel({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
 }
 
 function CompletedEmailRunLabel({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
-    const { audience } = useValues(
+    const { audience, totalsFailed } = useValues(
         broadcastPerformanceLogic({ runId: job.id, runStartedAt: job.created_at, channel: 'email' })
     )
     return (
         <span>
-            <span>{audience?.stillSending ? LATEST_RUN_LABEL.sending : LATEST_RUN_LABEL.sent}</span>{' '}
+            <span>
+                {totalsFailed ? 'Started' : audience?.stillSending ? LATEST_RUN_LABEL.sending : LATEST_RUN_LABEL.sent}
+            </span>{' '}
             <TZLabel time={job.created_at} />
         </span>
     )

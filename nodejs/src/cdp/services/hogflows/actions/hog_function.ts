@@ -192,6 +192,9 @@ export class HogFunctionHandler implements ActionHandler {
             observeMissingVariableReferences(invocation, action, result)
         }
 
+        const wokeFromHold =
+            !!invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.hogFunctionState
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         if (functionResult.emailSendResult) {
@@ -221,6 +224,18 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.state.currentAction!.frequencyCapHoldDeadlineAt =
                 functionResult.frequencyCapHold.deadlineAt
             return { scheduledAt: functionResult.frequencyCapHold.until }
+        }
+
+        // Pairs with message_frequency_cap_held, so a run can tell how many people are still held.
+        if (wokeFromHold) {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                instance_id: action.id,
+                metric_kind: 'other',
+                metric_name: 'message_frequency_cap_hold_ended',
+                count: 1,
+            })
         }
 
         if (!functionResult.finished) {

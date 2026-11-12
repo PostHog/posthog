@@ -14,6 +14,7 @@ export const RUN_AUDIENCE_METRICS = [
     'email_missing_recipient',
     'email_bounce_prevented',
     'message_frequency_cap_held',
+    'message_frequency_cap_hold_ended',
     'message_frequency_capped',
     'filtered',
     'early_exit',
@@ -64,8 +65,8 @@ export function getRunAudience(
         0
     )
     const withinWindow = canStillBeSending(lastActivityAt, now)
-    // The held count never goes down, so someone who was held and later sent is only out of `unfinished`.
-    const waitingOnCap = withinWindow ? Math.min(unfinished, count('message_frequency_cap_held')) : 0
+    const stillHeld = Math.max(count('message_frequency_cap_held') - count('message_frequency_cap_hold_ended'), 0)
+    const waitingOnCap = withinWindow ? Math.min(unfinished, stillHeld) : 0
     const remaining = unfinished - waitingOnCap
 
     return {

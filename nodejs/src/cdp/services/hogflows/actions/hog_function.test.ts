@@ -616,7 +616,10 @@ describe('HogFunctionHandler', () => {
 
                 expect(wokenResult.nextAction?.id).toBe('exit')
                 expect(woken.logs[0].message).toContain('no slot opened before the hold ended')
-                expect(woken.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+                expect(woken.metrics).toMatchObject([
+                    { metric_name: 'message_frequency_capped', count: 1 },
+                    { metric_name: 'message_frequency_cap_hold_ended', count: 1 },
+                ])
                 expect(checkFrequencyCap).toHaveBeenCalledTimes(checks)
                 expect(mockFetch).not.toHaveBeenCalled()
             } finally {

@@ -21,6 +21,18 @@ describe('broadcastRunAudience', () => {
             stillSending: true,
         },
         {
+            name: 'people sent once their hold ended, while others are still queued',
+            totals: {
+                triggered: 100,
+                email_sent: 50,
+                message_frequency_cap_held: 50,
+                message_frequency_cap_hold_ended: 50,
+            },
+            now: soon,
+            text: '100 in audience: 50 sent, 50 still to send',
+            stillSending: true,
+        },
+        {
             name: 'a send that errored for everyone, also recorded as provider failures',
             totals: { triggered: 245, failed: 245, email_failed: 245 },
             now: soon,
