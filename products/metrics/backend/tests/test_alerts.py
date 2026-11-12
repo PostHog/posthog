@@ -362,6 +362,36 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(self._evaluate()) == {}
 
+    def test_team_missing_counts_skipped(self) -> None:
+        # Deleting the team would cascade its configurations, leaving no check due, so the read misses instead.
+        with team_scope(self.team.id):
+            second_id = create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.METRICS,
+                edit=PlatformAlertConfigurationEdit(
+                    name="Second",
+                    enabled=True,
+                    source_config={"query": _QUERY, "condition": {"operator": "gt", "threshold": 1}},
+                    grouping=Grouping(mode=GroupingMode.SINGLE, keys=()),
+                    schedule_restriction=None,
+                    evaluation_periods=1,
+                    datapoints_to_alarm=1,
+                    cooldown_minutes=0,
+                ),
+                created_by_id=self.user.id,
+            ).id
+            platform_testing.set_due_at(second_id, self.due_at)
+
+        with (
+            patch("products.metrics.backend.alerts.evaluation.Team") as team_model,
+            patch("products.metrics.backend.alerts.evaluation.increment_checks_skipped") as skipped,
+        ):
+            team_model.objects.filter.return_value.first.return_value = None
+            evaluation = self._evaluate_batch()
+
+        assert (evaluation.outcomes, self.snuffle.call_count) == ((), 0)
+        assert [call.args for call in skipped.call_args_list] == [("metrics", "team_missing")] * 2
+
     @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
     def test_a_batch_over_the_pool_limit_stays_due_for_a_later_tick(self) -> None:
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))

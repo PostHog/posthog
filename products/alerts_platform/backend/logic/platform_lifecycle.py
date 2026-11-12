@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
     increment_instances_reaped,
+    record_check_completion_lag,
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import (
@@ -613,6 +614,13 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        # Wall time, because `now` is the tick's cutoff and would hide the evaluation's own time.
+        recorded_at = django_timezone.now()
+        completion_lags = [
+            (configuration.source_kind, max(0, int((recorded_at - configuration.next_check_at).total_seconds() * 1000)))
+            for configuration in configurations
+            if configuration.next_check_at is not None
+        ]
         for configuration in configurations:
             by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
@@ -733,7 +741,13 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: record_history(team_id, rows))
+        transaction.on_commit(lambda: _record_completion_lags(completion_lags))
     return len(configurations)
+
+
+def _record_completion_lags(lags: Sequence[tuple[str, int]]) -> None:
+    for source_kind, lag_ms in lags:
+        safe_record(record_check_completion_lag, source_kind, lag_ms)
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
