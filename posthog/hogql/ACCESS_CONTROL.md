@@ -232,7 +232,7 @@ Several catalog tables expose such columns because reading them scans far less d
 The web analytics dimensional tables `web_stats_dimensional_preaggregated` and `web_bounces_dimensional_preaggregated` copy event properties into dimension columns, such as `pathname` from `$pathname` and `country_code` from `$geoip_country_code`, and copy session properties that the sessions table builds from event properties, such as `utm_source` from `utm_source` and `entry_pathname` from `$current_url`.
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
-`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+`flag_evaluations`, `ai_events`, and web analytics dimensional mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 `intent_text` on `posthog.mcp_intent_assignments` and `posthog.raw_mcp_intent_assignments` holds a truncated copy of `$mcp_intent` and masks the same way.
 `intent_hash` on both tables masks with it, because it is the unsalted sha256 of the full text, so a reader could confirm a guessed text by comparing hashes.
 When `intent_hash` is masked, `posthog.mcp_intent_assignments` returns no rows, because it picks one row per hash and a NULL hash would merge every intent into one row.

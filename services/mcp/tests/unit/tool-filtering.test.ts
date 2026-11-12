@@ -1158,7 +1158,14 @@ describe('Tool Filtering - Feature Flags', () => {
             'investigate-insight',
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
-            'support-macros',
+            'workflows-push-token-import-mcp',
+            'discussions-slack-sync',
+            'ui-customization',
+            'warehouse-migration-import',
+            'mcp-feature-flag-restore-version',
+            'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
+            'workflows-bulk-suppressions-mcp',
             'mcp-analytics-intent-topics',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
