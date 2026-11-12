@@ -1837,7 +1837,6 @@
                 "flags",
                 "llm_analytics",
                 "sandbox",
-                "user_interview",
                 "customer_analytics"
             ],
             "type": "string"
