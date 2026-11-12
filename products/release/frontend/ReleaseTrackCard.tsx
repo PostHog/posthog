@@ -32,7 +32,9 @@ function trackScale(track: Track, width: number): Scale {
     const dates = [
         ...track.lanes.flatMap((lane) =>
             lane.kind === 'flag'
-                ? lane.steps.map((step) => step.from)
+                ? lane.steps.length
+                    ? lane.steps.map((step) => step.from)
+                    : [lane.span.from]
                 : lane.kind === 'broadcast'
                   ? lane.events.map((event) => event.date)
                   : lane.span
@@ -209,11 +211,12 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
                 {width > 0 && (
                     <TrackCardContext.Provider value={state}>
                         <DataTable
+                            key={rows.length > TRACK_PAGE_SIZE ? 'paged' : 'single'}
                             columns={COLUMNS}
                             data={rows}
                             size="sm"
                             getRowId={(lane) => lane.key}
-                            pageSize={track.lanes.length > TRACK_PAGE_SIZE ? TRACK_PAGE_SIZE : undefined}
+                            pageSize={rows.length > TRACK_PAGE_SIZE ? TRACK_PAGE_SIZE : undefined}
                             rowClassName={() => 'group/track'}
                         />
                     </TrackCardContext.Provider>
