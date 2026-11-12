@@ -75,7 +75,7 @@ ENGINE = {ReplacingMergeTree(EMAIL_STATUS_DATA_TABLE, ver="version", replication
 PARTITION BY toYYYYMMDD(created_at)
 ORDER BY (team_id, message_id)
 {ttl_period("created_at", EMAIL_STATUS_READ_TTL_DAYS, unit="DAY")}
-SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
+SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
 """
 )
 
@@ -221,11 +221,6 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 
 
-# A settings-only ALTER changes only the replica that runs it. The setting keeps the TTL mutation from rewriting columns
-# if the table later gains a column TTL or loses ttl_only_drop_parts.
-EMAIL_STATUS_DATA_RECALCULATE_TTL_ONLY_SQL = lambda: (
-    f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} MODIFY SETTING materialize_ttl_recalculate_only = 1"
-)
 # The mutation recalculates the TTL of every existing part, so sends from before the change also stay for the new
 # retention. The table has only a row TTL and ttl_only_drop_parts = 1, so it reads only `created_at` and rewrites only
 # each part's TTL metadata. With alter_sync = 0 the deploy doesn't wait for every replica to run it.
