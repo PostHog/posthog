@@ -17,7 +17,7 @@ const batchAttemptsMarked = new Counter({
 
 const batchesDiverted = new Counter({
     name: 'cdp_batch_diverted_total',
-    help: 'Partitions of a batch that crashed the worker CDP_BATCH_QUARANTINE_MAX_ATTEMPTS times. In shadow mode the batch is processed anyway.',
+    help: 'Partitions of a batch that crashed the worker CDP_BATCH_QUARANTINE_MAX_ATTEMPTS times. In shadow mode the batch is processed anyway. In the dead letter consumer group, cdp-cyclotron-hogdlq-consumer, it counts quarantined batches.',
     labelNames: ['group', 'mode'],
 })
 

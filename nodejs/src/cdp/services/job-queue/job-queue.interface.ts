@@ -1,3 +1,4 @@
+import type { KafkaConsumerConfig } from '~/common/kafka/consumer'
 import { ProducerMessage } from '~/common/kafka/producer'
 
 import { HealthCheckResult } from '../../../types'
@@ -7,7 +8,7 @@ import type { CrashGuard } from '../poison-batch/crash-guard'
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
 /** Only the Kafka queue reads these, because they act on its consumer and the messages it fetches. */
-export type ConsumerOptions = {
+export type ConsumerOptions = Pick<KafkaConsumerConfig, 'fetchBatchSize' | 'maxBackgroundTasks'> & {
     // A factory, because the guard keys its counts by the consumer group, which the queue names. produce goes
     // through the queue's own producer.
     crashGuard?: (consumer: { groupId: string; produce: (message: ProducerMessage) => Promise<void> }) => CrashGuard

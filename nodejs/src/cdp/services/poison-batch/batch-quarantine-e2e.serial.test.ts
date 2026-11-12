@@ -1,20 +1,42 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { randomUUID } from 'crypto'
-import { AdminClient, Message } from 'node-rdkafka'
+import { AdminClient, Message, Metadata, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { parseKafkaHeaders } from '~/common/kafka/consumer'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { InternalCaptureService } from '~/common/services/internal-capture'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CyclotronJobInvocation, CyclotronJobQueueKind, DEAD_LETTER_QUEUE } from '../../types'
-import { CyclotronJobQueueKafka } from '../job-queue/job-queue-kafka'
+import { Hub, Team } from '../../../types'
+import { HOG_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
+import { createHogExecutionGlobals, insertHogFunction } from '../../_tests/fixtures'
+import { CdpCyclotronDeadLetterWorker } from '../../consumers/cdp-cyclotron-dead-letter-worker.consumer'
+import { CdpCyclotronWorkerDeps } from '../../consumers/cdp-cyclotron-worker.consumer'
+import {
+    CdpProducerName,
+    WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_PRODUCER,
+    WARPSTREAM_INGESTION_PRODUCER,
+} from '../../outputs/producers'
+import { CyclotronJobInvocation, CyclotronJobQueueKind, DEAD_LETTER_QUEUE, HogFunctionType } from '../../types'
+import { CyclotronJobQueueKafka, serializeInvocation } from '../job-queue/job-queue-kafka'
 import { CrashGuard, CrashGuardSettings, batchAttemptsKey, createCrashGuardSettings } from './crash-guard'
 import { divertToDeadLetter } from './divert-to-dead-letter'
+import { QUARANTINED_ERROR_KIND } from './quarantine-invocations'
 
 const MAX_ATTEMPTS = 2
 const DIVERT_TOPIC = `cdp_cyclotron_${DEAD_LETTER_QUEUE}`
@@ -418,5 +440,248 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
         await waitForExpect(() => expect(processed).toEqual([id]), 30_000)
         expect(await divertedWithKey(id)).toEqual([])
         expect(await counter('cdp_batch_diverted_total', { group, mode: 'enforce' })).toEqual(0)
+    })
+
+    describe('on the dead letter worker', () => {
+        let hub: Hub
+        let team: Team
+        let poisonFn: HogFunctionType
+        let healthyFn: HogFunctionType
+        let dlqWorkers: CdpCyclotronDeadLetterWorker[]
+        let results: KafkaProducerObserver
+        let personsDown: boolean
+
+        // Personhog is the dependency every hog function invocation without a person waits on.
+        const personRepository: PersonReadRepository = {
+            fetchPerson: () => Promise.resolve(undefined),
+            fetchPersonsByDistinctIds: () =>
+                personsDown
+                    ? Promise.reject(
+                          new DependencyUnavailableError(
+                              'personhog unavailable',
+                              'personhog',
+                              new Error('ECONNREFUSED')
+                          )
+                      )
+                    : Promise.resolve([]),
+            fetchPersonsByPersonIds: () => Promise.resolve([]),
+            fetchDistinctIdsForPersons: () => Promise.resolve({}),
+        }
+
+        beforeEach(async () => {
+            await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
+            await resetTestDatabase()
+            hub = await createHub({ HOG_INVOCATION_RESULTS_ENABLED: true })
+            team = await getFirstTeam(hub.postgres)
+            dlqWorkers = []
+            personsDown = false
+            results = new KafkaProducerObserver(producer)
+            poisonFn = await insertHogFunction(hub.postgres, team.id, {
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            })
+            healthyFn = await insertHogFunction(hub.postgres, team.id, {
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            })
+            await skipDeadLetterBacklog()
+        })
+
+        afterEach(async () => {
+            await Promise.all(dlqWorkers.map(stopDlqWorker))
+            await closeHub(hub)
+        })
+
+        // The dead letter topic and its group are shared with every earlier run, so the worker starts past them.
+        const skipDeadLetterBacklog = async (): Promise<void> => {
+            const consumer = new RdKafkaConsumer(
+                {
+                    'group.id': `cdp-cyclotron-${DEAD_LETTER_QUEUE}-consumer`,
+                    'metadata.broker.list': defaultConfig.KAFKA_HOSTS,
+                    'enable.auto.commit': false,
+                },
+                {}
+            )
+            await new Promise<void>((resolve, reject) =>
+                consumer.connect({}, (error) => (error ? reject(error) : resolve()))
+            )
+            try {
+                const metadata = await new Promise<Metadata>((resolve, reject) =>
+                    consumer.getMetadata({ topic: DIVERT_TOPIC }, (error, data) =>
+                        error ? reject(error) : resolve(data)
+                    )
+                )
+                const partitions = metadata.topics.find((x) => x.name === DIVERT_TOPIC)!.partitions
+                const ends = await Promise.all(
+                    partitions.map(
+                        ({ id }) =>
+                            new Promise<{ topic: string; partition: number; offset: number }>((resolve, reject) =>
+                                consumer.queryWatermarkOffsets(DIVERT_TOPIC, id, 10_000, (error, offsets) =>
+                                    error
+                                        ? reject(error)
+                                        : resolve({ topic: DIVERT_TOPIC, partition: id, offset: offsets.highOffset })
+                                )
+                            )
+                    )
+                )
+                consumer.commitSync(ends)
+            } finally {
+                await new Promise<void>((resolve) => consumer.disconnect(() => resolve()))
+            }
+        }
+
+        const startDlqWorker = async (): Promise<CdpCyclotronDeadLetterWorker> => {
+            const deps: CdpCyclotronWorkerDeps = {
+                postgres: hub.postgres,
+                pubSub: hub.pubSub,
+                encryptedFields: hub.encryptedFields,
+                teamManager: hub.teamManager,
+                integrationManager: hub.integrationManager,
+                cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
+                    [WARPSTREAM_INGESTION_PRODUCER]: producer,
+                    [WARPSTREAM_CYCLOTRON_PRODUCER]: producer,
+                    [WAREHOUSE_PRODUCER]: producer,
+                }),
+                internalCaptureService: new InternalCaptureService(hub),
+                personRepository,
+                geoipService: hub.geoipService,
+                groupRepository: {
+                    fetchGroupsByKeys: () => Promise.resolve([]),
+                    fetchGroupTypesByTeamIds: () => Promise.resolve({}),
+                    fetchGroupTypesByProjectIds: () => Promise.resolve({}),
+                },
+                quotaLimiting: hub.quotaLimiting,
+                emailValidationValkey: null,
+                frequencyCapValkey: null,
+                // Shadow mode, because the dead letter worker quarantines in shadow mode too.
+                crashGuardSettings: quarantineFor('shadow'),
+            }
+            const queue = new CyclotronJobQueueKafka(undefined, hub, 1)
+            const worker = new CdpCyclotronDeadLetterWorker(hub, deps, queue)
+            dlqWorkers.push(worker)
+            await worker.start()
+            return worker
+        }
+
+        const stopDlqWorker = async (worker: CdpCyclotronDeadLetterWorker): Promise<void> => {
+            dlqWorkers = dlqWorkers.filter((x) => x !== worker)
+            await worker.stop()
+        }
+
+        const dlqCrashLoop = async (restarts: number): Promise<unknown[]> => {
+            const crashes: unknown[] = []
+            for (let i = 0; i < restarts; i++) {
+                const worker = await startDlqWorker()
+                crashes.push(await crashOf(worker['cyclotronJobQueue'] as CyclotronJobQueueKafka))
+                await stopDlqWorker(worker)
+            }
+            return crashes
+        }
+
+        const healthyInvocation = (options: { withPerson: boolean } = { withPerson: true }): CyclotronJobInvocation => {
+            const globals = createHogExecutionGlobals({
+                project: { id: team.id, name: team.name, url: 'http://localhost:8000/project/1' },
+            })
+            if (!options.withPerson) {
+                delete (globals as Partial<typeof globals>).person
+            }
+            return {
+                id: randomUUID(),
+                teamId: team.id,
+                functionId: healthyFn.id,
+                state: { globals, timings: [], attempts: 0 },
+                queue: 'hog',
+                queuePriority: 0,
+            }
+        }
+
+        // The worker reads the function and then the state, and nothing guards a missing state, so the
+        // invocation throws out of the batch the way a real poison does.
+        const poisonedInvocation = (): CyclotronJobInvocation => ({
+            id: randomUUID(),
+            teamId: team.id,
+            functionId: poisonFn.id,
+            state: null,
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        // A divert copies the message from the hog topic unchanged.
+        const divert = (invocation: CyclotronJobInvocation): Promise<void> =>
+            producer.produce({
+                topic: DIVERT_TOPIC,
+                key: Buffer.from(invocation.id),
+                value: Buffer.from(JSON.stringify(serializeInvocation(invocation))),
+                headers: { functionId: invocation.functionId, teamId: String(invocation.teamId) },
+            })
+
+        const quarantined = (): { invocation_id: string; function_id: string; team_id: number }[] =>
+            results
+                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                .map((x) => x.value as Record<string, unknown>)
+                .filter((row) => row.error_kind === QUARANTINED_ERROR_KIND)
+                .map(({ invocation_id, function_id, team_id }) => ({
+                    invocation_id: invocation_id as string,
+                    function_id: function_id as string,
+                    team_id: team_id as number,
+                }))
+
+        const executions = (): number => mockFetch.mock.calls.length
+
+        it.each([
+            ['v1', false],
+            ['v2', true],
+        ])(
+            'quarantines the poisoned invocation of a diverted batch and runs the healthy one, with consumer %s',
+            async (_, useV2) => {
+                const configuredV2 = defaultConfig.CONSUMER_USE_V2
+                defaultConfig.CONSUMER_USE_V2 = useV2
+                try {
+                    const poison = poisonedInvocation()
+                    await divert(poison)
+                    await divert(healthyInvocation())
+
+                    expect(await dlqCrashLoop(MAX_ATTEMPTS)).toEqual(Array(MAX_ATTEMPTS).fill(expect.any(TypeError)))
+                    expect(executions()).toEqual(0)
+
+                    const quarantinedBefore = await counter('cdp_invocations_quarantined_total', {
+                        outcome: 'recorded',
+                    })
+                    let worker = await startDlqWorker()
+                    await waitForExpect(() => expect(executions()).toEqual(1), 30_000)
+                    expect(quarantined()).toEqual([
+                        { invocation_id: poison.id, function_id: poisonFn.id, team_id: team.id },
+                    ])
+                    expect(await counter('cdp_invocations_quarantined_total', { outcome: 'recorded' })).toEqual(
+                        quarantinedBefore + 1
+                    )
+
+                    await divert(healthyInvocation())
+                    await waitForExpect(() => expect(executions()).toEqual(2), 30_000)
+                    await stopDlqWorker(worker)
+
+                    // A restart replays nothing, because the worker committed past the quarantined message.
+                    worker = await startDlqWorker()
+                    await divert(healthyInvocation())
+                    await waitForExpect(() => expect(executions()).toEqual(3), 30_000)
+                    expect(quarantined()).toHaveLength(1)
+                } finally {
+                    defaultConfig.CONSUMER_USE_V2 = configuredV2
+                }
+            }
+        )
+
+        it('never quarantines an invocation that only failed while personhog was down', async () => {
+            personsDown = true
+            await divert(healthyInvocation({ withPerson: false }))
+
+            const crashes = await dlqCrashLoop(MAX_ATTEMPTS + 1)
+            expect(crashes).toEqual(Array(MAX_ATTEMPTS + 1).fill(expect.any(DependencyUnavailableError)))
+
+            personsDown = false
+            await startDlqWorker()
+            await waitForExpect(() => expect(executions()).toEqual(1), 30_000)
+            expect(quarantined()).toEqual([])
+        })
     })
 })

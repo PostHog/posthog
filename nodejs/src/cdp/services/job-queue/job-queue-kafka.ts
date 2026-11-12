@@ -53,7 +53,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
         consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        options: ConsumerOptions = {}
+        { crashGuard: buildCrashGuard, ...consumerOverrides }: ConsumerOptions = {}
     ) {
         this.queue = queue
         this.consumeBatch = consumeBatch
@@ -62,9 +62,9 @@ export class CyclotronJobQueueKafka implements JobQueue {
         const topic = cyclotronTopic(this.queue)
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
-        this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true, ...consumerOverrides })
 
-        const crashGuard = options.crashGuard?.({
+        const crashGuard = buildCrashGuard?.({
             groupId,
             produce: (message) => this.getKafkaProducer().produce(message),
         })
