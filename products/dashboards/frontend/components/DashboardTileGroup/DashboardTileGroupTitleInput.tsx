@@ -1,7 +1,7 @@
-import clsx from 'clsx'
 import { useRef, useState } from 'react'
 
 import { RawInputAutosize } from 'lib/lemon-ui/LemonInput/RawInputAutosize'
+import { cn } from 'lib/utils/css-classes'
 
 interface DashboardTileGroupTitleInputProps {
     initialTitle: string
@@ -29,7 +29,7 @@ export function DashboardTileGroupTitleInput({
             placeholder={placeholder}
             maxLength={200}
             // No padding or border, so the field takes the label's exact size. The outline does not take space.
-            className={clsx(
+            className={cn(
                 'm-0 -mr-0.5 rounded border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] leading-[inherit] text-inherit outline outline-1 outline-offset-2 outline-accent placeholder:text-secondary',
                 className
             )}

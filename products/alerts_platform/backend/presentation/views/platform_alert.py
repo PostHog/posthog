@@ -266,6 +266,11 @@ class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Only the alert copied from, or created with, this source configuration, such as a logs alert's id.",
     )
+    source_kind = serializers.ChoiceField(
+        required=False,
+        choices=PlatformAlertConfigurationSourceKind.choices,
+        help_text="Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.",
+    )
 
 
 # A configuration shows the source product's data (its filters and firing state), so a reader
@@ -922,9 +927,12 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         limit = paginator.get_limit(request)
         assert limit is not None
+        source_kinds = self._readable_source_kinds()
+        if (source_kind := query.validated_data.get("source_kind")) is not None:
+            source_kinds = [kind for kind in source_kinds if kind == source_kind]
         page = platform_api.list_configurations(
             team_id=self._canonical_team_id(),
-            source_kinds=self._readable_source_kinds(),
+            source_kinds=source_kinds,
             limit=limit,
             offset=paginator.get_offset(request),
             legacy_configuration_id=query.validated_data.get("legacy_configuration_id"),
