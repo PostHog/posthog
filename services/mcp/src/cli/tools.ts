@@ -4,9 +4,15 @@ import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import { type ToolDefinition, getToolDefinition, getToolsForFeatures } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
+export interface CatalogTools {
+    definitions: Record<string, ToolDefinition>
+    build: Record<string, () => ToolBase<ZodObjectAny>>
+    onUnbuildable: (name: string, reason: string) => void
+}
+
 interface CliToolOptions {
     aiConsentGiven?: boolean | undefined
-    catalogTools?: Record<string, () => ToolBase<ZodObjectAny>>
+    catalog?: CatalogTools
 }
 
 function materializeTool(
@@ -24,17 +30,29 @@ function materializeTool(
 }
 
 export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] {
+    const { catalog } = options
     // Hand-written TOOL_MAP wins on collision (same as tool-catalog / getToolsFromContext).
     const factories: Record<string, () => ToolBase<ZodObjectAny>> = mergeToolFactories({
-        generated: { ...GENERATED_TOOL_MAP, ...options.catalogTools },
+        generated: GENERATED_TOOL_MAP,
         handwritten: TOOL_MAP,
     })
     const names = getToolsForFeatures({
         aiConsentGiven: options.aiConsentGiven,
+        ...(catalog ? { definitions: catalog.definitions } : {}),
     })
 
     const tools: Tool<ZodObjectAny>[] = []
     for (const name of names) {
+        const fromCatalog = catalog && Object.prototype.hasOwnProperty.call(catalog.build, name) && !(name in TOOL_MAP)
+        if (fromCatalog) {
+            try {
+                tools.push(materializeTool(name, catalog.build[name]!, catalog.definitions[name]!))
+                continue
+            } catch {
+                catalog.onUnbuildable(name, "its input schema can't be read by this hog")
+            }
+        }
+
         const factory = factories[name]
         if (!factory) {
             continue

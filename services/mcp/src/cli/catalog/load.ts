@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { catalogTool, hasCapability, hasUiApp } from './executor'
+import { hasCapability, hasUiApp } from './executor'
 import { CATALOG_SCHEMA_VERSION, type CatalogEntry, CatalogDocumentSchema, CatalogEntrySchema } from './schema'
 
 export interface DroppedCatalogTool {
@@ -67,13 +67,6 @@ export function loadCatalog(raw: unknown, reserved: ReadonlySet<string> = new Se
             dropped.push({ name: entry.name, reason: 'another tool already has this name' })
             continue
         }
-        try {
-            catalogTool(entry)
-        } catch {
-            dropped.push({ name: entry.name, reason: "its input schema can't be read by this hog" })
-            continue
-        }
-
         seen.add(entry.name)
         entries.push(entry)
     }
