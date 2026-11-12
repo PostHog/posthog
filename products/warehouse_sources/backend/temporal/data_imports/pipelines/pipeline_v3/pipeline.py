@@ -155,9 +155,9 @@ def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None
 
     Coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables) from becoming
     the queue's batch granularity, but it delays when a yielded table is persisted. So it has to stay
-    off for sources that treat a yield as durable: the webhook path deletes its staged S3 files right
-    after yielding, and a resume cursor commit assumes the write that preceded it drained every table
-    yielded so far.
+    off for sources that treat a yield as durable: the webhook path records its S3 files as consumed
+    right after yielding, and a resume cursor commit assumes the write that preceded it drained every
+    table yielded so far.
 
     Pass the *resolved* manager, never the raw one. A resumable source class whose current run cannot
     resume commits no cursor, so it is free to coalesce — and reading the raw manager here would
@@ -697,8 +697,8 @@ class PipelineV3(Generic[ResumableData]):
     def _preemption_decision(self) -> PreemptionDecision:
         """Whether another worker can continue this run from now without losing or duplicating rows."""
         if self._schema.is_webhook:
-            # The webhook path deletes its staged files after it yields them, so a row that is only
-            # in the batcher exists nowhere else.
+            # The webhook files stay in S3 until the job completes, so a continuing worker would list
+            # them again and queue every row that this worker already queued.
             return PreemptionDecision(eligible=False, reason="webhook")
         if self._resource.lanes:
             return PreemptionDecision(eligible=False, reason="multiple_tables")
@@ -1015,8 +1015,9 @@ class PipelineV3(Generic[ResumableData]):
                 # attempt after this one never reads a value that describes rows which are gone.
                 await self._stage_handoff_resume_value(force=True)
 
-            # Not for a webhook schema: an attempt of it does not read again the events that an
-            # earlier attempt took, so the batches of the earlier attempt must still load.
+            # Not for a webhook schema: a concurrent job can complete and delete files that an earlier
+            # attempt queued, so this attempt does not always read them again, and the batches of the
+            # earlier attempt must still load.
             if (
                 is_fresh_sync
                 and not should_resume

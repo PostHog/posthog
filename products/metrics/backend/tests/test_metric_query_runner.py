@@ -1844,6 +1844,55 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         # The chart reads the edges to tell how coarse the estimate is.
         self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
 
+    @parameterized.expand(
+        [
+            ("single_query", {"metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}, 1),
+            (
+                "formula",
+                {
+                    "clauses": [
+                        {"name": "a", "metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}
+                    ],
+                    "formula": "a * 1000",
+                },
+                1000,
+            ),
+        ]
+    )
+    def test_histogram_quantile_via_api_merges_layouts_and_says_so(self, _name, query, scale):
+        # Two workloads export one histogram name with different buckets. The coarse layout
+        # holds 0.7% of observations above 8.1, and the fine one holds 1% of them, all below 0.5.
+        self._seed_histogram(
+            [(self.anchor, [900, 50, 30, 7, 6, 7])], temporality="delta", bounds=[0.1, 0.3, 0.9, 2.7, 8.1]
+        )
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0])],
+            temporality="delta",
+            bounds=[0.5, 75.0],
+            resource_labels={"k8s.namespace.name": "billing"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    **query,
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [series] = response.json()["results"]
+        [point] = series["points"]
+        # Summing the two layouts by le, as PromQL does, leaves the fine layout out of every bucket from
+        # 0.9 up and puts p99 in +Inf, read as 75. Merged by width, 1003 of 1010 are at or below 8.1.
+        self.assertAlmostEqual(point["value"], (2.7 + 5.4 * 2.9 / 6) * scale)
+        self.assertEqual(series["histogram_layout_count"], 2)
+        self.assertIn("2 bucket layouts", response.json()["hint"])
+
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",
