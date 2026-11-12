@@ -5,9 +5,10 @@ import { IconChevronRight, IconCode } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { channelIcon } from '../Channels/ChannelsTag'
@@ -39,6 +40,12 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
     const { pickChannel } = useActions(supportSetupCardLogic)
 
     const supportEnabled = !!currentTeam?.conversations_enabled
+    const adminRestriction = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    // The server only lets project admins turn Support on. A preview never turns it on.
+    const enableRestriction = !supportEnabled && !preview ? adminRestriction : null
     const settings = currentTeam?.conversations_settings
 
     const channels: SetupChannel[] = [
@@ -86,7 +93,11 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
         <div className="mt-2 flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="flex flex-col gap-1 px-4 pb-3 pt-3.5">
                 <span className="text-base font-semibold">{COPY[mode].title}</span>
-                <span className="text-sm text-secondary">{COPY[mode].lead}</span>
+                <span className="text-sm text-secondary">
+                    {enableRestriction && isAuthenticatedTeam(currentTeam)
+                        ? `${enableRestriction} Ask a project admin to turn Support on.`
+                        : COPY[mode].lead}
+                </span>
             </div>
             <div className="flex flex-col gap-px border-t border-primary p-1">
                 {channels.map((channel) => (
@@ -97,7 +108,8 @@ export function SupportSetupCard({ mode, preview }: { mode: ProductEmptyStateMod
                         sideIcon={<IconChevronRight className="size-3" />}
                         loading={pendingChannel === channel.key}
                         disabledReason={
-                            pendingChannel && pendingChannel !== channel.key ? 'Turning Support on…' : undefined
+                            enableRestriction ??
+                            (pendingChannel && pendingChannel !== channel.key ? 'Turning Support on…' : undefined)
                         }
                         onClick={() => pickChannel(channel.key, mode, preview)}
                         data-attr={`support-setup-channel-${channel.key}`}
