@@ -1,4 +1,10 @@
-import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER, MOCK_USER_UUID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_ORGANIZATION_MEMBER,
+    MOCK_DEFAULT_USER,
+    MOCK_SECOND_ORGANIZATION_MEMBER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -95,18 +101,30 @@ describe('membersLogic', () => {
     })
 
     describe('postRemoveMember', () => {
-        it('drops the member and reloads the organization so member_count stays in sync', async () => {
+        it('drops the member and refreshes both organization counts', async () => {
             organizationLogic.mount()
             await expectLogic(organizationLogic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             await expectLogic(logic, () => {
                 logic.actions.loadAllMembers()
             }).toFinishAllListeners()
 
+            expect(logic.values.memberCount).toBe(2)
+            const updatedOrganization = { ...MOCK_DEFAULT_ORGANIZATION, member_count: 1 }
+            useMocks({
+                get: {
+                    '/api/organizations/@current/': updatedOrganization,
+                    '/api/users/@me/': { ...MOCK_DEFAULT_USER, organization: updatedOrganization },
+                },
+            })
+
             await expectLogic(logic, () => {
                 logic.actions.postRemoveMember(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
-            }).toDispatchActions(organizationLogic, ['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'])
+            }).toFinishAllListeners()
 
             expect(logic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
+            expect(organizationLogic.values.currentOrganization?.member_count).toBe(1)
+            expect(userLogic.values.user?.organization?.member_count).toBe(1)
+            expect(logic.values.memberCount).toBe(1)
         })
     })
 })

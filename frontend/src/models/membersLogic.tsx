@@ -398,6 +398,7 @@ export const membersLogic = kea<membersLogicType>([
             }
             // Refresh member_count so it matches the shortened members list
             organizationLogic.actions.loadCurrentOrganization()
+            userLogic.actions.loadUser()
         },
 
         ensureAllMembersLoaded: async () => {
