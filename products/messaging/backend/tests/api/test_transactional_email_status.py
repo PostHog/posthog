@@ -619,6 +619,22 @@ class TestManageScheduledEmails(EmailsApiTestBase):
             }
         ]
 
+    @parameterized.expand([("cancel", "canceled"), ("move", "waiting")])
+    def test_a_failed_usage_capture_keeps_the_answer(self, mock_post, _flag, call, expected_job):
+        self._job("waiting")
+
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
+            side_effect=RuntimeError("analytics is down"),
+        ):
+            if call == "cancel":
+                response = self._cancel(mock_post)
+            else:
+                response = self._move(mock_post, {"scheduled_at": "2026-06-17T00:00:00Z"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self.cdp.jobs[(self.team.id, self.message_id)] == expected_job
+
 
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
 @patch(
