@@ -47,12 +47,10 @@ def workflows_refuses_the_recipient() -> Iterator[None]:
         patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
         override_instance_config("EMAIL_HOST", "localhost"),
         override_settings(
-            CUSTOMER_IO_API_KEY="cio-key",
             POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
             POSTHOG_HOST="https://us.posthog.com",
         ),
         patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"code_based_verification": "tmpl-1"}),
-        patch("posthog.email.posthoganalytics.feature_enabled", return_value=True),
         patch("posthog.email.requests.post", return_value=refusal),
     ):
         yield

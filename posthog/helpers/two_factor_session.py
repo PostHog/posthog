@@ -19,7 +19,7 @@ from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
-from posthog.cloud_utils import is_dev_mode
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
 from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.organization import Organization
@@ -369,6 +369,11 @@ class CodeBasedVerifier:
     def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
         if is_dev_mode() and not settings.TEST:
             return CodeBasedVerificationCheckResult(should_send=False)
+
+        if is_cloud() and not is_http_email_service_available():
+            # Cloud always has the Workflows key and an https host, so this means a deployment lost its email config
+            # and every password login is skipping the emailed code. Cloud has no SMTP, so check before email availability.
+            capture_exception(Exception("Login code skipped: HTTP email is unavailable on a cloud deployment"))
 
         if not is_email_available(with_absolute_urls=True):
             return CodeBasedVerificationCheckResult(should_send=False)

@@ -243,3 +243,25 @@ class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "code_based_verification_bypassed_due_to_suppression")
         self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
+
+    @parameterized.expand(
+        [
+            ("cloud_with_smtp", True, True),
+            ("cloud_without_any_email", True, False),
+            ("self_hosted", False, True),
+        ]
+    )
+    @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=False)
+    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
+    @patch("posthog.helpers.two_factor_session.capture_exception")
+    def test_no_http_service_on_cloud_reports_the_skipped_login_code(
+        self, _name, on_cloud, email_available, mock_capture_exception, *_mocks
+    ):
+        with (
+            patch("posthog.helpers.two_factor_session.is_cloud", return_value=on_cloud),
+            patch("posthog.helpers.two_factor_session.is_email_available", return_value=email_available),
+        ):
+            CodeBasedVerifier().should_send_code_based_verification(self.mock_user)
+
+        self.assertEqual(mock_capture_exception.called, on_cloud)
