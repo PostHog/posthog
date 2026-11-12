@@ -1763,12 +1763,18 @@ class AzureApplicationInsightsIssueSignalInput(SignalInputBase):
 
 
 class AppsignalIssueSignalExtra(SignalExtraBase):
+    # One schema serves every AppSignal incident table, because a variant is keyed by (source_product, source_type).
+    # Exception incidents carry no `kind`, so the fields that only performance and anomaly incidents have are optional.
     state: str | None
     severity: str | None
     namespace: str | None
     occurrence_count: str | None
     created_at: str | None
     last_occurred_at: str | None
+    kind: Literal["performance_incident", "anomaly_incident"] | None = None
+    mean_duration_ms: str | None = None
+    alert_state: str | None = None
+    metric_name: str | None = None
 
 
 class AppsignalIssueSignalInput(SignalInputBase):
@@ -2017,6 +2023,88 @@ class MicrosoftDefenderCloudAppsScannerFindingSignalInput(SignalInputBase):
     extra: MicrosoftDefenderCloudAppsScannerFindingSignalExtra
 
 
+# ── Monitoring alerts and error tracking ─────────────────────────────────────────
+
+
+class NewrelicIssueSignalExtra(SignalExtraBase):
+    # One schema serves every New Relic table, because a variant is keyed by (source_product, source_type).
+    # `kind` says which table the signal came from, and each emitter fills only the fields its table has.
+    kind: Literal["alert_issue", "javascript_error", "transaction_error"]
+    issue_id: str | None = None
+    priority: str | None = None
+    activated_at: str | None = None
+    app_name: str | None = None
+    error_class: str | None = None
+    sample_transaction: str | None = None
+    occurrences: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+
+
+class NewrelicIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.NEWRELIC]
+    extra: NewrelicIssueSignalExtra
+
+
+class AmazonCloudwatchIncidentSignalExtra(SignalExtraBase):
+    alarm_name: str | None
+    alarm_kind: str | None
+    transitions: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class AmazonCloudwatchIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.AMAZON_CLOUDWATCH]
+    extra: AmazonCloudwatchIncidentSignalExtra
+
+
+class LogicmonitorIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    acked: str | None
+    monitor_object_name: str | None
+    datasource: str | None
+    instance_name: str | None
+    data_point_name: str | None
+    start_epoch: str | None
+
+
+class LogicmonitorIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.LOGICMONITOR]
+    extra: LogicmonitorIncidentSignalExtra
+
+
+class AirbrakeIssueSignalExtra(SignalExtraBase):
+    project_id: str | None
+    environment: str | None
+    notice_total_count: str | None
+    created_at: str | None
+    last_notice_at: str | None
+
+
+class AirbrakeIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.AIRBRAKE]
+    extra: AirbrakeIssueSignalExtra
+
+
+class MuxIssueSignalExtra(SignalExtraBase):
+    error_id: str | None
+    error_code: str | None
+    view_count: str | None
+    view_share: str | None
+    last_seen_at: str | None
+
+
+class MuxIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.MUX]
+    extra: MuxIssueSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -2138,7 +2226,12 @@ SignalInput = Annotated[
     | AwsSecurityHubScannerFindingSignalInput
     | AwsGuarddutyScannerFindingSignalInput
     | AwsInspectorScannerFindingSignalInput
-    | MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    | MicrosoftDefenderCloudAppsScannerFindingSignalInput
+    | NewrelicIssueSignalInput
+    | AmazonCloudwatchIncidentSignalInput
+    | LogicmonitorIncidentSignalInput
+    | AirbrakeIssueSignalInput
+    | MuxIssueSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -2256,6 +2349,11 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AwsGuarddutyScannerFindingSignalInput,
     AwsInspectorScannerFindingSignalInput,
     MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    NewrelicIssueSignalInput,
+    AmazonCloudwatchIncidentSignalInput,
+    LogicmonitorIncidentSignalInput,
+    AirbrakeIssueSignalInput,
+    MuxIssueSignalInput,
     CheckFailedSignalInput,
     MonitoringUnresolvedSignalInput,
 )
