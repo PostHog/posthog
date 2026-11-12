@@ -3,6 +3,14 @@ import { AddressInfo } from 'net'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+export interface FakeSesAttachment {
+    filename: string
+    contentType: string | undefined
+    contentId: string | undefined
+    inline: boolean
+    bytes: Buffer
+}
+
 export interface FakeSesMessage {
     messageId: string
     from: string
@@ -20,14 +28,19 @@ export interface FakeSesMessage {
     tenant: string | undefined
     configurationSet: string | undefined
     tracked: boolean
+    attachments: FakeSesAttachment[]
 }
 
-export type FakeSesFault = { status: number; type: string; message: string } | 'drop-connection'
+export type FakeSesFault =
+    | { status: number; type: string; message: string }
+    | 'drop-connection'
+    | 'no-answer'
+    | 'stalled-body'
 
 export interface FakeSes {
     endpoint: string
     sent: FakeSesMessage[]
-    failWith(fault: FakeSesFault): void
+    failWith(fault: FakeSesFault | null): void
     close(): Promise<void>
 }
 
@@ -53,6 +66,46 @@ function isNameValueList(entries: unknown): entries is NameValueList | undefined
     )
 }
 
+const ATTACHMENT_FIELDS = new Set([
+    'RawContent',
+    'ContentDisposition',
+    'FileName',
+    'ContentDescription',
+    'ContentId',
+    'ContentTransferEncoding',
+    'ContentType',
+])
+
+function toAttachments(entries: unknown): FakeSesAttachment[] | string {
+    if (entries === undefined) {
+        return []
+    }
+    if (!Array.isArray(entries)) {
+        return 'Attachments must be a list.'
+    }
+    const attachments: FakeSesAttachment[] = []
+    for (const entry of entries) {
+        const unknownField = Object.keys(entry ?? {}).find((field) => !ATTACHMENT_FIELDS.has(field))
+        if (unknownField) {
+            return `Unknown attachment field ${unknownField}.`
+        }
+        if (typeof entry.FileName !== 'string' || typeof entry.RawContent !== 'string') {
+            return 'Every attachment needs a FileName and RawContent.'
+        }
+        if (!['ATTACHMENT', 'INLINE', undefined].includes(entry.ContentDisposition)) {
+            return `Unknown ContentDisposition ${entry.ContentDisposition}.`
+        }
+        attachments.push({
+            filename: entry.FileName,
+            contentType: entry.ContentType,
+            contentId: entry.ContentId,
+            inline: entry.ContentDisposition === 'INLINE',
+            bytes: Buffer.from(entry.RawContent, 'base64'),
+        })
+    }
+    return attachments
+}
+
 function toRecord(entries: NameValueList | undefined): Record<string, string> {
     return Object.fromEntries((entries ?? []).map(({ Name, Value }) => [Name, Value]))
 }
@@ -69,6 +122,13 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
         req.on('end', () => {
             if (fault === 'drop-connection') {
                 req.socket.destroy()
+                return
+            }
+            if (fault === 'no-answer') {
+                return
+            }
+            if (fault === 'stalled-body') {
+                res.writeHead(200, { 'content-type': 'application/json' }).write('{"MessageId":')
                 return
             }
             if (fault) {
@@ -103,6 +163,11 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
                 respond(res, 400, { message: 'Every tag and header needs a Name and a Value.' }, 'BadRequestException')
                 return
             }
+            const attachments = toAttachments(simple.Attachments)
+            if (typeof attachments === 'string') {
+                respond(res, 400, { message: attachments }, 'BadRequestException')
+                return
+            }
 
             const messageId = `fake-ses-${sent.length + 1}`
             sent.push({
@@ -126,6 +191,7 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
                 tenant: request.TenantName,
                 configurationSet: configurationSetName,
                 tracked: configurationSet.tracking,
+                attachments,
             })
             respond(res, 200, { MessageId: messageId })
         })

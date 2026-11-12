@@ -74,6 +74,11 @@ def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = Tru
         raise MessageTemplateMissing() from e
 
 
+def template_file_path(team_id: int, template_id: UUID) -> str | None:
+    """The path of the template's own file, not a shortcut, whether or not the project tree shows it."""
+    return templates_service.file_path(team_id, template_id)
+
+
 def team_category_id(team_id: int, category_id: Any) -> UUID:
     """The id of the team's category with that pk, deleted or not.
 

@@ -19,6 +19,7 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -61,6 +62,9 @@ import type {
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
     EvaluationRunsApi,
+    EvaluationSampleTrafficRequestApi,
+    EvaluationSampleTrafficResponseApi,
+    EvaluationTestOnSampleRequestApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
     EvaluationsOverviewApi,
@@ -170,6 +174,7 @@ import type {
     TraceExportCreateApi,
     TraceExportFileApi,
     TraceFeedbackApi,
+    TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeRawApi,
     TracePullRequestLookupApi,
@@ -673,41 +678,6 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     })
 }
 
-export const getAiObservabilityTracesRetrieveUrl = (
-    projectId: string,
-    id: string,
-    params?: AiObservabilityTracesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
-}
-
-/**
- * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
- */
-export const aiObservabilityTracesRetrieve = async (
-    projectId: string,
-    id: string,
-    params?: AiObservabilityTracesRetrieveParams,
-    options?: RequestInit
-): Promise<TraceApi> => {
-    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getAiObservabilityTracesClustersRetrieveUrl = (
     projectId: string,
     id: string,
@@ -914,6 +884,46 @@ export const aiObservabilityTracesNodesRetrieve = async (
     })
 }
 
+export const getAiObservabilityTracesNodesDatasetItemRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/`
+}
+
+/**
+ * One node of a trace as a dataset item: its input and output as ingested, and its custom properties as metadata. The root node gives the trace's input and output state with no metadata.
+ */
+export const aiObservabilityTracesNodesDatasetItemRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDatasetItemApi> => {
+    return apiMutator<TraceNodeDatasetItemApi>(
+        getAiObservabilityTracesNodesDatasetItemRetrieveUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAiObservabilityTracesNodesRawRetrieveUrl = (
     projectId: string,
     id: string,
@@ -1095,6 +1105,41 @@ export const aiObservabilityTracesSummaryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceSummaryRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
+}
+
+/**
+ * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
+ */
+export const aiObservabilityTracesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceApi> => {
+    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1999,6 +2044,26 @@ export const evaluationsOverviewRetrieve = async (
     })
 }
 
+export const getEvaluationsSampleTrafficCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluations/sample_traffic/`
+}
+
+/**
+ * The latest units an unsaved evaluation would run on, newest first.
+ */
+export const evaluationsSampleTrafficCreate = async (
+    projectId: string,
+    evaluationSampleTrafficRequestApi?: EvaluationSampleTrafficRequestApi,
+    options?: RequestInit
+): Promise<EvaluationSampleTrafficResponseApi> => {
+    return apiMutator<EvaluationSampleTrafficResponseApi>(getEvaluationsSampleTrafficCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationSampleTrafficRequestApi),
+    })
+}
+
 export const getEvaluationsTestHogCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/evaluations/test_hog/`
 }
@@ -2016,6 +2081,26 @@ export const evaluationsTestHogCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(testHogRequestApi),
+    })
+}
+
+export const getEvaluationsTestOnSampleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluations/test_on_sample/`
+}
+
+/**
+ * Run an unsaved LLM judge on a few samples. Saves nothing and emits no results.
+ */
+export const evaluationsTestOnSampleCreate = async (
+    projectId: string,
+    evaluationTestOnSampleRequestApi: NonReadonly<EvaluationTestOnSampleRequestApi>,
+    options?: RequestInit
+): Promise<TestHogResponseApi> => {
+    return apiMutator<TestHogResponseApi>(getEvaluationsTestOnSampleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationTestOnSampleRequestApi),
     })
 }
 

@@ -30,7 +30,6 @@ from posthog.ownership.github_files import AuthenticatedRepoTree, GitHubFilesFet
 from posthog.ph_client import ph_scoped_capture
 
 from products.stamphog.backend.facade.enums import (
-    LlmSkipReason,
     OwnerKind,
     RoutingMode,
     RoutingOwnerOutcome,
@@ -51,7 +50,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_approved_routing_comment,
     render_routing_comment,
 )
-from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts, keep_pinned
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
@@ -72,6 +71,8 @@ STATUS_DONE = RoutingStatus.DONE.value
 _CLAIMED_STATUSES = frozenset({STATUS_ROUTING, STATUS_REQUESTED})
 
 TRIGGER_SAFETY_NET = "safety_net"
+# ReviewHog will not start a silent review of the waiting head, so no verdict comes for it.
+TRIGGER_EXTERNAL_REVIEW = "external_review"
 SCOPE_FULL = RoutingScope.FULL.value
 SCOPE_PINNED = RoutingScope.PINNED.value
 
@@ -339,12 +340,18 @@ def _plan_requests(kept: Sequence[OwnerCandidate], *, fork: bool, labels_by_team
 
 
 def _owner_outcome(
-    owner: str, reason: RoutingOwnerReason, *, request_owners: set[str], labeled_teams: set[str]
+    owner: str,
+    reason: RoutingOwnerReason,
+    *,
+    held_back: set[str],
+    request_owners: set[str],
+    labeled_teams: set[str],
 ) -> RoutingOwnerOutcome:
     """What the run does with one owner. GitHub can still refuse a request, which the run log adds."""
     if reason == RoutingOwnerReason.MODEL_CUT:
         return RoutingOwnerOutcome.CUT
-    if reason == RoutingOwnerReason.STAMPHOG_APPROVED:
+    if owner in held_back:
+        # Full routing would have asked this owner. The approval held the request back.
         return RoutingOwnerOutcome.NOT_REQUESTED
     if owner not in request_owners:
         # A pinned owner on an approval that an earlier routing of the pull request already requested.
@@ -355,10 +362,17 @@ def _owner_outcome(
 
 
 def _candidate_record(
-    candidate: OwnerCandidate, decision: RoutingDecision, *, request_owners: set[str], labeled_teams: set[str]
+    candidate: OwnerCandidate,
+    decision: RoutingDecision,
+    *,
+    held_back: set[str],
+    request_owners: set[str],
+    labeled_teams: set[str],
 ) -> dict[str, Any]:
     reason = decision.reasons[candidate.owner]
-    outcome = _owner_outcome(candidate.owner, reason, request_owners=request_owners, labeled_teams=labeled_teams)
+    outcome = _owner_outcome(
+        candidate.owner, reason, held_back=held_back, request_owners=request_owners, labeled_teams=labeled_teams
+    )
     return {
         "owner": candidate.owner,
         "kind": candidate.kind.value,
@@ -382,9 +396,10 @@ def _candidate_record(
     }
 
 
-def _comment_body(decision: RoutingDecision, repository: str) -> str | None:
-    if decision.llm_skipped == LlmSkipReason.STAMPHOG_APPROVED:
-        body = render_approved_routing_comment() if decision.kept else None
+def _comment_body(decision: RoutingDecision, repository: str, *, pinned_only: bool, has_pins: bool) -> str | None:
+    if pinned_only:
+        # The approval, not the model, decided who was asked, so the comment names no cuts. The run log keeps them.
+        body = render_approved_routing_comment() if has_pins else None
     else:
         body = render_routing_comment(decision=decision, org=repository.split("/", 1)[0])
     if body is None:
@@ -434,11 +449,23 @@ def _capture(repo_config: StamphogRepoConfig, record: dict[str, Any]) -> None:
         "stamphog_routing_additions_resolved": record["additions_resolved"],
         "stamphog_routing_files_truncated": record["files_truncated"],
         "stamphog_routing_latency_ms": record["latency_ms"],
+        # A retry can finish a plan that an older worker saved without the key.
+        "stamphog_routing_wait_ms": record.get("wait_ms"),
         "stamphog_routing_input_tokens": record["input_tokens"],
         "stamphog_routing_output_tokens": record["output_tokens"],
     }
     with ph_scoped_capture() as capture:
         capture(distinct_id=repo_config.repository, event=ROUTING_EVENT, properties=properties)
+
+
+def _wait_ms(previous: Mapping[str, Any] | None, routed_at: datetime) -> int | None:
+    """How long the head waited for stamphog's verdict before this run, or None when it never waited."""
+    if previous is None or previous.get("status") != STATUS_WAITING:
+        return None
+    waiting_since = previous.get("waiting_since")
+    if not isinstance(waiting_since, str):
+        return None
+    return int((routed_at - datetime.fromisoformat(waiting_since)).total_seconds() * 1000)
 
 
 def _plan(
@@ -479,23 +506,27 @@ def _plan(
             "stamphog_routing_run_id": run_id,
         },
     )
+    # A pinned routing asks the model too, so the run log shows which owners full routing would have asked.
+    decision = decide_cuts(
+        candidates=candidates,
+        title=str(pr.get("title") or ""),
+        description=str(pr.get("body") or ""),
+        is_fork=fork,
+        call_model=model,
+        files_truncated=files_truncated,
+    )
+    has_pins = any(candidate.is_pinned for candidate in candidates)
+    # Owners that full routing would ask and an approval does not.
+    held_back = {candidate.owner for candidate in candidates if pinned_only and not candidate.is_pinned}
     if pinned_only:
-        decision = keep_pinned(candidates)
         already = set(claim.get(REQUESTED_OWNERS) or [])
         # An approval of a later head requests only the pinned owners that no routing requested yet.
-        to_request = [candidate for candidate in decision.kept if candidate.owner not in already]
+        to_request = [candidate for candidate in candidates if candidate.is_pinned and candidate.owner not in already]
     else:
-        decision = decide_cuts(
-            candidates=candidates,
-            title=str(pr.get("title") or ""),
-            description=str(pr.get("body") or ""),
-            is_fork=fork,
-            call_model=model,
-            files_truncated=files_truncated,
-        )
         to_request = list(decision.kept)
     requests = _plan_requests(to_request, fork=fork, labels_by_team=fork_labels(repo_config))
-    planned_at = datetime.now(UTC).isoformat()
+    now = datetime.now(UTC)
+    planned_at = now.isoformat()
     return {
         **claim,
         "fork": fork,
@@ -503,6 +534,7 @@ def _plan(
             _candidate_record(
                 candidate,
                 decision,
+                held_back=held_back,
                 request_owners={owner.owner for owner in to_request},
                 labeled_teams=set(requests.labeled_teams),
             )
@@ -521,10 +553,12 @@ def _plan(
         "requested_users": requests.users,
         "labeled_teams": requests.labeled_teams,
         "labels": requests.labels,
-        "pending_comment": _comment_body(decision, repository),
+        "pending_comment": _comment_body(decision, repository, pinned_only=pinned_only, has_pins=has_pins),
         "input_tokens": model.usage.input_tokens if model.usage else 0,
         "output_tokens": model.usage.output_tokens if model.usage else 0,
         "latency_ms": int((time.monotonic() - started) * 1000),
+        # The claim keeps the record it replaced as `previous`, and `_request_and_comment` drops it before the capture.
+        "wait_ms": _wait_ms(claim.get("previous"), now),
         "planned_at": planned_at,
         "routed_at": planned_at,
     }
@@ -588,8 +622,9 @@ def route_claimed(
 ) -> None:
     """Plan under ``claim``, save the plan, then request reviews and comment.
 
-    The claim's `scope` decides the run: `full` asks the cut step, `pinned` requests only the owners
-    of sensitive and new paths, with no model call.
+    The claim's `scope` decides the run: `full` requests the owners the cut step keeps, `pinned`
+    requests only the owners of sensitive and new paths. Both ask the cut step, so the run log of a
+    pinned run shows which owners a full run would have asked.
     """
     plan = _plan(client, pr_obj, pr, claim=claim)
     if not _save_claimed(pr_obj, plan):

@@ -1966,6 +1966,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return
             }
             let request: Promise<void> | null = null
+            cache.treeDeletions ??= []
+            const deletionsBefore: number = cache.treeDeletions.length
             request = (async () => {
                 const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
                 if (cache.itemRequests.get(requestKey) !== request) {
@@ -1974,7 +1976,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 if (items.users?.length > 0) {
                     actions.addLoadedUsers(items.users)
                 }
-                actions.addLoadedResults(items as any as SearchResults)
+                // A tree delete that lands while this read is in flight removes rows the response still holds.
+                const deletedSince: FileSystemEntry[] = cache.treeDeletions.slice(deletionsBefore)
+                const results = items.results.filter(
+                    (entry) =>
+                        !deletedSince.some((deleted) =>
+                            deleted.type === 'folder'
+                                ? isPathUnder(entry.path, deleted.path)
+                                : entry.id === deleted.id ||
+                                  (!!deleted.ref && entry.ref === deleted.ref && entry.type === deleted.type)
+                        )
+                )
+                actions.addLoadedResults({ ...items, results } as any as SearchResults)
             })()
             cache.itemRequests.set(requestKey, request)
             try {
@@ -1986,6 +1999,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         actions.syncTypeAndRef(type, ref, true)
                     }
                 }
+                if (cache.itemRequests.size === 0) {
+                    cache.treeDeletions = []
+                }
+            }
+        },
+        deleteSavedItem: ({ savedItem }) => {
+            if (cache.itemRequests?.size) {
+                cache.treeDeletions ??= []
+                cache.treeDeletions.push(savedItem)
             }
         },
         deleteTypeAndRef: ({ type, ref }) => {

@@ -11,6 +11,7 @@
                 "backend/migrations/**",
                 "backend/temporal/**",
                 "!backend/temporal/tests/**",
+                "backend/tasks/**",
                 "backend/hogql_queries/trends/**",
                 "!backend/hogql_queries/trends/test/**",
                 "backend/scopes.py",

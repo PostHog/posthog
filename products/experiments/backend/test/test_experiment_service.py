@@ -4172,7 +4172,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, False, [], [], [], True)],
+                [("update_start_date", 0, False, ["stale_experiment"], [], ["stale_experiment::info:"], True)],
             ),
             (
                 "update_imports_concluded_draft",
@@ -6203,6 +6203,22 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_by_feature_flag_ids(self) -> None:
+        service = self._service()
+        for name in ("First", "Second", "Unlisted"):
+            service.create_experiment(name=name, feature_flag_key=f"flag-ids-{name.lower()}")
+        flag_ids = Experiment.objects.filter(team=self.team, name__in=["First", "Second"]).values_list(
+            "feature_flag_id", flat=True
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"feature_flag_ids": ",".join(str(flag_id) for flag_id in flag_ids)},
+        )
+
+        assert sorted(queryset.values_list("name", flat=True)) == ["First", "Second"]
 
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:

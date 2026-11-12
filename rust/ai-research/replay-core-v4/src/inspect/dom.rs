@@ -1703,8 +1703,7 @@ fn observe_mutation(
     let mut walked: Option<HashSet<i64>> = None;
     if let Some(list) = lists.adds {
         let mut sources = Vec::new();
-        for item in items(list) {
-            let [parent, node] = fields(list.bytes, item, [b"parentId", b"node"]);
+        for [parent, node] in item_fields(list, [b"parentId", b"node"]) {
             let parent = number(list.bytes, parent).map(|p| p as i64);
             let first = walk.ids.len();
             if let Some(node) = node {
@@ -1752,8 +1751,7 @@ fn observe_mutation(
     dom.add_style_texts(&walk.style_texts);
     let walked = walked.unwrap_or_else(|| walk.ids.iter().map(|&(id, _)| id).collect());
     if let Some(texts) = lists.texts {
-        for item in items(texts) {
-            let [id, value] = fields(texts.bytes, item, [b"id", b"value"]);
+        for [id, value] in item_fields(texts, [b"id", b"value"]) {
             let Some(id) = number(texts.bytes, id).map(|id| id as i64) else {
                 continue;
             };
@@ -1767,12 +1765,12 @@ fn observe_mutation(
     }
     let mut attribute_ids = Vec::new();
     if let Some(attributes) = lists.attributes {
-        for (index, item) in items(attributes).enumerate() {
+        let items = item_fields(attributes, [b"id", b"attributes"]);
+        for (index, [id, values]) in items.enumerate() {
             if index == MAX_ATTRIBUTE_ITEMS {
                 walk.image_urls.limit = Some(UrlLimit::AttributeItems);
                 break;
             }
-            let [id, values] = fields(attributes.bytes, item, [b"id", b"attributes"]);
             let id = number(attributes.bytes, id).map(|id| id as i64);
             attribute_ids.extend(id);
             if let Some(values) = values.filter(|&v| scan::is_object(attributes.bytes, v)) {
@@ -1844,11 +1842,8 @@ fn observe_mutation(
         .filter(|&&id| !dom.knows(id, &added))
         .count() as u32;
     if let Some(texts) = lists.texts {
-        orphans += items(texts)
-            .filter(|&item| {
-                number(texts.bytes, field(texts.bytes, item, b"id"))
-                    .is_some_and(|id| !dom.knows(id as i64, &added))
-            })
+        orphans += item_fields(texts, [b"id"])
+            .filter(|&[id]| number(texts.bytes, id).is_some_and(|id| !dom.knows(id as i64, &added)))
             .count() as u32;
     }
     let mut removed = 0;
@@ -1864,8 +1859,8 @@ fn observe_mutation(
             .iter()
             .filter_map(|(id, _)| dom.hidden_sources.get(id).map(|s| (*id, s.clone())))
             .collect();
-        for item in items(removes) {
-            if let Some(id) = number(removes.bytes, field(removes.bytes, item, b"id")) {
+        for [id] in item_fields(removes, [b"id"]) {
+            if let Some(id) = number(removes.bytes, id) {
                 removed += dom.remove(id as i64).max(1);
             }
         }
@@ -1902,8 +1897,8 @@ fn style_sheet_urls(
                 fields(inner, data, [b"adds", b"replace", b"replaceSync"]);
             match adds.map(|adds| decoded_list(inner, adds, expansion)) {
                 Some(Ok(Some(adds))) => {
-                    for item in items(adds) {
-                        read_rule(adds.bytes, field(adds.bytes, item, b"rule"), urls);
+                    for [rule] in item_fields(adds, [b"rule"]) {
+                        read_rule(adds.bytes, rule, urls);
                     }
                 }
                 Some(Err(limit)) => urls.limit = urls.limit.or(Some(limit)),
@@ -1933,18 +1928,13 @@ fn style_sheet_urls(
             let Some(styles) = field(inner, data, b"styles") else {
                 return;
             };
-            for style in items(List {
-                bytes: inner,
-                span: styles,
-            }) {
-                let Some(rules) = field(inner, style, b"rules") else {
+            let list = |span| List { bytes: inner, span };
+            for [rules] in item_fields(list(styles), [b"rules"]) {
+                let Some(rules) = rules else {
                     continue;
                 };
-                for rule in items(List {
-                    bytes: inner,
-                    span: rules,
-                }) {
-                    read_rule(inner, field(inner, rule, b"rule"), urls);
+                for [rule] in item_fields(list(rules), [b"rule"]) {
+                    read_rule(inner, rule, urls);
                 }
             }
         }
@@ -1966,6 +1956,18 @@ fn decoded_list<'b>(
     };
     let span = scan::locate_value(json, 0).map_err(|_| UrlLimit::NestedJson)?;
     Ok(Some(List { bytes: json, span }))
+}
+
+fn item_fields<'b, const N: usize>(
+    list: List<'b>,
+    keys: [&'b [u8]; N],
+) -> impl Iterator<Item = [Option<Span>; N]> + 'b {
+    scan::array_items_with_fields(list.bytes, list.span, keys)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|(_, found)| found)
 }
 
 fn items(list: List<'_>) -> impl Iterator<Item = Span> + '_ {

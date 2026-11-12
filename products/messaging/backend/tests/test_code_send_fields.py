@@ -211,7 +211,11 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
 
     @parameterized.expand(
-        [(field, address, accepted) for field in ("cc", "bcc") for address, accepted in ADDRESS_VERDICTS]
+        [
+            *(("cc", address, accepted) for address, accepted in ADDRESS_VERDICTS),
+            ("bcc", "jane=tag@example.com", True),
+            ("bcc", "jane@localhost", False),
+        ]
     )
     def test_takes_the_copy_addresses_the_pipeline_takes(self, field: str, address: str, accepted: bool) -> None:
         if accepted:

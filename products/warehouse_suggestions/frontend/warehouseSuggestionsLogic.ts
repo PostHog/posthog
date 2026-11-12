@@ -61,7 +61,7 @@ import {
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
-export type SuggestionPlacement = 'overview' | 'models_tab'
+export type SuggestionPlacement = 'overview' | 'models_tab' | 'tables_tab'
 export type ShowMorePlacement = 'strip' | 'dialog'
 export interface SuggestionGroup {
     kind: string
