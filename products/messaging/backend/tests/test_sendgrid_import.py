@@ -3,6 +3,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -23,6 +24,7 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.sendgrid import SendGridImportProvider, missing_scopes
@@ -175,6 +177,14 @@ class TestSendGridImport(BaseTest):
         assert any("design editor" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("no version" in note for note in items["Empty template"]["notes"])
         assert run.progress["templates"]["counts"]["no_version"] == 1
+
+    def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
+        key = "sendgrid-design-eeeeeeee-0000-4000-8000-000000000001"
+        TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key=key, hog_flow_id=uuid4())
+
+        self._run(["designs"])
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key=key).exists()
 
     def test_designs_and_single_sends_become_templates_with_notes(self) -> None:
         IntegrationManager.email.credentials.create(
