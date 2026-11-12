@@ -698,11 +698,18 @@ class TestProgressiveHighlights(BaseTest):
     @parameterized.expand(
         [
             (
-                "an own number hides key metrics",
-                PulseSlotStatus.READY,
+                "an own insight hides key metrics",
+                ("routine", PulseSlotStatus.READY),
                 3,
                 PulseSlotStatus.READY,
-                ["experiment:1", "insight:pop0", "insight:pop1"],
+                ["insight:own", "insight:pop0", "insight:pop1"],
+            ),
+            (
+                "an experiment number keeps key metrics",
+                ("experiment_numbers", PulseSlotStatus.READY),
+                3,
+                PulseSlotStatus.READY,
+                ["experiment:1", "key:0", "key:1", "key:2"],
             ),
             (
                 "key metrics fill in without own numbers",
@@ -720,8 +727,8 @@ class TestProgressiveHighlights(BaseTest):
                 ["insight:pop0", "key:0", "key:1", "key:2"],
             ),
             (
-                "a failed own number brings key metrics back",
-                PulseSlotStatus.ERROR,
+                "a failed own insight brings key metrics back",
+                ("routine", PulseSlotStatus.ERROR),
                 3,
                 PulseSlotStatus.READY,
                 ["insight:pop0", "key:0", "key:1", "key:2"],
@@ -731,7 +738,7 @@ class TestProgressiveHighlights(BaseTest):
     def test_key_metrics_and_popular_numbers_fill_what_own_numbers_leave(
         self,
         _name: str,
-        own_status: PulseSlotStatus | None,
+        own: tuple[str, PulseSlotStatus] | None,
         key_metric_count: int,
         last_status: PulseSlotStatus,
         expected: list[str],
@@ -747,14 +754,19 @@ class TestProgressiveHighlights(BaseTest):
             source_name="experiment_numbers",
             highlights_id=str(row.id),
         )
-        if own_status == PulseSlotStatus.READY:
-            experiment = replace(metric("experiment:1"), reason=HighlightMetricReason.EXPERIMENT)
-            highlights.publish_pulse(inputs, HighlightFindings(pulse=(experiment,)), [])
-        elif own_status is not None:
-            failed = contracts.PulseSlot(
-                key="experiment:1", name="Experiment", reason=HighlightMetricReason.EXPERIMENT, status=own_status
+        if own is not None:
+            source, status = own
+            key, reason = (
+                ("insight:own", HighlightMetricReason.ROUTINE)
+                if source == "routine"
+                else ("experiment:1", HighlightMetricReason.EXPERIMENT)
             )
-            highlights.publish_pulse(inputs, HighlightFindings(), [failed])
+            if status == PulseSlotStatus.READY:
+                found = HighlightFindings(pulse=(replace(metric(key), reason=reason),))
+                highlights.publish_pulse(replace(inputs, source_name=source), found, [])
+            else:
+                failed = contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
+                highlights.publish_pulse(replace(inputs, source_name=source), HighlightFindings(), [failed])
         key_slots = [contracts.PulseSlot(key=f"key:{i}", name=f"Key {i}") for i in range(key_metric_count)]
         key_slots[-1] = replace(key_slots[-1], status=last_status)
         highlights.publish_pulse(replace(inputs, source_name="key_metrics"), HighlightFindings(), key_slots)

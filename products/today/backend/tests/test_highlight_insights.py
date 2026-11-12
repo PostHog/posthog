@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.models import FileSystemViewLog, User
 
+from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import (
     AgentInsightRead,
@@ -36,6 +37,15 @@ TODAY = date(2026, 10, 13)
 def days(values: list[float]) -> list[tuple[date, float]]:
     start = TODAY - timedelta(days=len(values))
     return [(start + timedelta(days=i), v) for i, v in enumerate(values)]
+
+
+def key_metrics(weeks: list[float] | None) -> list[KeyMetric] | None:
+    if weeks is None:
+        return None
+    return [
+        KeyMetric(key=f"metric{i}", name="Sign-ups", people=False, daily=[], this_week=w, last_week=w, node={})
+        for i, w in enumerate(weeks)
+    ]
 
 
 def insight(series: dict[str, list[tuple[date, float]]], **fields: Any) -> InsightSeries:
@@ -472,17 +482,20 @@ class TestRoutineInsights(BaseTest):
 
     @parameterized.expand(
         [
-            ("a person without habits", [], ["team_fav", "runner_up", "third"]),
-            ("a habit that is already popular", ["team_fav"], ["runner_up", "third"]),
-            ("two habits leave two places", ["h1", "h2"], ["team_fav", "runner_up"]),
-            ("habits that fill the row", ["h1", "h2", "h3", "h4"], []),
-            ("a dashboard habit takes one place", ["dashboard:7"], ["team_fav", "runner_up", "third"]),
-            ("a habit without data frees its place", ["h1", "h2", "broken"], ["team_fav", "runner_up"]),
+            ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
+            ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
+            ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
+            ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
+            ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
+            ("key metrics keep no place beside habits", ["h1", "h2"], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("active key metrics keep places without habits", [], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("a key metric without activity keeps no place", [], [0.0], ["team_fav", "runner_up", "third"]),
+            ("key metrics still computing keep their places", [], None, ["team_fav", "runner_up"]),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
-        self, _name: str, habits: list[str], expected: list[str]
+        self, _name: str, habits: list[str], key_metric_weeks: list[float] | None, expected: list[str]
     ) -> None:
         viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
         seen = {
@@ -529,10 +542,24 @@ class TestRoutineInsights(BaseTest):
         with (
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(routine, "dashboard_insights", return_value=growth),
+            patch.object(routine, "get_key_metrics", return_value=key_metrics(key_metric_weeks)),
+            patch.object(
+                routine, "get_key_metric_names", return_value={"metric0": "Sign-ups", "metric1": "Active users"}
+            ),
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
 
         self.assertEqual([m.key for m in pulse if m.reason == "popular"], [f"insight:{ref}" for ref in expected])
+
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_popular_insights_are_not_looked_up_when_key_metrics_fill_the_row(self) -> None:
+        with (
+            patch.object(routine, "get_key_metrics", return_value=key_metrics([5.0] * 4)),
+            patch.object(routine, "_popular_refs", return_value=["team_fav"]) as popular_refs,
+        ):
+            routine.find(Context(self.team, self.user, TODAY))
+
+        popular_refs.assert_not_called()
 
 
 class TestProgressiveInsights(SimpleTestCase):
