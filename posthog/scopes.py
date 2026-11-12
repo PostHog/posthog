@@ -326,8 +326,6 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # SDK prompt fetches by name and by list, so a service does not need a credential tied
     # to one person's account. Publishing, labels and archiving stay closed to these keys.
     ("llm_prompt", "read"),
-    # Lets a service read logs (query, counts, patterns, attribute lookups) without a credential
-    # tied to one person's account. Exports and every write route stay PSAK-denied.
     ("logs", "read"),
 ]
 

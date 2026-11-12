@@ -1494,7 +1494,6 @@ class LogsProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateTh
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
-    # Extends the default authenticators, because TeamAndOrgViewSetMixin appends session, personal key and OAuth.
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # The read actions a service needs. `export` stays out because an export belongs to the user who made it.
     psak_allowed_actions = [
