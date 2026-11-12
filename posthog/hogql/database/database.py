@@ -2089,12 +2089,11 @@ class Database(BaseModel):
         from posthog.models.team.team import Team  # noqa: PLC0415
         from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
-        from products.data_modeling.backend.facade.api import (  # noqa: PLC0415
-            engine_table_ids,
-            engine_tables_by_saved_query_id,
-        )
         from products.data_modeling.backend.facade.contracts import MaterializationEngine  # noqa: PLC0415
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+        from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
+            DataWarehouseSavedQuery,
+            NodeEngineTable,
+        )
         from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
         from products.mcp_analytics.backend.facade.api import custom_harness_rules  # noqa: PLC0415
@@ -2263,7 +2262,7 @@ class Database(BaseModel):
                         modifiers.useMaterializedViews
                         and modifiers.materializedViewEngine == MaterializedViewEngine.TRINO
                     ):
-                        engine_tables = engine_tables_by_saved_query_id(team, MaterializationEngine.TRINO)
+                        engine_tables = _engine_tables_by_saved_query_id(team, MaterializationEngine.TRINO)
                     # A view that runs raw Trino SQL has no ClickHouse copy, so only its Trino copy makes it readable.
                     saved_queries = [
                         sq
@@ -2362,7 +2361,12 @@ class Database(BaseModel):
                     )
                     if backing_table_ids:
                         tables_query = tables_query.exclude(id__in=backing_table_ids)
-                    tables_query = tables_query.exclude(id__in=engine_table_ids(team))
+                    # These tables back views. They are not tables the team connected.
+                    tables_query = tables_query.exclude(
+                        id__in=NodeEngineTable.objects.for_team(team.parent_team_id or team.pk, canonical=True).values(
+                            "table_id"
+                        )
+                    )
                     if is_direct_query:
                         tables_query = tables_query.filter(external_data_source_id=connection_id)
                     else:
@@ -3564,6 +3568,23 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
 
     for warehouse_table in warehouse_tables:
         warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
+
+
+def _engine_tables_by_saved_query_id(team: Team, engine: str) -> dict[str, DataWarehouseTable]:
+    """The live table `engine` wrote for each materialized saved query of the team, keyed by saved query id.
+
+    A view that stopped materializing has no entry, because its copy is stale.
+    """
+    from products.data_modeling.backend.facade.models import NodeEngineTable  # noqa: PLC0415
+
+    rows = (
+        NodeEngineTable.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .filter(engine=engine, node__team_id=team.pk, node__saved_query__is_materialized=True)
+        .exclude(table__deleted=True)
+        .select_related("table", "node")
+        .order_by("updated_at")
+    )
+    return {str(row.node.saved_query_id): row.table for row in rows}
 
 
 def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
