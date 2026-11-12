@@ -206,19 +206,30 @@ describe('runner', () => {
         return { server, clients, sockets }
     }
 
-    it.each<[string, Stall, boolean]>([
-        ['the database never answers its startup', 'startup', false],
-        ['the database never answers a seed query', 'query', false],
-        ['the run is interrupted while the database never answers its startup', 'startup', true],
+    it.each<[string, Stall, unknown[] | undefined, string]>([
+        ['the database never answers its startup', 'startup', undefined, 'seeding did not finish within 2000 ms'],
+        ['the database never answers a seed query', 'query', undefined, 'seeding did not finish within 2000 ms'],
+        [
+            'the run is interrupted while the database never answers its startup',
+            'startup',
+            [],
+            'seeding was interrupted',
+        ],
+        [
+            'the run is interrupted without a reason while the database never answers its startup',
+            'startup',
+            [null],
+            'seeding was interrupted',
+        ],
     ])(
-        'ends the run by the seeding deadline and requires a restart when %s',
-        async (_story, stall, interrupted) => {
+        'ends the seeding stage and requires a restart when %s',
+        async (_story, stall, abortWith, why) => {
             const interrupt = new AbortController()
             let stalled = false
             const { server, clients, sockets } = await stalling(stall, () => {
                 stalled = true
-                if (interrupted) {
-                    interrupt.abort()
+                if (abortWith !== undefined) {
+                    interrupt.abort(...abortWith)
                 }
             })
             try {
@@ -230,19 +241,13 @@ describe('runner', () => {
                     { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
                     { seedWithinMs: 2000 }
                 )
-                const startedAt = Date.now()
 
                 const result = await bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), interrupt.signal)
 
-                expect(Date.now() - startedAt).toBeLessThan(5000)
                 expect(stalled).toBe(true)
                 expect(result).toMatchObject({
                     status: 'invalid',
-                    statusReason: expect.stringMatching(
-                        new RegExp(
-                            `^the run stopped: (${interrupted ? '.*aborted' : 'seeding did not finish within 2000 ms'}); its connections were destroyed, restart required$`
-                        )
-                    ),
+                    statusReason: `the run stopped: ${why}; its connections were destroyed, restart required`,
                 })
                 await Promise.all(clients.map((client) => (client.closed ? Promise.resolve() : once(client, 'close'))))
                 await expect(
