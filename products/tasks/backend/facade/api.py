@@ -8299,7 +8299,7 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
-    uses_repository_integration = validated_data.get("repository_integration") is not None
+    uses_repository_integration = validated_data.get("repository_integration_id") is not None
     if (
         validated_data.get("repository")
         and not validated_data.get("github_integration")

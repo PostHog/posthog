@@ -597,17 +597,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         help_text="User-scoped GitHub integration used for user-authored task runs",
         related_name="+",
     )
-    # GitHub tasks keep `github_integration`. A task in any other provider's repository links its
-    # connection here, so the provider comes from the integration kind.
-    repository_integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
+    # GitHub tasks keep `github_integration`. A task in any other provider's repository stores its
+    # connection id here, so the provider comes from the integration kind. A plain id rather than a
+    # foreign key, so a run reads an id of a deleted connection as unusable.
+    repository_integration_id = models.BigIntegerField(
         null=True,
         blank=True,
-        db_index=False,
-        limit_choices_to={"kind": "gitlab"},
         help_text="Source-control integration for a repository outside GitHub, such as a GitLab project",
-        related_name="+",
     )
 
     repository = models.CharField(
