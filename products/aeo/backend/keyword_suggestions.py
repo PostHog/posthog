@@ -70,7 +70,7 @@ NO_ROOM_ERROR = (
 )
 FAILED_ERROR = "Keyword suggestions failed. Try again in a minute."
 STALE_JOB_ERROR = "Keyword suggestions stopped before they finished. Try again."
-UNREADABLE_ANSWER_ERROR = "Claude's answer couldn't be read. Try again."
+UNREADABLE_ANSWER_ERROR = "The suggestions couldn't be read. Try again."
 
 
 @frozen

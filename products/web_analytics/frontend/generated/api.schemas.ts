@@ -425,7 +425,7 @@ export interface AEOKeywordSuggestionJobApi {
     suggestions: AEOKeywordSuggestionApi[]
     /** Job id. Poll GET aeo_keywords/suggest/<id>/ with it. */
     id: string
-    /** pending while Claude works, then completed or failed.
+    /** pending while PostHog works, then completed or failed.
      *
      * * `pending` - Pending
      * * `completed` - Completed
@@ -1174,7 +1174,7 @@ export interface AEOPromptSuggestionJobApi {
     suggestions: AEOPromptSuggestionApi[]
     /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
     id: string
-    /** pending while Claude works, then completed or failed.
+    /** pending while PostHog works, then completed or failed.
      *
      * * `pending` - Pending
      * * `completed` - Completed

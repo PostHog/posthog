@@ -50,7 +50,7 @@ SUGGESTION_CACHE_ALIAS = "aeo_prompt_suggestions"
 SUGGESTION_JOB_TTL_SECONDS = 60 * 60
 # A job still pending past the task's hard time limit lost its worker, so readers see it as failed.
 SUGGESTION_JOB_STALE_SECONDS = 8 * 60
-UNREADABLE_ANSWER_ERROR = "Claude's answer couldn't be read. Try again."
+UNREADABLE_ANSWER_ERROR = "The suggestions couldn't be read. Try again."
 STALE_JOB_ERROR = "Prompt suggestions stopped before they finished. Try again."
 
 

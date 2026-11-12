@@ -288,7 +288,7 @@ class AEOKeywordSuggestionJobSerializer(DataclassSerializer):
         ref_name = "AEOKeywordSuggestionJob"
         extra_kwargs = {
             "id": {"help_text": "Job id. Poll GET aeo_keywords/suggest/<id>/ with it."},
-            "status": {"help_text": "pending while Claude works, then completed or failed."},
+            "status": {"help_text": "pending while PostHog works, then completed or failed."},
             "error": {"help_text": "Why the job failed. Empty unless status is failed."},
         }
 
@@ -418,7 +418,7 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         summary="Suggest AEO keywords",
         description=(
             "Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the "
-            "organization. Claude ranks keywords from the site, the project's tracked prompts and topics, and the web "
+            "organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web "
             "searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume "
             "data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the "
             "keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand "
@@ -461,7 +461,7 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_keywords_suggestion_retrieve",
         summary="Get AEO keyword suggestions",
-        description="Gets a keyword suggestion job started with POST aeo_keywords/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
+        description="Gets a keyword suggestion job started with POST aeo_keywords/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
         responses={200: OpenApiResponse(response=AEOKeywordSuggestionJobSerializer)},
         tags=["web_analytics"],
     )

@@ -62,7 +62,7 @@ const SuggestForm = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-4">
             {startError ? <LemonBanner type="error">{startError}</LemonBanner> : null}
-            <LemonField.Pure label="Site" help="Claude reads this site if your prompts don't say enough about you.">
+            <LemonField.Pure label="Site" help="PostHog reads this site if your prompts don't say enough about you.">
                 <LemonInput
                     value={form.domain}
                     onChange={(domain) => setForm({ domain })}
@@ -110,8 +110,8 @@ const SuggestReview = (): JSX.Element => {
     if (suggestions.length === 0) {
         return (
             <p className="m-0 text-muted">
-                No new keywords came back. Claude's ideas may already be on your list, or its answer had none to keep.
-                Add a description of what you do and try again.
+                No new keywords came back. The ideas may already be on your list, or none were worth keeping. Add a
+                description of what you do and try again.
             </p>
         )
     }
@@ -216,7 +216,7 @@ export const ContentAutopilotKeywordSuggestModal = (): JSX.Element => {
             isOpen={suggestOpen}
             onClose={adding ? undefined : closeSuggest}
             title="Suggest keywords"
-            description="Claude ranks keywords from your site, your prompts and the web searches the AI engines ran while answering them. You pick which ones to track."
+            description="PostHog suggests keywords from your site, your prompts and the web searches the AI engines ran while answering them. You pick which ones to track."
             width={640}
             footer={footer}
         >
