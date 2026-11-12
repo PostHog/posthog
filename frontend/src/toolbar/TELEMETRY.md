@@ -286,33 +286,36 @@ Fired when flags are loaded for a different distinct ID.
 
 Fired when a flag comparison starts capturing the page.
 
-| Property      | Type     | Description                                                          |
-| ------------- | -------- | -------------------------------------------------------------------- |
-| `state_count` | `number` | Captures the comparison takes: off plus on, or off plus each variant |
+| Property      | Type                  | Description                                                                                     |
+| ------------- | --------------------- | ----------------------------------------------------------------------------------------------- |
+| `state_count` | `number`              | Captures the comparison takes: off plus on, or off plus each variant                            |
+| `source`      | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out |
 
-**File:** `shared/flags/flagComparisonLogic.ts`
+**Files:** `shared/flags/flagComparisonLogic.ts`, `extension/browser/extensionTelemetry.ts`
 
 ### `toolbar feature flag comparison completed`
 
 Fired when every capture of a flag comparison succeeds.
 
-| Property      | Type      | Description                                               |
-| ------------- | --------- | --------------------------------------------------------- |
-| `state_count` | `number`  | Captures the comparison took                              |
-| `identical`   | `boolean` | `true` when every capture matched the flag-off capture    |
-| `duration_ms` | `number`  | Time from the start of the comparison to the last capture |
+| Property      | Type                  | Description                                                                                                                                                                         |
+| ------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state_count` | `number`              | Captures the comparison took                                                                                                                                                        |
+| `identical`   | `boolean`             | `true` when every capture matched the flag-off capture                                                                                                                              |
+| `duration_ms` | `number`              | Time from the start of the comparison to the last capture. With `source: 'extension'`, it runs until the panel receives the images, so it also counts their conversion and transfer |
+| `source`      | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out                                                                                     |
 
-**File:** `shared/flags/flagComparisonLogic.ts`
+**Files:** `shared/flags/flagComparisonLogic.ts`, `extension/browser/extensionTelemetry.ts`
 
 ### `toolbar feature flag comparison failed`
 
 Fired when a comparison stops early: a capture fails or times out, for example on a cross-origin image or font, or the flag overrides change during the run.
 
-| Property | Type     | Description                                                                                |
-| -------- | -------- | ------------------------------------------------------------------------------------------ |
-| `reason` | `string` | One of `capture_failed`, `capture_timeout`, `capture_still_running` or `overrides_changed` |
+| Property | Type                  | Description                                                                                                                       |
+| -------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `reason` | `string`              | One of `capture_failed`, `capture_timeout`, `capture_still_running`, `overrides_changed` or `captures_too_large` (extension only) |
+| `source` | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out                                   |
 
-**File:** `shared/flags/flagComparisonLogic.ts`
+**Files:** `shared/flags/flagComparisonLogic.ts`, `extension/browser/extensionTelemetry.ts`
 
 ## Product tours
 
@@ -398,11 +401,11 @@ Fired when the side panel shows a new state.
 
 Fired when the user runs a tool on the page from the extension.
 
-| Property  | Type                   | Description                                                                                                                                                                                                                                                                                                                                                                                            |
-| --------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tool`    | `string`               | `'inspect'`, `'heatmap'`, `'save-heatmap'`, `'heatmap-variant-filter'`, `'actions'`, `'create-action'`, `'save-action'`, `'flags'`, `'override-flag'`, `'clear-flag-overrides'`, `'impersonate-flags'`, `'events'`, `'export-events'`, `'web-vitals'`, `'experiments'`, `'create-experiment'`, `'save-experiment'`, `'more'`, `'pii-masking'`, `'screenshot-for-event'`, or `'view-session-recording'` |
-| `payload` | `boolean \| undefined` | `true` when `'override-flag'` sets a payload                                                                                                                                                                                                                                                                                                                                                           |
-| `enabled` | `boolean \| undefined` | `true` when `'heatmap-variant-filter'` picks a variant, `false` when it clears it                                                                                                                                                                                                                                                                                                                      |
+| Property  | Type                   | Description                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tool`    | `string`               | `'inspect'`, `'heatmap'`, `'save-heatmap'`, `'heatmap-variant-filter'`, `'actions'`, `'create-action'`, `'save-action'`, `'flags'`, `'override-flag'`, `'compare-flag'`, `'clear-flag-overrides'`, `'impersonate-flags'`, `'events'`, `'export-events'`, `'web-vitals'`, `'experiments'`, `'create-experiment'`, `'save-experiment'`, `'more'`, `'pii-masking'`, `'screenshot-for-event'`, or `'view-session-recording'` |
+| `payload` | `boolean \| undefined` | `true` when `'override-flag'` sets a payload                                                                                                                                                                                                                                                                                                                                                                             |
+| `enabled` | `boolean \| undefined` | `true` when `'heatmap-variant-filter'` picks a variant, `false` when it clears it                                                                                                                                                                                                                                                                                                                                        |
 
 **File:** `extension/browser/extensionTelemetry.ts`
 

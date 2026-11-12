@@ -433,9 +433,9 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        # One query for the unioned entities, and one each for the actions, workflows and canvases merged in through their facades.
+        # One query for the unioned entities, and one each for the actions, dashboards, workflows and canvases merged in through their facades.
         # The canvas search also resolves the project's canonical team when no request viewer is passed.
-        assert len(ctx_without) == 5
+        assert len(ctx_without) == 6
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

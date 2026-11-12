@@ -7,7 +7,6 @@ import { githubFileUrl } from '../lib/github'
 import { TrunkQuarantinedTestRow } from '../scenes/engineeringAnalyticsLogic'
 import { TestIdCell } from './TestIdCell'
 
-/** One team's quarantined tests, shown in the debt table's expanded row and on the team page. */
 export function TeamQuarantinedTestsTable({
     tests,
     ttlDays,

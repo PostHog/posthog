@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 
@@ -27,7 +28,7 @@ from products.actions.backend.facade.api import search_actions
 from products.canvas.backend.facade.contracts import CanvasViewer
 from products.canvas.backend.facade.search import search_canvases
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import search_dashboards
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
@@ -70,11 +71,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description", "query"],
-    },
-    "dashboard": {
-        "klass": Dashboard,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
     },
     "data_warehouse_view": {
         "klass": DataWarehouseSavedQuery,
@@ -174,22 +170,28 @@ def _search_workflows(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
     return results, count
 
 
-# Actions and workflows are searched through their products' facades rather than unioned by model
+# Actions, dashboards and workflows are searched through their products' facades rather than unioned by model
 # class, so they are not in ENTITY_MAP. `search_entities` merges them in when one is requested.
 ACTION_ENTITY = "action"
+DASHBOARD_ENTITY = "dashboard"
 WORKFLOW_ENTITY = "hog_flow"
 CANVAS_ENTITY = "canvas"
 FACADE_SEARCHES: dict[str, FacadeSearch] = {
+    DASHBOARD_ENTITY: search_dashboards,
     ACTION_ENTITY: _search_actions,
     WORKFLOW_ENTITY: _search_workflows,
     CANVAS_ENTITY: search_canvases,
 }
 # Actions keep their place between notebooks and cohorts in the entity choices and the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
+_DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
+_ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
 _COUNTED_ENTITIES = [
-    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("cohort")],
+    *_UNION_ENTITY_NAMES[:_DASHBOARD_SLOT],
+    DASHBOARD_ENTITY,
+    *_UNION_ENTITY_NAMES[_DASHBOARD_SLOT:_ACTION_SLOT],
     ACTION_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+    *_UNION_ENTITY_NAMES[_ACTION_SLOT:],
 ]
 SEARCHABLE_ENTITIES = [*_COUNTED_ENTITIES, WORKFLOW_ENTITY, CANVAS_ENTITY]
 """
@@ -291,11 +293,7 @@ def search_entities(
     counts: dict[str, int | None] = (
         dict.fromkeys(counted_entities if counted_entities is not None else entity_map) if include_counts else {}
     )
-    qs = (
-        Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-        .filter(team__project_id=project_id)
-        .none()
-    )
+    qs: QuerySet[Any] = Team.objects.none()
 
     # add entities
     for entity_type in sorted(entities):

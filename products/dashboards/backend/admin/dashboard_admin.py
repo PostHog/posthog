@@ -69,7 +69,7 @@ class DashboardAdmin(admin.ModelAdmin):
         description="Restore selected dashboards (incl. tiles and co-deleted insights)",
     )
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Dashboard]) -> None:
-        from products.dashboards.backend.api.dashboard import (  # noqa: PLC0415 — keeps the heavy API module off the django.setup() path
+        from products.dashboards.backend.presentation.views.dashboard import (  # noqa: PLC0415 — keeps the heavy API module off the django.setup() path
             DashboardSerializer,
         )
 
