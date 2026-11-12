@@ -4507,33 +4507,53 @@ describe('CDP API', () => {
                 )
             })
 
-            it('replays a retry of the first request until a day after the latest time the send can be moved to', async () => {
-                const keys = api['transactionalEmailIdempotencyKeys']
-                const scope = `scope-${new UUIDT().toString()}`
-                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(keys['valkey'], scope)
-                try {
-                    const request = { ...body, scheduled_at: inDays(1), idempotency_key: `key-${scope}` }
-                    const sendFirstRequest = () =>
-                        send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
-                    const first = await sendFirstRequest()
-                    const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
+            it.each([
+                ['accepted to go out now', undefined],
+                ['scheduled a day ahead', 1],
+            ])(
+                'replays a retry of a send %s until a day after the latest time a reschedule can move it to',
+                async (_desc, scheduledInDays) => {
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    const valkey = keys['valkey']!
+                    const scope = `scope-${new UUIDT().toString()}`
+                    api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                    const letStoreTimePass = (ms: number) =>
+                        valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                            for (const stored of await client.keys(`*${scope}*`)) {
+                                const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                                const remainingMs = await client.pttl(storedKey)
+                                if (remainingMs > ms) {
+                                    await client.pexpire(storedKey, remainingMs - ms)
+                                } else if (remainingMs >= 0) {
+                                    await client.del(storedKey)
+                                }
+                            }
+                        })
+                    try {
+                        const request = {
+                            ...body,
+                            ...(scheduledInDays !== undefined && { scheduled_at: inDays(scheduledInDays) }),
+                            idempotency_key: `key-${scope}`,
+                        }
+                        const sendFirstRequest = () =>
+                            send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
+                        const first = await sendFirstRequest()
+                        const moved = await manage('reschedule', first.body.invocation_id, {
+                            scheduled_at: inDays(29.9),
+                        })
+                        await letStoreTimePass(31 * DAY_MS - 60 * 60 * 1000)
 
-                    const retry = await sendFirstRequest()
+                        const retry = await sendFirstRequest()
 
-                    expect(moved.status).toEqual(200)
-                    expect(retry.status).toEqual(202)
-                    expect(retry.body).toEqual({ ...first.body, replayed: true })
-                    const ttlSeconds = await keys['valkey']!.useClient({ name: 'test-ttl' }, async (client) => {
-                        const stored = await client.keys(`*${scope}*`)
-                        expect(stored).toHaveLength(1)
-                        return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
-                    })
-                    expect(ttlSeconds).toBeGreaterThan((31 * DAY_MS) / 1000 - 120)
-                    expect(ttlSeconds).toBeLessThanOrEqual((31 * DAY_MS) / 1000)
-                } finally {
-                    api['transactionalEmailIdempotencyKeys'] = keys
+                        expect(first.status).toEqual(202)
+                        expect(moved.status).toEqual(200)
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
                 }
-            })
+            )
 
             it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
                 const messageId = await scheduleSend()

@@ -245,7 +245,7 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? latestDueAt : undefined
+                latestDueAt
             )
         }
         stages.start('metrics_flush')
