@@ -53,15 +53,6 @@ export function AreaGroupTable({ group, rows }: { group: AreaGroup; rows: AreaRo
                                 {summary}
                             </div>
                         ) : null}
-                        {decision.top_files.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                                {decision.top_files.map((file) => (
-                                    <code key={file.path} className="text-xs bg-surface-secondary rounded px-1 py-0.5">
-                                        {file.path}
-                                    </code>
-                                ))}
-                            </div>
-                        ) : null}
                         <div className="text-xs text-secondary">
                             {run.pull_request.author}
                             {run.pull_request.merged_at ? (

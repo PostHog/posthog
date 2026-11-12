@@ -34,7 +34,6 @@ const owner = (overrides: Partial<StamphogRoutingRunOwnerApi>): StamphogRoutingR
         reason: 'model_kept',
         model_reason: '',
         pins: [],
-        top_files: [],
         lines: 42,
         file_count: 3,
         summary: null,
@@ -111,7 +110,7 @@ const storybookSplit = run({
     summary:
         'Splits the Storybook config into per-addon modules; story loading and the visual test setup now import from the new paths.',
     approved: true,
-    owners: [owner({ lines: 559, file_count: 5, top_files: storybookSplitFiles.slice(0, 3) })],
+    owners: [owner({ lines: 559, file_count: 5 })],
 })
 
 const runs: StamphogRoutingRunApi[] = [
@@ -132,10 +131,6 @@ const runs: StamphogRoutingRunApi[] = [
                 pins: [{ reason: 'sensitive', path: '.github/workflows/ci-backend.yml' }],
                 lines: 142,
                 file_count: 2,
-                top_files: [
-                    file('.github/workflows/ci-backend.yml', 90, 30),
-                    file('.github/scripts/shard_tests.py', 20, 2),
-                ],
             }),
         ],
     }),
@@ -153,10 +148,6 @@ const runs: StamphogRoutingRunApi[] = [
             owner({
                 lines: 76,
                 file_count: 3,
-                top_files: [
-                    file('tools/hogli/hogli/preflight.py', 40, 8),
-                    file('.github/actions/setup-node/action.yml', 28),
-                ],
             }),
             owner({ owner: 'team-infra', outcome: 'requested', reason: 'largest_owner', lines: 164, file_count: 4 }),
         ],
@@ -171,7 +162,7 @@ const runs: StamphogRoutingRunApi[] = [
         summary: 'hogli test now prints the name of the step that failed instead of only its exit code.',
         approved: true,
         owners: [
-            owner({ lines: 22, file_count: 1, top_files: [file('tools/hogli/hogli/commands/test.py', 18, 4)] }),
+            owner({ lines: 22, file_count: 1 }),
             owner({ owner: 'team-clickhouse', outcome: 'cut', reason: 'model_cut', lines: 46, file_count: 2 }),
         ],
     }),
@@ -190,7 +181,6 @@ const runs: StamphogRoutingRunApi[] = [
                 reason: 'model_kept',
                 lines: 64,
                 file_count: 2,
-                top_files: [file('.github/workflows/merge-queue.yml', 50, 14)],
             }),
             owner({ owner: 'team-docs', outcome: 'requested', reason: 'largest_owner', lines: 236, file_count: 6 }),
         ],
@@ -212,7 +202,6 @@ const runs: StamphogRoutingRunApi[] = [
                 summary: 'renames an import in a shared test helper.',
                 lines: 4,
                 file_count: 1,
-                top_files: [file('posthog/test/base.py', 2, 2)],
             }),
             owner({
                 owner: 'team-feature-flags',
@@ -240,7 +229,6 @@ const runs: StamphogRoutingRunApi[] = [
                 summary: 'a formatting change in a lint config.',
                 lines: 2,
                 file_count: 1,
-                top_files: [file('.oxlintrc.json', 1, 1)],
             }),
             owner({
                 owner: 'team-product-analytics',

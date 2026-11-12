@@ -20,8 +20,6 @@ from django.db.models import (
     Exists,
     ExpressionWrapper,
     F,
-    Func,
-    JSONField,
     OuterRef,
     Prefetch,
     Q,
@@ -726,22 +724,6 @@ _ROUTING_PULL_REQUEST_COLUMNS = (
 )
 
 
-class _LargestFiles(Func):
-    """An owner's 3 most changed files from its stored `files` list, computed in Postgres.
-
-    The list reads only these, so a large pull request's full file lists never leave the database.
-    Ties keep the stored order. The template is a constant and its one expression is a column.
-    """
-
-    template = (
-        "(SELECT COALESCE(jsonb_agg(entry.file ORDER BY entry.lines DESC, entry.position), '[]'::jsonb) "
-        "FROM (SELECT file, position, (file->>'additions')::int + (file->>'deletions')::int AS lines "
-        "FROM jsonb_array_elements(%(expressions)s) WITH ORDINALITY AS stored(file, position) "
-        "ORDER BY lines DESC, position LIMIT 3) AS entry)"
-    )
-    output_field = JSONField()
-
-
 def _routing_file_to_dto(file: dict[str, Any]) -> contracts.RoutingFileDTO:
     return contracts.RoutingFileDTO(
         path=file["path"],
@@ -766,7 +748,6 @@ def _routing_owner_to_dto(
         pins=[contracts.RoutingPinDTO(reason=PinReason(pin["reason"]), path=pin["path"]) for pin in row.pins],
         files=[_routing_file_to_dto(file) for file in row.files] if with_files else [],
         # Annotated by _routing_runs.
-        top_files=[_routing_file_to_dto(file) for file in row.top_files],  # type: ignore[attr-defined]
         lines=row.lines,
         file_count=row.file_count,
         # Clauses are keyed by team slug, which is how owners.yaml spells a team owner.
@@ -811,11 +792,7 @@ def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contrac
 
 
 def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
-    owners = (
-        RoutingRunOwner.objects.for_team(team_id, canonical=True)
-        .annotate(top_files=_LargestFiles("files"))
-        .order_by("owner")
-    )
+    owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).order_by("owner")
     if not with_files:
         # A large pull request gives every owner a long file list, which only the single-run read returns.
         owners = owners.defer("files")

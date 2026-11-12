@@ -205,8 +205,6 @@ class RoutingRunOwnerDTO:
     model_reason: str = ""
     pins: list[RoutingPinDTO] = Field(default_factory=list)
     files: list[RoutingFileDTO] = Field(default_factory=list)
-    # The owner's largest files, so a list can show where the change sits without every file.
-    top_files: list[RoutingFileDTO] = Field(default_factory=list)
     lines: int = 0
     file_count: int = 0
     # The reviewer's clause about this owner's part, when its change summary has one.

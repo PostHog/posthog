@@ -233,7 +233,7 @@ tools:
             model's one-line `model_reason` when it proposed a cut. Each run also carries its `pull_request`: title,
             author, url, `merged_at`, the size once merged, the stamphog reviewer's one-sentence `summary` of the
             change, and `approved_by_stamphog`, whether a standing stamphog approval covers the run's head. Each owner
-            has up to 3 `top_files`, its most changed files, and a `summary` when the reviewer wrote a clause about that
+            has a `summary` when the reviewer wrote a clause about that
             owner's part. To answer "why was my team not asked to review", filter by `owner` (a team slug such as
             `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add
             `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it (comma-separate

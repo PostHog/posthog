@@ -1640,7 +1640,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         owners = {owner["owner"]: owner["summary"] for owner in run["owners"]}
         assert owners == {"team-alpha": expected_alpha_clause, "team-beta": None}
 
-    def test_the_list_shows_each_owners_largest_files(self) -> None:
+    def test_only_the_single_run_read_returns_each_owners_files(self) -> None:
         files = [{**self._FILE, "path": f"products/alpha/{lines}.py", "additions": lines} for lines in (5, 40, 1, 12)]
         RoutingRunOwner.objects.unscoped().filter(run=self.run_one, owner="team-alpha").update(files=files)
 
@@ -1648,11 +1648,6 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         one = self.client.get(f"{self.url}{self.run_one.id}/").json()
 
         alpha = next(owner for owner in listed["owners"] if owner["owner"] == "team-alpha")
-        assert [file["path"] for file in alpha["top_files"]] == [
-            "products/alpha/40.py",
-            "products/alpha/12.py",
-            "products/alpha/5.py",
-        ]
         assert "files" not in alpha
         # The single-run read keeps every file.
         assert len(next(owner for owner in one["owners"] if owner["owner"] == "team-alpha")["files"]) == 4

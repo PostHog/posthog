@@ -79323,27 +79323,6 @@ export namespace Schemas {
       path: string;
     }
 
-    export interface StamphogRoutingFile {
-      /** The changed path. */
-      path: string;
-      /**
-         * The path before a rename. Null for any other change.
-         * @nullable
-         */
-      previous_path?: string | null;
-      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
-      status?: string;
-      /** Added lines. */
-      additions?: number;
-      /** Deleted lines. */
-      deletions?: number;
-      /**
-         * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
-         * @nullable
-         */
-      owners_source?: string | null;
-    }
-
     export interface StamphogRoutingRunOwner {
       /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
        *
@@ -79372,8 +79351,6 @@ export namespace Schemas {
        * * `team` - Team
        * * `person` - Person */
       readonly kind: OwnerKindEnum;
-      /** Up to 3 of the files this owner owns, the most changed lines first. Get one run for all of them. */
-      readonly top_files: readonly StamphogRoutingFile[];
       /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
       owner: string;
       /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
@@ -114415,6 +114392,27 @@ export namespace Schemas {
       review_on_clean_external_review?: boolean;
     }
 
+    export interface StamphogRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+      /**
+         * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
+         * @nullable
+         */
+      owners_source?: string | null;
+    }
+
     export interface StamphogRoutingOwnerCount {
       /** Whether the owner is a GitHub team or a person.
        *
@@ -114455,8 +114453,6 @@ export namespace Schemas {
        * * `team` - Team
        * * `person` - Person */
       readonly kind: OwnerKindEnum;
-      /** Up to 3 of the files this owner owns, the most changed lines first. Get one run for all of them. */
-      readonly top_files: readonly StamphogRoutingFile[];
       /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
       readonly files: readonly StamphogRoutingFile[];
       /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */

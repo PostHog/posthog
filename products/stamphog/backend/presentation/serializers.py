@@ -1203,12 +1203,6 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
     )
 
-    top_files = RoutingFileSerializer(
-        many=True,
-        read_only=True,
-        help_text="Up to 3 of the files this owner owns, the most changed lines first. Get one run for all of them.",
-    )
-
     class Meta:
         dataclass = contracts.RoutingRunOwnerDTO
         exclude = ["files"]
