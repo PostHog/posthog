@@ -104,8 +104,6 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             groupTypeIndex !== undefined &&
             groupKeys.length === 1
 
-        // A HogQL filter's label is only its trailing comment, so the title carries the whole expression for
-        // anyone who cannot open the filter, such as a viewer of a workflow.
         const fullLabel = !children && isHogQLPropertyFilter(item) ? item.key : label
         const groupCard = showGroupCard ? (
             <GroupKeyFilterTooltip

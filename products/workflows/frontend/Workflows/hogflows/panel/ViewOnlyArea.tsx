@@ -52,8 +52,6 @@ function isCursorMove(event: React.KeyboardEvent): boolean {
 }
 
 function isReadingShortcut(event: React.KeyboardEvent): boolean {
-    // Only plain Ctrl/Cmd+A and +C read. Monaco binds variants such as Ctrl+Shift+A, which toggles a block comment
-    // on Linux, to commands that edit the model without a beforeinput event.
     return (
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
@@ -76,9 +74,6 @@ function isCodeEditorTab(event: React.KeyboardEvent): boolean {
 
 function blockEditingKeys(event: React.KeyboardEvent): void {
     if (isFindShortcut(event) || isCodeEditorTab(event)) {
-        // Monaco's find widget would open with typing blocked, and Monaco's Tab indents the code through a
-        // model edit that no beforeinput event announces. Stopping propagation keeps the key away from
-        // Monaco, so the browser's default runs instead: its find bar opens, or focus moves on.
         event.stopPropagation()
         return
     }

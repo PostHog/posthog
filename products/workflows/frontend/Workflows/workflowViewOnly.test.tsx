@@ -12,7 +12,6 @@ import {
     DataWarehouseColumnsHint,
     DataWarehouseColumnsHintProps,
 } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 
 import { useMocks } from '~/mocks/jest'
@@ -83,33 +82,207 @@ function setWorkflowResourceAccess(level: AccessControlLevel): void {
     } as AppContext
 }
 
+const CODE = '    return event\n    // sent'
+
 function MonacoLikeEditor(): JSX.Element {
     const codeRef = useRef<HTMLTextAreaElement>(null)
     const [isFindOpen, setIsFindOpen] = useState(false)
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     useEffect(() => {
         const code = codeRef.current!
+        const editLines = (event: KeyboardEvent, edit: (lines: string[]) => string[]): void => {
+            event.preventDefault()
+            code.value = edit(code.value.split('\n')).join('\n')
+        }
         const onKeyDown = (event: KeyboardEvent): void => {
+            const withCtrlOrCmd = event.metaKey || event.ctrlKey
             if (event.key === 'Tab') {
-                event.preventDefault()
-                code.value = event.shiftKey ? code.value.replace(/^ {4}/, '') : `    ${code.value}`
-            }
-            if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
+                editLines(event, ([first, ...rest]) => [
+                    event.shiftKey ? first.replace(/^ {4}/, '') : `    ${first}`,
+                    ...rest,
+                ])
+            } else if (event.altKey && event.shiftKey && event.key === 'ArrowDown') {
+                editLines(event, (lines) => [...lines, lines[lines.length - 1]])
+            } else if (event.altKey && event.key === 'ArrowUp') {
+                editLines(event, ([first, second]) => [second, first])
+            } else if (withCtrlOrCmd && event.shiftKey && event.key.toLowerCase() === 'a') {
+                editLines(event, (lines) => ['/*', ...lines, '*/'])
+            } else if (withCtrlOrCmd && event.key === 'f') {
                 event.preventDefault()
                 setIsFindOpen(true)
             }
         }
+        const onContextMenu = (event: MouseEvent): void => {
+            event.preventDefault()
+            setIsMenuOpen(true)
+        }
+        const onPaste = (event: ClipboardEvent): void => {
+            event.preventDefault()
+            code.value += event.clipboardData?.getData('text/plain') ?? ''
+        }
+        const onCut = (event: ClipboardEvent): void => {
+            event.preventDefault()
+            code.value = ''
+        }
         code.addEventListener('keydown', onKeyDown)
-        return () => code.removeEventListener('keydown', onKeyDown)
+        code.addEventListener('contextmenu', onContextMenu)
+        code.addEventListener('paste', onPaste)
+        code.addEventListener('cut', onCut)
+        return () => {
+            code.removeEventListener('keydown', onKeyDown)
+            code.removeEventListener('contextmenu', onContextMenu)
+            code.removeEventListener('paste', onPaste)
+            code.removeEventListener('cut', onCut)
+        }
     }, [])
 
     return (
         <div className="monaco-editor">
-            <textarea ref={codeRef} aria-label="Code" defaultValue="    return event" />
+            <textarea ref={codeRef} aria-label="Code" defaultValue={CODE} />
             {isFindOpen && <input aria-label="Find in code" />}
+            {isMenuOpen && <div role="menu" aria-label="Code menu" />}
         </div>
     )
 }
+
+function StepSettings(): JSX.Element {
+    const [isSaved, setIsSaved] = useState(false)
+
+    return (
+        <>
+            <button onClick={() => setIsSaved(true)}>Save as team default</button>
+            {isSaved && <span>Saved as team default</span>}
+            <input aria-label="Subject" defaultValue="Welcome" />
+            <input aria-label="Maximum emails" type="number" defaultValue="3" />
+            <MonacoLikeEditor />
+            <input aria-label="Next field" />
+        </>
+    )
+}
+
+const removeBrowserDefaults: (() => void)[] = []
+
+function emulateBrowserDefault<K extends keyof WindowEventMap>(
+    type: K,
+    action: (event: WindowEventMap[K], target: HTMLInputElement) => void
+): void {
+    const listener = (event: WindowEventMap[K]): void => {
+        queueMicrotask(() => {
+            if (!event.defaultPrevented) {
+                action(event, event.target as HTMLInputElement)
+            }
+        })
+    }
+    window.addEventListener(type, listener, true)
+    removeBrowserDefaults.push(() => window.removeEventListener(type, listener, true))
+}
+
+interface ReadingDefaults {
+    copied: string
+    findOpened: boolean
+}
+
+function emulateReadingDefaults(): ReadingDefaults {
+    const browser: ReadingDefaults = { copied: '', findOpened: false }
+    emulateBrowserDefault('keydown', (event, field) => {
+        const withCtrlOrCmd = event.ctrlKey || event.metaKey
+        if (withCtrlOrCmd && event.key === 'c') {
+            browser.copied = field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0)
+        } else if (withCtrlOrCmd && event.key === 'f') {
+            browser.findOpened = true
+        } else if (event.altKey && event.shiftKey && ['ArrowRight', 'ArrowDown'].includes(event.key)) {
+            field.setSelectionRange(field.selectionStart, field.value.length)
+        } else if (event.altKey && event.key === 'ArrowUp') {
+            field.setSelectionRange(0, 0)
+        }
+    })
+    return browser
+}
+
+type StepEdit = (user: ReturnType<typeof userEvent.setup>) => Promise<unknown>
+
+const subjectField = (): HTMLInputElement => screen.getByLabelText<HTMLInputElement>('Subject')
+const codeField = (): HTMLTextAreaElement => screen.getByLabelText<HTMLTextAreaElement>('Code')
+const isSaved = (): boolean => screen.queryByText('Saved as team default') !== null
+const isSubjectEdited = (): boolean => subjectField().value !== 'Welcome'
+const isCodeEdited = (): boolean => codeField().value !== CODE
+
+async function pressInCode(user: ReturnType<typeof userEvent.setup>, keys: string): Promise<void> {
+    codeField().focus()
+    await user.keyboard(keys)
+}
+
+const STEP_EDITS: [string, StepEdit, () => boolean][] = [
+    ['clicks a button', (user) => user.click(screen.getByText('Save as team default')), isSaved],
+    [
+        'presses Enter on a button',
+        async (user) => {
+            screen.getByText('Save as team default').focus()
+            await user.keyboard('{Enter}')
+        },
+        isSaved,
+    ],
+    [
+        'types into a field',
+        async (user) => {
+            subjectField().focus()
+            await user.keyboard('!')
+        },
+        isSubjectEdited,
+    ],
+    [
+        'pastes into code',
+        async (user) => {
+            codeField().focus()
+            await user.paste('!')
+        },
+        isCodeEdited,
+    ],
+    [
+        'cuts from code',
+        async (user) => {
+            await pressInCode(user, '{Control>}a{/Control}')
+            await user.cut()
+        },
+        isCodeEdited,
+    ],
+    [
+        "deletes from a field through the browser's menu",
+        async () => {
+            emulateBrowserDefault('beforeinput', (_, field) => {
+                field.value = field.value.slice(0, -1)
+            })
+            fireEvent(
+                subjectField(),
+                new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteContentBackward' })
+            )
+            await act(async () => {})
+        },
+        isSubjectEdited,
+    ],
+    [
+        'steps a number field',
+        async (user) => {
+            emulateBrowserDefault('keydown', (event, field) => event.key === 'ArrowUp' && field.stepUp())
+            screen.getByLabelText('Maximum emails').focus()
+            await user.keyboard('{ArrowUp}')
+        },
+        () => screen.getByLabelText<HTMLInputElement>('Maximum emails').value !== '3',
+    ],
+    [
+        'opens the code menu',
+        (user) => user.pointer({ keys: '[MouseRight]', target: codeField() }),
+        () => screen.queryByLabelText('Code menu') !== null,
+    ],
+    ['moves a code line up', (user) => pressInCode(user, '{Alt>}{ArrowUp}{/Alt}'), isCodeEdited],
+    ['copies a code line down', (user) => pressInCode(user, '{Alt>}{Shift>}{ArrowDown}{/Shift}{/Alt}'), isCodeEdited],
+    [
+        'toggles a block comment in code',
+        (user) => pressInCode(user, '{Control>}{Shift>}A{/Shift}{/Control}'),
+        isCodeEdited,
+    ],
+]
 
 function fakeClipboard(): () => Promise<string> {
     let copied = ''
@@ -158,6 +331,7 @@ describe('view-only workflow', () => {
     afterEach(() => {
         cleanup()
         Reflect.deleteProperty(navigator, 'clipboard')
+        removeBrowserDefaults.splice(0).forEach((remove) => remove())
         logic?.unmount()
     })
 
@@ -315,101 +489,83 @@ describe('view-only workflow', () => {
         expect(screen.getByText('Compare instructions with another version')).toBeInTheDocument()
     })
 
-    it.each([
-        ['clicks a button', 'Save as team default', (el: HTMLElement): boolean => fireEvent.click(el)],
-        [
-            'presses Enter on a button',
-            'Save as team default',
-            (el: HTMLElement) => fireEvent.keyDown(el, { key: 'Enter' }),
-        ],
-        ['types into a field', 'Subject', (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'a' })],
-        ['pastes into a field', 'Subject', (el: HTMLElement): boolean => fireEvent.paste(el)],
-        ['cuts from a field', 'Subject', (el: HTMLElement): boolean => fireEvent.cut(el)],
-        ['opens the context menu on a field', 'Subject', (el: HTMLElement): boolean => fireEvent.contextMenu(el)],
-        [
-            'deletes from a field through the context menu',
-            'Subject',
-            (el: HTMLElement): boolean =>
-                fireEvent(
-                    el,
-                    new InputEvent('beforeinput', {
-                        bubbles: true,
-                        cancelable: true,
-                        inputType: 'deleteContentBackward',
-                    })
-                ),
-        ],
-        ['steps a number field', 'Maximum emails', (el: HTMLElement) => fireEvent.keyDown(el, { key: 'ArrowUp' })],
-        [
-            'moves a code line up',
-            'Code',
-            (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'ArrowUp', altKey: true }),
-        ],
-        [
-            'copies a code line down',
-            'Code',
-            (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'ArrowDown', altKey: true, shiftKey: true }),
-        ],
-        [
-            'toggles a block comment in code',
-            'Code',
-            (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'A', ctrlKey: true, shiftKey: true }),
-        ],
-    ])('stops a viewer who %s inside a step', (_, label, interact) => {
-        const onEdit = jest.fn()
+    it.each<[string, AccessControlLevel, StepEdit, () => boolean, boolean]>(
+        STEP_EDITS.flatMap(([action, edit, isEdited]) => [
+            [`stops a viewer who ${action}`, AccessControlLevel.Viewer, edit, isEdited, false],
+            [`lets an editor who ${action} change the step`, AccessControlLevel.Editor, edit, isEdited, true],
+        ])
+    )('%s', async (_, accessLevel, edit, isEdited, edited) => {
+        logic.actions.loadWorkflowSuccess({ ...VIEWER_WORKFLOW, user_access_level: accessLevel })
+        const user = userEvent.setup()
         renderForViewer(
             <ViewOnlyArea>
-                <button aria-label="Save as team default" onClick={onEdit} onKeyDown={onEdit} />
-                <input aria-label="Subject" onKeyDown={onEdit} onPaste={onEdit} onCut={onEdit} />
-                <input aria-label="Maximum emails" type="number" onKeyDown={onEdit} />
-                <div className="monaco-editor">
-                    <textarea aria-label="Code" onKeyDown={onEdit} />
-                </div>
+                <StepSettings />
             </ViewOnlyArea>
         )
 
-        const reachedDefault = interact(screen.getByLabelText(label))
+        await edit(user)
 
-        expect(reachedDefault).toBe(false)
-        expect(onEdit).not.toHaveBeenCalled()
+        expect(isEdited()).toBe(edited)
     })
 
-    it.each([
-        ['copies', { key: 'c', ctrlKey: true }],
-        ['selects all', { key: 'a', metaKey: true }],
-        ['moves the cursor', { key: 'ArrowLeft' }],
-        ['moves the cursor by word', { key: 'ArrowLeft', altKey: true }],
-        ['selects by word', { key: 'ArrowRight', altKey: true, shiftKey: true }],
-        ['moves by paragraph', { key: 'ArrowUp', altKey: true }],
-        ['selects by paragraph', { key: 'ArrowDown', altKey: true, shiftKey: true }],
-        ['tabs onward', { key: 'Tab' }],
-        ['finds on the page', { key: 'f', ctrlKey: true }],
-    ])('lets a viewer who %s read a step field', (_, keyPress) => {
+    it.each<
+        [string, string, [number, number], (subject: HTMLInputElement, browser: ReadingDefaults) => unknown, unknown]
+    >([
+        ['copies the selection', '{Control>}c{/Control}', [0, 7], (_, browser) => browser.copied, 'Welcome'],
+        [
+            'selects all',
+            '{Control>}a{/Control}',
+            [3, 3],
+            (subject) => [subject.selectionStart, subject.selectionEnd],
+            [0, 7],
+        ],
+        ['moves the cursor', '{ArrowLeft}', [7, 7], (subject) => subject.selectionStart, 6],
+        ['moves the cursor by word', '{Alt>}{ArrowLeft}{/Alt}', [7, 7], (subject) => subject.selectionStart, 6],
+        ['selects by word', '{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}', [0, 0], (subject) => subject.selectionEnd, 7],
+        ['moves by paragraph', '{Alt>}{ArrowUp}{/Alt}', [7, 7], (subject) => subject.selectionStart, 0],
+        [
+            'selects by paragraph',
+            '{Alt>}{Shift>}{ArrowDown}{/Shift}{/Alt}',
+            [0, 0],
+            (subject) => subject.selectionEnd,
+            7,
+        ],
+        ['tabs onward', '{Tab}', [0, 0], () => document.activeElement?.getAttribute('aria-label'), 'Next field'],
+        ['finds on the page', '{Control>}f{/Control}', [0, 0], (_, browser) => browser.findOpened, true],
+    ])('lets a viewer who %s read a step field', async (_, keys, [selectionStart, selectionEnd], observe, expected) => {
+        const user = userEvent.setup()
         renderForViewer(
             <ViewOnlyArea>
-                <input aria-label="Subject" />
+                <input aria-label="Subject" defaultValue="Welcome" />
+                <input aria-label="Next field" />
             </ViewOnlyArea>
         )
+        const browser = emulateReadingDefaults()
+        const subject = screen.getByLabelText<HTMLInputElement>('Subject')
+        subject.focus()
+        subject.setSelectionRange(selectionStart, selectionEnd)
 
-        expect(fireEvent.keyDown(screen.getByLabelText('Subject'), keyPress)).toBe(true)
+        await user.keyboard(keys)
+
+        expect(observe(subject, browser)).toEqual(expected)
     })
 
     it.each([
-        ['a viewer tabs out of a code editor', AccessControlLevel.Viewer, '{Tab}', 'After code', '    return event'],
+        ['a viewer tabs out of a code editor', AccessControlLevel.Viewer, '{Tab}', 'After code', CODE],
         [
             'a viewer shift-tabs out of a code editor',
             AccessControlLevel.Viewer,
             '{Shift>}{Tab}{/Shift}',
             'Before code',
-            '    return event',
+            CODE,
         ],
-        ['an editor indents code with Tab', AccessControlLevel.Editor, '{Tab}', 'Code', '        return event'],
+        ['an editor indents code with Tab', AccessControlLevel.Editor, '{Tab}', 'Code', `    ${CODE}`],
         [
             'an editor outdents code with Shift+Tab',
             AccessControlLevel.Editor,
             '{Shift>}{Tab}{/Shift}',
             'Code',
-            'return event',
+            CODE.slice(4),
         ],
     ])('%s', async (_, accessLevel, keys, focusedFieldLabel, codeAfter) => {
         logic.actions.loadWorkflowSuccess({ ...VIEWER_WORKFLOW, user_access_level: accessLevel })
@@ -433,18 +589,21 @@ describe('view-only workflow', () => {
     it.each([
         ['a viewer gets the browser find bar instead of the code editor find', AccessControlLevel.Viewer, true],
         ['an editor gets the code editor find', AccessControlLevel.Editor, false],
-    ])('%s', (_, accessLevel, reachesBrowserFind) => {
+    ])('%s', async (_, accessLevel, getsBrowserFind) => {
         logic.actions.loadWorkflowSuccess({ ...VIEWER_WORKFLOW, user_access_level: accessLevel })
+        const user = userEvent.setup()
         renderForViewer(
             <ViewOnlyArea>
                 <MonacoLikeEditor />
             </ViewOnlyArea>
         )
+        const browser = emulateReadingDefaults()
+        screen.getByLabelText('Code').focus()
 
-        const reachedBrowserFind = fireEvent.keyDown(screen.getByLabelText('Code'), { key: 'f', metaKey: true })
+        await user.keyboard('{Control>}f{/Control}')
 
-        expect(reachedBrowserFind).toBe(reachesBrowserFind)
-        expect(screen.queryByLabelText('Find in code') === null).toBe(reachesBrowserFind)
+        expect(browser.findOpened).toBe(getsBrowserFind)
+        expect(screen.queryByLabelText('Find in code') === null).toBe(getsBrowserFind)
     })
 
     it('lets a viewer copy a webhook URL from a step', async () => {
@@ -481,7 +640,21 @@ describe('view-only workflow', () => {
         expect(screen.getByText('Hi Ada, your order left the warehouse today.')).toBeInTheDocument()
     })
 
-    it('stops a viewer who toggles a push step setting', () => {
+    it.each([
+        ['stops a viewer who toggles a push step setting', AccessControlLevel.Viewer, 'false'],
+        ['lets an editor toggle a push step setting', AccessControlLevel.Editor, 'true'],
+    ])('%s', async (_, accessLevel, checkedAfter) => {
+        const savedWorkflow = async ({ request }: { request: Request }): Promise<[number, HogFlow]> => [
+            200,
+            { ...VIEWER_WORKFLOW, user_access_level: accessLevel, ...(await request.json()) },
+        ]
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': savedWorkflow,
+                '/api/projects/:team_id/hog_flows/:id/': savedWorkflow,
+            },
+        })
+        logic.actions.loadWorkflowSuccess({ ...VIEWER_WORKFLOW, user_access_level: accessLevel })
         const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
         editorLogic.mount()
         editorLogic.actions.setSelectedNodeId('push_node')
@@ -491,13 +664,32 @@ describe('view-only workflow', () => {
                 <HogFlowEditorPanelBuildDetail />
             </BindLogic>
         )
-        const toggle = document.querySelector<HTMLElement>('[data-attr="workflow-push-sensitive-toggle"]')
+        const toggle = document.querySelector<HTMLElement>('[data-attr="workflow-push-sensitive-toggle"]')!
+        await userEvent.click(toggle)
 
-        expect(fireEvent.click(toggle!)).toBe(false)
+        expect(toggle).toHaveAttribute('aria-checked', checkedAfter)
         editorLogic.unmount()
     })
 
-    it('gives a viewer no step menu and no dragging on a canvas tile', () => {
+    it.each([
+        ['gives a viewer no step menu and no dragging on a canvas tile', AccessControlLevel.Viewer, false],
+        ['gives an editor the step menu and dragging on a canvas tile', AccessControlLevel.Editor, true],
+    ])('%s', async (_, accessLevel, canEditStep) => {
+        const exit = {
+            id: 'exit_node',
+            type: 'exit',
+            name: 'Exit',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { reason: 'Default exit' },
+        } as HogFlow['actions'][number]
+        logic.actions.loadWorkflowSuccess({
+            ...VIEWER_WORKFLOW,
+            user_access_level: accessLevel,
+            actions: [...VIEWER_WORKFLOW.actions, exit],
+            edges: [...VIEWER_WORKFLOW.edges, { from: 'push_node', to: 'exit_node', type: 'continue' }],
+        })
         tileCanvasLogic({ id: WORKFLOW_ID }).mount()
         const workflow = logic.values.workflow
 
@@ -507,9 +699,10 @@ describe('view-only workflow', () => {
             </BindLogic>
         )
         const tile = document.querySelector<HTMLElement>('[data-attr="workflow-tile-step"]')!
+        await userEvent.pointer({ keys: '[MouseRight]', target: tile })
 
-        expect(fireEvent.contextMenu(tile)).toBe(true)
-        expect(tile).toHaveAttribute('draggable', 'false')
+        expect(document.querySelector('[data-attr="workflow-tile-step-delete"]') !== null).toBe(canEditStep)
+        expect(tile).toHaveAttribute('draggable', String(canEditStep))
     })
 
     it('lets a viewer copy the error details of a step that fails to render', async () => {
@@ -552,16 +745,18 @@ describe('view-only workflow', () => {
     })
 
     it('tells a viewer when Duplicate fails', async () => {
+        const { ToastContainer } = jest.requireActual('react-toastify')
         setWorkflowResourceAccess(AccessControlLevel.Editor)
         useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => [500, { detail: 'Server error' }] } })
-        const toastError = jest.spyOn(lemonToast, 'error')
 
-        renderForViewer(<WorkflowViewOnlyBanner id={WORKFLOW_ID} />)
-        await act(async () => {
-            fireEvent.click(document.querySelector('[data-attr="workflow-view-only-duplicate"]')!)
-        })
+        renderForViewer(
+            <>
+                <WorkflowViewOnlyBanner id={WORKFLOW_ID} />
+                <ToastContainer />
+            </>
+        )
+        fireEvent.click(document.querySelector('[data-attr="workflow-view-only-duplicate"]')!)
 
-        expect(toastError).toHaveBeenCalledWith('Could not duplicate the workflow. Please try again.')
-        toastError.mockRestore()
+        expect(await screen.findByText('Could not duplicate the workflow. Please try again.')).toBeInTheDocument()
     })
 })
