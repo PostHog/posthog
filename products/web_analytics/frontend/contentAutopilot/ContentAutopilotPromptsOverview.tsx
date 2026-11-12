@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
@@ -10,6 +9,7 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
@@ -19,7 +19,7 @@ import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAu
 import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
-import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
@@ -43,7 +43,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
-    const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -98,33 +97,9 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
     if (!hasChecks) {
         return overview.prompts_tracked === 0 ? (
-            <LemonCard
-                hoverEffect={false}
-                className="p-6 text-center"
-                data-attr="content-autopilot-prompts-overview-no-prompts"
-            >
-                <h3 className="m-0">No prompts yet</h3>
-                <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you can
-                    write your own. PostHog checks them once a day and shows the results here.
-                </p>
-                <div className="mt-4 flex justify-center gap-2">
-                    <ContentAutopilotPromptSuggestButton type="primary" />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={openAddPrompts}
-                        data-attr="content-autopilot-prompts-overview-add"
-                    >
-                        Add my own
-                    </LemonButton>
-                </div>
-            </LemonCard>
+            <ContentAutopilotSetupCard />
         ) : (
-            <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-prompts-overview-empty">
-                <h4 className="m-0">No checks yet</h4>
-                <p className="m-0 mt-1 text-muted">The daily run fills this in.</p>
-            </LemonCard>
+            <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
         )
     }
 
