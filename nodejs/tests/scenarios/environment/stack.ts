@@ -198,16 +198,6 @@ const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
 
 export const postgresUrlOf = (spec: RoleSpec): string => settingsOf(spec).DATABASE_URL
 
-const POSTGRES_URL_SETTINGS = [
-    'DATABASE_URL',
-    'DATABASE_READONLY_URL',
-    'PLUGIN_STORAGE_DATABASE_URL',
-    'PERSONS_DATABASE_URL',
-    'PERSONS_READONLY_DATABASE_URL',
-    'BEHAVIORAL_COHORTS_DATABASE_URL',
-    'CYCLOTRON_NODE_DATABASE_URL',
-] as const satisfies (keyof PluginsServerConfig)[]
-
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 const POSTGRES_URL = /^postgres(ql)?:\/\//
 
@@ -217,11 +207,10 @@ function serverOf(url: string): string {
 }
 
 export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
-    const settings = settingsOf(spec)
     const urls = [
         postgresUrl,
-        ...POSTGRES_URL_SETTINGS.map((key) => settings[key]).filter((url): url is string =>
-            POSTGRES_URL.test(url ?? '')
+        ...Object.values(settingsOf(spec)).filter(
+            (value): value is string => typeof value === 'string' && POSTGRES_URL.test(value)
         ),
     ]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
