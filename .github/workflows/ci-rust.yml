@@ -676,6 +676,36 @@ jobs:
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
 
+            # Properties in SlateDB on a local directory: the writer stores
+            # them there, the leaders and the replica read them back, and the
+            # gate checks that every acked write reached the store. The kill
+            # and scale-up move partitions, so a warm opens shards before it
+            # takes the changelog fence.
+            - name: Run the e2e gate with properties in SlateDB under chaos (kill + scale-up)
+              env:
+                  PROPERTY_STORE_URL: file://${{ runner.temp }}/property-store-slatedb
+                  PROPERTY_STORE_SHARDS: '8'
+                  PROPERTY_STORE_READER_POLL_MS: '500'
+                  PROPERTY_STORE_MEMTABLE_FLUSH_SECS: '2'
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 20s \
+                    --property-storage slatedb --kill-after 5s --scale-up-after 8s
+
+            # The cutover shape: the writer stores properties in both Postgres
+            # and SlateDB, and the leaders roll from Postgres to SlateDB
+            # mid-run while writes continue.
+            - name: Run the e2e gate flipping leaders from dual writes to SlateDB
+              env:
+                  PROPERTY_STORE_URL: file://${{ runner.temp }}/property-store-dual
+                  PROPERTY_STORE_SHARDS: '8'
+                  PROPERTY_STORE_READER_POLL_MS: '500'
+                  PROPERTY_STORE_MEMTABLE_FLUSH_SECS: '2'
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 20s \
+                    --property-storage dual --flip-to-slatedb-after 8s
+
             # The identity-service lifecycle path: persons are created
             # through GetOrCreatePersonsByDistinctIds (stub insert on the
             # primary, then initial properties through the router to the

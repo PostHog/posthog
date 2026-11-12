@@ -36,6 +36,7 @@ use anyhow::{bail, Context, Result};
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use futures::stream::{StreamExt, TryStreamExt};
 use metrics::{counter, gauge, histogram};
+use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, Value};
@@ -45,7 +46,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{interval, MissedTickBehavior};
 use uuid::Uuid;
 
-use crate::cli::TrafficArgs;
+use crate::cli::{PropertyStorage, TrafficArgs};
 use crate::client::HarnessClient;
 use crate::client::{IdentityClient, LifecycleClient};
 use crate::pool::TargetPool;
@@ -158,6 +159,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // proves the router/database pairing, not per-team routing.
     sentinel_round_trip(
         &client,
+        &identity,
         &lifecycle,
         &pool,
         &args.pg_target_table,
@@ -345,10 +347,17 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // lane closes even when one fails: the error propagates only
         // after the loop below records the other lanes' verification
         // results and diagnostics.
+        let store_reader = args
+            .property_storage
+            .writes_slatedb()
+            .then(crate::property_verify::store_reader)
+            .transpose()?;
         let closed = futures::future::join_all(lanes.iter_mut().map(|lane| {
             let client = &client;
             let pool = &pool;
+            let store_reader = &store_reader;
             let table = &args.pg_target_table;
+            let storage = args.property_storage;
             async move {
                 let team_id = lane.team_id;
                 let close = async move {
@@ -364,8 +373,24 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                     );
                     let journal = lane.state.snapshot().await;
                     lane_violations.extend(
-                        verify_postgres(pool, table, team_id, &journal, &HashMap::new()).await?,
+                        verify_postgres(
+                            pool,
+                            table,
+                            team_id,
+                            &journal,
+                            &HashMap::new(),
+                            storage != PropertyStorage::Slatedb,
+                        )
+                        .await?,
                     );
+                    if let Some(reader) = store_reader {
+                        lane_violations.extend(
+                            crate::property_verify::verify_store_against_journal(
+                                reader, team_id, &journal,
+                            )
+                            .await?,
+                        );
+                    }
                     anyhow::Ok((team_id, lane_violations, lane.collector.writes.snapshot()))
                 };
                 close
@@ -374,6 +399,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             }
         }))
         .await;
+        if let Some(reader) = store_reader {
+            reader.close().await;
+        }
         hostile.await.context("hostile task panicked")?;
 
         let mut violations = Vec::new();
@@ -797,16 +825,9 @@ fn hostile_payload(counter: u64) -> (&'static str, Value) {
     }
 }
 
-/// Prove the router serves the same database this harness seeds and
-/// verifies before any traffic flows: insert one person whose properties
-/// carry a freshly minted UUID, strong-read it back through the router,
-/// and require an exact match. The router path terminates in the leader's
-/// PG fallback, so a router pointed at any other environment cannot
-/// return a value that was generated here moments ago. The row is
-/// retired through the lifecycle delete saga — traffic mode never
-/// deletes from Postgres directly.
 async fn sentinel_round_trip(
     client: &HarnessClient,
+    identity: &IdentityClient,
     lifecycle: &LifecycleClient,
     pool: &PgPool,
     table: &str,
@@ -814,42 +835,61 @@ async fn sentinel_round_trip(
 ) -> Result<()> {
     let marker = Uuid::new_v4().to_string();
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
-    let person_id: i64 = sqlx::query_scalar(&format!(
-        r#"
-        INSERT INTO {table} (
-            team_id, uuid, properties, properties_last_updated_at,
-            properties_last_operation, created_at, version, is_identified
-        )
-        VALUES ($1, gen_random_uuid(), $2::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, now(), 0, false)
-        RETURNING id
-        "#
+    let created = identity
+        .get_or_create_persons(vec![GetOrCreatePersonEntry {
+            team_id,
+            distinct_id: format!("traffic-sentinel-{marker}"),
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&json!({ "traffic_sentinel": &marker }))
+                .expect("sentinel properties serialize"),
+            ..Default::default()
+        }])
+        .await
+        .context("creating the sentinel person through identity")?;
+    let person = created
+        .into_iter()
+        .next()
+        .and_then(|result| result.person)
+        .context("identity returned no sentinel person")?;
+
+    let uuid: Option<String> = sqlx::query_scalar(&format!(
+        "SELECT uuid::text FROM {table} WHERE team_id = $1 AND id = $2"
     ))
     .bind(team)
-    .bind(json!({ "traffic_sentinel": &marker }).to_string())
-    .fetch_one(pool)
+    .bind(person.id)
+    .fetch_optional(pool)
     .await
-    .context("seeding the sentinel person")?;
+    .context("looking up the sentinel person")?;
+    if uuid.as_deref() != Some(person.uuid.as_str()) {
+        bail!(
+            "sentinel person (team {team_id}, id {}) is not in {table} — identity does not \
+             write the database this harness targets",
+            person.id
+        );
+    }
 
-    let person = client
-        .get_person(team_id, person_id, ConsistencyLevel::Strong)
+    let read = client
+        .get_person(team_id, person.id, ConsistencyLevel::Strong)
         .await
         .context("sentinel strong read through the router failed")?
         .with_context(|| {
             format!(
-                "sentinel person (team {team_id}, id {person_id}) not found through the \
-                 router — the router does not serve the database this harness targets"
+                "sentinel person (team {team_id}, id {}) not found through the \
+                 router — the router does not serve the database this harness targets",
+                person.id
             )
         })?;
-    let props: Value = serde_json::from_slice(&person.properties).unwrap_or(Value::Null);
+    let props: Value = serde_json::from_slice(&read.properties).unwrap_or(Value::Null);
     if props["traffic_sentinel"] != json!(marker) {
         bail!(
             "sentinel mismatch: the router returned a person without the freshly minted \
-             marker (team {team_id}, id {person_id}) — the router does not serve the \
-             database this harness targets"
+             marker (team {team_id}, id {}) — the router does not serve the database \
+             this harness targets",
+            person.id
         );
     }
-    tracing::info!("sentinel round-trip verified: router and database agree");
-    delete_pool(lifecycle, team_id, &[person_id])
+    tracing::info!("sentinel round-trip verified: router, identity and database agree");
+    delete_pool(lifecycle, team_id, &[person.id])
         .await
         .context("retiring the sentinel person through the delete saga")?;
     Ok(())
@@ -916,6 +956,7 @@ mod tests {
 
     fn valid_args() -> TrafficArgs {
         TrafficArgs {
+            property_storage: PropertyStorage::Postgres,
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),

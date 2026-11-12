@@ -28,9 +28,12 @@ impl ServiceSpec {
         let mut command = Command::new(&self.binary);
         command
             .env_clear()
-            // PATH and HOME survive so the binaries can resolve tools and
-            // dotfiles (librdkafka, DNS, etc.) the way they do in dev.
-            .envs(env::vars().filter(|(k, _)| k == "PATH" || k == "HOME"))
+            // PATH and HOME let the binaries resolve tools and dotfiles as in dev.
+            .envs(
+                env::vars().filter(|(k, _)| {
+                    k == "PATH" || k == "HOME" || k.starts_with("PROPERTY_STORE_")
+                }),
+            )
             // No RUST_BACKTRACE and no colors: a service panic's message is
             // the signal, and fifty frames of runtime internals push it out
             // of the log tail that failure reports embed.
