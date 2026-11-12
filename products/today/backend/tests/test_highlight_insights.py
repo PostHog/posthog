@@ -475,9 +475,10 @@ class TestRoutineInsights(BaseTest):
         [
             ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
             ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
-            ("habits and a key metric leave one place", ["h1", "h2"], [5.0], ["team_fav"]),
-            ("a key metric without activity keeps no place", ["h1", "h2"], [0.0], ["team_fav", "runner_up"]),
-            ("key metrics still computing keep their places", ["h1", "h2"], None, ["team_fav"]),
+            ("key metrics keep no place beside habits", ["h1", "h2"], [5.0], ["team_fav", "runner_up"]),
+            ("active key metrics keep places without habits", [], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("a key metric without activity keeps no place", [], [0.0], ["team_fav", "runner_up", "third"]),
+            ("key metrics still computing keep their places", [], None, ["team_fav", "runner_up"]),
             ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
             ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
             ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
@@ -549,7 +550,9 @@ class TestRoutineInsights(BaseTest):
                     for i, weeks in enumerate(key_metric_weeks)
                 ],
             ),
-            patch.object(routine, "get_key_metric_names", return_value={"metric0": "Sign-ups"}),
+            patch.object(
+                routine, "get_key_metric_names", return_value={"metric0": "Sign-ups", "metric1": "Active users"}
+            ),
             patch.object(routine, "dashboard_insights", return_value=growth),
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse

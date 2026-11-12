@@ -50,6 +50,7 @@ from . import pulse_pins
 from .highlight_registry import load_sources, source_product
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
 from .pinned import PINNED_METRICS
+from .today_highlights import key_metrics as key_metrics_source
 from .today_highlights.routine import PULSE_CANDIDATES
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +60,7 @@ COMPUTING_SECONDS = 5 * 60
 START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 ROW_TILES = 4
+KEY_METRICS_SOURCE = key_metrics_source.SOURCE.name
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
 URGENT_RISK_SCORE = 0.75
@@ -271,10 +273,34 @@ def _pulse_content(
             replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
             for slot in selected
         ]
+    key_metrics = (
+        {
+            *(slot.key for slot in progress[KEY_METRICS_SOURCE].slots),
+            *(metric.key for metric in progress[KEY_METRICS_SOURCE].found.pulse),
+        }
+        if KEY_METRICS_SOURCE in progress
+        else set()
+    )
+    key_metrics |= {m.key for m in content.pulse if m.reason == HighlightMetricReason.KEY_METRIC}
+    selected = _key_metrics_without_own_numbers(selected, key_metrics, set(pin_order))
     selected = _popular_within_row(selected, set(pin_order))
     kept = {slot.key for slot in selected}
-    pulse = [m for m in content.pulse if m.reason != HighlightMetricReason.POPULAR or m.key in kept]
+    fallbacks = key_metrics | {m.key for m in content.pulse if m.reason == HighlightMetricReason.POPULAR}
+    pulse = [m for m in content.pulse if m.key in kept or m.key not in fallbacks]
     return replace(content, pulse=pulse, pulse_slots=selected)
+
+
+def _key_metrics_without_own_numbers(
+    slots: list[contracts.PulseSlot], key_metrics: set[str], pinned: set[str]
+) -> list[contracts.PulseSlot]:
+    own = any(
+        slot.status != PulseSlotStatus.ERROR
+        and (slot.key in pinned or (slot.key not in key_metrics and slot.reason != HighlightMetricReason.POPULAR))
+        for slot in slots
+    )
+    if not own:
+        return slots
+    return [slot for slot in slots if slot.key not in key_metrics or slot.key in pinned]
 
 
 def _popular_within_row(slots: list[contracts.PulseSlot], pinned: set[str]) -> list[contracts.PulseSlot]:

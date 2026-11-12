@@ -698,27 +698,43 @@ class TestProgressiveHighlights(BaseTest):
     @parameterized.expand(
         [
             (
-                "three key metrics and an experiment fill the row",
+                "an own number hides key metrics",
+                PulseSlotStatus.READY,
                 3,
                 PulseSlotStatus.READY,
-                ["experiment:1", "key:0", "key:1", "key:2"],
+                ["experiment:1", "insight:pop0", "insight:pop1"],
             ),
             (
-                "two key metrics leave one place",
-                2,
+                "key metrics fill in without own numbers",
+                None,
+                3,
                 PulseSlotStatus.READY,
-                ["experiment:1", "insight:pop0", "key:0", "key:1"],
+                ["insight:pop0", "key:0", "key:1", "key:2"],
             ),
+            ("four key metrics fill the row", None, 4, PulseSlotStatus.READY, ["key:0", "key:1", "key:2", "key:3"]),
             (
                 "a failed key metric gives its place to a popular number",
-                3,
+                None,
+                4,
                 PulseSlotStatus.ERROR,
-                ["experiment:1", "insight:pop0", "key:0", "key:1"],
+                ["insight:pop0", "key:0", "key:1", "key:2"],
+            ),
+            (
+                "a failed own number brings key metrics back",
+                PulseSlotStatus.ERROR,
+                3,
+                PulseSlotStatus.READY,
+                ["insight:pop0", "key:0", "key:1", "key:2"],
             ),
         ]
     )
-    def test_popular_numbers_only_take_places_other_sources_leave(
-        self, _name: str, key_metric_count: int, last_status: PulseSlotStatus, expected: list[str]
+    def test_key_metrics_and_popular_numbers_fill_what_own_numbers_leave(
+        self,
+        _name: str,
+        own_status: PulseSlotStatus | None,
+        key_metric_count: int,
+        last_status: PulseSlotStatus,
+        expected: list[str],
     ) -> None:
         row = TodayHighlights.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="popular"
@@ -731,12 +747,15 @@ class TestProgressiveHighlights(BaseTest):
             source_name="experiment_numbers",
             highlights_id=str(row.id),
         )
-        experiment = replace(metric("experiment:1"), reason=HighlightMetricReason.EXPERIMENT)
-        highlights.publish_pulse(inputs, HighlightFindings(pulse=(experiment,)), [])
-        key_slots = [
-            contracts.PulseSlot(key=f"key:{i}", name=f"Key {i}", reason=HighlightMetricReason.KEY_METRIC)
-            for i in range(key_metric_count)
-        ]
+        if own_status == PulseSlotStatus.READY:
+            experiment = replace(metric("experiment:1"), reason=HighlightMetricReason.EXPERIMENT)
+            highlights.publish_pulse(inputs, HighlightFindings(pulse=(experiment,)), [])
+        elif own_status is not None:
+            failed = contracts.PulseSlot(
+                key="experiment:1", name="Experiment", reason=HighlightMetricReason.EXPERIMENT, status=own_status
+            )
+            highlights.publish_pulse(inputs, HighlightFindings(), [failed])
+        key_slots = [contracts.PulseSlot(key=f"key:{i}", name=f"Key {i}") for i in range(key_metric_count)]
         key_slots[-1] = replace(key_slots[-1], status=last_status)
         highlights.publish_pulse(replace(inputs, source_name="key_metrics"), HighlightFindings(), key_slots)
         popular = [replace(metric(f"insight:pop{i}"), reason=HighlightMetricReason.POPULAR) for i in range(2)]
@@ -751,6 +770,17 @@ class TestProgressiveHighlights(BaseTest):
             ),
             (expected, [key for key in expected if key.startswith("insight:pop")]),
         )
+
+    def test_a_pinned_key_metric_stays_beside_own_numbers(self) -> None:
+        slots = [
+            contracts.PulseSlot(key="key:0", name="Key 0", status=PulseSlotStatus.READY),
+            contracts.PulseSlot(key="insight:a", name="A", reason=HighlightMetricReason.ROUTINE),
+            contracts.PulseSlot(key="key:1", name="Key 1"),
+        ]
+
+        kept = highlights._key_metrics_without_own_numbers(slots, {"key:0", "key:1"}, {"key:0"})
+
+        self.assertEqual([slot.key for slot in kept], ["key:0", "insight:a"])
 
     def test_healthy_popular_numbers_come_before_failed_ones(self) -> None:
         def slot(key: str, reason: HighlightMetricReason, status: PulseSlotStatus) -> contracts.PulseSlot:
@@ -803,7 +833,7 @@ class TestProgressiveHighlights(BaseTest):
         )
         row.refresh_from_db()
         final = HIGHLIGHTS.validate_python(row.content)
-        expected = [m.key for m in [*routine, *configured]][:6]
+        expected = [m.key for m in routine][:6]
         self.assertEqual([m.key for m in final.pulse], expected)
         self.assertEqual([slot.key for slot in final.pulse_slots or []], expected)
         self.assertTrue(all(m.period_starts == [DAY - timedelta(days=1)] for m in final.pulse))
