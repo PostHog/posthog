@@ -281,7 +281,11 @@ export function HogFlowFunctionConfiguration({
             // (into the staged draft on active workflows), so the editor needs no save step.
             emailLiveChanges
             emailSaveIndicator={<WorkflowAutoSaveIndicator />}
-            configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
+            configuration={{
+                inputs: inputs as Record<string, CyclotronJobInputType>,
+                inputs_schema: schema,
+                template_id: templateId,
+            }}
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
             onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}

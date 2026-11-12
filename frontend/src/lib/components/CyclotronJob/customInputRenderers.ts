@@ -12,6 +12,7 @@ export interface CustomInputRendererProps {
     // account-properties editor) so they can offer `{event.*}` autocomplete. Optional — most
     // renderers ignore it.
     sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs | null
+    templateId?: string
 }
 
 export const CUSTOM_INPUT_RENDERERS: Record<

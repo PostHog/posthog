@@ -10,10 +10,12 @@ import { urls } from 'scenes/urls'
 
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
+import { surveysShownRecentlyLogic } from './surveysShownRecentlyLogic'
 import { workflowSurveyPickerLogic } from './workflowSurveyPickerLogic'
 import { isLimitedToWorkflowRecipients } from './workflowSurveyTargeting'
 
 const IN_APP_SURVEY_TYPES = new Set(['popover', 'widget'])
+const HIDE_SURVEY_TEMPLATE_ID = 'template-posthog-hide-survey'
 
 function surveyStatusLabel(survey: SurveyApi): string {
     if (!survey.start_date) {
@@ -27,6 +29,7 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
     const { limitingSurveyId } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const { limitToWorkflowRecipients } = useActions(logic)
+    const { surveysShownRecently } = useValues(surveysShownRecentlyLogic)
 
     if (!IN_APP_SURVEY_TYPES.has(survey.type)) {
         return (
@@ -42,6 +45,12 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
                 <LemonBanner type="warning">
                     Surveys are turned off for this project, so nobody will see this one.{' '}
                     <Link to={urls.settings('environment-surveys', 'surveys-interface')}>Turn them on</Link>
+                </LemonBanner>
+            )}
+            {currentTeam?.surveys_opt_in && surveysShownRecently === false && (
+                <LemonBanner type="warning">
+                    No survey has been shown in this project in the last 30 days. Check that your app loads surveys and
+                    uses a recent PostHog SDK, or people may not see this one.
                 </LemonBanner>
             )}
             {!survey.start_date ? (
@@ -78,7 +87,31 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
     )
 }
 
-export default function CyclotronJobInputSurveyPicker({ value, onChange }: CustomInputRendererProps): JSX.Element {
+function SelectedSurveyStatus({
+    survey,
+    selectedId,
+    loading,
+    showReadiness,
+}: {
+    survey: SurveyApi | null
+    selectedId: string
+    loading: boolean
+    showReadiness: boolean
+}): JSX.Element | null {
+    if (survey && !survey.archived) {
+        return showReadiness ? <SurveyReadiness survey={survey} /> : null
+    }
+    if (selectedId && !loading) {
+        return <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
+    }
+    return null
+}
+
+export default function CyclotronJobInputSurveyPicker({
+    value,
+    onChange,
+    templateId,
+}: CustomInputRendererProps): JSX.Element {
     const selectedId = typeof value === 'string' ? value : ''
     const logic = workflowSurveyPickerLogic({ surveyId: selectedId || null })
     const { surveys, surveysLoading, selectedSurvey, selectedSurveyLoading } = useValues(logic)
@@ -134,11 +167,12 @@ export default function CyclotronJobInputSurveyPicker({ value, onChange }: Custo
                     Refresh
                 </LemonButton>
             </div>
-            {currentSurvey && !currentSurvey.archived ? (
-                <SurveyReadiness survey={currentSurvey} />
-            ) : selectedId && !selectedSurveyLoading ? (
-                <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
-            ) : null}
+            <SelectedSurveyStatus
+                survey={currentSurvey}
+                selectedId={selectedId}
+                loading={selectedSurveyLoading}
+                showReadiness={templateId !== HIDE_SURVEY_TEMPLATE_ID}
+            />
         </div>
     )
 }

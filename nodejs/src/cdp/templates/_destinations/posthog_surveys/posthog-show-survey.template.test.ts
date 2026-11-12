@@ -10,7 +10,7 @@ describe('posthog show survey template', () => {
         jest.spyOn(Date, 'now').mockReturnValue(DateTime.fromISO('2025-01-01T00:00:00Z').toMillis())
     })
 
-    it('marks the person as triggered for the survey', async () => {
+    it('marks the person with the time the survey was triggered', async () => {
         const response = await tester.invoke(
             { survey_id: '0190-survey', distinct_id: '{event.distinct_id}' },
             { event: { event: 'signed_up', distinct_id: 'distinct-id', properties: {} } }
@@ -21,7 +21,9 @@ describe('posthog show survey template', () => {
             expect.objectContaining({
                 event: '$set',
                 distinct_id: 'distinct-id',
-                properties: expect.objectContaining({ $set: { '$survey_triggered/0190-survey': true } }),
+                properties: expect.objectContaining({
+                    $set: { '$survey_triggered/0190-survey': '2025-01-01T00:00:00Z' },
+                }),
             }),
         ])
     })
