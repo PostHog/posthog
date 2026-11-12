@@ -253,8 +253,15 @@ class UpsertAlertTool(MaxTool):
             return f"Execute {self.name} operation"
 
         alert = await self._resolve_alert(action.alert_id)
-        alert_label = f"'{alert.name}'" if alert else f"(ID: {action.alert_id})"
+        # The preview reaches the user before the update runs its access checks, so it names only an
+        # alert whose insight the user may view.
+        visible = alert is not None and await self._can_view_insight_of(alert)
+        alert_label = f"'{alert.name}'" if alert and visible else f"(ID: {action.alert_id})"
         return f"**Update** alert {alert_label}"
+
+    async def _can_view_insight_of(self, alert: AlertConfiguration) -> bool:
+        insight = await sync_to_async(lambda edited: edited.insight)(alert)
+        return bool(await sync_to_async(self.user_access_control.check_access_level_for_object)(insight, "viewer"))
 
     async def _arun_impl(self, action: UpsertAlertAction) -> tuple[str, dict[str, Any]]:
         if isinstance(action, CreateAlertAction):

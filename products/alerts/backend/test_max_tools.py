@@ -214,6 +214,11 @@ class TestUpsertAlertTool(BaseTest):
             hidden_content, hidden = await tool._arun_impl(
                 action=UpdateAlertAction(alert_id=str(alert_id), name="Renamed without insight access")
             )
+            preview = await tool.format_dangerous_operation_preview(
+                UpdateAlertAction(alert_id=str(alert_id), enabled=True)
+            )
+
+        assert preview == f"**Update** alert (ID: {alert_id})"
 
         assert hidden.get("error"), hidden_content
         still_named, _ = await sync_to_async(_stored)()
