@@ -25,7 +25,6 @@ SECONDS_BETWEEN_SES_CHECKS = 5
 @skip_team_scope_audit
 def recheck_pending_email_senders() -> None:
     senders = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"provider": "ses"}))
-    # SES holds one MAIL FROM per domain, and another project can move it to its own subdomain.
     mail_from_subdomains: dict[str, set[str]] = defaultdict(set)
     for sender in senders:
         mail_from_subdomains[_domain(sender)].add(sender.config.get("mail_from_subdomain", "feedback"))

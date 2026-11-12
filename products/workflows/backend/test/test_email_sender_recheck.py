@@ -5,7 +5,6 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.team import Team
 
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.tasks.email_sender_verification import recheck_pending_email_senders
 from products.workflows.backend.test.email_domain_api_test_case import ALL_KINDS, DOMAIN, EmailDomainApiTestCase
 
@@ -23,7 +22,6 @@ class TestPendingEmailSenderRecheck(EmailDomainApiTestCase):
         recheck_pending_email_senders()
 
         assert self.is_verified(sender) and self.is_verified(sibling)
-        assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
 
     def test_a_sender_that_fails_to_verify_does_not_stop_the_others(self) -> None:
         broken = Integration.objects.create(

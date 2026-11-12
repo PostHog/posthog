@@ -735,7 +735,6 @@ class SESProvider:
         setup_expired = mail_from is not None and mail_from.get("MailFromDomainStatus") == "Failed"
         if ses_mail_from_subdomain is not None:
             mail_from_subdomain = ses_mail_from_subdomain
-        # SES stops looking for the MX record 72 hours after a MAIL FROM setup, and only a new setup looks again.
         if ses_mail_from_subdomain is None or setup_expired:
             try:
                 self.ses_client.set_identity_mail_from_domain(
