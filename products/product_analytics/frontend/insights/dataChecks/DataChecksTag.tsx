@@ -20,6 +20,19 @@ const BADGE_VARIANTS: Partial<Record<InsightDataChecksStatus, 'success' | 'warni
     problem: 'destructive',
 }
 
+function StatusIcon({ status, quill }: { status: InsightDataChecksStatus; quill: boolean }): JSX.Element {
+    if (status === 'passed') {
+        return <IconCheck />
+    }
+    if (status === 'checking') {
+        return quill ? <QuillSpinner /> : <Spinner textColored />
+    }
+    if (status === 'no_events' || status === 'inconclusive' || status === 'on_request' || status === 'partial') {
+        return <IconCircleDashed />
+    }
+    return <IconWarning />
+}
+
 export function DataChecksTag({
     status,
     label,
@@ -31,21 +44,9 @@ export function DataChecksTag({
 }): JSX.Element {
     const quillSurface = useQuillSurface()
 
-    const spinner = quillSurface ? <QuillSpinner key={status} /> : <Spinner key={status} textColored />
     const content = (
         <>
-            {status === 'passed' ? (
-                <IconCheck key={status} />
-            ) : status === 'checking' ? (
-                spinner
-            ) : status === 'no_events' ||
-              status === 'inconclusive' ||
-              status === 'on_request' ||
-              status === 'partial' ? (
-                <IconCircleDashed key={status} />
-            ) : (
-                <IconWarning key={status} />
-            )}
+            <StatusIcon key={status} status={status} quill={quillSurface} />
             <span
                 className={cn(
                     'overflow-hidden whitespace-nowrap',

@@ -13,6 +13,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { Noun } from '~/models/groupsModel'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { FunnelVizType, type InsightModel } from '~/types'
 
@@ -21,6 +22,21 @@ import { funnelDataLogic } from './funnelDataLogic'
 import { QuillFunnelCanvasLabel } from './QuillFunnelCanvasLabel'
 
 const EXPERIMENT_TOOLTIP = 'Create a draft experiment with the metric from this funnel.'
+
+function labelCopy(
+    aggregationTargetLabel: Noun,
+    hasPartialBreakdownSelection: boolean
+): { totalRateTooltip: string; medianTimeLabel: string; medianTimeTooltip: string } {
+    return {
+        totalRateTooltip: hasPartialBreakdownSelection
+            ? `Overall conversion rate for ${aggregationTargetLabel.plural} in the selected breakdown values on the entire funnel.`
+            : `Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`,
+        medianTimeLabel: hasPartialBreakdownSelection
+            ? 'Median time to convert (all breakdowns)'
+            : 'Median time to convert',
+        medianTimeTooltip: `Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.${hasPartialBreakdownSelection ? ' This median includes all breakdown values.' : ''}`,
+    }
+}
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, insight, supportsCreatingExperiment, derivedName } = useValues(insightLogic)
@@ -32,14 +48,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     const quillSurface = useQuillSurface()
 
     const totalRate = percentage(conversionMetrics.totalRate, 2, true)
-    const totalRateTooltip = hasPartialBreakdownSelection
-        ? `Overall conversion rate for ${aggregationTargetLabel.plural} in the selected breakdown values on the entire funnel.`
-        : `Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`
+    const { totalRateTooltip, medianTimeLabel, medianTimeTooltip } = labelCopy(
+        aggregationTargetLabel,
+        hasPartialBreakdownSelection
+    )
     const medianTime = conversionMetrics.medianTime != null ? humanFriendlyDuration(conversionMetrics.medianTime) : null
-    const medianTimeLabel = hasPartialBreakdownSelection
-        ? 'Median time to convert (all breakdowns)'
-        : 'Median time to convert'
-    const medianTimeTooltip = `Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.${hasPartialBreakdownSelection ? ' This median includes all breakdown values.' : ''}`
     const showTimeToConvert = (): void => updateInsightFilter({ funnelVizType: FunnelVizType.TimeToConvert })
     const experimentUrl = supportsCreatingExperiment
         ? urls.experiment('new', null, {
