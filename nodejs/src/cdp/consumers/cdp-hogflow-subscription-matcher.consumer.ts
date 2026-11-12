@@ -386,10 +386,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
-        // exactly the blind spot watchers exist to remove.
-        //
-        // Only a run of a goal flow writes a watcher, so a team with no goal flow that had no live
-        // watcher at the last refresh has nothing here to find, and its pairs stay out of the query.
+        // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
         const watcherTeams = new Set(
             teamIds.filter(
                 (teamId) =>
