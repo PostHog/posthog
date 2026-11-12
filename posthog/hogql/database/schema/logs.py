@@ -155,11 +155,6 @@ class LogsVolumeBucketsTable(Table):
         "severity_text": StringDatabaseField(
             name="severity_text", nullable=False, description="Lowercased log severity (for example info, warn, error)."
         ),
-        "retention_days": IntegerDatabaseField(
-            name="retention_days",
-            nullable=False,
-            description="Days from the bucket start until the longest lived log in the row expires.",
-        ),
         "log_count": IntegerDatabaseField(
             name="log_count",
             nullable=False,

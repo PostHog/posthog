@@ -11,9 +11,10 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS
 
 from products.logs.backend.logs_query_runner import COLUMN_FILTER_FACET_FIELDS, LogsQueryResponse, LogsQueryRunner
-from products.logs.backend.services_query_runner import ROLLUP_BUCKET_SECONDS, ROLLUP_RETENTION
+from products.logs.backend.services_query_runner import ROLLUP_BUCKET_SECONDS
 
 # Maps API breakdown type to ClickHouse field name
 BREAKDOWN_DB_FIELD: dict[LogsSparklineBreakdownBy, str] = {
@@ -89,7 +90,9 @@ class SparklineQueryRunner(LogsQueryRunner):
         date_range = self.query_date_range
         if date_range.interval_name != "minute" or (date_range.interval_count * 60) % ROLLUP_BUCKET_SECONDS != 0:
             return False
-        if date_range.date_from() < dt.datetime.now(dt.UTC) - ROLLUP_RETENTION:
+        # The rollup keeps a count longer than the logs table keeps the logs. No log gets a shorter
+        # retention than the default, so a range inside the default holds no expired log.
+        if date_range.date_from() < dt.datetime.now(dt.UTC) - dt.timedelta(days=DEFAULT_LOGS_RETENTION_DAYS):
             return False
         query = self.query
         if (
@@ -146,12 +149,6 @@ class SparklineQueryRunner(LogsQueryRunner):
                 "time_bucket >= {date_from_start_of_interval}"
                 " AND time_bucket < {date_to_start_of_interval} + {one_interval_period}",
                 placeholders=self.query_date_range.to_placeholders(),
-            ),
-            # The rollup keeps a count longer than the logs table keeps the logs. retention_days is the
-            # retention that ingestion gave to the logs, so this hides the counts of expired logs.
-            parse_expr(
-                "time_bucket + toIntervalDay(retention_days) > {now}",
-                placeholders={"now": ast.Constant(value=dt.datetime.now(dt.UTC))},
             ),
             *self.column_filter_exprs(),
         ]
