@@ -31,7 +31,7 @@ export const WEBHOOK_HOST = 'hooks.example.com'
 const FAULT_OBSERVED_WITHIN_MS = 10_000
 const FAULT_POLL_MS = 100
 
-export type FaultHold = { observed(released?: AbortSignal): Promise<boolean>; release(): Promise<void> }
+export type FaultHold = { observed(holdEnds?: AbortSignal): Promise<boolean>; release(): Promise<void> }
 
 export type ProviderEdgeOptions = {
     port: number
@@ -243,11 +243,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         hold: (rule) => {
             const id = faults.add(rule)
             return {
-                observed: async (released) => {
+                observed: async (holdEnds) => {
                     const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
                     const answeredInWindow = (): boolean => (faults.firstAppliedAt(id) ?? Infinity) <= deadline
-                    while (Date.now() <= deadline && !released?.aborted && !answeredInWindow()) {
-                        await sleep(FAULT_POLL_MS, undefined, { signal: released }).catch(() => undefined)
+                    while (Date.now() <= deadline && !holdEnds?.aborted && !answeredInWindow()) {
+                        await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
                     }
                     return answeredInWindow()
                 },
