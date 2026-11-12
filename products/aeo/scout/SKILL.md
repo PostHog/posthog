@@ -71,7 +71,7 @@ SELECT toStartOfDay(created_at) AS day, engine,
        countIf(cited) AS cited,
        cited / greatest(checks, 1) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 21 DAY
+WHERE created_at >= now() - INTERVAL 21 DAY AND mode = 'web_search'
 GROUP BY day, engine
 ORDER BY engine, day
 ```

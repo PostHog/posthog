@@ -10,11 +10,13 @@ import {
     APPLICATION_OBSERVABILITY_PATH,
     applicationObservabilityLogic,
     drillDownParams,
+    metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
 import type {
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
     ServicesHealthResponseApi,
+    ServiceUsageResponseApi,
 } from './generated/api.schemas'
 
 const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'critical'): any => ({
@@ -57,16 +59,29 @@ const MAP_RESPONSE: ServiceMapResponseApi = {
     date_to: '2026-06-02T08:00:00Z',
 }
 
+const USAGE_RESPONSE: ServiceUsageResponseApi = {
+    results: [
+        { service_name: 'proxy', log_records: 2, log_bytes: 10000, spans: 0, metric_points: 0, metric_series: 0 },
+        { service_name: 'api', log_records: 0, log_bytes: 0, spans: 7, metric_points: 12, metric_series: 3 },
+    ],
+    totals: { log_records: 2, log_bytes: 10000, spans: 7, metric_points: 12, metric_series: 3 },
+    unavailable_signals: [],
+    date_from: '2026-06-02T07:00:00Z',
+    date_to: '2026-06-02T08:00:00Z',
+}
+
 describe('applicationObservabilityLogic', () => {
     let logic: ReturnType<typeof applicationObservabilityLogic.build>
     let requests: string[]
     let endpointRequests: string[]
     let mapRequests: string[]
+    let usageRequests: string[]
 
     beforeEach(async () => {
         requests = []
         endpointRequests = []
         mapRequests = []
+        usageRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/apm/services/': ({ request }) => {
@@ -80,6 +95,10 @@ describe('applicationObservabilityLogic', () => {
                 '/api/projects/:team_id/apm/service_map/': ({ request }) => {
                     mapRequests.push(new URL(request.url).search)
                     return [200, MAP_RESPONSE]
+                },
+                '/api/projects/:team_id/apm/usage/': ({ request }) => {
+                    usageRequests.push(new URL(request.url).search)
+                    return [200, USAGE_RESPONSE]
                 },
             },
         })
@@ -165,12 +184,56 @@ describe('applicationObservabilityLogic', () => {
         expect(parseTagsFilter(params.get('serviceNames'))).toEqual(['checkout,v2'])
     })
 
+    it('keeps a service name with quotes and commas as one metrics filter value', () => {
+        const url = new URL(metricsDrillDownUrl('checkout,"v2"', '-24h'), 'http://localhost')
+        const filterGroup = JSON.parse(url.searchParams.get('filterGroup') ?? '{}')
+        expect(filterGroup.values[0].values[0]).toMatchObject({ key: 'service_name', value: ['checkout,"v2"'] })
+        expect(url.searchParams.get('dateFrom')).toBe('-24h')
+    })
+
     describe('tabs', () => {
-        it('opens on the services tab and does not load endpoints until that tab is open', async () => {
+        it('opens on the services tab and does not load other tabs until they are open', async () => {
             await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
             expect(logic.values.tab).toBe('services')
             expect(endpointRequests).toHaveLength(0)
             expect(mapRequests).toHaveLength(0)
+            expect(usageRequests).toHaveLength(0)
+        })
+
+        it('loads usage for every environment when the usage tab opens from the URL', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage', environment: 'staging' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(logic.values.usageRows.map((row) => row.service_name)).toEqual(['proxy', 'api'])
+            expect(usageRequests).toHaveLength(1)
+            expect(usageRequests[0]).toContain('date_from=')
+            expect(usageRequests[0]).not.toContain('environment=')
+        })
+
+        it('skips service health while usage is open and loads it when a health tab opens', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            requests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(requests).toHaveLength(0)
+
+            logic.actions.setTab('services')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(requests).toHaveLength(1)
+        })
+
+        it('keeps the last usage rows and flags the failure when a usage refresh fails', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(logic.values.usageLoadError).toBe(false)
+
+            useMocks({ get: { '/api/projects/:team_id/apm/usage/': () => [500, { detail: 'boom' }] } })
+            logic.actions.loadServiceUsage()
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageFailure'])
+
+            expect(logic.values.usageLoadError).toBe(true)
+            expect(logic.values.usageRows).toHaveLength(2)
         })
 
         it('ignores an unknown tab in the URL', async () => {

@@ -117,6 +117,49 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    /**
+     * * `web_search` - Web search
+     * * `no_search` - No search
+     */
+    export type CheckModeEnum = typeof CheckModeEnum[keyof typeof CheckModeEnum];
+
+
+    export const CheckModeEnum = {
+      WebSearch: 'web_search',
+      NoSearch: 'no_search',
+    } as const;
+
+    /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     */
+    export type CheckFrequencyEnum = typeof CheckFrequencyEnum[keyof typeof CheckFrequencyEnum];
+
+
+    export const CheckFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+    } as const;
+
+    export interface AEOEngineSetting {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+      engine: string;
+      /** 'web_search' when the engine searches the web while answering, 'no_search' when it answers from training data alone. A no-search engine never cites, so read its mention rate.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
+      /** Whether this deployment can run the engine. An unavailable engine never runs, whatever 'enabled' says. */
+      available: boolean;
+      /** Whether the daily run checks the project's prompts on this engine. */
+      enabled: boolean;
+      /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly */
+      frequency: CheckFrequencyEnum;
+    }
+
     export interface AEOKeyword {
       /** Keyword id. */
       id: string;
@@ -144,7 +187,7 @@ export namespace Schemas {
     }
 
     export interface AEOModifierEngineCount {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Answers from this engine whose searches used the modifier. */
       answers: number;
@@ -297,10 +340,17 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineCheck {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
-      /** Whether the answer cited a URL on one of the target domains. */
+      /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
+      /** Whether the answer cited a URL on one of the target domains. Always false for a no-search engine. */
       cited: boolean;
+      /** Whether the answer names the brand or cites a target domain. The column to read for a no-search engine. */
+      mentioned: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
       /**
@@ -417,8 +467,13 @@ export namespace Schemas {
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
       run_id: string;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
+      /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
       /** Engine model that answered. */
       model: string;
       /** When the check ran. */
@@ -470,7 +525,7 @@ export namespace Schemas {
     export interface AEOPromptDailyEngineStats {
       /** Day, in the project's timezone. */
       date: string;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Checks on this engine that day, failed ones included. */
       checks: number;
@@ -488,7 +543,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineDomainShare {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** One of the most cited domains across all engines in the window. */
       domain: string;
@@ -499,7 +554,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineSentiment {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Answers in the last 30 days whose brand sentences read positive. */
       positive: number;
@@ -522,7 +577,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly mention_rate: number | null;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Checks of the prompt on this engine, failed ones included. */
       checks: number;
@@ -628,7 +683,7 @@ export namespace Schemas {
          * @nullable
          */
       avg_position: number | null;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
     }
 
@@ -83170,6 +83225,16 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface PatchedAEOEngineSettingUpdateRequest {
+      /** Whether the daily run checks the project's prompts on this engine. */
+      enabled?: boolean;
+      /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly */
+      frequency?: CheckFrequencyEnum;
+    }
+
     export interface PatchedAEOPromptUpdateRequest {
       /**
          * Turn the prompt on or off for future runs.
@@ -110471,6 +110536,61 @@ export namespace Schemas {
       date_to: string;
     }
 
+    export interface ServiceUsage {
+      /** Log records stored in the window. */
+      log_records: number;
+      /** Uncompressed size of the stored log records in bytes. Billing counts logs by this size. */
+      log_bytes: number;
+      /** Spans of every kind stored in the window. */
+      spans: number;
+      /** Metric data points stored in the window. */
+      metric_points: number;
+      /** Distinct metric series with at least one point in the window. */
+      metric_series: number;
+      /** The service.name resource attribute. */
+      service_name: string;
+    }
+
+    export interface UsageValues {
+      /** Log records stored in the window. */
+      log_records: number;
+      /** Uncompressed size of the stored log records in bytes. Billing counts logs by this size. */
+      log_bytes: number;
+      /** Spans of every kind stored in the window. */
+      spans: number;
+      /** Metric data points stored in the window. */
+      metric_points: number;
+      /** Distinct metric series with at least one point in the window. */
+      metric_series: number;
+    }
+
+    /**
+     * * `logs` - Logs
+     * * `traces` - Traces
+     * * `metrics` - Metrics
+     */
+    export type UsageSignalEnum = typeof UsageSignalEnum[keyof typeof UsageSignalEnum];
+
+
+    export const UsageSignalEnum = {
+      Logs: 'logs',
+      Traces: 'traces',
+      Metrics: 'metrics',
+    } as const;
+
+    export interface ServiceUsageResponse {
+      /** One row per service across logs, traces, and metrics, largest logs size first. */
+      results: ServiceUsage[];
+      /** Totals for the whole window, including services past the row limit. */
+      totals: UsageValues;
+      /** Signals that failed to load. Their values are 0 in every row and in the totals. */
+      unavailable_signals: UsageSignalEnum[];
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface ServicesHealthResponse {
       /** One row per service, worst status first. */
       results: ServiceHealth[];
@@ -128569,6 +128689,17 @@ export namespace Schemas {
      * @maxLength 200
      */
     environment?: string;
+    };
+
+    export type ApmUsageListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
     };
 
     export type ApprovalPoliciesListParams = {

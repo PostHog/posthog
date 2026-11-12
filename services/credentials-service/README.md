@@ -301,6 +301,8 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
 | `credentials_service_audit_dropped_total{reason}`                        | read audit rows lost: `queue_full` or `write_failed`          |
 | `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
+| `credentials_service_audit_exported_total{outcome}`                      | audit rows sent to capture: `sent` or `failed` (retried)      |
+| `credentials_service_audit_export_lag_seconds`                           | age of the oldest audit row not exported yet, 0 when none     |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
@@ -377,6 +379,38 @@ An advisory lock makes two Jobs that start together run one after the other.
 Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`, because the migration already made the default partition.
 Set pg_partman up before the service writes audit rows.
 Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
+
+### Audit export and retention
+
+When `CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true`, every pod runs an export loop.
+It needs `CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST` and `CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY`.
+Optional: `..._AUDIT_EXPORT_BATCH_SIZE` (500), `..._AUDIT_EXPORT_INTERVAL_SECONDS` (10), `..._AUDIT_EXPORT_TIMEOUT_MS` (10000).
+The loop posts rows that have no `exported_at` to `/batch/` as `$credentials_access` events, and then sets `exported_at`.
+One pod at a time exports: it holds `pg_try_advisory_lock`, and it selects batches with `FOR UPDATE SKIP LOCKED`.
+A failed send keeps the rows for the next pass. The row id is the event `uuid`, so a repeat send does not create a second event.
+The distinct id is always `credentials-service`, with `$process_person_profile` off. The user id is an event property.
+An event carries key names in `fields`, never values. It carries no `details` and no `jti`.
+The request uses plain `fetch`, so it goes direct unless Node itself is set to use the proxy environment.
+
+The runtime role has `UPDATE (exported_at)` on `audit_log` and no other update right. The exporter marks rows by primary key `(id, occurred_at)`, with the values it read in its select.
+
+**Retention** does not run in the service, because the runtime role cannot delete audit rows.
+It runs as a separate command under the migrate (maintenance) role, from the same image, as a Kubernetes CronJob:
+
+```bash
+node credentials-service-maintenance.mjs audit-retention
+pnpm --filter @posthog/credentials-service maintenance audit-retention   # from source
+```
+
+It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` (it does not fall back to the runtime URL) and `CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS` (default 30, maximum 60).
+It deletes only rows that the export already marked with `exported_at`, so an export that is off or behind keeps its rows.
+Set `CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED=true` to delete old rows without an export. The stdout audit lines in Loki are then the only copy.
+It deletes older rows in batches under an advisory lock, and logs `maintenance:complete`.
+Run it hourly. When infra runs pg_partman retention on `audit_log`, drop the CronJob.
+
+**Alerts.** Alert on service metrics and on the stdout audit lines (`integrations:audited`) in Loki.
+Never alert on `$credentials_access` events: anyone with the project key can forge them, so the events are for analysis only.
+Alert on `credentials_service_audit_dropped_total` above 0, and on export lag (`credentials_service_audit_export_lag_seconds`).
 
 ## Integrations API
 

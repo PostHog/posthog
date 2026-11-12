@@ -1370,6 +1370,11 @@ def get_default_workspace_prefix() -> str:
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
 
 
+def app_url(workspace_name: str) -> str:
+    host = urllib.parse.urlparse(get_coder_url()).hostname or ""
+    return f"https://app--{workspace_name}--{get_username()}.{host}"
+
+
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
     return _fetch_workspaces(timeout=timeout) or []
