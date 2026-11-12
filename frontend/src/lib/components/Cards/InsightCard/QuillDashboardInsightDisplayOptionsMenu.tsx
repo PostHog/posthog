@@ -1,4 +1,4 @@
-import { DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@posthog/quill'
+import { DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@posthog/quill'
 
 import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -17,14 +17,11 @@ export function QuillDashboardInsightDisplayOptionsMenu({
     }
 
     return (
-        <>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-                <DropdownMenuSubTrigger>Display options</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                    <DashboardInsightDisplayOptions visualizationItems={visualizationItems} tabs={tabs} />
-                </DropdownMenuSubContent>
-            </DropdownMenuSub>
-        </>
+        <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Display options</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+                <DashboardInsightDisplayOptions visualizationItems={visualizationItems} tabs={tabs} />
+            </DropdownMenuSubContent>
+        </DropdownMenuSub>
     )
 }
