@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.hogql.direct_connection import (
@@ -120,6 +122,18 @@ def validate_warehouse_native_connection(connection_id: str, *, team: Team, user
     # query path applies: the user must be able to read every table on the connection.
     if isinstance(user, User) and raw_query_denied_by_table_access(team, connection, user=user):
         raise PermissionDenied(RAW_QUERY_TABLE_DENIED_ERROR)
+
+
+def validate_warehouse_native_connection_access(team: Team, user: User | None, connection_id: str) -> None:
+    """The check for an async result served by id. Raises the Django PermissionDenied, which the facade can
+    hand to the query status endpoint without a DRF import."""
+    try:
+        validate_warehouse_native_connection(connection_id, team=team, user=user)
+    except ValidationError as error:
+        # A connection the user cannot see and a deleted connection both come back as an invalid connection.
+        # Either way the totals are not theirs to read.
+        detail = error.detail[0] if isinstance(error.detail, list) else error.detail
+        raise DjangoPermissionDenied(str(detail)) from error
 
 
 def validate_saved_metric_query_against_linked_experiments(
