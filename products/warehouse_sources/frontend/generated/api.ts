@@ -82,6 +82,8 @@ import type {
     WarehouseColumnStatisticsListParams,
     WarehouseMigrationApi,
     WarehouseMigrationConnectLinkApi,
+    WarehouseMigrationCostEstimateApi,
+    WarehouseMigrationCostEstimateRequestApi,
     WarehouseMigrationCreateApi,
     WarehouseMigrationItemApi,
     WarehouseMigrationSkipItemsApi,
@@ -1892,6 +1894,27 @@ export const warehouseMigrationsConnectionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(warehouseMigrationUploadConnectionsApi),
+    })
+}
+
+export const getWarehouseMigrationsCostEstimateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/cost_estimate/`
+}
+
+/**
+ * Estimate the monthly rows and cost of moving the connections, from the usage the user reported.
+ */
+export const warehouseMigrationsCostEstimateCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationCostEstimateRequestApi?: WarehouseMigrationCostEstimateRequestApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationCostEstimateApi> => {
+    return apiMutator<WarehouseMigrationCostEstimateApi>(getWarehouseMigrationsCostEstimateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationCostEstimateRequestApi),
     })
 }
 
