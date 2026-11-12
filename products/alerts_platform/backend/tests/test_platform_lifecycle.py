@@ -464,15 +464,16 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         ]
         completed_at = self.cutoff + timedelta(seconds=20)
 
-        with (
-            patch("products.alerts_platform.backend.logic.platform_lifecycle.record_check_completion_lag") as lag,
-            time_machine.travel(completed_at, tick=False),
-        ):
-            with self.captureOnCommitCallbacks(execute=True):
+        with patch("products.alerts_platform.backend.logic.platform_lifecycle.record_check_completion_lag") as lag:
+            # The write happens at the cutoff and commits 20 seconds later; the lag runs to the commit.
+            with time_machine.travel(self.cutoff, tick=False), self.captureOnCommitCallbacks() as callbacks:
                 first = record_outcomes(self.team.id, outcomes, self.cutoff)
+            with time_machine.travel(completed_at, tick=False):
+                for callback in callbacks:
+                    callback()
             recorded = sorted(call.args for call in lag.call_args_list)
             lag.reset_mock()
-            with self.captureOnCommitCallbacks(execute=True):
+            with time_machine.travel(completed_at, tick=False), self.captureOnCommitCallbacks(execute=True):
                 replayed = record_outcomes(self.team.id, outcomes, self.cutoff)
 
         assert (first, replayed) == (3, 0)

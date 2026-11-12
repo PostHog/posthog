@@ -614,10 +614,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
-        # Wall time, because `now` is the tick's cutoff and would hide the evaluation's own time.
-        recorded_at = django_timezone.now()
-        completion_lags = [
-            (configuration.source_kind, max(0, int((recorded_at - configuration.next_check_at).total_seconds() * 1000)))
+        # Captured before the write advances the schedule; the lag itself is measured at commit.
+        due_times = [
+            (configuration.source_kind, configuration.next_check_at)
             for configuration in configurations
             if configuration.next_check_at is not None
         ]
@@ -741,12 +740,16 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: record_history(team_id, rows))
-        transaction.on_commit(lambda: _record_completion_lags(completion_lags))
+        transaction.on_commit(lambda: _record_completion_lags(due_times))
     return len(configurations)
 
 
-def _record_completion_lags(lags: Sequence[tuple[str, int]]) -> None:
-    for source_kind, lag_ms in lags:
+def _record_completion_lags(due_times: Sequence[tuple[str, datetime]]) -> None:
+    # Wall time at commit rather than the tick's cutoff, so a slow write or an enclosing
+    # transaction that holds the commit counts towards the lag.
+    committed_at = django_timezone.now()
+    for source_kind, due_at in due_times:
+        lag_ms = max(0, int((committed_at - due_at).total_seconds() * 1000))
         safe_record(record_check_completion_lag, source_kind, lag_ms)
 
 
