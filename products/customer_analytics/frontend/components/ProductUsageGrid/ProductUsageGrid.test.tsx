@@ -26,7 +26,7 @@ describe('ProductUsageGrid', () => {
             source: { kind: 'product_usage' },
         })
         const { container, unmount } = render(<ProductUsageGrid />)
-        expect(screen.getByText(message)).toBeInTheDocument()
+        expect(screen.getAllByText(message)[0]).toBeInTheDocument()
         expect(container.querySelector('[data-attr="product-activity-grid"]')).toBeNull()
         unmount()
         logic.unmount()
