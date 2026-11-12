@@ -2497,38 +2497,29 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
 
-    def _insert_and_commit_once_the_send_waits(self, inserted: threading.Event, app: dict[str, Any]) -> None:
+    def _insert_and_commit_once_the_send_waits(
+        self, send_pid: int, inserted: threading.Event, app: dict[str, Any]
+    ) -> None:
         try:
             with transaction.atomic():
                 app["category_id"] = MessageCategory.objects.create(
                     team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
                 ).id
                 inserted.set()
-                app["send_waited"] = self._send_waits_on_the_insert()
+                app["send_waited"] = self._send_waits(send_pid)
         except Exception as error:
             app["error"] = error
         finally:
             inserted.set()
             connection.close()
 
-    def _send_waits_on_the_insert(self) -> bool:
-        try:
-            wait_until(self._send_is_waiting_on_the_insert, timeout=30, interval=0.05)
-        except AssertionError:
-            return False
-        return True
-
-    def _send_is_waiting_on_the_insert(self) -> bool:
+    def _send_pid(self) -> int:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_stat_clear_snapshot()")
-            cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                "AND wait_event_type = 'Lock' AND query ILIKE 'INSERT INTO \"posthog_messagecategory\"%%'"
-            )
-            return bool(cursor.fetchone()[0])
+            cursor.execute("SELECT pg_backend_pid()")
+            return cursor.fetchone()[0]
 
     def _restore_and_commit_once_the_send_waits(
-        self, category_id: Any, restored: threading.Event, other: dict[str, Any]
+        self, send_pid: int, category_id: Any, restored: threading.Event, other: dict[str, Any]
     ) -> None:
         try:
             with transaction.atomic():
@@ -2539,26 +2530,23 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                     )
                 MessageCategory.objects.filter(id=category_id).update(deleted=False)
                 restored.set()
-                other["send_waited"] = self._send_waits(self._send_is_waiting_on_a_lock)
+                other["send_waited"] = self._send_waits(send_pid)
         except Exception as error:
             other["error"] = error
         finally:
             restored.set()
             connection.close()
 
-    def _send_waits(self, waiting: Callable[[], bool]) -> bool:
+    def _send_waits(self, send_pid: int) -> bool:
         try:
-            wait_until(waiting, timeout=30, interval=0.05)
+            wait_until(lambda: self._send_is_blocked_by_this_session(send_pid), timeout=30, interval=0.05)
         except AssertionError:
             return False
         return True
 
-    def _send_is_waiting_on_a_lock(self) -> bool:
+    def _send_is_blocked_by_this_session(self, send_pid: int) -> bool:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_stat_clear_snapshot()")
-            cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
-            )
+            cursor.execute("SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))", [send_pid])
             return bool(cursor.fetchone()[0])
 
     def test_a_category_another_send_restores_at_the_limit_is_used(self, cdp_post, _flag, _capture):
@@ -2569,7 +2557,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         restored = threading.Event()
         other: dict[str, Any] = {}
         worker = threading.Thread(
-            target=self._restore_and_commit_once_the_send_waits, args=(archived.id, restored, other)
+            target=self._restore_and_commit_once_the_send_waits, args=(self._send_pid(), archived.id, restored, other)
         )
         worker.start()
         assert restored.wait(timeout=30)
@@ -2598,7 +2586,9 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         inserted = threading.Event()
         app: dict[str, Any] = {}
-        worker = threading.Thread(target=self._insert_and_commit_once_the_send_waits, args=(inserted, app))
+        worker = threading.Thread(
+            target=self._insert_and_commit_once_the_send_waits, args=(self._send_pid(), inserted, app)
+        )
         worker.start()
         assert inserted.wait(timeout=30)
 
