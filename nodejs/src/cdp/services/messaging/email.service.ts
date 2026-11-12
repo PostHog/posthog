@@ -194,6 +194,7 @@ const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
+export const UNSUBSCRIBE_TOKENS_CHECKED = 50
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
@@ -1694,11 +1695,13 @@ export class EmailService {
                   .split(preferencesPage)
                   .slice(1)
                   .flatMap((rest) => rest.match(/^[^\s/?#]+\//) ?? [])
-        const tokens = paths.flatMap((path) => {
-            const page = path.split(/[?#]/)[0]
-            return /^[^/]+\/$/.test(page) ? [page.slice(0, -1)] : []
-        })
-        return !tokens.some((token) => {
+        const tokens = new Set(
+            paths.flatMap((path) => {
+                const page = path.split(/[?#]/)[0]
+                return /^[^/]+\/$/.test(page) ? [page.slice(0, -1)] : []
+            })
+        )
+        return ![...tokens].slice(0, UNSUBSCRIBE_TOKENS_CHECKED).some((token) => {
             const owner = this.recipientTokensService.validatePreferencesToken(token)
             return owner.valid && owner.team_id === invocation.teamId && unquoteMailbox(owner.identifier) === recipient
         })

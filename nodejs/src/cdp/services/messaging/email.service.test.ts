@@ -69,6 +69,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-
 import {
     EmailService,
     EmailServiceConfig,
+    UNSUBSCRIBE_TOKENS_CHECKED,
     formatMailbox,
     parseAddressList,
     parseTierCaps,
@@ -3910,6 +3911,53 @@ describe('EmailService', () => {
                     expect.stringContaining(
                         'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
                     )
+                )
+            }
+        )
+
+        it.each([
+            {
+                links: "one other recipient's preferences link, repeated past the check's limit,",
+                distinct: 1,
+                sent: true,
+            },
+            {
+                links: "more other recipients' preferences links than the check reads",
+                distinct: UNSUBSCRIBE_TOKENS_CHECKED,
+                sent: false,
+            },
+        ])(
+            'a marketing API send with $links before its own unsubscribe link sends: $sent',
+            async ({ distinct, sent }) => {
+                const tokens = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                const others = Array.from({ length: distinct }, (_, i) =>
+                    tokens.generatePreferencesUrl({ team_id: invocation.teamId, identifier: `other-${i}@example.com` })
+                )
+                const html =
+                    Array.from(
+                        { length: UNSUBSCRIBE_TOKENS_CHECKED + 1 },
+                        (_, i) => `<a href="${others[i % distinct]}">Settings</a>`
+                    ).join('') + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
+                invocation.state.send = {
+                    content: { subject: 'News', html },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(ses.sent).toHaveLength(sent ? 1 : 0)
+                expect(result.emailSendResult).toEqual(
+                    sent
+                        ? { status: 'accepted' }
+                        : { status: 'skipped', reason: expect.stringContaining('has no unsubscribe link') }
                 )
             }
         )
