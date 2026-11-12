@@ -86,10 +86,14 @@ function parseAttrs(raw: string): Record<string, string> {
 
 /** CommonMark inline code on one line: a run of N backticks closes on the next run of exactly N. */
 function inlineCodeSpans(line: string, offset: number): Span[] {
+    if (!line.includes('`')) {
+        return []
+    }
     const runs = Array.from(line.matchAll(RE_BACKTICK_RUN))
     // For each run, the index of the next run of the same length, or -1. One pass from the right keeps
-    // the scan linear, because searching forward from each opener is quadratic on many backtick pairs.
-    const nextSameLength: number[] = Array.from({ length: runs.length }, () => -1)
+    // the scan linear, because a search from the start of the line for each opener is quadratic on
+    // many backtick pairs.
+    const nextSameLength = runs.map(() => -1)
     const lastSeenAt = new Map<number, number>()
     for (let i = runs.length - 1; i >= 0; i--) {
         const length = runs[i][0].length

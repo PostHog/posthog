@@ -18,7 +18,6 @@
     "devDependencies": {
         "@testing-library/react": "*",
         "kea-test-utils": "catalog:",
-        "mdast-util-from-markdown": "^2.1.0",
         "msw": "*"
     },
     "peerDependencies": {

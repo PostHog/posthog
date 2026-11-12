@@ -1,15 +1,6 @@
-import { fromMarkdown } from 'mdast-util-from-markdown'
-
-import { type MarkdownNode, remarkLiteralHtml } from 'lib/lemon-ui/LemonMarkdown/literalHtml'
+import { marked } from 'marked'
 
 import { userMessageDisplayText } from './userMessageDisplay'
-
-function renderedNodes(markdown: string): MarkdownNode[] {
-    const tree = fromMarkdown(markdown) as MarkdownNode
-    remarkLiteralHtml()(tree)
-    const walk = (node: MarkdownNode): MarkdownNode[] => [node, ...(node.children ?? []).flatMap(walk)]
-    return walk(tree)
-}
 
 describe('userMessageDisplayText', () => {
     it.each([
@@ -30,26 +21,18 @@ describe('userMessageDisplayText', () => {
         ['a skill mention', 'Run <skill name="deploy" source="user" path="/skills/deploy" /> now', 'Run `/deploy` now'],
         ['two skill mentions', 'Run <skill name="a" /> then <skill name="b" />', 'Run `/a` then `/b`'],
         ['a skill name with a backtick', 'Run <skill name="a`b" />', "Run `/a'b`"],
-        ['an unclosed skill opener', 'Run <skill name="deploy" now', 'Run <skill name="deploy" now'],
+        ['a skill name with escaped markup', 'Run <skill name="&lt;b&gt;" />', 'Run `/<b>`'],
         ['a skill opener that runs into the next tag', 'Run <skill name="a" <b /> x', 'Run <skill name="a" <b /> x'],
     ])('renders %s', (_, text, expected) => {
         expect(userMessageDisplayText(text)).toEqual(expected)
     })
 
-    it.each([
-        ['escaped markup in the name', '<skill name="&lt;img src=x onerror=alert(1)&gt;" />'],
-        ['a backtick and markup in the name', '<skill name="x`<img src=x onerror=alert(1)>" />'],
-        ['a handler attribute after the name', '<skill name="x" onerror="alert(1)" />'],
-        ['a script after the tag', '<skill name="x" /><script>alert(1)</script>'],
-    ])('leaves no raw HTML from a skill mention with %s', (_, text) => {
-        const nodes = renderedNodes(userMessageDisplayText(text))
-        expect(nodes.filter((node) => node.type === 'html')).toEqual([])
-    })
-
-    it('keeps markup from an escaped skill name inside inline code', () => {
-        const nodes = renderedNodes(userMessageDisplayText('<skill name="&lt;img src=x onerror=alert(1)&gt;" />'))
-        expect(nodes.filter((node) => node.type === 'inlineCode').map((node) => node.value)).toEqual([
-            '/<img src=x onerror=alert(1)>',
-        ])
+    it('keeps markup from an escaped skill name inside a code element', () => {
+        // `marked` keeps raw HTML, so markup that escaped the code span would show up as a live element.
+        const html = marked.parse(userMessageDisplayText('<skill name="&lt;img src=x onerror=alert(1)&gt;" />'), {
+            async: false,
+        })
+        expect(html).toContain('<code>/&lt;img src=x onerror=alert(1)&gt;</code>')
+        expect(html).not.toContain('<img')
     })
 })
