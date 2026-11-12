@@ -107,7 +107,9 @@ export const refusedAtIntake: InvariantDefinition = {
     name: 'refused_at_intake',
     params: z.object({}).strict(),
     check: ({ journal }, gate) => {
-        const refused = journal.flatMap(({ unitId, answer }) => (answer.accepted ? [] : [{ unitId, answer }]))
+        const refused = journal.flatMap(({ unitId, kind, answer }) =>
+            answer.accepted || kind === 'event' ? [] : [{ unitId, answer }]
+        )
         const [first] = refused
         const reason = (answer: (typeof refused)[number]['answer']): string =>
             'transportError' in answer

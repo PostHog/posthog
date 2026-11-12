@@ -384,6 +384,23 @@ describe('scenario environment', () => {
                 { DATABASE_READONLY_URL: 'postgres://posthog:posthog@replica.example.com:5432/posthog' },
                 [POSTHOG, 'postgres://posthog:posthog@replica.example.com:5432/posthog'],
             ],
+            [
+                'one server when a setting no role reads holds a Postgres URL',
+                { PROFILE_NOTES_URL: 'postgres://posthog:posthog@shared.example.com:5432/notes' },
+                [POSTHOG],
+            ],
+            [
+                'both servers when settings build the primary on another host',
+                {
+                    DATABASE_URL: '',
+                    POSTHOG_DB_NAME: 'posthog',
+                    POSTHOG_DB_USER: 'posthog',
+                    POSTHOG_DB_PASSWORD: 'posthog',
+                    POSTHOG_POSTGRES_HOST: 'primary.example.com',
+                    POSTHOG_POSTGRES_PORT: '5432',
+                },
+                [POSTHOG, 'postgres://posthog:posthog@primary.example.com:5432/posthog'],
+            ],
         ])('lists the Postgres servers the roles reach: %s', (_story, settings, servers) => {
             const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
@@ -908,6 +925,31 @@ describe('scenario environment', () => {
                 expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
             } finally {
                 await missing.stop()
+            }
+        }, 15_000)
+
+        it('does not take credit for a role that exited on its own before the kill landed', async () => {
+            const crashing = createSupervisor({
+                command: process.execPath,
+                args: ['-e', 'process.exit(3)'],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 60_000,
+            })
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            try {
+                await crashing.start([spec])
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
+
+                const observed = await crashing.kill(spec.role, 2000)
+
+                expect({ observed, exits: crashing.exits() }).toEqual({
+                    observed: false,
+                    exits: [expect.objectContaining({ role: spec.role, code: 3, signal: null, byValve: false })],
+                })
+            } finally {
+                await crashing.stop()
             }
         }, 15_000)
 

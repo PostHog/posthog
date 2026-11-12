@@ -104,7 +104,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 at: new Date().toISOString(),
                 code,
                 signal,
-                byValve: killedByValve.has(child),
+                byValve: killedByValve.has(child) && signal === 'SIGKILL',
             })
             relaunchLater(spec)
         })
@@ -140,8 +140,13 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         async kill(role, withinMs) {
             const child = runningChild(role)
             killedByValve.add(child)
-            const exited = once(child, 'exit').then(() => true)
-            process.kill(-child.pid, 'SIGKILL')
+            const exited = once(child, 'exit').then(([, signal]) => signal === 'SIGKILL')
+            try {
+                process.kill(-child.pid, 'SIGKILL')
+            } catch (error) {
+                killedByValve.delete(child)
+                throw error
+            }
             const gaveUp = new AbortController()
             const outcome = await Promise.race([
                 exited,
