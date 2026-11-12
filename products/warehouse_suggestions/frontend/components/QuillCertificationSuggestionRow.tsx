@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconWarning } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconArchive, IconCheckCircle } from '@posthog/icons'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
@@ -9,7 +9,7 @@ import { certificationSuggestionGuards } from '../certificationSuggestionGuards'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRowProps } from './CertificationSuggestionRow'
-import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
+import { QuillSuggestionActions } from './QuillSuggestionActions'
 import { QuillRowSelectionProps, QuillSuggestionRow } from './QuillSuggestionRow'
 import { QuillSuggestionSubjectLink } from './QuillSuggestionSubjectLink'
 import { QuillWhyThisSuggestion } from './QuillWhyThisSuggestion'
@@ -71,25 +71,18 @@ export function QuillCertificationSuggestionRow({
                       ]
             }
             actions={
-                <>
-                    <Button
-                        variant="outline"
-                        loading={inFlight}
-                        disabledReason={acceptBlockedReason}
-                        onClick={() =>
-                            confirmsFirst ? openAcceptConfirm(suggestion.id) : acceptSuggestion(suggestion.id)
-                        }
-                        data-attr={`warehouse-suggestions-${suggestion.kind}`}
-                    >
-                        {deprecating ? <IconWarning /> : <IconCheckCircle />}
-                        {deprecating ? 'Mark deprecated' : 'Certify'}
-                    </Button>
-                    <QuillDismissSuggestionButtons
-                        suggestionId={suggestion.id}
-                        kind={suggestion.kind}
-                        disabledReason={dismissBlockedReason}
-                    />
-                </>
+                <QuillSuggestionActions
+                    suggestion={suggestion}
+                    label={deprecating ? 'Mark deprecated' : 'Certify'}
+                    icon={deprecating ? <IconArchive /> : <IconCheckCircle />}
+                    onAccept={() =>
+                        confirmsFirst ? openAcceptConfirm(suggestion.id) : acceptSuggestion(suggestion.id)
+                    }
+                    acceptBlockedReason={acceptBlockedReason}
+                    dismissBlockedReason={dismissBlockedReason}
+                    loading={inFlight}
+                    acceptDataAttr={`warehouse-suggestions-${suggestion.kind}`}
+                />
             }
         />
     )

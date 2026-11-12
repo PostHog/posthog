@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { IconPause } from '@posthog/icons'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { suggestionBlockedReason } from '../suggestionBlockedReason'
 import { isUnmaterializePayload, readSummary, unmaterializeHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
+import { QuillSuggestionActions } from './QuillSuggestionActions'
 import { QuillRowSelectionProps, QuillSuggestionRow } from './QuillSuggestionRow'
 import { QuillSuggestionSubjectLink } from './QuillSuggestionSubjectLink'
 import { QuillWhyThisSuggestion } from './QuillWhyThisSuggestion'
@@ -47,24 +46,15 @@ export function QuillUnmaterializeSuggestionRow({
             ]}
             highlight={unmaterializeHighlight(payload)}
             actions={
-                <>
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Stop materializing"
-                        tooltip="Stop materializing"
-                        disabledReason={blockedReason}
-                        onClick={() => openAcceptConfirm(suggestion.id)}
-                        data-attr="warehouse-suggestions-unmaterialize"
-                    >
-                        <IconCheck />
-                    </Button>
-                    <QuillDismissSuggestionButtons
-                        suggestionId={suggestion.id}
-                        kind={suggestion.kind}
-                        disabledReason={blockedReason}
-                    />
-                </>
+                <QuillSuggestionActions
+                    suggestion={suggestion}
+                    label="Stop materializing"
+                    icon={<IconPause />}
+                    onAccept={() => openAcceptConfirm(suggestion.id)}
+                    acceptBlockedReason={blockedReason}
+                    dismissBlockedReason={blockedReason}
+                    acceptDataAttr="warehouse-suggestions-unmaterialize"
+                />
             }
         />
     )

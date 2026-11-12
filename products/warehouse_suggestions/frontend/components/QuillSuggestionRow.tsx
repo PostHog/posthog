@@ -4,11 +4,14 @@ import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { SavingHighlight } from '../suggestionCopy'
 import { QuillSuggestionAssigneeSelect } from './QuillSuggestionAssigneeSelect'
-import { SAVING_COLUMNS_CLASS, SuggestionRowProps } from './SuggestionRow'
+import { SuggestionRowProps } from './SuggestionRow'
 
 export interface QuillRowSelectionProps {
     selection?: ReactNode
 }
+
+export const QUILL_SAVING_COLUMNS_CLASS =
+    '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_11rem] @min-[36rem]/suggestions:gap-x-3'
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success-foreground'
 
@@ -63,7 +66,9 @@ export function QuillSuggestionRow({
                 <div
                     className={cn(
                         'grid grid-cols-1 gap-y-2 px-3 py-2.5 @min-[36rem]/suggestions:items-center @min-[36rem]/suggestions:gap-x-3',
-                        highlight ? SAVING_COLUMNS_CLASS : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
+                        highlight
+                            ? QUILL_SAVING_COLUMNS_CLASS
+                            : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
                     )}
                 >
                     <div className="flex min-w-0 items-start gap-2">
@@ -113,7 +118,10 @@ export function QuillSuggestionRow({
                     )}
                     <div
                         data-suggestion-actions
-                        className="flex flex-wrap items-center gap-1 pl-6 @min-[36rem]/suggestions:justify-end @min-[36rem]/suggestions:pl-0"
+                        className={cn(
+                            'flex flex-wrap items-center gap-1 @min-[36rem]/suggestions:justify-end @min-[36rem]/suggestions:pl-0',
+                            selection ? 'pl-12' : 'pl-6'
+                        )}
                     >
                         {actions}
                     </div>
