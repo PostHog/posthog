@@ -9,10 +9,11 @@ from django.db.models.manager import ManagerDescriptor
 from django.utils.functional import Promise
 
 import structlog
-from prometheus_client import Counter
 
-from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.integrations.contracts import IntegrationRecord, creator_can_manage
+from posthog.integrations.references import IntegrationReference
+from posthog.integrations.secret_reads import readable_secret
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -22,6 +23,7 @@ from .auth_types import (
     AuthRequirement,
     AuthTypeSelector,
     IntegrationAuthType,
+    catalogued_kinds,
     config_for_write,
     default_auth_type,
     effective_auth_type,
@@ -33,71 +35,11 @@ from .auth_types import (
 logger = structlog.get_logger(__name__)
 
 
-class UndecryptedIntegrationSecretError(ValueError):
-    """Raised when a value read off `Integration.sensitive_config` still looks like Fernet
-    ciphertext instead of the decrypted secret, and no configured key can open it.
-
-    `sensitive_config` sets `ignore_decrypt_errors=True` so integrations written before
-    encryption existed keep loading, but that same leniency means a value that fails to
-    decrypt under every configured key (a lost key, a corrupted row) comes back as raw
-    ciphertext rather than raising. Left unchecked, that ciphertext gets sent to the
-    third-party API as if it were the real credential, which rejects it as invalid, hiding
-    the actual cause behind what looks like a bad customer-supplied key.
-
-    The message is user-facing: it lands on the failed data warehouse job as `latest_error`.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(
-            "We couldn't read the saved credentials for this connection. Reconnect the account to start syncing again."
-        )
-
-
-# Reading a still-encrypted secret means the row is either recoverably over-encrypted or
-# permanently unreadable. Both are invisible from the sync failure alone, so count them by kind:
-# a rising `unreadable` rate means live customer credentials are being lost.
-integration_secret_decrypt_counter = Counter(
-    "integration_sensitive_config_decrypt_recovery",
-    "Reads of an Integration secret that came back still encrypted, by recovery outcome",
-    labelnames=["kind", "result"],
-)
-
-
-def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> str | None:
-    """Read a secret off `sensitive_config`, peeling any extra encryption layers it picked up.
-
-    A read-then-save of a row whose secret failed to decrypt writes that ciphertext back
-    encrypted again, so the stored value ends up double-encrypted. One decrypt (the field's
-    own) then leaves ciphertext behind. Peel the rest here: the underlying secret is intact
-    and the connection keeps working.
-    """
-    value = integration.sensitive_config.get(field_name)
-    if not isinstance(value, str) or not value.startswith(FERNET_TOKEN_PREFIX):
-        return value
-
-    field = cast(EncryptedJSONField, integration._meta.get_field("sensitive_config"))
-    recovered = field.decrypt_all_layers(value)
-
-    if recovered is None:
-        integration_secret_decrypt_counter.labels(kind=integration.kind, result="unreadable").inc()
-        logger.error(
-            "integration_sensitive_config_unreadable",
-            integration_id=integration.pk,
-            team_id=integration.team_id,
-            kind=integration.kind,
-            field=field_name,
-        )
-        raise UndecryptedIntegrationSecretError()
-
-    integration_secret_decrypt_counter.labels(kind=integration.kind, result="recovered").inc()
-    logger.warning(
-        "integration_sensitive_config_over_encrypted",
-        integration_id=integration.pk,
-        team_id=integration.team_id,
-        kind=integration.kind,
-        field=field_name,
-    )
-    return recovered
+# Marks a row that a data warehouse source created from the fields a user typed in. The value is the
+# source type, so a client can show the source's name and icon for a kind it does not know. The row
+# holds `sensitive_config["fields"]` in the source's own field shape, not in the shape that other
+# code of the kind reads. Hog functions must never get such a row as an input.
+WAREHOUSE_SOURCE_TYPE_CONFIG_KEY = "warehouse_source_type"
 
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
@@ -177,6 +119,8 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
         if defaults is not None and "config" in defaults:
             defaults = self._with_config_for_write(dict(defaults), kind)
+        if create_defaults is not None and "config" in create_defaults:
+            create_defaults = self._with_config_for_write(dict(create_defaults), kind)
         return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
 
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -234,8 +178,13 @@ class _AllRowsManager(IntegrationModelManager):
 
 
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:
-    # Callable so growing the enum doesn't generate a no-op migration.
-    return list(Integration.IntegrationKind.choices)
+    # Callable so growing the enum doesn't generate a no-op migration. Kinds that a product registers
+    # with `register_kind_auth_types` (the warehouse source credential kinds) are valid stored kinds
+    # too, but they stay out of `IntegrationKind` and so out of the public API enum.
+    choices: list[tuple[str, str | Promise]] = list(Integration.IntegrationKind.choices)
+    known = {value for value, _ in choices}
+    choices += [(kind, kind) for kind in sorted(catalogued_kinds()) if kind not in known]
+    return choices
 
 
 class Integration(models.Model):
@@ -255,6 +204,7 @@ class Integration(models.Model):
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
         EMAIL = "email"
+        EMAIL_SANDBOX = "email_sandbox"
         FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
@@ -350,8 +300,12 @@ class Integration(models.Model):
         return effective_auth_type(self.kind, self.config)
 
     @property
+    def holds_warehouse_source_fields(self) -> bool:
+        return isinstance(self.config, dict) and WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in self.config
+
+    @property
     def display_name(self) -> str:
-        if self.auth_type != default_auth_type(self.kind):
+        if self.holds_warehouse_source_fields or self.auth_type != default_auth_type(self.kind):
             # The branches below read the config shape of the default auth type.
             return self.config.get("display_name") or f"ID: {self.integration_id}"
         if self.kind == "twitter-ads":
@@ -437,17 +391,40 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     def can_be_managed_by_creator(self, user_id: int | None) -> bool:
-        return (
-            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
-        )
+        return creator_can_manage(self.kind, self.created_by_id, user_id)
+
+    @property
+    def reference(self) -> str:
+        return str(IntegrationReference.from_legacy_id(self.id))
 
     @property
     def access_token(self) -> str | None:
-        return _decrypted_sensitive_value(self, "access_token")
+        return self._readable_secret("access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return _decrypted_sensitive_value(self, "refresh_token")
+        return self._readable_secret("refresh_token")
+
+    def _readable_secret(self, field_name: str) -> str | None:
+        return readable_secret(
+            kind=self.kind,
+            id=self.id,
+            team_id=self.team_id,
+            field_name=field_name,
+            value=self.sensitive_config.get(field_name),
+        )
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Any, values: Any, *args: Any, **kwargs: Any) -> "Integration":
+        instance = super().from_db(db, field_names, values, *args, **kwargs)
+        if "sensitive_config" not in instance.get_deferred_fields():
+            # Every load path (the SDK, a foreign key, `refresh_from_db()`) gets clean secrets.
+            from posthog.integrations.backend.django_backend import (  # noqa: PLC0415 — the backend imports this module
+                peel_secret_layers,
+            )
+
+            peel_secret_layers(instance)
+        return instance
 
 
 # `setattr`, because the type of `objects` is the manager, not its descriptor.
@@ -458,7 +435,9 @@ def integration_model(record: IntegrationRecord) -> Integration:
     """The model behind a row of the integrations SDK.
 
     The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
-    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    runtime. Only the per-kind adapters next to the model use it, because callers outside this package
+    still read model-only attributes (`team`, `pk`, `refresh_from_db()`) from `adapter.integration`.
+    The adapters write the row through the SDK (see `row_writes.py`), not with `save()`.
     """
     return cast(Integration, record)
 
@@ -470,3 +449,8 @@ def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](query
 @database_sync_to_async
 def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | None:
     return Integration.objects.get(id=integration_id, team_id=team_id)
+
+
+# The kinds that an API request can name. A kind that a product registers (a warehouse source
+# credential kind) is stored data only, so the generated API enum stays small.
+PUBLIC_INTEGRATION_KIND_CHOICES = list(Integration.IntegrationKind.choices)

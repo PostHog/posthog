@@ -1,6 +1,6 @@
 import json
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from datetime import datetime
 from functools import reduce
@@ -8,6 +8,8 @@ from typing import Any, Self
 from uuid import UUID
 
 import structlog
+
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -18,9 +20,15 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.hogql_queries.ai.ai_column_rewriter import (
+    EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+    rewrite_query_for_events_table,
+)
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from .events_fallback import FallbackWindow, events_filter, fallback_window, unhinted_window
 from .person import trace_distinct_id
@@ -31,6 +39,7 @@ _HEAVY_COLUMNS = ("input", "output", "output_choices", "input_state", "output_st
 _NODE_COLUMNS = ("uuid", "event", "timestamp", "properties", *_HEAVY_COLUMNS)
 # The largest result HogQL returns; without an explicit limit it returns 100 rows.
 MAX_TRACE_EVENTS = 50_000
+TRACE_AVAILABILITY_QUERY_SECONDS = 2
 TOKEN_PROPERTIES = {
     "input_tokens": "$ai_input_tokens",
     "output_tokens": "$ai_output_tokens",
@@ -63,6 +72,7 @@ class TraceEventRow:
     latency: float | None
     is_error: bool
     error_is_truthy: bool
+    has_state: bool
     ingestion_source: str | None
     git_branch: str | None
     git_repo: str | None
@@ -148,6 +158,7 @@ _SELECTED: dict[str, ast.Expr] = {
     # The native error column extracts $ai_error as a string, which loses the JSON type that decides truthiness.
     "error_raw": _raw_property("$ai_error"),
     "ingestion_source": ast.Field(chain=["properties", "$ai_ingestion_source"]),
+    "has_state": ast.Placeholder(expr=ast.Field(chain=["has_state"])),
     "git_branch": ast.Field(chain=["properties", "$ai_git_branch"]),
     "git_repo": ast.Field(chain=["properties", "$ai_git_repo"]),
 }
@@ -253,6 +264,30 @@ def _person_query(distinct_id: str) -> ast.SelectQuery:
     )
 
 
+# SDKs send an empty state as `null`, `""` or `{}`, so a state of at most 4 bytes holds nothing to show.
+_EMPTY_STATE_MAX_BYTES = 4
+
+
+def _has_state(lengths: Iterable[ast.Expr]) -> ast.Expr:
+    return ast.Or(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt, left=length, right=ast.Constant(value=_EMPTY_STATE_MAX_BYTES)
+            )
+            for length in lengths
+        ]
+    )
+
+
+# ClickHouse reads the whole state column for any function of `input_state`, so ai_events checks the length
+# subcolumns, which load no state content.
+_AI_EVENTS_HAS_STATE = _has_state((ast.Field(chain=["input_state_length"]), ast.Field(chain=["output_state_length"])))
+# The events fallback reads the state from the properties JSON, where a missing key is an empty string.
+_EVENTS_HAS_STATE = _has_state(
+    tuple(ast.Call(name="length", args=[ast.Field(chain=[column])]) for column in ("input_state", "output_state"))
+)
+
+
 def _trace_filter(trace_id: str) -> ast.Expr:
     return _equals("trace_id", trace_id)
 
@@ -272,7 +307,7 @@ def _read(
     tag_queries(name=name)
     response = query_ai_events(
         query=query,
-        placeholders={"filter_conditions": _trace_filter(trace_id)},
+        placeholders={"filter_conditions": _trace_filter(trace_id), "has_state": _AI_EVENTS_HAS_STATE},
         team=team,
         user=user,
         query_type=name,
@@ -280,7 +315,8 @@ def _read(
         fallback_placeholders={
             "filter_conditions": events_filter(
                 trace_filter=_trace_filter(trace_id), event_filter=_event_in(event_names), window=window
-            )
+            ),
+            "has_state": _EVENTS_HAS_STATE,
         },
         posthog_tables_only=True,
         settings=settings,
@@ -360,6 +396,7 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
         latency=read_number(raw["latency"]),
         is_error=read_flag(raw["is_error"]),
         error_is_truthy=is_truthy_json(raw["error_raw"]),
+        has_state=read_flag(raw["has_state"]),
         ingestion_source=read_text(raw["ingestion_source"]),
         git_branch=read_text(raw["git_branch"]),
         git_repo=read_text(raw["git_repo"]),
@@ -417,6 +454,65 @@ def _read_trace(
         return results
     logger.warning("ai_trace_unhinted_events_fallback", team_id=team.pk, trace_id_length=len(trace_id), read=name)
     return read(unhinted_window())
+
+
+def _read_trace_availability(
+    team: Team, user: User | None, trace_ids: Sequence[str], *, shared_events: bool = False
+) -> list[str]:
+    trace_filter = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=ast.Field(chain=["trace_id"]), right=ast.Constant(value=list(trace_ids))
+    )
+    event_filter = _event_in(TRACE_EVENT_NAMES)
+    query = ast.SelectQuery(
+        select=[ast.Field(chain=["trace_id"])],
+        select_from=_ai_events(),
+        where=events_filter(trace_filter=trace_filter, event_filter=event_filter, window=unhinted_window())
+        if shared_events
+        else ast.And(exprs=[trace_filter, event_filter]),
+        distinct=True,
+        limit=ast.Constant(value=len(trace_ids)),
+    )
+    name = "ai_trace_availability"
+    with tags_context(product=Product.LLM_ANALYTICS):
+        tag_queries(name=name, ai_query_source="shared_table_fallback" if shared_events else "dedicated_table")
+        try:
+            response = execute_hogql_query(
+                query=rewrite_query_for_events_table(query) if shared_events else query,
+                team=team,
+                user=user,
+                query_type=name,
+                modifiers=None
+                if shared_events
+                else HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+                context=HogQLContext(
+                    team_id=team.pk,
+                    team=team,
+                    user=user,
+                    database=Database.create_for_posthog_tables(team),
+                    use_new_events_schema=use_new_events_schema(team.pk) if shared_events else None,
+                    property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES if shared_events else None,
+                ),
+                settings=HogQLGlobalSettings(
+                    max_execution_time=TRACE_AVAILABILITY_QUERY_SECONDS,
+                    timeout_before_checking_execution_speed=0,
+                    timeout_overflow_mode="break",
+                ),
+                workload=Workload.ONLINE,
+            )
+        except ClickHouseQueryTimeOut:
+            return []
+    return [str(row[0]) for row in response.results or []]
+
+
+def load_available_trace_ids(team: Team, user: User | None, trace_ids: Sequence[str]) -> list[str]:
+    requested = list(dict.fromkeys(trace_ids))
+    if not requested:
+        return []
+    available = set(_read_trace_availability(team, user, requested))
+    missing = [trace_id for trace_id in requested if trace_id not in available]
+    if missing:
+        available.update(_read_trace_availability(team, user, missing, shared_events=True))
+    return [trace_id for trace_id in requested if trace_id in available]
 
 
 def load_trace(

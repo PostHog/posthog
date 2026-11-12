@@ -5,12 +5,14 @@ This module tests all Bayesian classes for correctness of calculations,
 validation, and edge case handling.
 """
 
+import re
 from typing import Any
 
 import pytest
 from unittest import TestCase
 
 import numpy as np
+from parameterized import parameterized
 
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.bayesian.priors import GaussianPrior
@@ -21,12 +23,20 @@ from products.experiments.stats.bayesian.utils import (
     chance_to_win,
     credible_interval,
 )
+from products.experiments.stats.frequentist.method import FrequentistMethod
+from products.experiments.stats.frequentist.utils import calculate_point_estimate, calculate_variance_pooled
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
     RatioStatistic,
+    RelativeEffectBaseline,
     SampleMeanStatistic,
     StatisticError,
+)
+from products.experiments.stats.tests.test_statistics import (
+    DEGENERATE_QUANTILE_CASES,
+    QUANTILE_CONTROL,
+    QUANTILE_TREATMENT,
 )
 
 
@@ -313,6 +323,38 @@ class TestBayesianMethod(TestCase):
         self.assertAlmostEqual(credible_interval_result[0], expected_dict["credible_interval"][0], places=4)
         self.assertAlmostEqual(credible_interval_result[1], expected_dict["credible_interval"][1], places=4)
 
+    @parameterized.expand(
+        [
+            (
+                "absolute",
+                DifferenceType.ABSOLUTE,
+                1.415000000000001,
+                (0.08583772923349264, 2.744162270766509),
+                0.9815350910332983,
+            ),
+            (
+                "relative",
+                DifferenceType.RELATIVE,
+                0.12982842462611258,
+                (0.0031120207966113256, 0.2565448284556138),
+                0.9776835938774414,
+            ),
+        ]
+    )
+    def test_gaussian_test_with_quantile_statistic(self, _name, difference_type, effect, interval, chance_to_win):
+        method = BayesianMethod(BayesianConfig(ci_level=0.95, difference_type=difference_type))
+        result = method.run_test(QUANTILE_TREATMENT, QUANTILE_CONTROL)
+
+        self.assertAlmostEqual(result.effect_size, effect, places=12)
+        self.assertAlmostEqual(result.credible_interval[0], interval[0], places=10)
+        self.assertAlmostEqual(result.credible_interval[1], interval[1], places=10)
+        self.assertAlmostEqual(result.chance_to_win, chance_to_win, places=10)
+
+    @parameterized.expand(DEGENERATE_QUANTILE_CASES)
+    def test_rejects_quantile_without_usable_variance(self, _name, treatment, control, error):
+        with self.assertRaisesRegex(StatisticError, re.escape(f"Treatment statistic validation failed: {error}")):
+            BayesianMethod().run_test(treatment, control)
+
 
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
@@ -390,6 +432,110 @@ class TestEdgeCases:
 
         with pytest.raises(StatisticError):
             method.run_test(treatment, control)
+
+
+def _sample_mean_stat(n: int, mean: float, variance: float) -> SampleMeanStatistic:
+    total = n * mean
+    return SampleMeanStatistic(n=n, sum=total, sum_squares=(n - 1) * variance + total**2 / n)
+
+
+class TestRelativeEffectSignedBaseline(TestCase):
+    @parameterized.expand(
+        [
+            ("negative_baseline_metric_rises", -10.0, -5.0, 0.5),
+            ("negative_baseline_metric_falls", -8.0, -9.2, -0.15),
+            ("baseline_crosses_zero", -4.0, 2.0, 1.5),
+            ("positive_baseline_metric_rises", 8.0, 9.2, 0.15),
+        ]
+    )
+    def test_relative_effect_is_divided_by_baseline_magnitude(
+        self, _name: str, control_mean: float, treatment_mean: float, expected_relative: float
+    ) -> None:
+        treatment = _sample_mean_stat(n=2000, mean=treatment_mean, variance=36.0)
+        control = _sample_mean_stat(n=2500, mean=control_mean, variance=25.0)
+        expected_variance = 36.0 / 2000 / control_mean**2 + treatment_mean**2 * 25.0 / 2500 / control_mean**4
+
+        frequentist = FrequentistMethod().run_test(treatment, control)
+        bayesian = BayesianMethod().run_test(treatment, control)
+        _, bayesian_variance = calculate_effect_size_and_variance(treatment, control, DifferenceType.RELATIVE)
+
+        assert frequentist.point_estimate == pytest.approx(expected_relative)
+        assert bayesian.effect_size == pytest.approx(expected_relative)
+        assert calculate_variance_pooled(treatment, control, DifferenceType.RELATIVE) == pytest.approx(
+            expected_variance
+        )
+        assert bayesian_variance == pytest.approx(expected_variance)
+        assert (bayesian.chance_to_win > 0.5) == (expected_relative > 0)
+        assert (frequentist.confidence_interval[0] > 0) == (expected_relative > 0)
+
+    def test_negating_both_arms_flips_effects_and_keeps_variance(self) -> None:
+        treatment = _sample_mean_stat(n=1500, mean=-6.0, variance=16.0)
+        control = _sample_mean_stat(n=1500, mean=-7.5, variance=20.0)
+        negated_treatment = _sample_mean_stat(n=1500, mean=6.0, variance=16.0)
+        negated_control = _sample_mean_stat(n=1500, mean=7.5, variance=20.0)
+
+        for difference_type, expected in [(DifferenceType.ABSOLUTE, 1.5), (DifferenceType.RELATIVE, 1.5 / 7.5)]:
+            effect = calculate_point_estimate(treatment, control, difference_type)
+            negated_effect = calculate_point_estimate(negated_treatment, negated_control, difference_type)
+            bayesian_effect, bayesian_variance = calculate_effect_size_and_variance(treatment, control, difference_type)
+            negated_bayesian_effect, negated_bayesian_variance = calculate_effect_size_and_variance(
+                negated_treatment, negated_control, difference_type
+            )
+
+            assert effect == pytest.approx(expected)
+            assert negated_effect == pytest.approx(-expected)
+            assert bayesian_effect == pytest.approx(expected)
+            assert negated_bayesian_effect == pytest.approx(-expected)
+            assert calculate_variance_pooled(treatment, control, difference_type) == pytest.approx(
+                calculate_variance_pooled(negated_treatment, negated_control, difference_type)
+            )
+            assert bayesian_variance == pytest.approx(negated_bayesian_variance)
+
+    @parameterized.expand(
+        [
+            ("frequentist", 0.0, lambda t, c: FrequentistMethod().run_test(t, c)),
+            ("bayesian", 0.0, lambda t, c: BayesianMethod().run_test(t, c)),
+            (
+                "frequentist_cuped_baseline",
+                2.0,
+                lambda t, c: FrequentistMethod().run_test(
+                    t,
+                    c,
+                    relative_effect_baseline=RelativeEffectBaseline(mean=0.0, variance=0.0, difference_covariance=0.0),
+                ),
+            ),
+            (
+                "bayesian_cuped_baseline",
+                2.0,
+                lambda t, c: BayesianMethod().run_test(
+                    t,
+                    c,
+                    relative_effect_baseline=RelativeEffectBaseline(
+                        mean=1e-12, variance=0.0, difference_covariance=0.0
+                    ),
+                ),
+            ),
+        ]
+    )
+    def test_zero_baseline_is_rejected(self, _name: str, control_mean: float, run_test: Any) -> None:
+        treatment = _sample_mean_stat(n=500, mean=3.0, variance=4.0)
+        control = _sample_mean_stat(n=500, mean=control_mean, variance=4.0)
+
+        with pytest.raises(StatisticError, match="Baseline mean is zero"):
+            run_test(treatment, control)
+
+    @parameterized.expand(
+        [
+            ("frequentist", lambda t, c: FrequentistMethod().run_test(t, c)),
+            ("bayesian", lambda t, c: BayesianMethod().run_test(t, c)),
+        ]
+    )
+    def test_zero_treatment_without_spread_is_rejected(self, _name: str, run_test: Any) -> None:
+        treatment = _sample_mean_stat(n=100, mean=0.0, variance=0.0)
+        control = _sample_mean_stat(n=100, mean=2.5, variance=2.25)
+
+        with pytest.raises(StatisticError, match="variance must be positive"):
+            run_test(treatment, control)
 
 
 class TestNumericalStability:

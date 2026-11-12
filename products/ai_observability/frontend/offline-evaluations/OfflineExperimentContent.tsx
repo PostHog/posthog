@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -215,6 +216,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 </details>
             </section>
             <OfflineItemMatrix {...props} />
+            <TraceDrawerHost listId="offline-experiment" />
             {inspector && (
                 <OfflineItemInspector
                     key={`${inspector.itemId}:${cellEpoch}`}

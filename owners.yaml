@@ -34,6 +34,10 @@ teams:
         slack: '#team-mcp-analytics'
     platform-ux:
         slack: '#team-platform-ux'
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-ai-observability:
+        notifications:
+            stamphog: false
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
@@ -42,6 +46,10 @@ teams:
     # The derived '#team-replay' is right; the entry exists only to drop the daily
     # stamphog digest, which the team reads on the PRs themselves.
     team-replay:
+        notifications:
+            stamphog: false
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-warehouse-sources:
         notifications:
             stamphog: false
 rules:
@@ -79,7 +87,7 @@ rules:
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: team-product-analytics
-    - match: '/.claude/'
+    - match: ['/.claude/', '/.depot/']
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
@@ -96,6 +104,17 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    # Platform UX owns the nav rail and the UI rules file, so every change to them goes to that team, however small.
+    - match:
+          - '/frontend/src/platform-ux.md'
+          - '/frontend/src/layout/today/TodayRail.tsx'
+          - '/frontend/src/layout/today/TodayRailTile.tsx'
+          - '/frontend/src/layout/today/todayRailItems.tsx'
+          - '/frontend/src/layout/today/TodayMoreMenu.tsx'
+          - '/frontend/src/layout/today/todayRailSeverity.ts'
+          - '/frontend/src/layout/today/todayRailStatusLogic.ts'
+      owners: platform-ux
+      sensitive: true
     - match: '/hog/'
       owners: team-growth
     - match: '/nodejs/tests/'
@@ -116,7 +135,7 @@ rules:
           - '/posthog/urls.py'
       owners: team-devex
     - match: '/posthog/helpers/email_utils.py'
-      owners: team-platform-features
+      owners: team-workflows
     - match: '/posthog/test/activity_logging/'
       owners: team-platform-features
     - match: '/posthog/api/test/test_playwright_setup.py'
@@ -202,3 +221,92 @@ rules:
           - '/cli/*'
           - '/hog/*'
       additions: team-devex
+    - match:
+          - '/common/hogvm/python/test/test_*.py'
+          - '/common/hogvm/typescript/src/__tests__/*.test.*'
+      owners: hogql
+    - match:
+          - '/frontend/src/layout/ErrorBoundary/*.test.*'
+          - '/frontend/src/layout/navigation-3000/*.test.*'
+          - '/frontend/src/layout/navigation-3000/components/*.test.*'
+          - '/frontend/src/layout/navigation/Breadcrumbs/*.test.*'
+          - '/frontend/src/layout/panel-layout/*.test.*'
+          - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'
+          - '/frontend/src/layout/panel-layout/ProjectTree/menus/*.test.*'
+          - '/frontend/src/layout/panel-layout/navbar/*.test.*'
+          - '/frontend/src/lib/charts/*.test.*'
+          - '/frontend/src/lib/forms/*.test.*'
+          - '/frontend/src/lib/hooks/*.test.*'
+          - '/frontend/src/lib/logic/scenes/*.test.*'
+          - '/frontend/src/lib/memory/*.test.*'
+          - '/frontend/src/taxonomy/*.test.*'
+      owners: platform-ux
+    - match:
+          - '/packages/llm-normalizer/src/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/ast/expr/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/ast/predicate/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/ast/rule/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/compile/*.test.*'
+          - '/packages/llm-normalizer/src/normalizer/recipe/runtime/*.test.*'
+      owners: team-ai-observability
+    - match:
+          - '/frontend/src/lib/monaco/languages/*.test.*'
+      owners: team-apm
+    - match:
+          - '/frontend/src/queries/nodes/HogQLX/*.test.*'
+      owners: team-data-tools
+    - match:
+          - '/.depot/actions/paths-filter/__tests__/*.test.*'
+          - '/common/esbuilder/*.test.*'
+          - '/frontend/src/mocks/*.test.*'
+          - '/frontend/src/test/*.test.*'
+          - '/tools/hogbox-preview/tests/test_*.py'
+          - '/tools/test_*.py'
+          - '/tools/workflow-plan/tests/*.test.*'
+      owners: team-devex
+    - match:
+          - '/playwright/e2e/experiments/*.spec.*'
+      owners: team-experiments
+    - match:
+          - '/common/ingestion/acceptance_tests/test_*.py'
+      owners: team-ingestion
+    - match:
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/*.test.*'
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/*.test.*'
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/*.test.*'
+          - '/frontend/src/layout/navigation/ImpersonationNotice/*.test.*'
+      owners: team-platform-features
+    - match:
+          - '/frontend/src/exporter/ExportedInsight/*.test.*'
+          - '/frontend/src/exporter/scenes/*.test.*'
+          - '/frontend/src/lib/insights/*.test.*'
+          - '/frontend/src/queries/nodes/DataTable/*.test.*'
+          - '/frontend/src/queries/nodes/DataTable/ColumnConfigurator/*.test.*'
+          - '/frontend/src/queries/nodes/DataTable/TableView/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Charts/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Heatmap/*.test.*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Variables/*.test.*'
+          - '/frontend/src/queries/nodes/InsightQuery/utils/*.test.*'
+          - '/frontend/src/queries/nodes/InsightViz/*.test.*'
+          - '/playwright/e2e/persons/*.spec.*'
+          - '/playwright/e2e/product-analytics/insights/*.spec.*'
+      owners: team-product-analytics
+    - match:
+          - '/common/replay-headless/src/__tests__/*.test.*'
+          - '/common/replay-shared/src/*.test.*'
+          - '/common/replay-shared/src/canvas/*.test.*'
+          - '/common/replay-shared/src/rrweb-plugins/*.test.*'
+          - '/common/replay-shared/src/snapshot-processing/*.test.*'
+      owners: team-replay
+    - match:
+          - '/frontend/src/lib/signals/*.test.*'
+      owners: team-self-driving
+    - match:
+          - '/services/credentials-service/tests/integration/*.test.*'
+          - '/services/credentials-service/tests/unit/*.test.*'
+      owners: team-warehouse-sources
+    - match:
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'
+      owners: team-surfaces

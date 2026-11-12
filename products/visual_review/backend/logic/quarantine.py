@@ -24,7 +24,7 @@ LIFT_SCOPE_DAYS = 30
 
 def list_quarantined_identifiers(
     repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
-) -> list[QuarantinedIdentifier]:
+) -> QuerySet[QuarantinedIdentifier]:
     qs = (
         QuarantinedIdentifier.objects.using(WRITER_DB)
         .filter(repo_id=repo_id, team_id=team_id)
@@ -42,7 +42,7 @@ def list_quarantined_identifiers(
     else:
         now = timezone.now()
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-    return list(qs.order_by("-created_at"))
+    return qs.order_by("-created_at")
 
 
 def active_quarantined_identifiers(
@@ -113,7 +113,8 @@ def quarantine_identifier(
     identifier: str,
     run_type: str,
     reason: str,
-    user_id: int,
+    # None only for an automatic quarantine, which no person asked for.
+    user_id: int | None,
     team_id: int,
     expires_at: datetime | None = None,
     source_run_id: UUID | None = None,

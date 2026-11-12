@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -9,10 +9,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
 import { ActivityScope } from '~/types'
@@ -56,10 +56,6 @@ jest.mock('~/lib/api', () => {
                 get: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
-            tags: {
-                ...actual.default?.tags,
-                list: jest.fn().mockResolvedValue([]),
-            },
         },
     }
 })
@@ -72,6 +68,11 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsMacrosUsedCreate: jest.fn().mockResolvedValue({}),
+    conversationsMacrosList: jest.fn().mockResolvedValue({ results: [], next: null }),
+    conversationsMacrosCreate: jest.fn(),
+    conversationsMacrosPartialUpdate: jest.fn(),
+    conversationsMacrosDestroy: jest.fn(),
 }))
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -150,13 +151,20 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         submitAiFeedbackMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setTicket(makeTicket())
         logic.actions.setMessages([makeAiComment('msg-ai-1')])
     })
 
     afterEach(() => {
         localStorage.removeItem(FEEDBACK_STORAGE_KEY)
+    })
+
+    it('gives the loaded ticket as a People recent', () => {
+        expect(logic.values.todayPeopleRecent).toEqual({
+            type: 'ticket',
+            name: 'Ticket #42',
+            href: urls.supportTicketDetail(42),
+        })
     })
 
     it('selects the latest AI message', async () => {
@@ -326,7 +334,6 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     })
 
     it('maps AI citation and persist_as fields onto chat messages', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setMessages([
             {
                 ...makeAiComment('msg-ai-1'),
@@ -352,7 +359,6 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     })
 
     it('selects the latest applicable AI draft', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setMessages([
             { ...makeAiComment('new-draft'), created_at: '2026-01-01T00:02:00Z' },
             { ...makeAiComment('not-a-draft', false), created_at: '2026-01-01T00:01:00Z' },
@@ -363,7 +369,6 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     })
 
     it('shows automated private notes without treating them as AI drafts', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: false })
         logic.actions.setMessages([
             {
                 ...makeAiComment('pr-update'),
@@ -401,7 +406,6 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
         submitAiHumanOutcomeMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
         logic.actions.setTicket(makeTicket())
     })
 
@@ -433,6 +437,27 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
             outcome: 'used',
         })
     })
+
+    it('fills the customer and agent names into the composer and keeps a private draft private', async () => {
+        logic.actions.setTicket({
+            ...makeTicket(),
+            anonymous_traits: { email: 'jane@example.com' },
+            person: { properties: { name: 'Jane Doe' } },
+        } as unknown as Ticket)
+        logic.actions.setDraftIsPrivate(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.insertMacro(
+                { id: 'macro-1', body: 'Hi {{customer.first_name}},\n{{agent.first_name}}' },
+                'button'
+            )
+        }).toFinishAllListeners()
+
+        expect(logic.values.composerInsertAt).toBe(1)
+        expect(logic.values.pendingComposerInsert).toContain('Jane')
+        expect(logic.values.pendingComposerInsert).toContain('John')
+        expect(logic.values.draftIsPrivate).toBe(true)
+    })
 })
 
 describe('supportTicketSceneLogic AI note visibility', () => {
@@ -445,15 +470,10 @@ describe('supportTicketSceneLogic AI note visibility', () => {
         logic.actions.setTicket(makeTicket())
     })
 
-    test.each<[string, boolean, boolean, string[]]>([
-        ['hides AI private notes without the flag', false, true, ['msg-customer']],
-        ['shows AI private notes with the flag', true, true, ['msg-customer', 'msg-ai']],
-        ['keeps sent AI replies visible without the flag', false, false, ['msg-customer', 'msg-ai']],
-    ])('%s', (_name, flagEnabled, isPrivate, expectedIds) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: flagEnabled })
+    it.each([true, false])('shows AI messages when is_private is %s', (isPrivate) => {
         logic.actions.setMessages([makeCustomerComment('msg-customer'), makeAiComment('msg-ai', isPrivate)])
 
-        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(expectedIds)
+        expect(logic.values.chatMessages.map((m) => m.id)).toEqual(['msg-customer', 'msg-ai'])
     })
 })
 
@@ -936,56 +956,6 @@ describe('supportTicketSceneLogic staff actions context', () => {
         await expectLogic(logic).toDispatchActions(['setTicket', 'setTicketContext'])
 
         expect(impersonationNoticeLogic.values.ticketContext).toMatchObject({ ticketId: 'ticket-1' })
-    })
-})
-
-describe('supportTicketSceneLogic tag pool refresh', () => {
-    let logic: ReturnType<typeof supportTicketSceneLogic.build>
-
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
-    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
-
-    beforeEach(async () => {
-        initKeaTests()
-        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
-        ticketUpdateMock.mockReset()
-        tagsModel.mount()
-        tagsModel.actions.setActiveProjectId(MOCK_DEFAULT_TEAM.id)
-        tagsModel.actions.setProjectTags(MOCK_DEFAULT_TEAM.id, ['known'])
-        logic = supportTicketSceneLogic({ id: 42 })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['setTicket'])
-        expect(logic.values.availableTags).toEqual(['known'])
-    })
-
-    afterEach(() => {
-        stopPolling(logic)
-    })
-
-    // A newly typed tag is created globally on save, so the shared pool must reload to surface it
-    // on other tickets; an already-known tag needs no reload.
-    it('reloads the shared tag pool when a new tag was saved', async () => {
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
-
-        logic.actions.setTags(['known', 'brand-new'])
-        await expectLogic(tagsModel, () => {
-            logic.actions.updateTicket()
-        }).toDispatchActions(['loadTags'])
-        tagsModel.actions.loadTagsSuccess(['known', 'brand-new'], MOCK_DEFAULT_TEAM.id)
-
-        expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
-    })
-
-    it('does not reload the tag pool when all saved tags are already known', async () => {
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known'] })
-
-        logic.actions.setTags(['known'])
-        await expectLogic(logic, () => {
-            logic.actions.updateTicket()
-        }).toDispatchActions(['setTicket'])
-
-        expect(logic.values.availableTags).toEqual(['known'])
     })
 })
 

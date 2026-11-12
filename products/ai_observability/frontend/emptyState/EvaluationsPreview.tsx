@@ -2,7 +2,7 @@ import './EvaluationsPreview.scss'
 
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface PreviewEvaluation {
     id: string
@@ -72,7 +72,7 @@ const CHART_FLOOR = 60
  * switching never changes the layout's size.
  */
 export function EvaluationsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('EvaluationsPreview', isStatic && 'EvaluationsPreview--static')}>

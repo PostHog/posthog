@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useAnimatedNumber } from '../../core/hooks/useAnimatedNumber'
 import type { ChartTheme } from '../../core/types'
 import {
     type ChangeColor,
@@ -13,12 +14,12 @@ import {
     DEFAULT_POSITIVE_COLOR,
 } from './internals'
 import { type MetricChange, resolveDelta } from './resolveDelta'
-import { useAnimatedNumber } from './useAnimatedNumber'
 import { useHoverIntent } from './useHoverIntent'
 
 export type { MetricChange }
 export type { ChangeColor }
 
+/** @deprecated Use `MetricProps` from `@posthog/quill-components/metric`. */
 export interface MetricCardProps {
     title: React.ReactNode
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
@@ -80,9 +81,10 @@ export interface MetricCardProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
+/** @deprecated Use the composable `Metric` from `@posthog/quill-components/metric`. */
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
     return (
-        <ChartErrorBoundary onError={props.onError}>
+        <ChartErrorBoundary onError={props.onError} resetKey={props.data ?? props.value}>
             <MetricCardInner {...props} />
         </ChartErrorBoundary>
     )
@@ -130,9 +132,10 @@ function MetricCardInner({
 
     const restingValue = value ?? (sparklineData ? sparklineData[lastIndex] : undefined)
     const animationTarget = sparklineData && intentIndex >= 0 ? (sparklineData[intentIndex] ?? 0) : (restingValue ?? 0)
-    const animatedValue = useAnimatedNumber(animationTarget, animationMs)
+    const rawAnimatedValue = useAnimatedNumber(animationTarget, animationMs)
+    const animatedValue = Number.isInteger(animationTarget) ? Math.round(rawAnimatedValue) : rawAnimatedValue
 
-    const baselineValue = useMemo(() => sparklineData?.find((v) => v !== 0 && Number.isFinite(v)), [sparklineData])
+    const baselineValue = sparklineData?.find((v) => v !== 0 && Number.isFinite(v))
 
     if (restingValue == null) {
         return null

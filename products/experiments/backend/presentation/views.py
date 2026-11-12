@@ -31,13 +31,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.api.utils import action
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-)
+from posthog.api.utils import MAX_LISTED_IDS, action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -140,6 +135,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionEventDeltaResponseSerializer,
     ExperimentSetupContextInputSerializer,
     ExperimentSetupContextResponseSerializer,
+    ExperimentTimeseriesResultsSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -151,6 +147,7 @@ from products.experiments.backend.presentation.serializers import (
 from products.experiments.backend.recalculation import (
     build_job_payload,
     build_timeseries_cold_start_payload,
+    exceeds_recalculation_age_limit,
     get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
@@ -339,6 +336,13 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         type=int,
         description="Filter to experiments linked to the given feature flag ID.",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="feature_flag_ids",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=f"Comma-separated feature flag IDs, at most {MAX_LISTED_IDS}. Returns experiments linked to any of them.",
         required=False,
     ),
     OpenApiParameter(
@@ -695,14 +699,8 @@ class EnterpriseExperimentsViewSet(
         only experiment:write. Session and other non-token auth aren't scope-limited (gated by
         access control instead), mirroring APIScopePermission.
         """
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scopes = authenticator.personal_api_key.scopes or []
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scopes = (authenticator.access_token.scope or "").split()
-        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
-            scopes = list(authenticator.scopes or [])
-        else:
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        if scopes is None:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
 
@@ -992,15 +990,13 @@ class EnterpriseExperimentsViewSet(
         warning in every state, `filter_on_property_not_ingested` also reports after the end, and
         the other findings stop at the end.
 
-        `exposure_filters` reads the cohort and event property filters of the exposure criteria and
-        of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
-        warning in every state: the results use the members of a dynamic cohort at the calculation,
-        not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
-        that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
-        release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
-        Both subcodes need the exposure criteria to keep the members too, not to leave them out.
-        `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
-        events, not users (`evidence.properties`).
+        `exposure_filters` reads the cohort filters of the exposure criteria and of the activation,
+        not the test account filters. `exposure_filter_on_dynamic_cohort` is a warning in every
+        state: the results use the members of a dynamic cohort at the calculation, not at exposure.
+        Its subcode is `cohort_forces_variant` when a release condition of the flag that matches the
+        cohort's members gives one variant, `cohort_in_release_conditions` when the release
+        conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts. Both
+        subcodes need the exposure criteria to keep the members too, not to leave them out.
 
         `metric_cannot_compile` builds and compiles the query of each metric without running it, as
         the caller, so a metric that every calculation fails on shows before launch. A metric that
@@ -1032,6 +1028,31 @@ class EnterpriseExperimentsViewSet(
         then names the filters. A query that read precomputed exposures doesn't apply those filters,
         so it can't get `exposure_criteria`. It is null otherwise.
 
+        `metric_all_zero` reports a metric that reads zero in every variant, from the same latest
+        finished calculation, so the results page shows "Not enough data yet" at any sample size.
+        Each side of a ratio that is zero in every variant counts on its own. It reads the stored
+        result and the project's event definitions, and no events. A primary metric needs 1,000
+        exposures in the result and 72 hours of data, because most zeros before that are outcomes
+        that take time. A retention metric counts those hours from the start of its retention
+        window. The subcode is the cause of the first metric: `blank_event` (an event with an empty
+        name), `event_stopped` (the project last received the event before launch, while ingestion
+        still records the project), `outlier_bound` (an upper outlier bound that is 0 while some
+        exposures have a value) or null when none shows a cause. `blank_event` and `outlier_bound`
+        also report a secondary metric, and need only 100 exposures and 12 hours of data, because
+        they read 0 at any traffic. A bound on the largest value of the exposures can't be 0 while
+        one has a value, so it is no cause. Neither is a bound on a metric with breakdowns, which
+        gets one bound per breakdown group. Until the end, the check leaves out a metric that uses an
+        event `metric_event_not_ingested` reports. Each metric, or side of a ratio, is in the
+        `evidence` keys `metric_N`, `metric_N_role`, `metric_N_side`, `metric_N_exposures` and
+        `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
+        for a cause that a setting fixes, because the calculation after the fix reads the events up
+        to the end. It is info otherwise.
+
+        A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+        after its start date, when the daily calculation leaves it out, with `days_running` from the
+        start date in `evidence`.
+        It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
+
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
         the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -1050,7 +1071,10 @@ class EnterpriseExperimentsViewSet(
         `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
         flag version that are no local evaluation, from an hour after the window starts. When
         every condition that includes users pins the variant whose key one property holds,
-        `assigned_by_property` replaces `all_conditions_pinned`.
+        `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
+        everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
+        as a warning. A condition without filters, or with only filters that leave users out,
+        includes everyone.
 
         A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
         is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
@@ -1062,10 +1086,14 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
-        An ended experiment whose flag is still active with multiple variants gets
-        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
-        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
-        an extra hour, because `last_called_at` trails a call.
+        An ended experiment whose flag is still active with multiple variants gets no finding when
+        another experiment on the flag is running or launched after the end. Otherwise it gets
+        `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+        `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+        after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+        not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+        then without such a call, or when the organization's flag calls can't be read, it gets
+        `ended_flag_calls_unknown` as info.
 
         A running experiment whose first primary metric is a funnel gets the info
         `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -1552,41 +1580,43 @@ class EnterpriseExperimentsViewSet(
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
-                    "each metric in the experiment's metrics array."
+                    "Ignored. The server derives the metric's calculation key from the experiment's current "
+                    "settings. Accepted so that existing clients keep working."
                 ),
-                required=True,
+                required=False,
+                deprecated=True,
             ),
         ],
+        responses={200: ExperimentTimeseriesResultsSerializer},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
-        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid, fingerprint=fingerprint))
+        return Response(
+            ExperimentTimeseriesResultsSerializer(
+                service.get_timeseries_results(experiment, metric_uuid=metric_uuid)
+            ).data
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
 
+        # Only the metric's uuid is read, and a `fingerprint` in the body is ignored: the service derives the
+        # definition and the key from the experiment.
         metric = request.data.get("metric")
-        fingerprint = request.data.get("fingerprint")
 
-        if not metric:
+        if not isinstance(metric, dict) or not metric:
             raise ValidationError("metric is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
+        result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:
@@ -1688,7 +1718,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1696,10 +1726,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            return Response(_serialize_latest(fallback, active_run))
+            return Response(_serialize_latest(experiment, fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_latest(_build_run_payload(active), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -2153,7 +2183,8 @@ def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     return payload
 
 
-def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
+def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
+    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
     return ExperimentMetricsRecalculationLatestSerializer(payload).data

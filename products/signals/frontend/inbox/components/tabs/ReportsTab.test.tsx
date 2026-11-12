@@ -308,6 +308,43 @@ describe('ReportsTab', () => {
         })
     })
 
+    // The automatic For you to Entire project switch refreshes the already-loaded section through
+    // its first page alone. Until that page lands the section still holds the For-you count, so the
+    // event has to wait for it instead of reporting the project as empty.
+    it('waits for a refreshed page before firing Inbox viewed', async () => {
+        let releaseProjectPage: () => void = () => {}
+        const heldProjectPage = new Promise<void>((resolve) => {
+            releaseProjectPage = resolve
+        })
+        mockReportCounts([])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    if (params.has('suggested_reviewers')) {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
+                    const needsDecision = params.get('view') === 'needs_decision'
+                    if (needsDecision && params.get('count_only') !== 'true') {
+                        await heldProjectPage
+                    }
+                    return [200, { count: needsDecision ? 7 : 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+        render(<ReportsTab />)
+        await waitFor(() => expect(inboxFiltersLogic.values.scope).toBe(INBOX_SCOPE_ENTIRE_PROJECT))
+        releaseProjectPage()
+
+        await waitFor(() => {
+            const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
+            expect(viewed).toHaveLength(1)
+            expect(viewed[0][1]).toMatchObject({ total_count: 7, is_empty: false })
+        })
+    })
+
     // The empty verdict must cover every state the current user can see, not only the counted
     // ones: a staff user on a project whose reports are all judged not actionable still has work
     // to review, so the waiting state would be wrong for them and right for everyone else.
@@ -416,11 +453,20 @@ describe('ReportsTab', () => {
         expect(document.querySelector('[data-attr="report-card-closed"]')).not.toBeNull()
     })
 
-    it.each([0, 2])('offers Closed only when the project has closed reports (%s)', async (count) => {
+    it.each([
+        ['closed', 'Closed', 0],
+        ['closed', 'Closed', 2],
+        ['outcome-monitoring', 'Monitoring', 0],
+        ['outcome-monitoring', 'Monitoring', 2],
+    ] as const)('offers %s only when the project has matching reports (%s, %s)', async (sectionKey, label, count) => {
         mockReportCounts([
             {
                 match: (params) =>
-                    params.get('view') === 'closed' && !params.has('search') && !params.has('suggested_reviewers'),
+                    (sectionKey === 'closed'
+                        ? params.get('view') === 'closed'
+                        : params.get('status') === 'monitoring') &&
+                    !params.has('search') &&
+                    !params.has('suggested_reviewers'),
                 count,
             },
         ])
@@ -429,10 +475,10 @@ describe('ReportsTab', () => {
         render(<InboxStateFilter />)
 
         await waitFor(() =>
-            expect(reportListLogic(sectionListLogicProps('closed')).values.hasProjectClosedReports).toBe(count > 0)
+            expect(reportListLogic(sectionListLogicProps(sectionKey)).values.hasProjectReports).toBe(count > 0)
         )
         fireEvent.click(screen.getByText('2 statuses'))
-        expect(screen.queryByText('Closed') !== null).toBe(count > 0)
+        expect(screen.queryByText(label) !== null).toBe(count > 0)
     })
 
     // A shared link or persisted storage can carry `state=not-actionable`, a staff-only state the

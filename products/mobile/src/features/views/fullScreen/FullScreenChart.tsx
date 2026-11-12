@@ -10,16 +10,19 @@ import { RetentionGrid } from '@/ui/chart/RetentionGrid'
 import { SqlTable } from '@/ui/chart/SqlTable'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import { SQL_TABLE_MAX_ROWS, sqlRowsText } from '@/ui/chart/sqlCellFormat'
-import type { ChartAccessibilityAction } from '@/ui/chart/types'
+import type { BarLayout, ChartAccessibilityAction } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
+import { BarChartIcon } from '@/ui/icons/BarChartIcon'
+import { Pressable44 } from '@/ui/Pressable44'
 import { ScreenChrome } from '@/ui/ScreenChrome'
 import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
-import { createStyles } from '@/ui/theme'
-import { layout, radii, type } from '@/ui/tokens'
+import { createStyles, useTheme } from '@/ui/theme'
+import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
+import { useChartPreferences } from '../chartPreferencesStore'
 import { useInsightChartModel } from '../InsightChart'
 import { InsightNoData } from '../InsightVisual'
 import { OpensOnWeb } from '../OpensOnWeb'
@@ -32,12 +35,12 @@ import {
     insightRenderState,
     intervalLabel,
     resolvedRangeText,
+    snapshotBarLayout,
     snapshotFormatter,
 } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { freshnessKey, useSnapshot, viewsKeys } from '../viewsCache'
 
-const MIN_CHART_HEIGHT = 220
 /** The legend takes the rows it needs, up to this share of the space; past that it scrolls. */
 const MAX_LEGEND_SHARE = 0.38
 const LEGEND_ROW_HEIGHT = 44
@@ -60,13 +63,46 @@ export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): Re
     const { scope } = useViewsContext()
     const key = useMemo(() => queryKey ?? viewsKeys.insight(scope, shortId, null, '-'), [queryKey, scope, shortId])
     const snapshot = useSnapshot<InsightSnapshot>(key)
+    const styles = useStyles()
+    const { colors, shadows } = useTheme()
     const scrollTitle = useScrollTitle(snapshot?.name ?? '')
+    const preferredLayout = useChartPreferences((state) => state.barLayout)
+    const setBarLayout = useChartPreferences((state) => state.setBarLayout)
+    const barLayout = snapshot ? snapshotBarLayout(snapshot, preferredLayout) : 'grouped'
+    const showLayout =
+        snapshot &&
+        insightRenderState(snapshot) === 'ready' &&
+        snapshot.chartKind === 'bar' &&
+        snapshot.allSeries.filter(
+            (series) => series.compare !== 'previous' && (series.chartKind ?? snapshot.chartKind) === 'bar'
+        ).length > 1
     return (
         <ViewScreenFrame
-            chrome={<ScreenChrome onBack={back} backTestID="chart-fullscreen-back" title={scrollTitle.title} />}
+            chrome={
+                <ScreenChrome
+                    onBack={back}
+                    backTestID="chart-fullscreen-back"
+                    title={scrollTitle.title}
+                    right={
+                        showLayout ? (
+                            <Pressable44
+                                onPress={() => setBarLayout(barLayout === 'stacked' ? 'grouped' : 'stacked')}
+                                accessibilityLabel={barLayout === 'stacked' ? 'Show grouped bars' : 'Show stacked bars'}
+                                accessibilityValue={{ text: barLayout === 'stacked' ? 'Stacked bars' : 'Grouped bars' }}
+                                accessibilityHint="Applies to all bar charts on this device."
+                                style={[styles.layoutButton, shadows.chip]}
+                                pressedBackground={colors.sunken}
+                                testID="chart-layout-toggle"
+                            >
+                                <BarChartIcon layout={barLayout} size={iconSizes.control} />
+                            </Pressable44>
+                        ) : null
+                    }
+                />
+            }
         >
             {snapshot && insightRenderState(snapshot) !== 'pending' ? (
-                <FullScreenBody scrollTitle={scrollTitle} snapshot={snapshot} queryKey={key} />
+                <FullScreenBody scrollTitle={scrollTitle} snapshot={snapshot} queryKey={key} barLayout={barLayout} />
             ) : (
                 <StateView
                     title="This chart isn't loaded"
@@ -84,10 +120,12 @@ function FullScreenBody({
     snapshot,
     queryKey,
     scrollTitle,
+    barLayout,
 }: {
     snapshot: InsightSnapshot
     queryKey: QueryKey
     scrollTitle: ScrollTitleState
+    barLayout: BarLayout
 }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -124,7 +162,7 @@ function FullScreenBody({
         return (
             <View style={[styles.fill, styles.gutter, padding]}>
                 {header}
-                <TimeSeries snapshot={snapshot} source={source} rangeText={rangeText} />
+                <TimeSeries snapshot={snapshot} source={source} rangeText={rangeText} barLayout={barLayout} />
             </View>
         )
     }
@@ -182,7 +220,7 @@ function FullScreenBody({
     } else if (display === 'number' && snapshot.value !== null) {
         body = <Text style={styles.number}>{snapshotFormatter(snapshot)(snapshot.value)}</Text>
     } else {
-        body = <OpensOnWeb shortId={snapshot.shortId} />
+        body = <OpensOnWeb shortId={snapshot.shortId} reason={snapshot.capabilities.chartReason} />
     }
     return (
         <ScrollView
@@ -201,13 +239,14 @@ function FullScreenBody({
 }
 
 function metaLead(snapshot: InsightSnapshot, display: InsightDisplay): string | null {
-    if (display === 'chart') {
+    if (display === 'chart' && !snapshot.allSeries[0]?.points[0]?.label) {
         return intervalLabel(snapshot.interval)
     }
     return display === 'table' && snapshot.sqlTable ? sqlRowsText(snapshot.sqlTable, SQL_TABLE_MAX_ROWS) : null
 }
 
 interface TimeSeriesProps {
+    barLayout: BarLayout
     snapshot: InsightSnapshot
     source: ChartSheetSource
     rangeText: string | null
@@ -217,7 +256,7 @@ interface TimeSeriesProps {
  * The chart fills the space under the title. It does not sit in a scroll view, because a full-screen drag scrubs in
  * any direction. With several series the legend lists every one of them and scrolls on its own.
  */
-function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElement | null {
+function TimeSeries({ snapshot, source, rangeText, barLayout }: TimeSeriesProps): ReactElement | null {
     const styles = useStyles()
     const sheets = useChartSheets()
     const legend = useChartLegend()
@@ -232,7 +271,7 @@ function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElem
     const legendHeight = many
         ? Math.min(model.series.length * LEGEND_ROW_HEIGHT + 2, area * MAX_LEGEND_SHARE) + LEGEND_GAP
         : 0
-    const chartHeight = Math.max(MIN_CHART_HEIGHT, Math.round(area - legendHeight))
+    const chartHeight = Math.max(1, Math.round(area - legendHeight))
     return (
         <View style={styles.fill} onLayout={(event) => setArea(event.nativeEvent.layout.height)}>
             {area > 0 && kind ? (
@@ -240,6 +279,7 @@ function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElem
                     <MetricChart
                         series={model.series}
                         kind={kind}
+                        barLayout={barLayout}
                         interval={snapshot.interval}
                         label={snapshot.name}
                         formatValue={model.formatValue}
@@ -308,6 +348,16 @@ const useStyles = createStyles(({ colors }) => ({
         fontWeight: '700',
         color: colors.ink,
         fontVariant: ['tabular-nums'],
+    },
+    layoutButton: {
+        width: 46,
+        height: 46,
+        borderRadius: radii.pill,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     legend: {
         flex: 1,

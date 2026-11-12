@@ -17,7 +17,7 @@ windows in parallel when set.
 
 import datetime as dt
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -29,8 +29,6 @@ from posthog.schema import (
     IntervalType,
     PropertyGroupsMode,
     SpanHealthStatus,
-    SpanPropertyFilter,
-    SpanPropertyFilterType,
     SpanTreeNode,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
@@ -42,7 +40,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -55,13 +52,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
-from .logic import (
-    _ROW_LIMIT,
-    TIME_BUCKET_DATE_RANGE_WHERE,
-    translate_span_filter,
-    with_attribute_set_guards,
-    with_span_attribute_type_suffix,
-)
+from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, span_filter_exprs, split_span_filters
 from .models import TracingIdentityAttributeKeys
 from .service_health_query_runner import ServiceWindowStats, classify_service
 from .span_identity import identity_value_expr, str_attr_field
@@ -90,27 +81,7 @@ class _SpanAggregationMixin:
         limit_context: LimitContext
 
     def _extract_filters(self) -> None:
-        # Replicates the filter extraction the per-trace runner mixin does. We can't reuse
-        # that mixin directly: it validates against TraceSpansQuery and wires a paginator
-        # that does not apply here.
-        self.span_filters: list[SpanPropertyFilter] = []
-        self.span_attribute_filters: list[SpanPropertyFilter] = []
-        self.resource_attribute_filters: list[SpanPropertyFilter] = []
-        filter_group = self.query.filterGroup
-        if not filter_group or not filter_group.values:
-            return
-
-        for property_group in filter_group.values:
-            for prop in property_group.values:
-                prop_type = getattr(prop, "type", None)
-                if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
-                    self.resource_attribute_filters.append(cast(SpanPropertyFilter, prop))
-                elif prop_type == SpanPropertyFilterType.SPAN:
-                    self.span_filters.append(cast(SpanPropertyFilter, prop))
-                elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                    if isinstance(prop, SpanPropertyFilter):
-                        prop = with_span_attribute_type_suffix(prop)
-                    self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
+        self.filters = split_span_filters(self.query.filterGroup)
 
     def validate_query_runner_access(self, user: "User") -> bool:
         from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -208,26 +179,7 @@ class _SpanAggregationMixin:
         # different range. We rebuild a smaller clause here that just covers filters,
         # and let `_build_query` add the time clause inline using its parameter.
         exprs: list[ast.Expr] = [ast.Placeholder(expr=ast.Field(chain=["filters"]))]
-
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
-            )
-
-        if self.span_filters or self.span_attribute_filters or self.resource_attribute_filters:
-            for span_filter in self.span_filters:
-                translate_span_filter(span_filter)
-                exprs.append(property_to_expr(span_filter, team=self.team))
-            if self.span_attribute_filters:
-                exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
-            for resource_filter in with_attribute_set_guards(self.resource_attribute_filters):
-                exprs.append(property_to_expr(resource_filter, team=self.team))
-
+        exprs.extend(span_filter_exprs(self.team, self.filters, service_names=self.query.serviceNames))
         return ast.And(exprs=exprs)
 
     # --- subclass hooks ---

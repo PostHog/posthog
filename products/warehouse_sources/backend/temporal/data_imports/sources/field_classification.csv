@@ -250,6 +250,7 @@ Cimis,app_key,,,targets unit_of_measure,,cimis
 Cin7,,,,,,cin7
 CircleCI,api_token org_slug,,,,,circle-ci
 CircleSo,,,,,,circle-so
+Circleback,api_key,,,,,circleback
 CircleciInsights,api_token project_slugs,,,reporting_window branch_scope,,circleci-insights
 CiscoDuo,api_hostname integration_key secret_key,,,,,cisco-duo
 CiscoMeraki,api_key organization_id region,,,,,cisco-meraki
@@ -362,6 +363,7 @@ Descope,project_id management_key,,,,,descope
 Develocity,instance_url access_key,,,,,develocity
 DevinAI,api_key org_id,,,,,devin-ai
 Dialpad,,,,,,dialpad
+Didit,,,,,,didit
 DigitalOcean,api_key,,,,,digital-ocean
 DingConnect,api_key,,,,,ding-connect
 Directus,,,,,,directus
@@ -413,6 +415,7 @@ Eloqua,,,,,,eloqua
 EmailOctopus,api_key,,,,,email-octopus
 Emarsys,,,,,,emarsys
 Embrace,api_token app_id region,,,,,embrace
+Emplifi,,,,,,emplifi
 EmploymentHero,,,,,,employment-hero
 Encharge,,,,,,encharge
 Entsoe,,,,,,entsoe
@@ -567,6 +570,7 @@ GoogleWorkspaceAdminReports,,,,,,google-workspace-admin-reports
 Gorgias,gorgias_domain email api_key,,,,,gorgias
 Grafana,host auth_method org_id,,,,,grafana
 GrafanaIRM,stack_url oncall_api_url token,,,,,grafana-irm
+Grain,,,,,,grain
 Granola,api_key,,,,,granola
 Greenhouse,client_id client_secret api_key,,,,,greenhouse
 GreytHr,,,,,,greyt-hr
@@ -643,6 +647,7 @@ Intercom,,intercom_integration_id,,,,intercom
 Interzoid,,,,,,interzoid
 Inth,,,,,,inth
 Intruder,access_token,,,,,intruder
+Invoca,,,,,,invoca
 Invoiced,api_key,,,,,invoiced
 Invoiceninja,api_token base_url,,,,,invoiceninja
 IronSourceAds,,,,,,iron-source-ads
@@ -761,6 +766,7 @@ Marketstack,access_key,,,symbols cik_codes,,marketstack
 Mastodon,,,,,,mastodon
 Matomo,host site_id api_token,,,,,matomo
 Maxio,subdomain api_key region,,,,,maxio
+Measure,,,,,,measure
 Medusa,base_url api_key,,,,,medusa
 Meetup,,,,,,meetup
 Megaphone,api_token organization_id,,,,,megaphone
@@ -1023,7 +1029,7 @@ RakutenAdvertising,,,,,,rakuten-advertising
 Ramp,environment client_id client_secret,,,,,ramp
 Rapid7Insightvm,api_key region,,,,,rapid7-insightvm
 Raygun,personal_access_token,,,,,raygun
-Razorpay,key_id key_secret,,,,,razorpay
+Razorpay,key_id key_secret razorpayx_account_number,,,,,razorpay
 RecallAI,api_key region,,,,,recall-ai
 Recharge,api_key,,,,,recharge
 Recreation,api_key,,,,,recreation
@@ -1040,6 +1046,7 @@ RentCast,api_key,,,zip_codes,,rent-cast
 RentManager,,,,,,rent-manager
 Repairshopr,,,,,,repairshopr
 Replicate,api_key,,,,,replicate
+Replit,,,,,,replit
 ReplyIo,api_key,,,,,reply-io
 Resend,auth_method,auth_method=oauth,,,,resend
 RetailExpress,,,,,,retail-express
@@ -1076,7 +1083,7 @@ Salesflare,api_key,,,,,salesflare
 Salesforce,,salesforce_integration_id,,,,salesforce
 SalesforceMarketingCloud,,,,,,salesforce-marketing-cloud
 Salestrics,,,,,,salestrics
-SamCart,,,,,,sam-cart
+SamCart,api_key,,,,,sam-cart
 Sanity,project_id dataset api_token,,,,,sanity
 SapConcur,,,,,,sap-concur
 SapErp,,,,,,sap-erp
@@ -1098,7 +1105,7 @@ SelectStar,api_token,,,,,select-star
 SemanticScholar,api_key,,,query,,semantic-scholar
 Semaphore,api_token organization project_id,,,,,semaphore
 Semgrep,api_token,,,,,semgrep
-Semrush,api_key project_id,,,,,semrush
+Semrush,api_key project_id,,,domain database,,semrush
 SendGrid,api_key,,,,,send-grid
 SendPulse,,,,,,send-pulse
 Sendowl,api_key api_secret,,,,,sendowl
@@ -1342,6 +1349,7 @@ Wasabi,api_key,,,,,wasabi
 Watchmode,api_key,,,,,watchmode
 Waydev,api_key,,,,,waydev
 Wayfair,,,,,,wayfair
+Webengage,,,,,,webengage
 Webflow,api_token site_id,,,,,webflow
 WeightsAndBiases,api_key entity host,,,,,weights-and-biases
 WhatsappBusinessManagement,,,,,,whatsapp-business-management

@@ -42,6 +42,9 @@ from .enums import (
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
 
 
@@ -65,6 +68,39 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
+
+# Gates recording rules, on top of METRICS_FEATURE_FLAG. It gates both the API and the evaluation, so turning it
+# off for a project also stops the rules that project already has.
+METRICS_RECORDING_RULES_FEATURE_FLAG = "metrics-recording-rules"
+
+# Each rule runs one PromQL query a minute, one after another inside the team's evaluation budget.
+MAX_RECORDING_RULES_PER_TEAM = 20
+
+# Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
+METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
+
+# Names under this prefix are computed from spans and logs at query time, never ingested.
+# Other products must not let users create metrics with this prefix.
+DERIVED_METRIC_PREFIX = "posthog.derived."
+
+# Labels an async MetricsQuery status with each source a derived metric reads, so retrieval can check access.
+# Stable wire identifier shared by query-status producers and readers. Renaming requires
+# a dual-read rollout and a drain of in-flight query statuses.
+DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX = "metrics-derived-source:"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DerivedSeriesStatus:
+    """Whether a team can see series derived from its spans and logs."""
+
+    # The team sent spans or logs in the last day.
+    has_sources: bool
+    # Derived series are on for the team, which needs sources.
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        if self.enabled and not self.has_sources:
+            raise ValueError("derived series need spans or logs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +446,21 @@ class MetricsOverview:
     services: tuple[MetricsServiceOverview, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
+
+
 class DashboardImportError(ValueError):
     """A dashboard import cannot start or continue. The message is safe to show to the user."""
 
@@ -547,4 +598,41 @@ class SuggestedDashboardError(Exception):
 
 
 class SuggestedDashboardNotFound(SuggestedDashboardError):
+    pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingRule:
+    """A PromQL query that is evaluated every minute and written back into the team's metrics as `metric_name`."""
+
+    id: str
+    metric_name: str
+    query: str
+    description: str
+    enabled: bool
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    # The minute the rule last wrote. None until the first write.
+    last_evaluated_at: dt.datetime | None = None
+    last_series_count: int | None = None
+    # Why the last evaluation wrote nothing. Cleared by the next write.
+    last_error: str | None = None
+
+
+class RecordingRuleError(ValueError):
+    """A recording rule edit that cannot be saved. The message is safe to show."""
+
+
+class RecordingRuleNotFound(RecordingRuleError):
     pass

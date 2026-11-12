@@ -24,12 +24,14 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
     IncidentAction,
+    PlatformAlertConfigurationView,
     PlatformConfigurationSnapshot,
     SourceKind,
 )
@@ -48,7 +50,7 @@ from products.logs.backend.platform_alert_backfill import (
     follow_logs_alert,
     platform_upsert_of,
 )
-from products.logs.backend.platform_cutover import cut_over_team, hand_over
+from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG, cut_over_team, hand_over, roll_back_team
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -75,7 +77,10 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
 
 # Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
 _WEB_START = "products.alerts_platform.backend.temporal.web_start"
-_NATIVE_PAGERDUTY_DELIVER = "products.alerts_platform.backend.delivery.pagerduty.PagerDutyTransport.deliver"
+_ALERTS_API = "products.logs.backend.presentation.views.alerts_api"
+# A native send leaves through the pinned adapter, so a stub there counts native sends with no network.
+_PINNED_URL_CHECK = "posthog.security.pinned_requests.validate_url_and_pin_ips"
+_PINNED_SEND = "posthog.security.pinned_requests.PinnedIPAdapter.send"
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -84,7 +89,10 @@ class TestLogsAlertAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
-        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        # Every flag on except native creates, so a new alert still gets the logs row these tests read.
+        self._ff_patcher = patch(
+            "posthoganalytics.feature_enabled", side_effect=lambda flag, *_, **__: flag != NATIVE_CREATE_FLAG
+        )
         self._ff_patcher.start()
         self.addCleanup(self._ff_patcher.stop)
 
@@ -101,6 +109,9 @@ class TestLogsAlertAPI(APIBaseTest):
         response = self.client.post(self.base_url, self._valid_payload(**overrides), format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
+
+    def _keep_the_team_on_logs(self) -> None:
+        LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
 
     # --- CRUD ---
 
@@ -130,6 +141,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_update_with_quiet_hours_defers_next_check(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
 
         response = self.client.patch(
@@ -142,6 +154,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
 
     def test_enabling_alert_during_quiet_hours_defers_next_check(self):
+        self._keep_the_team_on_logs()
         with time_machine.travel("2026-01-01T16:00:00Z", tick=False):
             created = self._create_via_api(
                 schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
@@ -216,9 +229,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # One for the runtime and one for the history's ids, whatever the page size.
+        # One for the runtime, one for the history's ids and one for the control-plane changes' ids,
+        # whatever the page size. A list also reads the alerts with no logs row.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == 2
+        assert len(platform_reads) == (4 if action == "list" else 3)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -458,6 +472,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
         self, _name: str, write: str, team_run: str, copy_enabled: bool | None
     ) -> None:
+        self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
         dormant = self._create_via_api(name="Turned back on", enabled=False)
         if team_run != "not_backfilled":
@@ -480,7 +495,24 @@ class TestLogsAlertAPI(APIBaseTest):
         copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
         assert (copy.enabled if copy else None) is copy_enabled
 
+    def test_deleting_an_alert_logs_owns_deletes_its_copy_and_no_other(self) -> None:
+        self._keep_the_team_on_logs()
+        deleted = self._create_via_api(name="Deleted")
+        kept = self._create_via_api(name="Kept")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+
+        response = self.client.delete(f"{self.base_url}{deleted['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        copied = {str(view.legacy_configuration_id) for view in copies}
+        assert kept["id"] in copied and deleted["id"] not in copied
+
     def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
+        self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
         retired = self._create_via_api(name="Retired by the rollout")
         backfill_platform_alert_configurations(team_id=self.team.id)
@@ -498,6 +530,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert {str(view.legacy_configuration_id): view.enabled for view in copies}[retired["id"]] is False
 
     def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
+        self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
         backfill_platform_alert_configurations(team_id=self.team.id)
         alert_id = self._create_via_api(name="New alert", enabled=False)["id"]
@@ -701,19 +734,36 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("capped", False, status.HTTP_400_BAD_REQUEST, MAX_ALERTS_PER_TEAM),
-            ("uncapped", True, status.HTTP_201_CREATED, MAX_ALERTS_PER_TEAM + 1),
+            ("capped", False, "logs_rows", status.HTTP_400_BAD_REQUEST, 0),
+            ("uncapped", True, "logs_rows", status.HTTP_201_CREATED, 1),
+            ("capped_by_alerts_only_on_the_platform", False, "platform_only", status.HTTP_400_BAD_REQUEST, 0),
+            ("not_capped_by_copies_of_deleted_alerts", False, "copies_of_deleted_rows", status.HTTP_201_CREATED, 1),
         ]
     )
-    def test_per_team_limit(self, _name, uncapped, expected_status, expected_count):
+    def test_per_team_limit(
+        self, _name: str, uncapped: bool, existing: str, expected_status: int, created: int
+    ) -> None:
         for i in range(MAX_ALERTS_PER_TEAM):
-            LogsAlertConfiguration.objects.create(
-                team=self.team,
-                name=f"Alert {i}",
-                threshold_count=1,
-                created_by=self.user,
-                filters={"severityLevels": ["error"]},
-            )
+            if existing != "logs_rows":
+                with team_scope(self.team.id):
+                    platform_testing.create_configuration(
+                        team_id=self.team.id,
+                        name=f"Alert {i}",
+                        source_kind="logs",
+                        source_config={},
+                        check_interval_minutes=5,
+                        owner="platform" if existing == "platform_only" else "source",
+                        legacy_configuration_id=uuid4() if existing == "copies_of_deleted_rows" else None,
+                    )
+            else:
+                LogsAlertConfiguration.objects.create(
+                    team=self.team,
+                    name=f"Alert {i}",
+                    threshold_count=1,
+                    created_by=self.user,
+                    filters={"severityLevels": ["error"]},
+                )
+        logs_rows_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
         with patch("products.logs.backend.alert_creation.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
@@ -723,7 +773,7 @@ class TestLogsAlertAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == expected_status
-        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == expected_count
+        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == logs_rows_before + created
 
     # --- Read-only fields ---
 
@@ -847,6 +897,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert [(close["alert_id"], close["reason"]) for close in closes] == [(created["id"], expected_reason)]
 
     def test_deleting_a_firing_alert_sends_a_close_before_its_destinations_go(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         self._add_pagerduty_destination(created["id"])
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
@@ -862,6 +913,7 @@ class TestLogsAlertAPI(APIBaseTest):
     # --- Edit behavior: recheck and state reset ---
 
     def test_threshold_change_resets_state_and_clears_next_check(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
@@ -890,6 +942,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["state"] == "not_firing"
 
     def test_window_change_preserves_state_and_clears_next_check(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state="firing",
@@ -906,6 +959,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["next_check_at"] is None
 
     def test_name_change_preserves_state_and_next_check(self):
+        self._keep_the_team_on_logs()
         next_check = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
@@ -1617,6 +1671,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_reset_broken_alert(self, mock_report):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
@@ -1716,6 +1771,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_reset_writes_activity_log(self):
+        self._keep_the_team_on_logs()
         from posthog.models.activity_logging.activity_log import ActivityLog
 
         created = self._create_via_api()
@@ -1754,6 +1810,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert event.result_count is None
 
     def test_reset_writes_reset_event_row(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
             state=LogsAlertConfiguration.State.BROKEN,
@@ -1854,6 +1911,7 @@ class TestLogsAlertAPI(APIBaseTest):
         return f"{self.base_url}{alert_id}/events/"
 
     def test_events_returns_rows_newest_first(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         older_transition = LogsAlertEvent.objects.create(
             alert_id=created["id"],
@@ -1878,6 +1936,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert ids.index(str(newer_transition.id)) < ids.index(str(older_transition.id))
 
     def test_events_filters_out_quiet_check_rows(self):
+        self._keep_the_team_on_logs()
         # "Quiet" CHECK rows (state didn't change, no error) carry no forensic value and
         # are kept inline at a cap of 10 per alert — surfacing them in the event history
         # would bury the interesting transitions. Backend filter pins this contract.
@@ -1921,6 +1980,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand([(kind,) for kind in LogsAlertEvent.Kind.values])
     def test_events_filter_by_kind(self, kind):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         # CHECK rows need a real transition to survive the quiet-row filter; control-plane
         # kinds are never quiet-filtered so any state pair is fine.
@@ -2008,6 +2068,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_splits_on_state_transitions(self):
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
         alert_id = created["id"]
         self._make_event_at(
@@ -2456,6 +2517,8 @@ class TestLogsAlertAPI(APIBaseTest):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             return self.client.post(f"/api/projects/{team_id or self.team.id}/platform_alerts/", body, format="json")
 
+    # The response's 24-hour state bar ends at the request's time, so the create and the read share one clock.
+    @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_the_platform_api_creates_both_rows_with_every_default_stored(self) -> None:
         response = self._create_on_the_platform(
             {
@@ -2496,9 +2559,10 @@ class TestLogsAlertAPI(APIBaseTest):
             10,
             self.user,
         )
-        assert ActivityLog.objects.filter(
+        logged = ActivityLog.objects.get(
             scope="PlatformAlertConfiguration", item_id=created["id"], activity="created", user=self.user
-        ).exists()
+        )
+        assert (logged.detail or {})["context"]["alert_id"] == created["legacy_configuration_id"]
 
     @parameterized.expand(
         [
@@ -2568,22 +2632,65 @@ class TestLogsAlertAPI(APIBaseTest):
         with team_scope(self.team.id):
             assert list_configurations(team_id=self.team.id, source_kinds=["logs"], limit=1, offset=0).total == 0
 
-    def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
-        self._owned_by_the_platform()
+    @parameterized.expand(
+        [
+            ("first_alert_of_the_team", None, "logs_api", True),
+            ("first_alert_of_the_team_through_the_platform", None, "platform_api", True),
+            ("team_the_platform_has_begun_taking_over", "platform", "logs_api", True),
+            ("team_the_platform_has_begun_taking_over_through_the_platform", "platform", "platform_api", True),
+            ("team_whose_alerts_stay_on_logs", "logs", "logs_api", False),
+            ("team_rolled_back", "rolled_back", "logs_api", False),
+        ]
+    )
+    @time_machine.travel("2026-01-10T12:00:00Z", tick=False)
+    def test_where_a_new_alert_starts(
+        self, _name: str, existing: str | None, route: str, on_the_platform: bool
+    ) -> None:
+        now = timezone.now()
+        team_cut_over_at = now - timedelta(days=4)
+        if existing == "platform":
+            for moved_at in (team_cut_over_at, now - timedelta(days=1)):
+                moved = self._owned_by_the_platform(name=f"Moved at {moved_at}")
+                LogsAlertConfiguration.objects.filter(pk=moved["id"]).update(owner_changed_at=moved_at)
+        elif existing == "logs":
+            self._keep_the_team_on_logs()
+        elif existing == "rolled_back":
+            self._create_via_api(name="Moved, then handed back", enabled=False)
+            assert [result.skipped for result in roll_back_team(self.team.id)] == [None]
 
-        created = self._create_via_api(name="Added after the cutover")
+        if route == "logs_api":
+            created = self._create_via_api(name="New alert")
+            assert created["platform_owned"] is on_the_platform
+            alert_id = created["id"]
+        else:
+            response = self._create_on_the_platform(
+                {
+                    "source_kind": "logs",
+                    "source_config": {
+                        "filters": {"serviceNames": ["api"]},
+                        "condition": {"threshold_count": 5, "threshold_operator": "above", "window_minutes": 10},
+                    },
+                }
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            alert_id = response.json()["legacy_configuration_id"]
 
-        assert created["platform_owned"] is True
-        assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
-        assert self._copy(created["id"]).owner == "platform"
+        alert = LogsAlertConfiguration.objects.get(pk=alert_id)
+        assert alert.platform_owned is on_the_platform
+        if on_the_platform:
+            assert self._copy(alert_id).owner == "platform"
+            assert alert.owner_changed_at == (team_cut_over_at if existing == "platform" else now)
 
-    def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
+    def _copy_view(self, alert_id: str) -> PlatformAlertConfigurationView:
         with team_scope(self.team.id):
             view = get_configuration(
                 team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=self._copy(alert_id).id
             )
         assert view is not None
-        return view.grouping.keys
+        return view
+
+    def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
+        return self._copy_view(alert_id).grouping.keys
 
     def test_grouping_set_on_the_logs_page_regroups_the_platform_copy(self) -> None:
         created, copy = self._firing_on_the_platform_with_pagerduty()
@@ -2614,21 +2721,26 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cut_over", True, "severity_text", status.HTTP_201_CREATED),
-            ("not_cut_over", False, "severity_text", status.HTTP_400_BAD_REQUEST),
-            ("cut_over_unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
+            ("cut_over", True, True, "severity_text", status.HTTP_201_CREATED),
+            ("cut_over_flag_off", True, False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("not_cut_over", False, True, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("cut_over_unknown_key", True, True, "host", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
+    def test_creating_a_grouped_alert(
+        self, _name: str, cut_over: bool, flag_on: bool, key: str, expected_status: int
+    ) -> None:
+        self._keep_the_team_on_logs()
         if cut_over:
             self._owned_by_the_platform()
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
-        response = self.client.post(
-            self.base_url,
-            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
-            format="json",
-        )
+        with patch(f"{_ALERTS_API}.posthog_feature_flag_enabled", return_value=flag_on):
+            response = self.client.post(
+                self.base_url,
+                self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
+                format="json",
+            )
 
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_201_CREATED:
@@ -2636,6 +2748,36 @@ class TestLogsAlertAPI(APIBaseTest):
         else:
             assert response.json()["attr"] == "grouping"
             assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
+
+    @parameterized.expand(
+        [
+            (
+                "new_limit",
+                {"mode": "by_result_labels", "keys": ["service_name"], "max_instances": 5},
+                status.HTTP_200_OK,
+            ),
+            ("ungrouped", {"mode": "single"}, status.HTTP_200_OK),
+            ("new_keys", {"mode": "by_result_labels", "keys": ["severity_text"]}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_with_the_grouping_flag_off_a_grouped_alert_keeps_only_its_keys(
+        self, _name: str, grouping: dict, expected_status: int
+    ) -> None:
+        self._keep_the_team_on_logs()
+        created = self._owned_by_the_platform()
+        self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+            format="json",
+        )
+
+        with patch(f"{_ALERTS_API}.posthog_feature_flag_enabled", return_value=False):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"grouping": grouping}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "grouping"
+            assert self._copy_grouping_keys(created["id"]) == ("service_name",)
 
     @parameterized.expand(
         [
@@ -2651,6 +2793,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_a_grouping_the_alert_cannot_take_is_rejected(
         self, _name: str, platform_owned: bool, payload: dict
     ) -> None:
+        self._keep_the_team_on_logs()
         created = self._owned_by_the_platform() if platform_owned else self._create_via_api()
 
         response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
@@ -2668,6 +2811,7 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
+        self._keep_the_team_on_logs()
         created = self._create_via_api()
 
         response = self.client.put(
@@ -2684,6 +2828,60 @@ class TestLogsAlertAPI(APIBaseTest):
         }
         assert created["platform_owned"] is False
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _copy_labels(self, alert_id: str) -> dict[str, str]:
+        return self._copy_view(alert_id).labels
+
+    def test_labels_set_on_the_logs_api_reach_the_platform_copy_and_survive_other_edits(self) -> None:
+        created = self._owned_by_the_platform()
+        url = f"{self.base_url}{created['id']}/"
+
+        labelled = self.client.patch(url, {"labels": {"team": "checkout"}}, format="json")
+        unrelated = self.client.patch(url, {"threshold_count": 50}, format="json")
+
+        assert labelled.status_code == status.HTTP_200_OK, labelled.json()
+        assert created["labels"] == {}
+        assert unrelated.json()["labels"] == {"team": "checkout"}
+        assert self._copy_labels(created["id"]) == {"team": "checkout"}
+        assert self.client.get(self.base_url).json()["results"][0]["labels"] == {"team": "checkout"}
+
+    @parameterized.expand(
+        [
+            ("cut_over", True, {"team": "checkout"}, status.HTTP_201_CREATED),
+            ("not_cut_over", False, {"team": "checkout"}, status.HTTP_400_BAD_REQUEST),
+            ("not_cut_over_empty", False, {}, status.HTTP_201_CREATED),
+            ("cut_over_reserved_name", True, {"alertname": "mine"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_creating_a_labelled_alert(
+        self, _name: str, cut_over: bool, labels: dict[str, str], expected_status: int
+    ) -> None:
+        self._keep_the_team_on_logs()
+        if cut_over:
+            self._owned_by_the_platform()
+        alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
+
+        response = self.client.post(self.base_url, self._valid_payload(name="Labelled", labels=labels), format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert response.json()["labels"] == labels
+            if cut_over:
+                assert self._copy_labels(response.json()["id"]) == labels
+        else:
+            assert response.json()["attr"] == "labels"
+            assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
+
+    def test_a_source_owned_alert_rejects_labels(self) -> None:
+        self._keep_the_team_on_logs()
+        created = self._create_via_api()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/", {"labels": {"team": "checkout"}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "labels"
 
     def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
         created = self._owned_by_the_platform()
@@ -2801,7 +2999,8 @@ class TestLogsAlertAPI(APIBaseTest):
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             # Sends the resolve inline, so the test sees which path delivered it.
             patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
-            patch(_NATIVE_PAGERDUTY_DELIVER, return_value=None) as native,
+            patch(_PINNED_URL_CHECK, return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())),
+            patch(_PINNED_SEND, return_value=MagicMock(status_code=202)) as native,
             patch("products.logs.backend.platform_alert_legacy_events.emit_alert_internal_events") as emit,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -2856,9 +3055,13 @@ class TestLogsAlertAPI(APIBaseTest):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             return self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self._copy(alert_id).id}/")
 
-    @parameterized.expand([("logs",), ("platform",)])
-    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self, route: str) -> None:
-        created, _copy = self._firing_on_the_platform_with_pagerduty()
+    @parameterized.expand([("logs", True), ("platform", True), ("platform", False)])
+    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(
+        self, route: str, with_logs_row: bool
+    ) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+        if not with_logs_row:
+            LogsAlertConfiguration.objects.filter(id=created["id"]).delete()
         destinations_when_sent: list[int] = []
 
         def deliver(request: Any) -> None:
@@ -2871,6 +3074,15 @@ class TestLogsAlertAPI(APIBaseTest):
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
         assert destinations_when_sent[0] > 0
+        with team_scope(self.team.id):
+            copy_left = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
+            )
+        assert (
+            copy_left,
+            LogsAlertConfiguration.objects.filter(id=created["id"]).exists(),
+            HogFunction.objects.filter(team=self.team, deleted=False).exists(),
+        ) == (None, False, False)
 
     def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
         created = self._owned_by_the_platform()
@@ -2883,14 +3095,16 @@ class TestLogsAlertAPI(APIBaseTest):
         assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
 
     @parameterized.expand([("logs",), ("platform",)])
-    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows_and_its_destinations(self, route: str) -> None:
         created = self._owned_by_the_platform()
+        self._add_pagerduty_destination(created["id"])
         copy_id = self._copy(created["id"]).id
 
         response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
         assert ActivityLog.objects.filter(
             scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
         ).exists()
@@ -3547,7 +3761,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
+            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
             side_effect=Exception("ClickHouse is down"),
         ):
             [row] = self._rows("list")

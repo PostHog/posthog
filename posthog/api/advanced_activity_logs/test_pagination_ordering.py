@@ -1,4 +1,6 @@
 from datetime import timedelta
+from urllib.parse import parse_qs, quote, urlparse
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -56,6 +58,17 @@ class TestActivityLogCursorOrdering(APIBaseTest):
         assert idle["results"] == []
         assert idle["next"] is not None
 
+        last_seen = ActivityLog.objects.filter(team_id=self.team.id).order_by("-created_at").first()
+        assert last_seen is not None
+        ActivityLog.objects.create(
+            id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="same-timestamp",
+            created_at=last_seen.created_at,
+        )
         ActivityLog.objects.create(
             team_id=self.team.id,
             organization_id=self.organization.id,
@@ -65,7 +78,7 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             created_at=timezone.now() + timedelta(hours=1),
         )
 
-        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["brand-new"]
+        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["same-timestamp", "brand-new"]
 
     @parameterized.expand(
         [
@@ -99,6 +112,16 @@ class TestActivityLogCursorOrdering(APIBaseTest):
 
         default = self.client.get(base)
         assert [row["item_id"] for row in default.json()["results"]] == ["2", "1", "0"]
+
+    def test_cursor_from_one_ordering_is_rejected_under_another(self):
+        self._create_logs(3)
+        base = f"/api/projects/{self.team.id}/advanced_activity_logs/?page_size=2"
+        next_link = self.client.get(base).json()["next"]
+        cursor = parse_qs(urlparse(next_link).query)["cursor"][0]
+
+        response = self.client.get(f"{base}&ordering=created_at&cursor={quote(cursor)}")
+
+        assert response.status_code == 404
 
     def test_unknown_ordering_value_is_rejected(self):
         response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/?ordering=scope")

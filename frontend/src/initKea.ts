@@ -1,4 +1,4 @@
-import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
+import { BuiltLogic, CreateStoreOptions, KeaPlugin, resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -14,9 +14,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
-    removeProjectIdIfPresent,
-    stripTrailingSlash,
+    pathFromWindowToRoutes,
     stripTrailingSlashFromUrl,
+    urlPatternOptions,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -109,6 +109,8 @@ Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use.
 whose path is given here handles its own failures, so the same action elsewhere still toasts.
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
+    extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
@@ -117,8 +119,11 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
+    loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
+    fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
     loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -136,14 +141,20 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadTrace: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view shows the error in its panel
     loadEvaluationResults: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view's Evals tab shows the error
     loadClusters: 'products.ai_observability.frontend.redesign.trace.traceClustersLogic', // The trace view hides the clusters chip
     loadTraceFeedback: 'products.ai_observability.frontend.redesign.trace.traceFeedbackLogic', // The trace view's Feedback mode shows the error
     loadSearchResults: 'products.ai_observability.frontend.redesign.trace.traceSearchLogic', // The trace view's search box shows the error
+    loadReviewStatus: 'products.ai_observability.frontend.redesign.trace.traceReviewLogic', // The trace view keeps the last review state and disables the review actions
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
+    // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
+    loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -180,6 +191,8 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineItemResults',
     'loadOfflineSelectedResult',
     'loadOfflineResultPayload',
+    'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
+    'loadDatasetItemVersions',
 ])
 
 /*
@@ -205,8 +218,11 @@ response to user input, such as a malformed CSV, so it is not reported as an exc
 Every other failure on these actions still toasts and reports.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    createTable: 'products.dataWarehouse.selfManagedSourceLogic',
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
+    setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
+    // Shows the rejected field under its input, or toasts the rejection
+    createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
 }
 
 /*
@@ -216,12 +232,50 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 */
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
+/*
+Loads whose owning logic renders a 404 with code `content_expired` inline. AI events drop their
+message content after the retention window, so the 404 is an expected state, not a defect. Other 404s
+from these loads still report. Owned by summaryViewLogic's summaryError reducer. The backend raises
+the code in products/ai_observability/backend/api/summarization.py.
+*/
+const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
+}
+
+/*
+Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
+to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
+the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
+*/
+const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadPrChecks: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
+}
+
+// projectLogic toasts a duplicate project name 409 from these actions.
+const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    createProject: 'scenes.projectLogic',
+    updateCurrentProject: 'scenes.projectLogic',
+}
+
+function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
+    if (error?.status === 404 && error?.code === 'content_expired') {
+        return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
+        return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+}
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
     routerLocation?: any
     beforePlugins?: KeaPlugin[]
     replaceInitialPathInWindow?: boolean
+    middleware?: CreateStoreOptions['middleware']
 }
 
 // Used in some tests to make life easier
@@ -240,6 +294,7 @@ export function initKea({
     routerLocation,
     beforePlugins,
     replaceInitialPathInWindow,
+    middleware = [],
 }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
@@ -249,11 +304,7 @@ export function initKea({
         routerPlugin({
             history: routerHistory,
             location: routerLocation,
-            urlPatternOptions: {
-                // :TRICKY: What chars to allow in named segment values i.e. ":key"
-                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
-            },
+            urlPatternOptions,
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)
             },
@@ -267,9 +318,7 @@ export function initKea({
                 // navigation that runs every `urlToAction` of the scene again.
                 return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
-            pathFromWindowToRoutes: (path) => {
-                return stripTrailingSlash(removeProjectIdIfPresent(path))
-            },
+            pathFromWindowToRoutes,
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
         }),
@@ -379,6 +428,7 @@ export function initKea({
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
+                    !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
                     !isSelfHandledValidationError
                 ) {
                     posthog.captureException(error)
@@ -397,6 +447,7 @@ export function initKea({
     resetContext({
         plugins: plugins,
         createStore: {
+            middleware,
             // Disable redux dev-tools's compose by passing `compose` from redux directly
             compose: ((...funcs: any[]) => {
                 if (funcs.length === 0) {

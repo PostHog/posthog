@@ -25,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES,
     ActivityCredential,
     activity_storage,
     is_uncached_reverse_one_to_one,
@@ -87,6 +88,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIPRestrictions",
     "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
@@ -102,6 +104,8 @@ ActivityScope = Literal[
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
     "OAuthApplication",
+    "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "User",
     "Action",
     "AccountView",
@@ -128,11 +132,13 @@ ActivityScope = Literal[
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "TicketMacro",
     "KnowledgeSource",
     "KnowledgeLibrary",
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalSourceConfig",
     "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
@@ -324,6 +330,17 @@ class ActivityLog(UUIDTModel):
             changes.append(change)
         return {**self.detail, "changes": changes}
 
+    @property
+    def customer_visible_credential_id(self) -> Optional[str]:
+        """The `credential_id` that customer-facing surfaces may show, or None when it stays internal."""
+        if self.credential_type not in CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES:
+            return None
+        # An impersonated change used the staff member's login session. That session is in no list
+        # the customer can read, so its id would point nowhere.
+        if self.was_impersonated or self.impersonated_by_id is not None:
+            return None
+        return self.credential_id
+
 
 # Fields older rows still hold in plaintext although new rows no longer record them.
 read_masked_fields: dict[str, list[str]] = {
@@ -393,6 +410,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
+    # Macro replies are support content; activity-log readers may lack ticket access.
+    "TicketMacro": ["body"],
     "HogFunction": [
         "inputs",
         "mappings",
@@ -494,6 +513,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
     },
@@ -513,6 +533,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_enabled": "PR generation",
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
+        "default_slack_notification_min_priority": "team Slack minimum priority",
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
@@ -527,6 +548,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
+    },
+    "OrganizationIPRestrictions": {
+        "ip_restrictions": "IP allowlist",
+        "enabled": "IP restrictions enabled",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -651,6 +676,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_precheck_outcome",
         "last_precheck_row_count",
     ],
+    # Inserts bump these on every use. They are not a settings edit.
+    "TicketMacro": ["usage_count", "last_used_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -707,6 +734,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
+        # Redis TTL edits from PostHog Admin carry the staff reason, and the row lands on the acting
+        # staff user's current organization, which has no relation to the edited key.
+        "scope": "Admin",
+        "activities": ["ttl_updated", "ttl_removed"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
         # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
@@ -746,6 +781,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
@@ -802,6 +838,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "score_inputs",
         "payload",
     ],
+    "OrganizationIPRestrictions": ["organization"],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
@@ -861,6 +898,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
         "flag_evaluation_contexts",
+        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
+        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
+        "code_analyses",
     ],
     "Experiment": [
         "feature_flag",
@@ -918,6 +958,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
+        "explanations",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
@@ -1090,8 +1131,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
-        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
-        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -1453,6 +1492,10 @@ def _handle_activity_log_transaction(
 # The frontend matches on this job type to render the job id as a link to a sandbox task.
 # Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
 AGENT_TRIGGER_JOB_TYPE = "agent"
+# A row written with a workload access token. The frontend shows the workload as the actor instead of the
+# organization owner the token acts as. `job_id` is the trust policy id, because a run id, when the provider
+# has one, is one of the recorded claims in the payload.
+WORKLOAD_TRIGGER_JOB_TYPE = "workload"
 
 
 def agent_trigger() -> Optional[Trigger]:
@@ -1471,10 +1514,12 @@ def agent_trigger() -> Optional[Trigger]:
     )
 
 
-def _with_agent_trigger(detail: Detail) -> Detail:
-    """The row is written inside the user's save, so an error here must not fail that save."""
+def _with_request_trigger(detail: Detail) -> Detail:
+    """The row is written inside the user's save, so an error here must not fail that save.
+
+    A verified trigger, such as a CI job, comes before agent intent, which is the agent's own claim."""
     try:
-        trigger = agent_trigger()
+        trigger = activity_storage.get_verified_trigger() or agent_trigger()
         return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
     except Exception as e:
         capture_exception(e)
@@ -1511,7 +1556,7 @@ def log_activity(
         credential = ActivityCredential(type="unattributed")
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
-        detail = _with_agent_trigger(detail)
+        detail = _with_request_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -1539,7 +1584,7 @@ def log_activity(
             "user": user,
             "was_impersonated": was_impersonated,
             "is_system": user is None,
-            "item_id": str(item_id),
+            "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
             "detail": detail,
@@ -1602,6 +1647,25 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+
+
+def update_activity_context(row: ActivityLog, **fields: Any) -> None:
+    """Add fields that are known only after the logged action ran to the row's context.
+
+    `$activity_log_entry_created` went out when the row was created, so a destination that streams the
+    activity log does not receive these fields.
+    """
+    try:
+        detail = cast(Detail, row.detail)
+        if detail.context is None:
+            raise ValueError(f"{row.scope} activity row has no context to update")
+        row.detail = dataclasses.replace(detail, context=dataclasses.replace(detail.context, **fields))
+        row.save(update_fields=["detail"])
+    except Exception as e:
+        logger.warn("activity_log.failed_to_update_activity_context", scope=row.scope, exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_activity_with_soft_delete(

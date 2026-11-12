@@ -2,17 +2,32 @@
 
 import type { MetricChartKind, MetricFormat, MetricInterval, MetricPoint, MetricSeries } from './types'
 
-/** `web_link` covers every other shortcut type (hog functions, product pages): it opens on the web. */
-export type ViewKind = 'dashboard' | 'insight' | 'web_analytics' | 'notebook' | 'canvas' | 'web_link'
+export type ViewKind = 'dashboard' | 'insight' | 'web_analytics'
+
+/** The views a pin can hold: the ones the Views list can draw as a Number or a Chart. */
+export type PinKind = Extract<ViewKind, 'dashboard' | 'insight'>
 
 export type PinDisplayMode = 'row' | 'number' | 'chart'
 
-/** Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. */
-export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard'
+/**
+ * Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. `widget`: the
+ * Chart home screen widget. `web_analytics`: the Live chip on the Web analytics screen. `tab`: the screen's own
+ * navigation tab, pinned or the start page.
+ */
+export type ViewEntry =
+    | 'pinned'
+    | 'recent'
+    | 'browse'
+    | 'search'
+    | 'deep_link'
+    | 'dashboard'
+    | 'widget'
+    | 'web_analytics'
+    | 'tab'
 
 export interface ViewRef {
     kind: ViewKind
-    /** Dashboard id as a string, insight or notebook `short_id`; null for web analytics and product pages. */
+    /** Dashboard id as a string or insight `short_id`; null for web analytics. */
     ref: string | null
     /** The web path without the project prefix, such as `/dashboard/12`. */
     href: string | null
@@ -29,19 +44,17 @@ export interface PinDisplay {
 }
 
 export interface PinView extends ViewRef {
+    kind: PinKind
+    ref: string
     /** The row the list keeps for this view. Local rank and display are keyed by it. */
     shortcutId: string
     /** Every row that matches this view, across environments. Unpin deletes all of them. */
     shortcutIds: string[]
-    /** The shortcut's raw `type`, for the icon of a pin that opens on the web. */
-    type: string
     /** Position in the server's order (`order`, then path). */
     serverOrder: number
     /** Device-local order; null sorts after ranked pins, in server order. */
     rank: number | null
     display: PinDisplay
-    /** False: the app has no screen for it, so it opens on the web. */
-    native: boolean
 }
 
 export interface RecentView extends ViewRef {
@@ -58,7 +71,7 @@ export interface BrowseRow extends ViewRef {
 
 /** A view opened on this phone, kept on the device for Recent. */
 export interface DeviceRecentEntry {
-    kind: 'dashboard' | 'insight' | 'web_analytics'
+    kind: ViewKind
     ref: string | null
     name: string
     viewedAt: string
@@ -66,6 +79,9 @@ export interface DeviceRecentEntry {
 
 /** The refresh fields of one data item. They change only on a response with a result and no error. */
 export interface Freshness {
+    restoredFromDevice?: boolean
+    /** Cache-only misses must not renew the age of the last successful result. */
+    dataReadAt?: number
     lastRefreshAt: string | null
     cacheTargetAge: string | null
     nextAllowedRefreshAt: string | null
@@ -92,7 +108,13 @@ export interface NumberDelta {
 export interface InsightSeriesView {
     key: string
     label: string
-    points: MetricPoint[]
+    points: (MetricPoint & { label?: string })[]
+    color?: string
+    chartKind?: MetricChartKind
+    axis?: 'left' | 'right'
+    startAtZero?: boolean
+    area?: boolean
+    format?: InsightPresentation | null
     /** `previous` marks the compare series of the period before. */
     compare: 'current' | 'previous' | null
     /** The series index in the trends query, for the actors query. */
@@ -195,6 +217,7 @@ export interface RankingView {
 }
 
 export interface InsightCapabilities {
+    chartReason?: string | null
     number: boolean
     chart: boolean
     /** "View people" and "Watch recordings" at a point. */
@@ -305,6 +328,82 @@ export interface WebOverviewMetric {
 
 export interface WebOverviewSnapshot extends Freshness {
     metrics: WebOverviewMetric[]
+    resolvedRange: ResolvedRange | null
+    timezone: string | null
+    computed: boolean
+}
+
+/** The overview metrics the web analytics trend can chart, by their `WebOverviewItem` key. */
+export type WebTrendMetric = 'visitors' | 'views' | 'sessions' | 'session duration' | 'bounce rate'
+
+/** The web's `WebStatsBreakdown` values that the phone's breakdown tiles show. */
+export type WebBreakdown =
+    | 'Page'
+    | 'InitialPage'
+    | 'ExitPage'
+    | 'ExitClick'
+    | 'InitialChannelType'
+    | 'InitialReferringDomain'
+    | 'InitialUTMSource'
+    | 'InitialUTMMedium'
+    | 'InitialUTMCampaign'
+    | 'DeviceType'
+    | 'Browser'
+    | 'OS'
+    | 'Viewport'
+    | 'Country'
+    | 'Region'
+    | 'City'
+    | 'Timezone'
+    | 'Language'
+
+export type WebTileId = 'pages' | 'sources' | 'devices' | 'locations'
+
+/** One property filter, in the shape of the web's `WebAnalyticsPropertyFilters`. */
+export interface WebPropertyFilter {
+    key: string
+    type: 'event' | 'session'
+    operator: 'exact' | 'is_not_set' | 'regex'
+    /** Left out for `is_not_set`. */
+    value?: string | number
+}
+
+/** One filter chip: a breakdown value that the queries filter by. A viewport sets its width and its height. */
+export interface WebFilter {
+    /** One chip per id, such as `$pathname`. A new value for the same id replaces the old one. */
+    id: string
+    label: string
+    value: string
+    properties: WebPropertyFilter[]
+}
+
+export interface WebBreakdownRow {
+    key: string
+    label: string
+    /** True for a missing value, such as "(not set)", which the row shows in a muted style. */
+    placeholder: boolean
+    /** Visitors in the range. */
+    value: number
+    previous: number | null
+    /** Views, or clicks for outbound links. Null when the response has no second column. */
+    secondary: number | null
+    filter: WebFilter | null
+}
+
+export interface WebBreakdownSnapshot extends Freshness {
+    breakdown: WebBreakdown
+    rows: WebBreakdownRow[]
+    /** "Views" or "Clicks", from the response's columns. Null without a second column. */
+    secondaryLabel: string | null
+    hasMore: boolean
+    resolvedRange: ResolvedRange | null
+    computed: boolean
+}
+
+export interface WebActiveHoursSnapshot extends Freshness {
+    /** Seven rows, Monday first. Each row has 24 hours, midnight first. */
+    cells: number[][]
+    total: number
     resolvedRange: ResolvedRange | null
     timezone: string | null
     computed: boolean

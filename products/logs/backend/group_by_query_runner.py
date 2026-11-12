@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.logs.backend.column_expressions import JSON_BODY_SOURCE, path_to_expr
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
 
 if TYPE_CHECKING:
@@ -54,6 +55,7 @@ class LogsGroupBySource(models.TextChoices):
     LOG = "log", "log"
     RESOURCE = "resource", "resource"
     COLUMN = "column", "column"
+    BODY = "body", "body"
 
 
 GROUP_SOURCES = tuple(LogsGroupBySource.values)
@@ -116,6 +118,8 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 raise ValueError(f"group-by dimension source must be one of {GROUP_SOURCES}")
             if dimension.source == "column" and dimension.key not in GROUPABLE_COLUMNS:
                 raise ValueError(f"a 'column' dimension's key must be one of {tuple(GROUPABLE_COLUMNS)}")
+            if dimension.source == JSON_BODY_SOURCE:
+                path_to_expr(JSON_BODY_SOURCE, dimension.key)
         if len(set(dimensions)) != len(dimensions):
             raise ValueError("group_bys must not contain duplicate dimensions")
         if order_groups_by not in ORDER_FIELDS:
@@ -184,6 +188,8 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 name="arrayElement",
                 args=[ast.Field(chain=["attributes_map_str"]), ast.Constant(value=f"{dimension.key}__str")],
             )
+        if dimension.source == JSON_BODY_SOURCE:
+            return path_to_expr(JSON_BODY_SOURCE, dimension.key)
         return parse_expr(GROUPABLE_COLUMNS[dimension.key])
 
     def to_query(self) -> ast.SelectQuery:

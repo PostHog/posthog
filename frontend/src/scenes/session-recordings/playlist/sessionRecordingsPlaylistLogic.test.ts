@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -172,8 +173,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        // The list memo is module state, so it survives the kea context these tests reset
-        clearMemoizedListResponses()
     })
 
     afterEach(() => {
@@ -821,6 +820,19 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toMatchValues({
                     filters: { ...getDefaultFilters(), filter_group: filterGroup },
                 })
+        })
+
+        it("leaves another scene's array of filters in the URL alone", async () => {
+            const webAnalyticsFilters = [
+                { type: 'session', key: '$channel_type', value: 'AI', operator: PropertyOperator.Exact },
+            ]
+
+            await expectLogic(logic, () => {
+                router.actions.push('/web', { filters: webAnalyticsFilters })
+            })
+                .toNotHaveDispatchedActions(['setFilters'])
+                .toMatchValues({ filters: getDefaultFilters() })
+            expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
         })
 
         describe('session_ids filter', () => {
@@ -1501,6 +1513,46 @@ describe('sessionRecordingsPlaylistLogic', () => {
             initKeaTests()
             featureFlagLogic.mount()
         }
+
+        it.each([
+            { accountValue: true, storageFails: false, expected: true, expectedDefault: true },
+            { accountValue: 'false', storageFails: false, expected: false, expectedDefault: false },
+            { accountValue: true, storageFails: true, expected: true, expectedDefault: false },
+        ])(
+            'opens with filter_test_accounts $expected when the account value is $accountValue and storage fails: $storageFails',
+            async ({ accountValue, storageFails, expected, expectedDefault }) => {
+                persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-7d', filter_test_accounts: false })
+                if (storageFails) {
+                    const setItem = Storage.prototype.setItem
+                    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+                        this: Storage,
+                        storageKey: string,
+                        value: string
+                    ) {
+                        if (storageKey.endsWith('__replay_filter_test_accounts')) {
+                            throw new DOMException('Storage is full', 'QuotaExceededError')
+                        }
+                        setItem.call(this, storageKey, value)
+                    })
+                }
+                userLogic.mount()
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    ui_configuration: {
+                        version: 1,
+                        session_replay: { filter_test_accounts: accountValue as boolean },
+                    },
+                })
+
+                logic = sessionRecordingsPlaylistLogic(props)
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.filters).toMatchObject({ date_from: '-7d', filter_test_accounts: expected })
+                expect(getDefaultFilters().filter_test_accounts).toBe(expectedDefault)
+                expect(localStorage.getItem('default_filter_test_accounts')).toBeNull()
+            }
+        )
 
         it('resets a malformed persisted filters value to defaults on mount', async () => {
             persistFilters(props, { filter_group: 'not-a-group', duration: 'nope' })
@@ -2672,7 +2724,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         // An embedded playlist unmounts with its tab, so most repeats arrive on a fresh logic
         // instance. The memo has to outlive the one that issued the read.
-        it('reads once when a remount inside the memo window repeats the request', async () => {
+        it.each([
+            { when: 'a remount inside the memo window', elapsedMs: LIST_MEMO_WINDOW_MS - 1, resetKea: false, reads: 1 },
+            {
+                when: 'a remount the memo window no longer covers',
+                elapsedMs: LIST_MEMO_WINDOW_MS + 1,
+                resetKea: false,
+                reads: 2,
+            },
+            {
+                when: 'a reset kea context inside the memo window',
+                elapsedMs: LIST_MEMO_WINDOW_MS - 1,
+                resetKea: true,
+                reads: 2,
+            },
+        ])('reads $reads time(s) when $when repeats the request', async ({ elapsedMs, resetKea, reads }) => {
             const advanceClock = mockClock()
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
@@ -2685,36 +2751,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             firstMount.unmount()
 
-            advanceClock(LIST_MEMO_WINDOW_MS - 1)
+            advanceClock(elapsedMs)
+            if (resetKea) {
+                initKeaTests()
+                featureFlagLogic.mount()
+            }
             const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount' })
             secondMount.mount()
             await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
 
-            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(listSpy).toHaveBeenCalledTimes(reads)
             expect(secondMount.values.sessionRecordings).toEqual([aRecording])
-
-            secondMount.unmount()
-        })
-
-        it('reads again when a remount repeats a request the memo window no longer covers', async () => {
-            const advanceClock = mockClock()
-            const listSpy = jest
-                .spyOn(api.recordings, 'list')
-                .mockImplementation(
-                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
-                )
-
-            const firstMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
-            firstMount.mount()
-            await expectLogic(firstMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
-            firstMount.unmount()
-
-            advanceClock(LIST_MEMO_WINDOW_MS + 1)
-            const secondMount = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-remount-expired' })
-            secondMount.mount()
-            await expectLogic(secondMount).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
-
-            expect(listSpy).toHaveBeenCalledTimes(2)
 
             secondMount.unmount()
         })

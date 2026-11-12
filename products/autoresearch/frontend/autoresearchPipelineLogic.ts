@@ -166,6 +166,30 @@ export interface ProbabilityBucket {
     users: number
 }
 
+/** Above this share of people, the 0-10% bucket flattens every other bar, so the histogram hides it by default. */
+const LOWEST_BUCKET_HIDE_SHARE = 0.8
+
+export interface LowestBucket {
+    users: number
+    /** Share of the scored people, from 0 to 1. */
+    share: number
+}
+
+/** The 0-10% bucket, or null when hiding it would leave no bars or change nothing. */
+export function lowestBucket(buckets: ProbabilityBucket[] | null): LowestBucket | null {
+    const lowest = buckets?.[0]
+    const totalUsers = buckets?.reduce((sum, bucket) => sum + bucket.users, 0) ?? 0
+    if (!lowest || lowest.users === 0 || lowest.users === totalUsers) {
+        return null
+    }
+    return { users: lowest.users, share: lowest.users / totalUsers }
+}
+
+/** Below this share of people with a recent score, the Predictions tab states the coverage above the segments. */
+const LOW_COVERAGE_PCT = 90
+
+export type PredictionsPanel = 'distribution' | 'people' | 'coverage' | 'volume'
+
 /** The list endpoints page at 100 rows. Follow every page so a long-lived model shows its whole history. */
 async function fetchAllPages<T>(
     fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
@@ -316,11 +340,15 @@ export interface autoresearchPipelineLogicValues {
     firstCheck: dayjs.Dayjs | null
     hasChallengerPerformance: boolean
     hasLiveTrainingRun: boolean
+    hideLowestBucket: boolean | null
     hoveredAccuracyDate: string | null
     hoveredSearchPoint: SearchPoint | null
     latestChampionPerformance: OnlinePerformanceRowApi | null
     latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
+    lowCoveragePct: number | null
+    lowestBucket: LowestBucket | null
+    lowestBucketHidden: boolean
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
     modelsError: boolean
@@ -337,6 +365,7 @@ export interface autoresearchPipelineLogicValues {
     predictionSegments: PredictionSegmentCounts | null
     predictionSegmentsError: boolean
     predictionSegmentsLoading: boolean
+    predictionsPanels: PredictionsPanel[]
     predictionsPeopleView: PredictionsPeopleView
     probabilityDistribution: ProbabilityBucket[] | null
     probabilityDistributionError: boolean
@@ -355,6 +384,7 @@ export interface autoresearchPipelineLogicValues {
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     scoredChallenger: AutoresearchModelApi | null
+    scoredPeopleCount: number | null
     scoringCoverage: ScoringCoverage | null
     segmentCalibration: SegmentCalibration[]
     segmentDefinitions: PredictionSegmentDefinition[] | null
@@ -707,11 +737,17 @@ export interface autoresearchPipelineLogicActions {
     setExperimentLogFilter: (filter: ExperimentLogFilter) => {
         filter: ExperimentLogFilter
     }
+    setHideLowestBucket: (hidden: boolean) => {
+        hidden: boolean
+    }
     setHoveredAccuracyDate: (date: string | null) => {
         date: string | null
     }
     setHoveredSearchPoint: (point: SearchPoint | null) => {
         point: SearchPoint | null
+    }
+    setPredictionsPanels: (panels: PredictionsPanel[]) => {
+        panels: PredictionsPanel[]
     }
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
@@ -739,6 +775,9 @@ export interface autoresearchPipelineLogicActions {
         source: PersonPropertyToggleSource
     }
     setWritePersonPropertyFinished: () => {
+        value: true
+    }
+    showCoverage: () => {
         value: true
     }
     startScorePolling: () => {
@@ -860,6 +899,10 @@ export interface autoresearchPipelineLogicMeta {
         ) => PooledConfusion | null
         firstCheck: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => dayjs.Dayjs | null
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
+        scoredPeopleCount: (probabilityDistribution: ProbabilityBucket[] | null) => number | null
+        lowestBucket: (probabilityHistogram: ProbabilityBucket[] | null) => LowestBucket | null
+        lowestBucketHidden: (lowestBucket: LowestBucket | null, hideLowestBucket: boolean | null) => boolean
+        lowCoveragePct: (coverageSummary: CoverageSummary | null) => number | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
         scoredChallenger: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
         runRoles: (
@@ -920,6 +963,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
+        setPredictionsPanels: (panels: PredictionsPanel[]) => ({ panels }),
+        showCoverage: true,
+        setHideLowestBucket: (hidden: boolean) => ({ hidden }),
         setAccuracyCutoff: (cutoff: AccuracyCutoff, source: AccuracyCutoffSource) => ({ cutoff, source }),
         setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => ({ metric }),
         setShowChallengersInTrend: (show: boolean) => ({ show }),
@@ -970,6 +1016,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'most_likely' as PredictionsPeopleView,
             {
                 setPredictionsPeopleView: (_, { view }) => view,
+            },
+        ],
+        predictionsPanels: [
+            ['distribution', 'people'] as PredictionsPanel[],
+            {
+                setPredictionsPanels: (_, { panels }) => panels,
+                showCoverage: (panels) => (panels.includes('coverage') ? panels : [...panels, 'coverage']),
+            },
+        ],
+        // Null until the person picks, so the default follows the latest scoring run.
+        hideLowestBucket: [
+            null as boolean | null,
+            {
+                setHideLowestBucket: (_, { hidden }) => hidden,
             },
         ],
         accuracyCutoff: [
@@ -1557,6 +1617,26 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 }))
             },
         ],
+        scoredPeopleCount: [
+            (s) => [s.probabilityDistribution],
+            (probabilityDistribution: ProbabilityBucket[] | null): number | null =>
+                probabilityDistribution ? probabilityDistribution.reduce((sum, bucket) => sum + bucket.users, 0) : null,
+        ],
+        lowestBucket: [
+            (s) => [s.probabilityHistogram],
+            (probabilityHistogram: ProbabilityBucket[] | null): LowestBucket | null =>
+                lowestBucket(probabilityHistogram),
+        ],
+        lowestBucketHidden: [
+            (s) => [s.lowestBucket, s.hideLowestBucket],
+            (lowestBucket: LowestBucket | null, hideLowestBucket: boolean | null): boolean =>
+                lowestBucket != null && (hideLowestBucket ?? lowestBucket.share > LOWEST_BUCKET_HIDE_SHARE),
+        ],
+        lowCoveragePct: [
+            (s) => [s.coverageSummary],
+            (coverageSummary: CoverageSummary | null): number | null =>
+                coverageSummary && coverageSummary.coveragePct < LOW_COVERAGE_PCT ? coverageSummary.coveragePct : null,
+        ],
         hasLiveTrainingRun: [
             (s) => [s.trainingRuns],
             (trainingRuns: AutoresearchTrainingRunApi[]): boolean => trainingRuns.some(isTrainingRunLive),
@@ -1695,9 +1775,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             actions.loadPipeline()
             lemonToast.success('Training run started')
         },
-        startTrainingFailure: () => {
-            posthog.capture('autoresearch model action failed', { action: 'train', pipeline_id: props.id })
-            lemonToast.error('Could not start training run')
+        startTrainingFailure: ({ errorObject }) => {
+            posthog.capture('autoresearch model action failed', {
+                action: 'train',
+                pipeline_id: props.id,
+                status: errorObject?.status,
+            })
+            // A project at its daily training limit explains when the next run can start in `detail`.
+            lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not start training run')
         },
         pausePipelineSuccess: () => {
             posthog.capture('autoresearch model paused', { pipeline_id: props.id })
@@ -1711,9 +1796,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             posthog.capture('autoresearch model resumed', { pipeline_id: props.id })
             lemonToast.success('Model resumed')
         },
-        resumePipelineFailure: () => {
+        resumePipelineFailure: ({ errorObject }) => {
             posthog.capture('autoresearch model action failed', { action: 'resume', pipeline_id: props.id })
-            lemonToast.error('Could not resume the model')
+            // A project at its active model limit explains it in `detail`.
+            lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not resume the model')
         },
         scoreNowSuccess: ({ scoreResult }) => {
             if (!scoreResult) {
@@ -1912,6 +1998,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         setPredictionsPeopleView: ({ view }) => {
             posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
+        },
+        setHideLowestBucket: ({ hidden }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model lowest bucket toggled', { pipeline_id: props.id, hidden })
         },
         setSegmentThresholds: () => {
             if (values.pipeline?.last_scored_at) {

@@ -12,9 +12,10 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 
-from posthog.models import EventDefinition, PropertyDefinition
 from posthog.taxonomy import definition_search
 from posthog.taxonomy.definition_search import project_definition_scale, search_plan
+
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 
 
 class TestSearchPlan(BaseTest):

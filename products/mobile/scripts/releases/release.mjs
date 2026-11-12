@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } f
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { isDeepStrictEqual, parseArgs } from 'node:util'
 
 import {
     compareVersions,
@@ -18,6 +18,7 @@ import {
     validateRequest,
     validateUpdates,
 } from './policy.mjs'
+import { receiptAssetName, renderReleaseNotes } from './receipt.mjs'
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const repoRoot = resolve(appRoot, '../..')
@@ -296,6 +297,22 @@ function releaseTag(id) {
     return `mobile-release/${id}`
 }
 
+function downloadReceipt(id) {
+    return JSON.parse(
+        run('gh', [
+            'release',
+            'download',
+            releaseTag(id),
+            '--repo',
+            repo,
+            '--pattern',
+            receiptAssetName,
+            '--output',
+            '-',
+        ])
+    )
+}
+
 function releaseReceipt(id) {
     if (!releaseInventory) {
         const inventory = []
@@ -315,7 +332,22 @@ function releaseReceipt(id) {
         )
     }
     const [release] = matches
-    return release ? { release, receipt: JSON.parse(release.body) } : null
+    if (!release) {
+        return null
+    }
+    const attached = !release.draft && release.assets?.some(({ name }) => name === receiptAssetName)
+    return { release, receipt: attached ? downloadReceipt(id) : JSON.parse(release.body) }
+}
+
+function isAbandonedNativeClaim({ release, receipt }, request) {
+    return (
+        release.draft === true &&
+        !release.assets?.length &&
+        request.kind === 'native' &&
+        receipt.state === 'abandoned' &&
+        isDeepStrictEqual(receipt.request, request) &&
+        !('staged' in receipt || 'stagingDeployment' in receipt || 'result' in receipt)
+    )
 }
 
 function productionState() {
@@ -362,7 +394,7 @@ function advancePointer(receipt) {
 }
 
 function saveReceipt(receipt) {
-    const output = join(process.env.RUNNER_TEMP, 'mobile-release-receipt.json')
+    const output = join(process.env.RUNNER_TEMP, receiptAssetName)
     writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`)
     return output
 }
@@ -403,11 +435,11 @@ async function publish() {
     const previous = productionState()
     for (const name of requestFiles()) {
         const sibling = readRequest(join(requestRoot, name))
-        if (
-            sibling.id !== request.id &&
-            sibling.previousRelease === request.previousRelease &&
-            releaseReceipt(sibling.id)
-        ) {
+        if (sibling.id === request.id || sibling.previousRelease !== request.previousRelease) {
+            continue
+        }
+        const claimed = releaseReceipt(sibling.id)
+        if (claimed && !isAbandonedNativeClaim(claimed, sibling)) {
             throw new Error(
                 'Another request sharing this predecessor already has a release receipt. Reconcile its EAS results or repair the production pointer before creating a successor'
             )
@@ -582,14 +614,18 @@ async function publish() {
                     request.kind === 'native'
                         ? { commit, runtimeVersion: request.runtimeVersion, fingerprints, certificateFingerprint }
                         : previous.native
-                saveReceipt(receipt)
+                const receiptPath = saveReceipt(receipt)
+                run('gh', ['release', 'upload', releaseTag(request.id), receiptPath, '--repo', repo])
+                if (!isDeepStrictEqual(downloadReceipt(request.id), receipt)) {
+                    throw new Error('Uploaded release receipt differs; reconcile the draft before retrying')
+                }
                 api(
                     `releases/${releaseId}`,
                     {
                         tag_name: releaseTag(request.id),
                         draft: false,
                         prerelease: true,
-                        body: JSON.stringify(receipt, null, 2),
+                        body: renderReleaseNotes(receipt, repo),
                     },
                     'PATCH'
                 )

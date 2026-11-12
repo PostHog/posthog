@@ -1,6 +1,3 @@
-"""Test-health orchestration: the flaky-test queue, the broken-tests panel, and the Trunk
-quarantine debt scoreboard."""
-
 from datetime import UTC, datetime
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -17,18 +14,15 @@ from products.engineering_analytics.backend.logic.queries.broken_tests import qu
 from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
 from products.engineering_analytics.backend.logic.queries.trunk_quarantine import query_trunk_quarantine_debt
 
-# Test-health queue defaults: a week of signal is the triage window, a month the ceiling
-# (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
-# The signal threshold doubles as the bar for the team CI health rollups.
 _DEFAULT_FLAKY_WINDOW = "-7d"
+# Per-test spans are high-volume, and Traces retention makes older data incomplete.
 MAX_FLAKY_WINDOW_DAYS = 30
 DEFAULT_FLAKY_MIN_FAILED_PRS = 3
 _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
 
-# Broken-tests panel: a fixed short window (not caller-tunable in v1, like current_branch_health).
-# Two days keeps the logs-cluster scan light while still spanning the classifier's boundaries — a
-# flaky failure needs a >24h span and a novel one needs first-seen <24h, both fitting inside 48h.
+# Two days covers the classifier's boundaries: a flaky failure needs a span over 24 hours, and
+# a novel one was first seen under 24 hours ago.
 _BROKEN_TESTS_WINDOW_DAYS = 2
 _BROKEN_TESTS_LIMIT = 200
 
@@ -41,13 +35,15 @@ def build_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     runner: CITestRunner | None = None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
     )
     min_failed_prs = min_failed_prs if min_failed_prs is not None else DEFAULT_FLAKY_MIN_FAILED_PRS
-    # A zero threshold would make its HAVING arm trivially true and silently qualify every
-    # test with any signal span, so require an explicit positive bar instead.
+    # A zero threshold would make its HAVING arm always true and qualify every test with any span.
     if min_failed_prs < 1:
         raise ValueError("min_failed_prs must be at least 1")
     limit = limit if limit is not None else _DEFAULT_FLAKY_LIMIT
@@ -60,6 +56,9 @@ def build_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
         runner=runner,
+        test=test,
+        branch=branch,
+        pr_number=pr_number,
     )
 
 
@@ -71,14 +70,16 @@ def build_trunk_quarantine(*, curated: CuratedGitHubSource) -> TrunkQuarantineDe
     )
 
 
-def build_broken_tests(*, curated: CuratedGitHubSource) -> BrokenTestsResult:
-    # Fixed windows resolved through the module's relative-date entry point (like current_branch_health):
-    # the 2-day analysis window and the 24h sparkline window. The SQL uses now() for the age/span/offset
-    # math, so these bounds only floor the scans.
+def build_broken_tests(
+    *, curated: CuratedGitHubSource, test: str | None = None, branch: str | None = None
+) -> BrokenTestsResult:
+    # The SQL uses now() for the age and span math, so these bounds only floor the scans.
     return query_broken_tests(
         curated=curated,
         date_from=_parse_date(curated.team, f"-{_BROKEN_TESTS_WINDOW_DAYS}d"),
         hourly_from=_parse_date(curated.team, f"-{BROKEN_TEST_SPARKLINE_HOURS}h"),
         window_days=_BROKEN_TESTS_WINDOW_DAYS,
         limit=_BROKEN_TESTS_LIMIT,
+        test=test,
+        branch=branch,
     )

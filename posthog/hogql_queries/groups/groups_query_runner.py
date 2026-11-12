@@ -62,7 +62,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "name"]),
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(

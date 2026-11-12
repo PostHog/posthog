@@ -6,6 +6,7 @@ import {
     ConfigurationFetchResult,
     ConfigurationPolicyService,
     HttpConfigurationFetcher,
+    collectRobots,
     explicitFreshnessLifetimeMs,
     parseRobotsPolicy,
     responseOptOutReason,
@@ -132,6 +133,57 @@ describe('robots policy', () => {
         const body = `User-agent: *\nContent-Usage: ${value}\nAllow: /`
 
         await expect(parseRobotsPolicy(body, `${ORIGIN}/image.png`)).resolves.toMatchObject({ allowed })
+    })
+
+    it('keeps only the rules that apply to this bot, and decides the same URLs', async () => {
+        const robotsParser = await import('@trybyte/robotstxt-parser')
+        const body = [
+            'Disallow: /no-group',
+            'User-agent: otherbot',
+            'User-agent: thirdbot',
+            'Disallow: /other',
+            'User-agent: otherbot',
+            'User-agent: *',
+            'Disallow: /wildcard',
+            'User-agent: PostHogImageFetcherBot/1.0',
+            'User-agent: otherbot',
+            'Disallow: /first',
+            'Disallow:',
+            'User-agent: posthogimagefetcherbot',
+            'Disallow: /second',
+            'Allow: /second/public.png',
+        ].join('\n')
+
+        expect(collectRobots(body, robotsParser).applicableBody()).toBe(
+            [
+                'User-agent:PostHogImageFetcherBot',
+                'Disallow:/first',
+                'Disallow:/second',
+                'Allow:/second/public.png',
+                'User-agent:*',
+                'Disallow:/wildcard',
+            ].join('\n')
+        )
+        for (const [path, allowed] of [
+            ['/first/a.png', false],
+            ['/second/a.png', false],
+            ['/second/public.png', true],
+            ['/other/a.png', true],
+            ['/no-group/a.png', true],
+            ['/wildcard/a.png', true],
+        ] as const) {
+            await expect(parseRobotsPolicy(body, `${ORIGIN}${path}`)).resolves.toMatchObject({ allowed })
+        }
+    })
+
+    it('refuses a URL when only a shortened copy of a long Allow rule would permit it', async () => {
+        const accents = 'é'.repeat(300)
+        const body = `User-agent: *\nDisallow: /\nAllow: /${accents}${'*'.repeat(15_000)}/kept.png`
+
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/${encodeURI(accents)}/other.png`)).resolves.toMatchObject({
+            allowed: false,
+            reason: 'robots_disallow',
+        })
     })
 
     it('applies a path-scoped Content-Signal only to a matching URL', async () => {
@@ -265,7 +317,7 @@ describe('ConfigurationPolicyService', () => {
         }
     })
 
-    it('parses each cached policy revision once in a fetch pass', async () => {
+    it('parses each policy body once, whichever item and fetch pass hold it', async () => {
         const { ParsedRobots } = await import('@trybyte/robotstxt-parser')
         const parseRobots = jest.spyOn(ParsedRobots, 'parse')
         const parseJson = jest.spyOn(JSON, 'parse')
@@ -282,21 +334,17 @@ describe('ConfigurationPolicyService', () => {
             await pass.check(`${ORIGIN}/first.png`, cache, NOW_MS)
             await pass.check(`${ORIGIN}/second.png`, cache, NOW_MS)
 
-            expect(parseRobots.mock.calls.filter(([body]) => body === robotsBody)).toHaveLength(1)
+            expect(parseRobots.mock.calls.filter(([body]) => body === 'User-agent:*\nAllow:/')).toHaveLength(1)
             expect(parseJson.mock.calls.filter(([body]) => body === tdmrepBody)).toHaveLength(1)
 
             const revisedCache = new Map(
                 [...cache].map(([key, item]) => [key, { ...item, fetchedAtMs: item.fetchedAtMs + 1 }] as const)
             )
             await pass.check(`${ORIGIN}/third.png`, revisedCache, NOW_MS)
-
-            expect(parseRobots.mock.calls.filter(([body]) => body === robotsBody)).toHaveLength(2)
-            expect(parseJson.mock.calls.filter(([body]) => body === tdmrepBody)).toHaveLength(2)
-
             await policy.createPass().check(`${ORIGIN}/fourth.png`, cache, NOW_MS)
 
-            expect(parseRobots.mock.calls.filter(([body]) => body === robotsBody)).toHaveLength(3)
-            expect(parseJson.mock.calls.filter(([body]) => body === tdmrepBody)).toHaveLength(3)
+            expect(parseRobots.mock.calls.filter(([body]) => body === 'User-agent:*\nAllow:/')).toHaveLength(1)
+            expect(parseJson.mock.calls.filter(([body]) => body === tdmrepBody)).toHaveLength(1)
         } finally {
             parseRobots.mockRestore()
             parseJson.mockRestore()

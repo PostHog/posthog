@@ -9,7 +9,7 @@ import {
     vec,
 } from '@shopify/react-native-skia'
 import { type ReactElement, useMemo } from 'react'
-import type { ComposedGesture } from 'react-native-gesture-handler'
+import type { LegacyComposedGesture as ComposedGesture } from 'react-native-gesture-handler'
 import { type SharedValue, useDerivedValue } from 'react-native-reanimated'
 import { Area, CartesianChart, Line, type PointsArray } from 'victory-native'
 
@@ -19,17 +19,21 @@ import { barSpan, type ChartGeometry, type PlotRect, yPosition } from './chartGe
 import { BAR_BAND_PADDING } from './chartMath'
 import { gestureHandlerConfig } from './gestures/useChartGestures'
 import type { ChartSelectionValues } from './selection/useChartSelection'
-import type { ChartKind, ChartVariant } from './types'
+import type { BarLayout, ChartKind, ChartVariant } from './types'
 
 /** One visible series in canvas coordinates. */
 export interface PlottedSeries {
     key: string
+    kind: ChartKind
+    area?: boolean
+    authoredColor?: boolean
     color: string
     dotted: boolean
     compare: boolean
     points: PointsArray
     /** The y of each bucket, NaN for a gap. */
     ys: number[]
+    baseYs: number[]
     incompleteFrom?: number
 }
 
@@ -46,6 +50,7 @@ const NO_Y_AXIS = [{ lineWidth: 0, tickCount: 0, font: null }]
 
 interface MetricChartRendererProps {
     geometry: ChartGeometry
+    barLayout: BarLayout
     kind: ChartKind
     variant: ChartVariant
     series: PlottedSeries[]
@@ -62,6 +67,7 @@ interface MetricChartRendererProps {
 export function MetricChartRenderer({
     geometry,
     kind,
+    barLayout,
     variant,
     series,
     accent,
@@ -83,7 +89,8 @@ export function MetricChartRenderer({
         [count]
     )
     const handlerConfig = useMemo(() => gestureHandlerConfig(variant), [variant])
-    const current = series.filter((s) => !s.compare)
+    const bars = series.filter((s) => s.kind === 'bar' && !s.compare)
+    const lines = series.filter((s) => s.kind === 'line')
 
     return (
         <CartesianChart
@@ -114,18 +121,18 @@ export function MetricChartRenderer({
                         strokeWidth={1}
                     />
                     <RangeShade selection={selection} xs={xs} plot={plot} />
-                    {kind === 'bar' ? (
+                    {bars.length ? (
                         <Bars
-                            series={current}
+                            series={bars}
+                            layout={barLayout}
                             geometry={geometry}
                             accent={accent}
                             selection={selection}
                             variant={variant}
                         />
-                    ) : (
-                        <Lines series={series} plot={plot} />
-                    )}
-                    {kind === 'line' ? <Markers series={series} xs={xs} plot={plot} selection={selection} /> : null}
+                    ) : null}
+                    {lines.length ? <Lines series={lines} plot={plot} /> : null}
+                    {lines.length ? <Markers series={lines} xs={xs} plot={plot} selection={selection} /> : null}
                 </>
             )}
         >
@@ -139,7 +146,11 @@ function Lines({ series, plot }: { series: PlottedSeries[]; plot: PlotRect }): R
     const only = current.length === 1 ? current[0] : undefined
     return (
         <>
-            {only ? <Area points={only.points} y0={plot.bottom} color={only.color} opacity={AREA_OPACITY} /> : null}
+            {series
+                .filter((s) => s.area === true || (s === only && s.area === undefined))
+                .map((s) => (
+                    <Area key={s.key} points={s.points} y0={plot.bottom} color={s.color} opacity={AREA_OPACITY} />
+                ))}
             {series.map((s) => (
                 <SeriesLine key={s.key} series={s} />
             ))}
@@ -261,12 +272,14 @@ function Dot({
 
 function Bars({
     series,
+    layout,
     geometry,
     accent,
     selection,
     variant,
 }: {
     series: PlottedSeries[]
+    layout: BarLayout
     geometry: ChartGeometry
     accent: string
     selection: ChartSelectionValues
@@ -277,26 +290,35 @@ function Bars({
     const zeroY = yPosition(0, geometry.yDomain, plot)
     const single = series.length === 1
     const groupWidth = bandWidth * (1 - BAR_BAND_PADDING)
-    const barWidth = groupWidth / Math.max(1, series.length)
+    const barWidth = groupWidth / (layout === 'stacked' ? 1 : Math.max(1, series.length))
     const paths = useMemo(
         () =>
             series.map((s, seriesIndex) => {
                 const builder = Skia.PathBuilder.Make()
-                for (const point of s.points) {
-                    if (typeof point.y !== 'number' || !Number.isFinite(point.y)) {
+                for (const [index, point] of s.points.entries()) {
+                    if (typeof point.y !== 'number' || !Number.isFinite(point.y) || !point.yValue) {
                         continue
                     }
-                    const { top, height } = barSpan(point.y, zeroY)
-                    const left = point.x - groupWidth / 2 + seriesIndex * barWidth
-                    builder.addRRect(Skia.RRectXY(Skia.XYWHRect(left, top, barWidth, height), 1, 1))
+                    const base = s.baseYs[index] ?? zeroY
+                    const { top, height } =
+                        layout === 'stacked'
+                            ? { top: Math.min(point.y, base), height: Math.abs(base - point.y) }
+                            : barSpan(point.y, base)
+                    const left = point.x - groupWidth / 2 + (layout === 'stacked' ? 0 : seriesIndex * barWidth)
+                    const rect = Skia.XYWHRect(left, top, barWidth, height)
+                    if (layout === 'stacked') {
+                        builder.addRect(rect)
+                    } else {
+                        builder.addRRect(Skia.RRectXY(rect, 1, 1))
+                    }
                 }
                 return {
                     key: s.key,
                     path: builder.detach(),
-                    color: single && variant !== 'compact' ? colors.barNeutral : s.color,
+                    color: single && variant !== 'compact' && !s.authoredColor ? colors.barNeutral : s.color,
                 }
             }),
-        [series, zeroY, groupWidth, barWidth, single, colors, variant]
+        [series, zeroY, groupWidth, barWidth, single, colors, variant, layout]
     )
     const first = series[0]
     return (
@@ -345,9 +367,9 @@ function BarHighlight({
     width: number
     color: string
 }): ReactElement {
-    const { ys } = series
+    const { ys, baseYs } = series
     const x = useDerivedValue(() => (xs[sel.value] ?? 0) - width / 2)
-    const span = useDerivedValue(() => barSpan(ys[sel.value] ?? zeroY, zeroY))
+    const span = useDerivedValue(() => barSpan(ys[sel.value] ?? zeroY, baseYs[sel.value] ?? zeroY))
     const y = useDerivedValue(() => span.value.top)
     const barHeight = useDerivedValue(() => span.value.height)
     const opacity = useDerivedValue(() => (sel.value >= 0 && Number.isFinite(ys[sel.value]) ? 1 : 0))

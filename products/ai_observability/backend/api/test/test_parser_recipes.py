@@ -2,14 +2,45 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.ai_observability.backend.api.parser_recipes import ParserRecipeSerializer
 from products.ai_observability.backend.models.parser_recipe import ParserRecipe
 
 VALID_SOURCE = "id: my_recipe\nrules: []\n"
+
+
+class TestParserRecipeSourceValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_yaml", "rules: [unclosed", "Recipe YAML does not parse"),
+            ("deeply_nested", "[" * 2000 + "]" * 2000, "Recipe YAML does not parse"),
+            ("over_max_length", "# " + "x" * 100_001, "no more than"),
+            ("integer_past_python_digit_limit", "id: r\nrules: []\nn: " + "1" * 5000, "Recipe YAML does not parse"),
+            ("yaml_but_not_a_recipe", "foo: bar\n", "missing a 'rules:' sequence"),
+        ]
+    )
+    def test_rejects_source_the_server_cannot_compile(self, _name, source, expected_error):
+        serializer = ParserRecipeSerializer(data={"name": "Bad", "source": source})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(expected_error, str(serializer.errors["source"][0]))
+
+    @parameterized.expand(
+        [
+            ("impossible_date_stays_text", "id: r\nrules:\n  - on: {}\n    emit: {content: 2026-02-30}\n"),
+            ("stored_recipe_needs_no_id", "rules: []\n"),
+        ]
+    )
+    def test_accepts_source_the_server_compiles(self, _name, source):
+        serializer = ParserRecipeSerializer(data={"name": "Good", "source": source})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
 
 
 class TestParserRecipesApi(APIBaseTest):
@@ -37,20 +68,11 @@ class TestParserRecipesApi(APIBaseTest):
         recipe = ParserRecipe.objects.for_team(self.team.id).get(id=data["id"])
         self.assertEqual(recipe.team_id, self.team.id)
 
-    @parameterized.expand(
-        [
-            ("not_yaml", "rules: [unclosed", "not valid YAML"),
-            # PyYAML raises RecursionError on this input — it must surface as a 400, not a 500
-            ("deeply_nested", "[" * 2000 + "]" * 2000, None),
-            ("oversized", "# " + "x" * 100_001, None),
-        ]
-    )
-    def test_create_rejects_invalid_source(self, _name, source, expected_detail):
-        response = self.client.post(self._endpoint(), {"name": "Bad", "source": source})
+    def test_create_rejects_source_that_does_not_compile(self):
+        response = self.client.post(self._endpoint(), {"name": "Bad", "source": "rules: [unclosed"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        if expected_detail is not None:
-            self.assertIn(expected_detail, response.json()["detail"])
+        self.assertIn("Recipe YAML does not parse", response.json()["detail"])
         self.assertEqual(ParserRecipe.objects.for_team(self.team.id).count(), 0)
 
     def test_patch_rejects_source_that_is_not_yaml(self):

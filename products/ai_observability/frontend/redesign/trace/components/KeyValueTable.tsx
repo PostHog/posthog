@@ -17,7 +17,7 @@ export function KeyValueTable({ entries, className }: KeyValueTableProps): JSX.E
                         {typeof value === 'string' ? (
                             <span className="whitespace-pre-wrap break-words">{value}</span>
                         ) : (
-                            <pre className="m-0 overflow-auto text-xs">{toDisplayText(value)}</pre>
+                            <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
                         )}
                     </dd>
                 </div>

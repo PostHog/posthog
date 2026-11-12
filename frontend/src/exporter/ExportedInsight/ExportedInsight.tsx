@@ -54,6 +54,7 @@ export function ExportedInsight({
         dashboardItemId: insight.short_id,
         cachedInsight: insight,
         doNotLoad: true,
+        presentationOnly: true,
     }
 
     const { short_id, query, name, derived_name, description } = insight

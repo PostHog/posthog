@@ -1,6 +1,8 @@
 import { combineUrl } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -12,7 +14,6 @@ import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
-export type AnalyticsTypeFilter = AnalyticsType | 'all'
 
 export interface AnalyticsTypeInfo {
     type: AnalyticsType
@@ -224,8 +225,8 @@ export function fromPostHogProducts(): FromPostHogItem[] {
     ]
 }
 
-export function fromPostHogItems(featureFlags: Record<string, unknown>): FromPostHogItem[] {
-    return fromPostHogProducts().filter(({ item }) => !item.flag || !!featureFlags[item.flag])
+export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem[] {
+    return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags))
 }
 
 /**

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { computeVisibleXLabels, useChartLayout } from '@posthog/quill-charts'
 
-import { AnnotationsOverlay } from './AnnotationsOverlay'
+import { AnnotationsOverlay, type AnnotationsOverlayProps } from './AnnotationsOverlay'
 import type { AnnotationsChartGeometry } from './useAnnotationsPositioning'
 
 interface AnnotationsLayerProps {
@@ -21,6 +21,7 @@ interface AnnotationsLayerProps {
     /** Series key for the previous-period bar. Required for previous-period annotations
      *  to anchor on the correct bar within each band. */
     previousSeriesKey?: string
+    annotationsScope?: AnnotationsOverlayProps['annotationsScope']
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
@@ -34,12 +35,20 @@ const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
+// The chart clears its tooltip on a move over an interactive overlay, such as the quill annotations popover.
+const stopMouseMoveOutsideInteractiveOverlay = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (!(e.target instanceof Element && e.target.closest('[data-hog-charts-interactive-overlay]'))) {
+        e.stopPropagation()
+    }
+}
+
 export function AnnotationsLayer({
     insightNumericId,
     dates,
     seriesKey,
     previousDates,
     previousSeriesKey,
+    annotationsScope,
 }: AnnotationsLayerProps): React.ReactElement | null {
     const { scales, dimensions, labels, axis } = useChartLayout()
     const xTickFormatter = axis.xTickFormatter
@@ -89,7 +98,7 @@ export function AnnotationsLayer({
             className="HogChartsAnnotationsLayer"
             style={WRAPPER_STYLE}
             onClick={stopPointerPropagation}
-            onMouseMove={stopPointerPropagation}
+            onMouseMove={stopMouseMoveOutsideInteractiveOverlay}
             onMouseDown={stopPointerPropagation}
         >
             <AnnotationsOverlay
@@ -97,6 +106,7 @@ export function AnnotationsLayer({
                 dates={dates}
                 chartWidth={dimensions.width}
                 insightNumericId={insightNumericId}
+                annotationsScope={annotationsScope}
             />
             {previousGeometry && previousDates && (
                 <AnnotationsOverlay
@@ -105,6 +115,7 @@ export function AnnotationsLayer({
                     chartWidth={dimensions.width}
                     insightNumericId={insightNumericId}
                     kind="previous"
+                    annotationsScope={annotationsScope}
                 />
             )}
         </div>

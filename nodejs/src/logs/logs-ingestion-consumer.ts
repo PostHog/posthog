@@ -48,6 +48,7 @@ import {
     processLogMessageBuffer,
     sniffJsonLogAttributes,
 } from './log-record-avro'
+import { rethrowKafkaOutageAsDependency } from './logs-produce-errors'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -68,7 +69,7 @@ import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
-import { SamplingRulesCache } from './sampling/sampling-rules-cache'
+import { type SamplingRuleSource, SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
@@ -110,12 +111,12 @@ export interface LogsIngestionConsumerDeps {
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 // A producer can stamp internal rows with less retention than the team default.
-const INTERNAL_LOGS_MIN_RETENTION_DAYS = 1
+export const INTERNAL_LOGS_MIN_RETENTION_DAYS = 1
 
 /** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
-function retentionBytesMetricName(retentionDays: number): string | null {
+export function retentionBytesMetricName(retentionDays: number): string | null {
     return RETENTION_USAGE_TIERS.has(retentionDays) ? `bytes_ingested_retention_${retentionDays}d` : null
 }
 
@@ -133,7 +134,7 @@ export type UsageStats = {
 }
 
 /** `raw` is a comma-separated team-ID list, `*` for all teams, or empty for none. */
-function teamIdMatchesCsv(raw: string, teamId: number): boolean {
+export function teamIdMatchesCsv(raw: string, teamId: number): boolean {
     const trimmed = (raw || '').trim()
     if (!trimmed) {
         return false
@@ -191,7 +192,7 @@ export function parseMinTimestampHeader(raw: string | undefined): number | undef
     return Number.isSafeInteger(parsed) ? parsed : undefined
 }
 
-const DEFAULT_USAGE_STATS: UsageStats = {
+export const DEFAULT_USAGE_STATS: UsageStats = {
     bytesReceived: 0,
     recordsReceived: 0,
     bytesAllowed: 0,
@@ -206,7 +207,7 @@ const DEFAULT_USAGE_STATS: UsageStats = {
 export type UsageStatsByTeam = Map<number, UsageStats>
 
 /** Cap concurrent per-message processing within a single kafka batch. */
-const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
+export const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -370,7 +371,7 @@ export function billingByteReductionForDrops(headerBytes: number, bytesDropped: 
  * attributed — so it reports no per-rule accounting, just the `transformations` tag when it removed
  * any record.
  */
-function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
+export function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
     return {
         kind: 'filter',
         name: 'transformations',
@@ -396,6 +397,8 @@ export class LogsIngestionConsumer {
     // Record source this consumer evaluates retention rules for. Same vocabulary as
     // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
     protected retentionRuleSource: RetentionRuleSource = 'logs'
+    // Drop rules and rate limits this consumer evaluates. TracesIngestionConsumer overrides to 'spans'.
+    protected samplingRuleSource: SamplingRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -514,11 +517,11 @@ export class LogsIngestionConsumer {
 
     // Transformations write hog_function logs, which could come back here as internal logs and loop.
     private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-        return message.internalLogs?.teamRules ?? true
+        return message.verifiedAsInternalLogs?.teamRules ?? true
     }
 
     private isUnbilledInternal(message: LogsIngestionMessage): boolean {
-        return message.internalLogs !== undefined && !message.internalLogs.billed
+        return message.verifiedAsInternalLogs !== undefined && !message.verifiedAsInternalLogs.billed
     }
 
     private isTransformationsEnabledForTeam(teamId: number): boolean {
@@ -557,7 +560,8 @@ export class LogsIngestionConsumer {
         if (!(await transformer.teamHasTransformations(message.teamId))) {
             return undefined
         }
-        return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+        return (records) =>
+            transformer.transformRecords(message.teamId, records, batchBudget, message.sentAsInternalLogs)
     }
 
     /**
@@ -599,7 +603,7 @@ export class LogsIngestionConsumer {
         const samplingEvalEnabled = this.isSamplingEvalEnabledForTeam(message.teamId)
         let ruleSet: CompiledRuleSet | null = null
         if (samplingCache && samplingEvalEnabled && this.appliesTeamLogRules(message)) {
-            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId, this.samplingRuleSource)
         }
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
         const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
@@ -628,7 +632,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         let shortestRetentionDays =
-            message.internalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+            message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
         if (useRetention && retentionRuleSet) {
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
             shortestRetentionDays = Math.min(
@@ -1249,35 +1253,36 @@ export class LogsIngestionConsumer {
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
                         await this.retryOnDependencyUnavailable(() =>
-                            this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                                {
-                                    value: processedValue,
-                                    key: null,
-                                    headers: {
-                                        ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
-                                        ...(message.internalLogs !== undefined
-                                            ? { [INTERNAL_SOURCE_HEADER]: message.internalLogs.source }
-                                            : {}),
-                                        token: message.token,
-                                        team_id: message.teamId.toString(),
-                                        'json-parse': jsonParse.toString(),
-                                        'retention-days': retentionDays.toString(),
-                                        // The ingestion lag checkpoint needs the source partition, because
-                                        // both topics use random partitioning.
-                                        source_topic: message.message.topic,
-                                        source_partition: message.message.partition.toString(),
-                                        ...(bytesUncompressedHeaderOverride !== undefined
-                                            ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
-                                            : {}),
-                                        ...(bytesCompressedHeaderOverride !== undefined
-                                            ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
-                                            : {}),
-                                        ...(recordCountHeaderOverride !== undefined
-                                            ? { record_count: recordCountHeaderOverride.toString() }
-                                            : {}),
+                            this.deps.outputs
+                                .queueMessages(LOGS_OUTPUT, [
+                                    {
+                                        value: processedValue,
+                                        key: null,
+                                        headers: {
+                                            ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
+                                            ...(message.verifiedAsInternalLogs !== undefined
+                                                ? { [INTERNAL_SOURCE_HEADER]: message.verifiedAsInternalLogs.source }
+                                                : {}),
+                                            token: message.token,
+                                            team_id: message.teamId.toString(),
+                                            'json-parse': jsonParse.toString(),
+                                            'retention-days': retentionDays.toString(),
+                                            // Both topics use random partitioning, so the ingestion lag checkpoint needs the source partition.
+                                            source_topic: message.message.topic,
+                                            source_partition: message.message.partition.toString(),
+                                            ...(bytesUncompressedHeaderOverride !== undefined
+                                                ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                                : {}),
+                                            ...(bytesCompressedHeaderOverride !== undefined
+                                                ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                                : {}),
+                                            ...(recordCountHeaderOverride !== undefined
+                                                ? { record_count: recordCountHeaderOverride.toString() }
+                                                : {}),
+                                        },
                                     },
-                                },
-                            ])
+                                ])
+                                .catch(rethrowKafkaOutageAsDependency)
                         )
                     } catch (error) {
                         // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
@@ -1590,7 +1595,8 @@ export class LogsIngestionConsumer {
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                         backfillRequested: headers.backfill_days !== undefined,
-                        internalLogs: this.internalLogsVerifier.verify(
+                        sentAsInternalLogs: headers[INTERNAL_LOGS_HEADER] !== undefined,
+                        verifiedAsInternalLogs: this.internalLogsVerifier.verify(
                             headers[INTERNAL_LOGS_HEADER],
                             team.id,
                             headers.created_at

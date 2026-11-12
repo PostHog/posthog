@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
+import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 const ROSE = { id: 202, uuid: 'user-202', email: 'rose@example.com', hedgehog_config: null }
@@ -19,6 +20,7 @@ function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepo
         selected: false,
         repository_id: null,
         exception: null,
+        review_drafts: false,
         my_choice: null,
         my_choice_id: null,
         my_result: { flash: true, reason: 'project_everyone' },
@@ -162,15 +164,30 @@ describe('reviewHogRepositoriesLogic', () => {
         expect(overviewViews.at(-1)).toEqual('all')
     })
 
-    it('a new exception starts as a copy of the project rule and its list', async () => {
+    it.each([
+        [
+            'everyone',
+            'copies the project rule and its except list',
+            [
+                'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
+                'POST person repo-web {"user_id":202,"kind":"excepted"}',
+            ],
+        ],
+        [
+            'off',
+            'turns the repository on for everyone',
+            [
+                'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
+            ],
+        ],
+    ] as const)('under a project default of %s, a new exception %s', async (projectFlashFor, _behavior, expected) => {
         await expectLogic(logic).toDispatchActions(['loadOverviewSuccess'])
+        const settings = reviewHogProjectSettingsLogic.values.projectSettings
+        reviewHogProjectSettingsLogic.actions.loadProjectSettingsSuccess({ ...settings!, flash_for: projectFlashFor })
 
         await expectLogic(logic, () => logic.actions.addException(entry({}))).toFinishAllListeners()
 
-        expect(requests).toEqual([
-            'POST repository {"installation_id":"41","full_name":"example-org/web","github_repo_id":1001,"flash_for":"everyone"}',
-            'POST person repo-web {"user_id":202,"kind":"excepted"}',
-        ])
+        expect(requests).toEqual(expected)
     })
 
     it('changing my default reloads the list, because the default decides every inherited result', async () => {

@@ -3,7 +3,6 @@ import datetime as dt
 from typing import Any
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
@@ -16,7 +15,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
-from products.aeo.backend.facade.api import list_citation_gaps
+from products.aeo.backend.facade.api import list_citation_gaps, list_own_domains
 from products.aeo.backend.facade.contracts import CitationGap
 from products.web_analytics.backend.content_autopilot.lifecycle import (
     ACTIVE_RUN_STATUSES,
@@ -47,6 +46,7 @@ ENGINE_LABELS = {
     "claude-web-search": "Claude",
     "openai-web-search": "ChatGPT",
     "exa-answer": "Exa",
+    "perplexity-web-search": "Perplexity",
 }
 
 
@@ -155,8 +155,11 @@ def _site_hosts(origin: str, *, include_unknown: bool = False) -> list[str]:
     return [host, f"www.{host}", *([""] if include_unknown else [])]
 
 
-def _is_aeo_target(origin: str) -> bool:
-    return site_host(origin) in {site_host(f"https://{domain}") for domain in settings.AEO_TARGET_DOMAINS}
+def _is_aeo_target(team_id: int, origin: str) -> bool:
+    # Own brands are registrable domains, and citations count on their subdomains too, so docs.example.com
+    # matches example.com.
+    host = site_host(origin)
+    return bool(host) and any(host == domain or host.endswith(f".{domain}") for domain in list_own_domains(team_id))
 
 
 def _being_drafted(opportunity: ContentAutopilotOpportunity) -> bool:
@@ -268,7 +271,7 @@ def refresh_opportunities(
         raise ContentAutopilotLifecycleError("That site could not be found.") from error
     gaps = (
         list_citation_gaps(team_id, since=timezone.now() - dt.timedelta(days=OPPORTUNITY_LOOKBACK_DAYS))
-        if _is_aeo_target(profile.domain)
+        if _is_aeo_target(team_id, profile.domain)
         else []
     )
     boundaries = [str(boundary) for boundary in profile.content_boundaries]

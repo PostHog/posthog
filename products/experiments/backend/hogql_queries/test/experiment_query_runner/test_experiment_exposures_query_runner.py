@@ -1,4 +1,5 @@
 import re
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -7,6 +8,7 @@ import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.forms.models import model_to_dict
 from django.test import override_settings
 
@@ -17,7 +19,9 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
@@ -29,8 +33,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import PropertyDefinition
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
@@ -39,7 +42,8 @@ from posthog.test.test_journeys import journeys_for
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -112,6 +116,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_config=ExperimentWarehouseNativeExposureConfig(
                 connection_id="00000000-0000-0000-0000-000000000000",
                 query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
             )
         )
 
@@ -128,6 +133,95 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ExperimentExposuresQueryRunner(team=self.team, query=query)
 
         self.assertIn("not found", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("window_in_range", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-10T00:00:00+00:00", None),
+            ("end_tomorrow", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-16T00:00:00+00:00", None),
+            (
+                "end_just_past_tomorrow",
+                "UTC",
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-16T12:00:01+00:00",
+                "in the future",
+            ),
+            ("start_before_2015", "UTC", "2014-12-31T00:00:00+00:00", "2024-01-10T00:00:00+00:00", "before 2015"),
+            ("start_in_year_one_west_of_utc", "America/New_York", "0001-01-01T00:00:00+00:00", None, "before 2015"),
+            (
+                "end_in_year_9999_east_of_utc",
+                "Asia/Tokyo",
+                "2024-01-01T00:00:00+00:00",
+                "9999-12-31T23:00:00+00:00",
+                "in the future",
+            ),
+            ("naive_start_in_year_one", "UTC", "0001-01-01T00:00:00", "2024-01-10T00:00:00", "before 2015"),
+            ("start_in_year_9999_east_of_utc", "Asia/Tokyo", "9999-12-31T23:00:00+00:00", None, "in the future"),
+            (
+                "end_in_year_one_west_of_utc",
+                "America/New_York",
+                "2020-01-01T00:00:00+00:00",
+                "0001-01-01T00:00:00+00:00",
+                "before 2015",
+            ),
+            ("twenty_variants_since_2015", "UTC", "2015-01-01T00:00:00+00:00", None, None, 20),
+            ("hundred_variants_since_2015", "UTC", "2015-01-01T00:00:00+00:00", None, "too many variants", 100),
+            (
+                "end_before_start",
+                "UTC",
+                "2024-01-01T12:00:00+00:00",
+                "2024-01-01T00:00:00+00:00",
+                "before its start date",
+            ),
+            (
+                "many_variants_across_mixed_offsets",
+                "UTC",
+                "2024-01-03T00:00:00+14:00",
+                "2024-01-01T23:00:00-12:00",
+                "too many variants",
+                130_000,
+            ),
+            (
+                "many_variants_within_one_day",
+                "UTC",
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-01T12:00:00+00:00",
+                "too many variants",
+                130_000,
+            ),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_out_of_range_window_is_a_validation_error(
+        self,
+        _name: str,
+        timezone: str,
+        start_date: str,
+        end_date: str | None,
+        error: str | None,
+        variant_count: int | None = None,
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        feature_flag = model_to_dict(self.feature_flag)
+        if variant_count is not None:
+            feature_flag["filters"]["multivariate"]["variants"] = [
+                {"key": f"variant-{i}", "rollout_percentage": 0} for i in range(variant_count)
+            ]
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=feature_flag,
+            start_date=start_date,
+            end_date=end_date,
+            exposure_criteria=None,
+        )
+
+        if error is None:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+        else:
+            with self.assertRaisesMessage(ValidationError, error):
+                ExperimentExposuresQueryRunner(team=self.team, query=query)
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
@@ -1121,7 +1215,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_using_group_aggregation(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
-        self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
+        self.experiment.end_date = datetime(2024, 1, 8).replace(tzinfo=ZoneInfo("UTC"))
         if use_precomputation:
             self._enable_precomputation()
         self.experiment.save()
@@ -1271,7 +1365,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_with_action_as_exposure_criteria(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         # Create an action for purchase events with specific properties
-        action = Action.objects.create(
+        action = create_action(
             name="Qualified Purchase",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
@@ -1506,7 +1600,22 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # (well below the 0.001 threshold for SRM detection)
         self.assertLess(response.sample_ratio_mismatch.p_value, 0.001)
         self.assertEqual(
-            [finding.code for finding in response.health_findings or []], [ExperimentExposureHealthFindingCode.SRM]
+            [(finding.code, finding.check) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, ExperimentExposureHealthCheckKey.SRM)],
+        )
+        srm_check = next(check for check in response.health_checks or [] if check.key == "srm")
+        self.assertEqual(
+            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json")),
+            (
+                {"p_value": response.sample_ratio_mismatch.p_value, "compared_count": 100, "multiple_variant_count": 0},
+                {
+                    "value": "p_value",
+                    "threshold": 0.001,
+                    "warns": "below",
+                    "test": "chi_squared",
+                    "minimum": {"value": "compared_count", "threshold": 100},
+                },
+            ),
         )
 
         # Expected counts should be 50/50 of total (100)
@@ -1554,10 +1663,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=self.experiment.exposure_criteria,
         )
 
-    @parameterized.expand([("reader_of_the_flag", True, "split_changed"), ("userless_run", False, None)])
+    @parameterized.expand(
+        [
+            ("reader_of_the_flag", True, None, "split_changed"),
+            ("userless_run", False, None, None),
+            ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed"),
+        ]
+    )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
-        self, _name: str, as_user: bool, subcode: str | None
+        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
@@ -1585,9 +1700,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         flush_persons_and_events()
         self._log_split_change_from_90_10_on_2024_01_03()
+        query = self._running_exposure_query()
+        if end_date is not None:
+            self.experiment.end_date = end_date
+            self.experiment.save()
+            query = query.model_copy(update={"end_date": end_date.isoformat()})
 
         response = ExperimentExposuresQueryRunner(
-            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+            team=self.team, query=query, user=self.user if as_user else None
         ).calculate()
 
         self.assertEqual(
@@ -1628,10 +1748,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
         self._log_split_change_from_90_10_on_2024_01_03()
 
-        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True):
-            response = ExperimentExposuresQueryRunner(
-                team=self.team, query=self._running_exposure_query(), user=self.user
-            ).calculate()
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user
+        ).calculate()
 
         [finding] = response.health_findings or []
         versions = sorted(
@@ -1670,72 +1789,10 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             created_at=datetime(2024, 1, 3, tzinfo=UTC),
         )
 
-    @parameterized.expand(
-        [
-            (
-                "reader_who_sees_the_findings",
-                True,
-                'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
-                "library.",
-                "library_version",
-                {
-                    "located_dimensions": "library,library_version",
-                    "library_1": "web",
-                    "library_1_exposed_control": 100,
-                    "library_1_exposed_test": 100,
-                    "library_2": "posthog-node",
-                    "library_2_exposed_control": 5,
-                    "library_2_exposed_test": 120,
-                    "library_3": "posthog-ios",
-                    "library_3_exposed_control": 10,
-                    "library_3_exposed_test": 10,
-                    "library_version_1": "1.200.0",
-                    "library_version_1_library": "web",
-                    "library_version_1_exposed_control": 100,
-                    "library_version_1_exposed_test": 100,
-                    "library_version_2": "4.2.1",
-                    "library_version_2_library": "posthog-node",
-                    "library_version_2_exposed_control": 5,
-                    "library_version_2_exposed_test": 120,
-                    "library_version_3": "3.0.0",
-                    "library_version_3_library": "posthog-ios",
-                    "library_version_3_exposed_control": 10,
-                    "library_version_3_exposed_test": 10,
-                    "page_1": "/",
-                    "page_1_exposed_control": 34,
-                    "page_1_exposed_test": 34,
-                    "page_2": "/pricing",
-                    "page_2_exposed_control": 20,
-                    "page_2_exposed_test": 20,
-                    "page_3": "/docs/:page",
-                    "page_3_exposed_control": 15,
-                    "page_3_exposed_test": 15,
-                    "page_4": "/blog",
-                    "page_4_exposed_control": 12,
-                    "page_4_exposed_test": 12,
-                    "page_5": "/about",
-                    "page_5_exposed_control": 10,
-                    "page_5_exposed_test": 10,
-                    "page_6": BREAKDOWN_OTHER_STRING_LABEL,
-                    "page_6_exposed_control": 9,
-                    "page_6_exposed_test": 9,
-                    "screen_1": "Checkout",
-                    "screen_1_exposed_control": 10,
-                    "screen_1_exposed_test": 10,
-                },
-            ),
-            (
-                "reader_who_does_not_see_them",
-                False,
-                "This may indicate issues with randomization or data collection.",
-                None,
-                {},
-            ),
-        ]
-    )
+    @parameterized.expand([("signed_in_reader", True), ("userless_run", False)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_splits_the_exposures_by_the_library_and_page_of_the_first_exposure(
-        self, _name: str, findings_shown: bool, detail: str, reason: str | None, evidence: dict[str, str | int]
+        self, _name: str, as_user: bool
     ) -> None:
         def exposure(variant: str, timestamp: str, library: str, version: str, **place: str | None) -> dict[str, Any]:
             return {
@@ -1792,18 +1849,68 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         journeys_for({**web_first, **server_only, **mobile}, self.team)
         flush_persons_and_events()
 
-        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=findings_shown):
-            response = ExperimentExposuresQueryRunner(
-                team=self.team, query=self._running_exposure_query(), user=self.user
-            ).calculate()
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+        ).calculate()
 
         [finding] = response.health_findings or []
         self.assertEqual(
-            (finding.code, finding.subcode, finding.reason), (ExperimentExposureHealthFindingCode.SRM, None, reason)
+            (finding.code, finding.subcode, finding.reason),
+            (ExperimentExposureHealthFindingCode.SRM, None, "library_version"),
         )
-        self.assertIn(detail, finding.detail)
+        self.assertIn(
+            'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+            "library.",
+            finding.detail,
+        )
         self.assertEqual(
-            {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")}, evidence
+            {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")},
+            {
+                "share_off_split": 0.1667,
+                "located_dimensions": "library,library_version",
+                "library_1": "web",
+                "library_1_exposed_control": 100,
+                "library_1_exposed_test": 100,
+                "library_2": "posthog-node",
+                "library_2_exposed_control": 5,
+                "library_2_exposed_test": 120,
+                "library_3": "posthog-ios",
+                "library_3_exposed_control": 10,
+                "library_3_exposed_test": 10,
+                "library_version_1": "1.200.0",
+                "library_version_1_library": "web",
+                "library_version_1_exposed_control": 100,
+                "library_version_1_exposed_test": 100,
+                "library_version_2": "4.2.1",
+                "library_version_2_library": "posthog-node",
+                "library_version_2_exposed_control": 5,
+                "library_version_2_exposed_test": 120,
+                "library_version_3": "3.0.0",
+                "library_version_3_library": "posthog-ios",
+                "library_version_3_exposed_control": 10,
+                "library_version_3_exposed_test": 10,
+                "page_1": "/",
+                "page_1_exposed_control": 34,
+                "page_1_exposed_test": 34,
+                "page_2": "/pricing",
+                "page_2_exposed_control": 20,
+                "page_2_exposed_test": 20,
+                "page_3": "/docs/:page",
+                "page_3_exposed_control": 15,
+                "page_3_exposed_test": 15,
+                "page_4": "/blog",
+                "page_4_exposed_control": 12,
+                "page_4_exposed_test": 12,
+                "page_5": "/about",
+                "page_5_exposed_control": 10,
+                "page_5_exposed_test": 10,
+                "page_6": BREAKDOWN_OTHER_STRING_LABEL,
+                "page_6_exposed_control": 9,
+                "page_6_exposed_test": 9,
+                "screen_1": "Checkout",
+                "screen_1_exposed_control": 10,
+                "screen_1_exposed_test": 10,
+            },
         )
 
     @parameterized.expand(
@@ -1815,7 +1922,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
-    def test_srm_library_segments_add_up_to_the_total_exposures(
+    def test_library_counts_add_up_to_the_total_exposures(
         self, _name: str, by_group: bool, multiple_variant_handling: str, use_precomputation: bool
     ) -> None:
         self._setup_precomputation_test(use_precomputation)
@@ -1833,11 +1940,13 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
         self._save_experiment_with_precomputation(self.experiment, use_precomputation)
         ff_property = f"$feature/{self.feature_flag.key}"
-        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", "posthog-go", None]
+        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", "custom-sdk", None]
 
         def exposure(unit: int, variant: str, timestamp: str, library: str | None) -> dict[str, Any]:
             return {
-                "event": "$feature_flag_called",
+                # An experiment on $feature_flag_called also counts $experiment_exposure, which carries the `$lib` of
+                # the SDK that sent it.
+                "event": "$experiment_exposure" if unit % 5 == 0 else "$feature_flag_called",
                 "timestamp": timestamp,
                 "properties": {
                     "$feature_flag_response": variant,
@@ -1867,10 +1976,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         flush_persons_and_events()
 
-        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True):
-            response = ExperimentExposuresQueryRunner(
-                team=self.team, query=self._running_exposure_query(), user=self.user
-            ).calculate()
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user
+        ).calculate()
 
         [finding] = [
             finding
@@ -1885,7 +1993,27 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             elif (match := re.fullmatch(r"library_\d+_exposed_(.+)", key)) and isinstance(value, int | float):
                 exposed_by_variant[match.group(1)] = exposed_by_variant.get(match.group(1), 0) + value
         self.assertEqual(
-            (exposed_by_variant, BREAKDOWN_OTHER_STRING_LABEL in segments), (response.total_exposures, True)
+            (
+                exposed_by_variant,
+                BREAKDOWN_OTHER_STRING_LABEL in segments,
+                response.exposed_by_library,
+            ),
+            (
+                response.total_exposures,
+                True,
+                # The precomputed exposures carry no library. A library outside PostHog's own SDKs counts as other.
+                None
+                if use_precomputation
+                else {
+                    "web": 15,
+                    "posthog-node": 15,
+                    "posthog-python": 15,
+                    "posthog-ios": 15,
+                    "posthog-android": 15,
+                    BREAKDOWN_OTHER_STRING_LABEL: 15,
+                    BREAKDOWN_NULL_STRING_LABEL: 15,
+                },
+            ),
         )
 
     @parameterized.expand([("timeout", ClickHouseQueryTimeOut(), True), ("other_error", RuntimeError("boom"), False)])
@@ -1925,25 +2053,31 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         runner_module = ExperimentExposuresQueryRunner.__module__
         with (
             patch(f"{runner_module}.execute_hogql_query", side_effect=execute),
-            patch(f"{runner_module}.shows_health_findings", return_value=True),
             patch(f"{runner_module}.logger") as logger,
             patch(f"{runner_module}.capture_exception") as capture_exception,
         ):
-            response = ExperimentExposuresQueryRunner(
-                team=self.team, query=self._running_exposure_query(), user=self.user
-            ).calculate()
+            query = self._running_exposure_query()
+            responses = [
+                ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).calculate()
+                for _ in range(2)
+            ]
 
-        self.assertIn("ExperimentExposureSegmentsQuery", query_types)
+        self.assertEqual(query_types.count("ExperimentExposureSegmentsQuery"), 1)
         self.assertEqual((logger.warning.called, capture_exception.called), (logged, not logged))
-        self.assertEqual(response.total_exposures, {"control": 90, "test": 10})
+        self.assertEqual([response.total_exposures for response in responses], [{"control": 90, "test": 10}] * 2)
         self.assertEqual(
-            [(finding.code, finding.detail, set(finding.evidence)) for finding in response.health_findings or []],
             [
+                (finding.code, finding.detail, set(finding.evidence))
+                for response in responses
+                for finding in response.health_findings or []
+            ],
+            2
+            * [
                 (
                     ExperimentExposureHealthFindingCode.SRM,
                     "The distribution of users across variants doesn't match your configured rollout percentages "
                     "(p < 0.001). This may indicate issues with randomization or data collection.",
-                    {"p_value"},
+                    {"p_value", "share_off_split"},
                 )
             ],
         )
@@ -1991,10 +2125,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("first_day", "2024-01-01T23:00:00Z", None, []),
+            ("first_day", "2024-01-01T23:00:00Z", None, None, []),
             (
                 "after_a_day",
                 "2024-01-02T01:00:00Z",
+                None,
                 None,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
             ),
@@ -2002,7 +2137,33 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "after_a_day_with_flag_calls",
                 "2024-01-02T01:00:00Z",
                 datetime(2024, 1, 1, 12, tzinfo=UTC),
+                None,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "calls_not_counted")],
+            ),
+            ("first_day_after_a_launch_with_an_earlier_start_date", "2024-01-02T01:00:00Z", None, 12, []),
+            (
+                "after_a_day_from_a_launch_with_an_earlier_start_date",
+                "2024-01-02T13:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+            ),
+            (
+                "launch_hidden_from_a_reader_without_the_flag_history",
+                "2024-01-02T01:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+                False,
+            ),
+            (
+                "launch_lookup_fails",
+                "2024-01-02T01:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+                True,
+                True,
             ),
         ]
     )
@@ -2011,10 +2172,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         _name: str,
         now: str,
         last_called_at: datetime | None,
+        launched_hours_after_start: int | None,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str]],
+        reads_flag_history: bool = True,
+        launch_lookup_fails: bool = False,
     ) -> None:
         self.feature_flag.last_called_at = last_called_at
         self.feature_flag.save()
+        if launched_hours_after_start is not None:
+            launched_at = datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=launched_hours_after_start)
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                scope="Experiment",
+                item_id=str(self.experiment.id),
+                activity="updated",
+                detail={"changes": [{"field": "start_date", "before": None, "after": launched_at.isoformat()}]},
+                created_at=launched_at,
+            )
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -2025,8 +2199,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=self.experiment.exposure_criteria,
         )
 
-        with time_machine.travel(now, tick=False):
-            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+        lookup = patch(
+            "products.experiments.backend.models.experiment.ActivityLog.objects.filter",
+            side_effect=OperationalError("the activity log is unavailable"),
+        )
+        with time_machine.travel(now, tick=False), lookup if launch_lookup_fails else nullcontext():
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=query, user=self.user if reads_flag_history else None
+            ).calculate()
 
         self.assertEqual(response.total_exposures, {"control": 0, "test": 0})
         self.assertEqual([(finding.code, finding.subcode) for finding in response.health_findings or []], expected)
@@ -2038,7 +2218,6 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 0,
                 2,
                 LEAVES_OUT_TEST_ACCOUNTS,
-                True,
                 "2024-01-07T12:00:00Z",
                 [
                     (
@@ -2054,7 +2233,6 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 0,
                 0,
                 LEAVES_OUT_TEST_ACCOUNTS,
-                True,
                 "2024-01-07T12:00:00Z",
                 [
                     (
@@ -2066,43 +2244,10 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 ],
             ),
             (
-                "test_accounts_exposed_for_a_reader_who_does_not_see_the_findings",
-                0,
-                2,
-                LEAVES_OUT_TEST_ACCOUNTS,
-                False,
-                "2024-01-07T12:00:00Z",
-                [
-                    (
-                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
-                        "calls_not_counted",
-                        "No users exposed: the test account filter removes all of them",
-                        2,
-                    )
-                ],
-            ),
-            (
-                "few_users_counted_for_a_reader_who_does_not_see_the_findings",
-                3,
-                100,
-                KEEPS_MATCHING_USERS,
-                False,
-                "2024-01-07T12:00:00Z",
-                [
-                    (
-                        ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
-                        None,
-                        "The test account filter removes most exposed users",
-                        103,
-                    )
-                ],
-            ),
-            (
                 "few_users_counted",
                 3,
                 100,
                 KEEPS_MATCHING_USERS,
-                True,
                 "2024-01-07T12:00:00Z",
                 [
                     (
@@ -2113,9 +2258,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     )
                 ],
             ),
-            ("few_users_counted_in_the_first_day", 3, 100, KEEPS_MATCHING_USERS, True, "2024-01-01T23:00:00Z", []),
-            ("few_users_counted_with_only_negative_filters", 3, 100, LEAVES_OUT_TEST_ACCOUNTS, True, LATER, []),
-            ("few_users_counted_with_only_a_hogql_filter", 3, 100, HOGQL_FILTER, True, LATER, []),
+            ("few_users_counted_in_the_first_day", 3, 100, KEEPS_MATCHING_USERS, "2024-01-01T23:00:00Z", []),
+            ("few_users_counted_with_only_negative_filters", 3, 100, LEAVES_OUT_TEST_ACCOUNTS, LATER, []),
+            ("few_users_counted_with_only_a_hogql_filter", 3, 100, HOGQL_FILTER, LATER, []),
         ]
     )
     def test_counts_the_users_that_the_test_account_filter_removes(
@@ -2124,7 +2269,6 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         users: int,
         test_accounts: int,
         test_account_filter: dict[str, Any],
-        findings_shown: bool,
         now: str,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str | None, str, int | None]],
     ) -> None:
@@ -2139,7 +2283,6 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         with (
             time_machine.travel(now, tick=False),
             patch(f"{runner_module}.execute_hogql_query", side_effect=execute),
-            patch(f"{runner_module}.shows_health_findings", return_value=findings_shown),
         ):
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._running_exposure_query(), user=self.user
@@ -2160,6 +2303,64 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(
             "ExperimentExposuresWithoutTestAccountFilterQuery" in query_types,
             any(count is not None for *_, count in expected),
+        )
+
+    @parameterized.expand(
+        [
+            ("a_variant_without_a_share", {"active": True, "control": 0}, "variant_not_served"),
+            ("the_flag_is_off", {"active": False, "control": 50}, "flag_off"),
+        ]
+    )
+    def test_reports_users_first_exposed_in_a_variant_that_the_flag_no_longer_serves(
+        self, _name: str, flag_setup: dict[str, Any], subcode: str
+    ) -> None:
+        self.feature_flag.filters = {
+            **self.feature_flag.filters,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": flag_setup["control"]},
+                    {"key": "test", "rollout_percentage": 100 - flag_setup["control"]},
+                ]
+            },
+        }
+        self.feature_flag.active = flag_setup["active"]
+        with time_machine.travel("2024-01-03T10:00:00Z", tick=False):
+            self.feature_flag.save()
+        # After the day of the save, only "control" arrives, a value that the flag can't have returned.
+        for day, variant, users in [
+            ("2024-01-02", "test", 10),
+            ("2024-01-02", "control", 10),
+            ("2024-01-04", "control", 12),
+        ]:
+            for i in range(users):
+                _create_event(
+                    distinct_id=f"{day}_{variant}_{i}",
+                    event="$feature_flag_called",
+                    timestamp=f"{day}T10:00:00Z",
+                    properties={"$feature_flag_response": variant, "$feature_flag": self.feature_flag.key},
+                    team=self.team,
+                )
+        flush_persons_and_events()
+
+        with time_machine.travel(LATER, tick=False):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        self.assertEqual(
+            [
+                (finding.code, finding.subcode, finding.severity, finding.evidence.get("unserved_exposed_count"))
+                for finding in response.health_findings or []
+                if finding.code == ExperimentExposureHealthFindingCode.UNSERVED_VARIANT_EXPOSURES
+            ],
+            [
+                (
+                    ExperimentExposureHealthFindingCode.UNSERVED_VARIANT_EXPOSURES,
+                    subcode,
+                    ExperimentExposureHealthFindingSeverity.WARNING,
+                    12,
+                )
+            ],
         )
 
     @parameterized.expand([("direct", False, True), ("precomputed", True, False)])
@@ -2559,18 +2760,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertLess(result.p_value, 0.01)
 
     def test_bias_risk_skipped_when_experiment_has_ended(self):
-        # Shipping a variant rewrites the flag to 100/0 — that uneven post-ship split
-        # plus historical $multiple exposures would otherwise produce a false positive.
         feature_flag = FeatureFlag.objects.create(
-            name="Test flag (post-ship)",
+            name="Test flag (uneven)",
             key="test-bias-stopped",
             team=self.team,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "rollout_percentage": 100},
-                        {"key": "test", "rollout_percentage": 0},
+                        {"key": "control", "rollout_percentage": 80},
+                        {"key": "test", "rollout_percentage": 20},
                     ]
                 },
             },

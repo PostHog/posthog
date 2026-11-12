@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- Mounted only by docker-compose.hobby.yml. On an idle hobby install, merges of ClickHouse's own
+     log tables use more CPU and disk than the event data does. PostHog reads none of these tables. -->
+<clickhouse>
+    <query_views_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <text_log remove="1"/>
+    <trace_log remove="1"/>
+    <total_memory_profiler_step>0</total_memory_profiler_step>
+
+    <!-- PostHog reads query_log, so it stays on. config.xml flushes it every 500 ms, and each flush
+         writes a new part that must be merged later. -->
+    <query_log>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+</clickhouse>

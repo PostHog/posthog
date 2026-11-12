@@ -58,6 +58,16 @@ pub struct KafkaConfig {
     pub kafka_producer_retries: Option<u32>,
 }
 
+impl KafkaConfig {
+    pub fn with_endpoint(&self, hosts: &str, tls: bool) -> Self {
+        Self {
+            kafka_hosts: hosts.to_string(),
+            kafka_tls: tls,
+            ..self.clone()
+        }
+    }
+}
+
 // Keep these values in sync with the `#[envconfig(default = ...)]` attributes
 // above: `KafkaConfig::default()` must match `init_from_env()` with no env set,
 // so callers that build a config with `..Default::default()` get the same base

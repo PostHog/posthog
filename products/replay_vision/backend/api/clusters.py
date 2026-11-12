@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.rate_limit import ReplayVisionClustersBurstRateThrottle, ReplayVisionClustersSustainedRateThrottle
 
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.filters import split_csv, validate_date_bound
 from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.scanner_access import readable_scanner_ids_in_scope
@@ -173,6 +174,7 @@ class _ClusterViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
     scope_object_read_actions = ["list", "retrieve"]
+    permission_classes = [ReplayVisionCloudOnly]
     throttle_classes = [ReplayVisionClustersBurstRateThrottle, ReplayVisionClustersSustainedRateThrottle]
 
     def _window(self, params: dict[str, Any], scanner_id: uuid.UUID | None, current: datetime) -> ClusterWindow:

@@ -37,6 +37,12 @@ import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler, counterHogflowCohortLookupFailure } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
+import {
+    SANDBOX_QUEUE,
+    SandboxEmailActionHandler,
+    SandboxEmailStep,
+    SandboxEmailTestClient,
+} from './actions/email_sandbox'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
@@ -49,6 +55,8 @@ import { hasSensitiveMessageStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
+    aiTaskLogToken,
+    canSendEmail,
     ensureCurrentAction,
     findContinueAction,
     shouldSkipAction,
@@ -74,6 +82,31 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched',
     'exit_on_trigger_not_matched_or_conversion',
 ])
+
+const PER_SEND_METADATA_KEYS = [
+    'teamCapped',
+    'suppressionLookupAttempts',
+    'attachmentLoadRetries',
+    'teamBudgetClaimed',
+] as const
+
+const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const
+
+function withoutMetadata(
+    metadata: CyclotronJobInvocationHogFlow['queueMetadata'],
+    keys: readonly string[]
+): CyclotronJobInvocationHogFlow['queueMetadata'] {
+    if (!metadata || !keys.some((key) => key in metadata)) {
+        return metadata
+    }
+    return Object.fromEntries(Object.entries(metadata).filter(([key]) => !keys.includes(key)))
+}
+
+function dropErrorContinuedPast(result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>): void {
+    if (!result.finished) {
+        result.error = undefined
+    }
+}
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -139,7 +172,14 @@ export class HogFlowExecutorService {
         emailStatusService: EmailStatusService | null,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
-        options: { awaitedStepsEnabled?: boolean } = {}
+        options: {
+            awaitedStepsEnabled?: boolean
+            sandboxEmail?: {
+                enabled: boolean
+                send?: SandboxEmailStep | null
+                testClient?: SandboxEmailTestClient | null
+            }
+        } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.cohortMembershipRepository = cohortMembershipRepository
@@ -190,6 +230,11 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
+            email_sandbox: new SandboxEmailActionHandler(
+                { enabled: options.sandboxEmail?.enabled ?? false },
+                options.sandboxEmail?.send ?? null,
+                options.sandboxEmail?.testClient ?? null
+            ),
             exit: new ExitHandler(),
         }
     }
@@ -337,6 +382,8 @@ export class HogFlowExecutorService {
             logs.push(this.logExecutionTriggerInfo(invocation))
         }
 
+        const runsOneActionOnly = invocation.queue === SANDBOX_QUEUE
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -360,6 +407,10 @@ export class HogFlowExecutorService {
             messageAssets.push(...result.messageAssets)
             conversionWatchers.push(...result.conversionWatchers)
 
+            if (runsOneActionOnly) {
+                dropErrorContinuedPast(result)
+                break
+            }
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
             }
@@ -685,6 +736,10 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
+            queueMetadata:
+                invocation.queue === 'email'
+                    ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
+                    : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
@@ -896,6 +951,12 @@ export class HogFlowExecutorService {
         result.finished = false
 
         result.invocation.state.actionStepCount++
+        if (canSendEmail(currentAction)) {
+            result.invocation.queueMetadata = withoutMetadata(
+                result.invocation.queueMetadata,
+                SEND_WITH_FILES_METADATA_KEYS
+            )
+        }
         // Update the state to be going to the next action
         result.invocation.state.currentAction = {
             id: nextAction.id,
@@ -1108,22 +1169,8 @@ export class HogFlowExecutorService {
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 
-    // The create-ai-task destination's result variable is what lets a workflow author jump from a
-    // run's logs to the task it kicked off. Everything else stays plain JSON.
     private describeStoredVariable(action: HogFlowAction, value: unknown): string {
-        const isCreateAiTaskAction =
-            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
-        if (
-            isCreateAiTaskAction &&
-            value &&
-            typeof value === 'object' &&
-            typeof (value as Record<string, unknown>).id === 'string' &&
-            (value as Record<string, unknown>).id !== ''
-        ) {
-            const runId = (value as Record<string, unknown>).run_id
-            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
-        }
-        return JSON.stringify(value)
+        return aiTaskLogToken(action, value) ?? JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

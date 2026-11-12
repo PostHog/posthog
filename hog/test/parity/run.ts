@@ -2,20 +2,45 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
+import { z } from 'zod'
 
 import { run } from '@/cli'
 import { processRuntime } from '@/core/runtime'
+import { readJson } from '@/testing'
 
 import { startFakeServer } from './fake-server'
 import { write } from './fixtures'
-import { normalize, type NormalizedRequest } from './normalize'
+import { normalize } from './normalize'
 import type { ParityScenario } from './scenarios'
 
-export interface ParityResult {
-    exitCode: number
-    requests: NormalizedRequest[]
+// Strict, so a golden with a field hog doesn't produce fails the comparison instead of losing it.
+const ParityResultSchema = z.strictObject({
+    exitCode: z.number(),
+    requests: z.array(
+        z.strictObject({
+            method: z.string(),
+            path: z.string(),
+            headers: z.record(z.string(), z.string()),
+            body: z.string().optional(),
+            upload: z
+                .strictObject({
+                    sha512: z.string(),
+                    length: z.number(),
+                    fields: z.record(z.string(), z.string()).optional(),
+                    filename: z.string().optional(),
+                })
+                .optional(),
+            status: z.number(),
+        })
+    ),
     // The files the run created or changed, and null for the ones it deleted.
-    files?: Record<string, string | null>
+    files: z.record(z.string(), z.string().nullable()).optional(),
+})
+
+export type ParityResult = z.output<typeof ParityResultSchema>
+
+export function readGolden(name: string): ParityResult {
+    return readJson(readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8'), ParityResultSchema)
 }
 
 // posthog-cli reads the POSTHOG_CLI_ names and hog the HOG_ ones, so both CLIs get the same credentials.
@@ -27,9 +52,12 @@ function environment(serverUrl: string, home: string): Record<string, string> {
         POSTHOG_CLI_API_KEY: 'phx_parity',
         POSTHOG_CLI_PROJECT_ID: '1',
         POSTHOG_CLI_HOST: serverUrl,
-        HOG_API_KEY: 'phx_parity',
+        HOG_PERSONAL_API_KEY: 'phx_parity',
         HOG_PROJECT_ID: '1',
         HOG_HOST: serverUrl,
+        // hog runs on the real process runtime here, so without this every scenario would send usage
+        // events, and every expected failure a real exception, to PostHog's own project.
+        HOG_NO_TELEMETRY: '1',
         NO_COLOR: '1',
     }
 }

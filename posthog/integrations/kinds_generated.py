@@ -30,6 +30,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     DATABRICKS = "databricks"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     FIREBASE = "firebase"
     GITHUB = "github"
     GITLAB = "gitlab"
@@ -116,6 +117,7 @@ class ClickupKind(KindAccessor):
     kind = "clickup"
     oauth = OAuthAccessor(kind="clickup")  # the default
     token = AuthAccessor(kind="clickup", auth_type=AuthType.TOKEN)
+    credentials = AuthAccessor(kind="clickup", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"clickup"}))
 
 
@@ -150,6 +152,12 @@ class EmailKind(KindAccessor):
     any = IntegrationReader(kinds=frozenset({"email"}))
 
 
+class Email_sandboxKind(KindAccessor):
+    kind = "email_sandbox"
+    credentials = AuthAccessor(kind="email_sandbox", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"email_sandbox"}))
+
+
 class FirebaseKind(KindAccessor):
     kind = "firebase"
     credentials = AuthAccessor(kind="firebase", auth_type=AuthType.CREDENTIALS)  # the default
@@ -166,6 +174,7 @@ class GithubKind(KindAccessor):
 class GitlabKind(KindAccessor):
     kind = "gitlab"
     token = AuthAccessor(kind="gitlab", auth_type=AuthType.TOKEN)  # the default
+    credentials = AuthAccessor(kind="gitlab", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"gitlab"}))
 
 
@@ -184,6 +193,7 @@ class GoogleAnalyticsKind(KindAccessor):
 class GoogleCalendarKind(KindAccessor):
     kind = "google-calendar"
     oauth = OAuthAccessor(kind="google-calendar")  # the default
+    credentials = AuthAccessor(kind="google-calendar", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"google-calendar"}))
 
 
@@ -246,6 +256,7 @@ class JiraKind(KindAccessor):
     kind = "jira"
     oauth = OAuthAccessor(kind="jira")  # the default
     token = AuthAccessor(kind="jira", auth_type=AuthType.TOKEN)
+    credentials = AuthAccessor(kind="jira", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"jira"}))
 
 
@@ -270,6 +281,7 @@ class MetaAdsKind(KindAccessor):
 class PardotKind(KindAccessor):
     kind = "pardot"
     oauth = OAuthAccessor(kind="pardot")  # the default
+    credentials = AuthAccessor(kind="pardot", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"pardot"}))
 
 
@@ -357,6 +369,7 @@ class TiktokAdsKind(KindAccessor):
 class TwilioKind(KindAccessor):
     kind = "twilio"
     token = AuthAccessor(kind="twilio", auth_type=AuthType.TOKEN)  # the default
+    credentials = AuthAccessor(kind="twilio", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"twilio"}))
 
 
@@ -370,6 +383,7 @@ class VercelKind(KindAccessor):
     kind = "vercel"
     oauth = OAuthAccessor(kind="vercel")  # the default
     token = AuthAccessor(kind="vercel", auth_type=AuthType.TOKEN)
+    credentials = AuthAccessor(kind="vercel", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"vercel"}))
 
 
@@ -393,6 +407,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     customerio_webhook = CustomerioWebhookKind()
     databricks = DatabricksKind()
     email = EmailKind()
+    email_sandbox = Email_sandboxKind()
     firebase = FirebaseKind()
     github = GithubKind()
     gitlab = GitlabKind()

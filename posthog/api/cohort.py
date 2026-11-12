@@ -1,12 +1,13 @@
 import io
+import re
 import csv
 import json
 import time
 import uuid
 import hashlib
+import collections
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
@@ -37,10 +38,12 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import (
@@ -63,7 +66,13 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.hogql_cohort_query import (
+    FLAG_CALL_READS_COMPILE_ERRORS,
+    FlagCallReads,
+    HogQLCohortQuery,
+    batch_flag_call_reads,
+    behavioral_date_range,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -82,10 +91,15 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.utils import earliest_timestamp_func
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import (
+    SEMVER_OPERATORS,
+    STRING_PREFIX_SUFFIX_OPERATORS,
+    BehavioralPropertyType,
+    Property,
+)
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -94,7 +108,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
 from posthog.scopes import scopes_not_covered
-from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
+from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDDEN_EVENT_REASON
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -118,18 +132,23 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    legacy_groups_to_filters,
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
+    CohortRealtimeUnavailableReason,
     cohorts_with_realtime_state,
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
-from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -242,6 +261,7 @@ def validate_filters_and_compute_realtime_support(
     team: Team,
     current_cohort_type: str | None = None,
     cohort_count: int | None = None,
+    apply_history_limit: bool = True,
 ) -> tuple[dict, str | None, list[str] | None]:
     try:
         if not filters_dict:
@@ -277,6 +297,17 @@ def validate_filters_and_compute_realtime_support(
             if _calculate_realtime_support(cast(CohortFilterGroup, validated_filters.properties))
             else None
         )
+
+        if (
+            apply_history_limit
+            and cohort_type == CohortType.REALTIME
+            and behavioral_history_over_limit(
+                clean_filters["properties"],
+                limit_days=settings.REALTIME_COHORT_MAX_HISTORY_DAYS,
+                today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
+            )
+        ):
+            cohort_type = None
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
         if cohort_type == CohortType.REALTIME and cohort_count is not None:
@@ -462,16 +493,21 @@ _COMPUTED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "conditionHash"
 
 
 def _canonical_criteria(node: Any) -> Any:
-    """The criteria with server-computed keys removed and single-child groups collapsed.
+    """The criteria with server-computed keys and a false negation removed, and single-child groups collapsed.
 
     The editor wraps conditions in an extra group and the server recompiles bytecode on every save,
-    so comparing raw filters would count a save that touched no criteria as a change.
+    so comparing raw filters would count a save that touched no criteria as a change. The validator
+    adds `negation: false` to every criterion, and a criterion without the key means the same thing.
     """
     if isinstance(node, list):
         return [_canonical_criteria(item) for item in node]
     if not isinstance(node, dict):
         return node
-    canonical = {key: _canonical_criteria(value) for key, value in node.items() if key not in _COMPUTED_FILTER_KEYS}
+    canonical = {
+        key: _canonical_criteria(value)
+        for key, value in node.items()
+        if key not in _COMPUTED_FILTER_KEYS and not (key == "negation" and value is False)
+    }
     values = canonical.get("values")
     if (
         canonical.get("type") in ("AND", "OR")
@@ -643,15 +679,6 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-class LengthFirstListField(serializers.ListField):
-    # DRF checks max_length only after it validates every item, so an oversized list of bad items
-    # builds one error per item before it fails. Check the length first to reject it in constant time.
-    def to_internal_value(self, data: Any) -> list[Any]:
-        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
-            self.fail("max_length", max_length=self.max_length)
-        return super().to_internal_value(data)
-
-
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
     person_ids = LengthFirstListField(
         child=serializers.UUIDField(
@@ -805,6 +832,23 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     )
 
 
+# Each run carries its per-query stats, so a page stays bounded well above the UI page size of 100.
+COHORT_CALCULATION_HISTORY_MAX_LIMIT = 500
+
+
+class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=COHORT_CALCULATION_HISTORY_MAX_LIMIT,
+        help_text=f"Number of calculation runs to return. Defaults to 100, at most {COHORT_CALCULATION_HISTORY_MAX_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of calculation runs to skip. Defaults to 0."
+    )
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
@@ -814,7 +858,6 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
-    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -834,8 +877,18 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
-            "main_query_id",
         ]
+
+
+class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
+    results = CohortCalculationHistorySerializer(many=True, help_text="Calculation runs on this page, newest first.")
+    count = serializers.IntegerField(help_text="Number of calculation runs recorded for the cohort.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Query string for the next page, such as `?limit=100&offset=100`, or null."
+    )
+    previous = serializers.CharField(
+        allow_null=True, help_text="Query string for the previous page, or null on the first page."
+    )
 
 
 class CSVConfig:
@@ -950,14 +1003,192 @@ def _flat_properties(filters: object) -> list[Property]:
     return parse_property_group_data(filters["properties"]).flat
 
 
-def _behavioral_event_names(properties: Iterable[Property]) -> Iterator[object]:
+def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[str, Property]]:
     for prop in properties:
         if prop.type != "behavioral":
             continue
-        if prop.event_type == "events":
-            yield prop.key
-        if prop.seq_event_type == "events":
-            yield prop.seq_event
+        for event_type, event in ((prop.event_type, prop.key), (prop.seq_event_type, prop.seq_event)):
+            if event_type == "events" and event in EVENTS_HIDDEN_IN_QUERY_BUILDERS:
+                yield str(event), prop
+
+
+# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type, window and filter rules for the
+# cohort move notice. A change to these rules needs the same change there.
+
+# The criterion types whose flag calls the batch calculation reads from flag_evaluations.
+_FLAG_CALL_CRITERION_TYPES = frozenset(
+    {BehavioralPropertyType.PERFORMED_EVENT, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE}
+)
+# flag_evaluations holds every flag call only from UTC midnight FLAG_EVALUATIONS_COMPLETE_DAYS back. The batch
+# calculation starts a window at midnight in the team's timezone. That midnight can fall on the previous UTC day. So a
+# window of N days reads every flag call in it at every hour only when N + 1 days fit.
+_MAX_FLAG_CALL_LOOKBACK_HOURS = (FLAG_EVALUATIONS_COMPLETE_DAYS - 1) * 24
+_RELATIVE_DATE_UNIT_MAX_HOURS = {"h": 1, "d": 24, "w": 7 * 24, "m": 31 * 24}
+_RELATIVE_DATE_PATTERN = re.compile(r"-(\d+)([hdwm])")
+
+_FLAG_CALL_CRITERION_TYPE_REASON = (
+    'Only "Completed event", "Did not complete event" and "Completed an event multiple times" can use this event.'
+)
+_FLAG_CALL_WINDOW_REASON = (
+    f"PostHog keeps this event for {FLAG_EVALUATIONS_RETENTION_DAYS} days, so pick a range relative to today that goes back "
+    f'{_MAX_FLAG_CALL_LOOKBACK_HOURS // 24} days or less, such as "Last 30 days".'
+)
+_FLAG_CALL_KEY_REASON = (
+    'Add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event '
+    "properties."
+)
+_FLAG_CALL_REALTIME_REASON = (
+    "Real-time cohorts can't use this event on your organization yet. "
+    "To see who called a flag, open the flag and check its Usage tab."
+)
+_FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
+_FLAG_CALL_FILTER_REASON = "Use event property filters on this event instead of a SQL expression."
+_FLAG_CALL_SQL_EXPRESSION_REASON = (
+    "A SQL expression filter on another criterion in this cohort reads this event in a way PostHog can't "
+    "calculate. Change that filter, or filter on event properties instead."
+)
+
+
+def _flag_call_window_fits_retention(prop: Property) -> bool:
+    try:
+        date_from, _ = behavioral_date_range(prop)
+    except ValidationError:
+        return False
+    match = _RELATIVE_DATE_PATTERN.fullmatch(date_from)
+    if match is None:
+        return False
+    count, unit = match.groups()
+    return int(count) * _RELATIVE_DATE_UNIT_MAX_HOURS[unit] <= _MAX_FLAG_CALL_LOOKBACK_HOURS
+
+
+def _has_hogql_filter(prop: Property) -> bool:
+    return bool(prop.event_filters) and any(
+        event_filter.type == "hogql" for event_filter in parse_property_group_data(prop.event_filters).flat
+    )
+
+
+def flag_call_criterion_shape_problem(prop: Property) -> str | None:
+    """Why a criterion on $feature_flag_called has a type, window or filter that flag_evaluations can't serve, or
+    None."""
+    if prop.value not in _FLAG_CALL_CRITERION_TYPES:
+        return _FLAG_CALL_CRITERION_TYPE_REASON
+    if not _flag_call_window_fits_retention(prop):
+        return _FLAG_CALL_WINDOW_REASON
+    # A SQL expression can read flag calls through a saved view, a function predicate, or a subquery that reads
+    # calls from before the window starts. The compile check counts none of these, so the guard refuses the expression.
+    if _has_hogql_filter(prop):
+        return _FLAG_CALL_FILTER_REASON
+    return None
+
+
+@frozen
+class HiddenEventRefusal:
+    event: str
+    reason: str
+
+
+def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> collections.Counter[HiddenEventRefusal]:
+    reasons: collections.Counter[HiddenEventRefusal] = collections.Counter()
+    for event, prop in references:
+        reason = (
+            flag_call_criterion_shape_problem(prop) if event == FLAG_EVALUATIONS_SOURCE_EVENT else HIDDEN_EVENT_REASON
+        )
+        if reason is not None:
+            reasons[HiddenEventRefusal(event=event, reason=reason)] += 1
+    return reasons
+
+
+def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCallReads | None:
+    """The batch query's flag-call reads for these criteria, or None when it doesn't compile.
+
+    The batch calculation keeps the flag_evaluations swap only when the whole rewritten query resolves. So one
+    criterion that reads a field flag_evaluations lacks sends every flag-call criterion in the cohort to events, and
+    the criteria compile together. On an organization whose flag calls are only in flag_evaluations, that criterion
+    makes the whole query fail to compile instead.
+    """
+    # The query reads the same events scans with or without negation. A cohort can't negate every criterion.
+    values = [{**prop.to_dict(), "negation": False} for prop in criteria]
+    try:
+        return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
+    except FLAG_CALL_READS_COMPILE_ERRORS:
+        return None
+    except Exception as error:
+        # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API
+        # returns 400 instead of 500.
+        capture_exception(error, additional_properties={"team_id": team.id})
+        return None
+
+
+def _is_flag_call_criterion(prop: Property) -> bool:
+    return any(event == FLAG_EVALUATIONS_SOURCE_EVENT for event, _ in _hidden_event_references([prop]))
+
+
+def _criteria_that_may_read_flag_calls(properties: Iterable[Property]) -> list[Property]:
+    """The criteria whose scans decide the batch query's flag_evaluations swap: criteria on $feature_flag_called, and
+    criteria with a SQL expression filter, which can query flag calls in a subquery."""
+    return [
+        prop
+        for prop in properties
+        if _is_flag_call_criterion(prop) or (prop.type == "behavioral" and _has_hogql_filter(prop))
+    ]
+
+
+def _another_criterions_sql_expression_blocks_swap(candidates: Sequence[Property], team: Team) -> bool:
+    """Whether another criterion's SQL expression filter causes the refusal: the cohort has one, and the flag-call
+    criteria compile and read no flag calls from events without it."""
+    flag_call_criteria = [prop for prop in candidates if _is_flag_call_criterion(prop)]
+    if len(flag_call_criteria) == len(candidates):
+        return False
+    if not flag_call_criteria:
+        return True
+    reads = _flag_call_reads_or_none(flag_call_criteria, team)
+    return reads is not None and reads.reads_from_events == 0
+
+
+def _criteria_counts(properties: Iterable[Property]) -> collections.Counter[str]:
+    return collections.Counter(_criteria_key(prop.to_dict()) for prop in properties)
+
+
+def _flag_call_criterion_counts(properties: Iterable[Property]) -> collections.Counter[str]:
+    return _criteria_counts(
+        prop for event, prop in _hidden_event_references(properties) if event == FLAG_EVALUATIONS_SOURCE_EVENT
+    )
+
+
+def _added_unsupported_hidden_event_reference(
+    new_properties: Sequence[Property], existing_properties: Sequence[Property], team: Team
+) -> HiddenEventRefusal | None:
+    """A reference to a hidden event that a save adds and the batch calculation can't count in full, with the
+    reason, or None.
+
+    A save may keep or edit an unsupported reference that the stored cohort already has. Only a count above the
+    stored count is an addition. A compile failure that the stored cohort already has is not an addition either.
+    """
+    new_references = list(_hidden_event_references(new_properties))
+    existing_references = list(_hidden_event_references(existing_properties))
+    added = _static_hidden_event_reasons(new_references) - _static_hidden_event_reasons(existing_references)
+    if added:
+        return next(iter(added))
+
+    new_candidates = _criteria_that_may_read_flag_calls(new_properties)
+    existing_candidates = _criteria_that_may_read_flag_calls(existing_properties)
+    if _criteria_counts(new_candidates) == _criteria_counts(existing_candidates):
+        return None
+    new_reads = _flag_call_reads_or_none(new_candidates, team)
+    if new_reads is not None and new_reads.reads_from_events == 0:
+        return None
+    existing_reads = _flag_call_reads_or_none(existing_candidates, team) if existing_candidates else None
+    if new_reads is None:
+        if existing_candidates and existing_reads is None:
+            return None
+        reason = _FLAG_CALL_COMPILE_REASON
+    elif existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
+        return None
+    else:
+        reason = _FLAG_CALL_KEY_REASON
+    if _another_criterions_sql_expression_blocks_swap(new_candidates, team):
+        reason = _FLAG_CALL_SQL_EXPRESSION_REASON
+    return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=reason)
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
@@ -1043,6 +1274,18 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
     )
+    reason = serializers.ChoiceField(
+        choices=CohortRealtimeUnavailableReason.choices,
+        allow_null=True,
+        help_text="A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back "
+        "further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every "
+        "other state, and for a `daily` cohort that breaks no limit.",
+    )
+    history_limit_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="The most days realtime cohort criteria can look back. Null unless the reason is "
+        "`history_over_limit`.",
+    )
 
 
 class CohortListSerializer(serializers.ListSerializer):
@@ -1070,7 +1313,6 @@ def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculat
 
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _create_static_person_ids = serializers.ListField(
         required=False,
@@ -1551,10 +1793,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         instance = cast(Optional[Cohort], self.instance)
         return instance is not None and instance.is_static and attrs.get("is_static") is False
 
-    def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
-        # Derive the properties that survive the save, mirroring Cohort.properties precedence:
-        # filters win over the legacy groups field, so clearing filters re-activates preserved
-        # groups. Pass team on the create path, where there's no instance to read it from.
+    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
+        # Derive the properties that survive the save, mirroring Cohort.properties precedence: filters
+        # win over the legacy groups field, so clearing filters re-activates preserved groups.
         instance = cast(Optional[Cohort], self.instance)
         filters = attrs.get("filters", instance.filters if instance else None)
         if filters:
@@ -1564,12 +1805,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not groups:
             return None
 
-        effective_team = team or (instance.team if instance else None)
-        if effective_team is None:
-            return None
-
-        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
-        return {"properties": cohort.properties.to_dict()}
+        return legacy_groups_to_filters(groups)
 
     def validate_filters(self, raw: dict):
         """
@@ -1634,7 +1870,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return
 
         # Check what survives the save, not just the fields in the payload.
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         properties = effective.get("properties") if effective else None
         # A payload query is what's being saved; a flip re-activates the instance's preserved query.
         query = attrs["query"] if "query" in attrs else (instance.query if reactivating_static and instance else None)
@@ -1679,7 +1915,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         team = _team_from_serializer_context(self.context)
         if team is None:
             return
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         if not effective:
             return
         referenced_ids = [
@@ -1716,6 +1952,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        cohort_will_be_static = self._cohort_will_be_static()
+        if not attrs.get("filters") and attrs.get("groups") and not cohort_will_be_static:
+            derived_filters = legacy_groups_to_filters(attrs["groups"])
+            if not derived_filters:
+                raise ValidationError(
+                    {"groups": "The provided legacy groups could not be converted to cohort filters."}
+                )
+
+            # Same schema and feature-flag checks as the `filters` field.
+            attrs["filters"] = self.validate_filters(derived_filters)
 
         parsed_csv = self._parse_csv_upload(attrs)
         if parsed_csv is not None:
@@ -1755,18 +2002,58 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if self.instance is not None and "filters" not in attrs and "groups" not in attrs:
             return
         team = _team_from_serializer_context(self.context)
+        new_properties = _flat_properties(self._effective_filters_after_update(attrs))
+        if team is None or next(_hidden_event_references(new_properties), None) is None:
+            return
+        mode = get_flag_evaluations_read_mode(team.organization_id)
+        if mode == FlagEvaluationsMode.EVENTS:
+            return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
-        existing = self._effective_filters_after_update({}, team=team)
-        hidden_event = added_hidden_event(
-            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
-            _behavioral_event_names(_flat_properties(existing)),
-        )
-        if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):
+        existing_properties = _flat_properties(self._effective_filters_after_update({}))
+        added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
+        if added is None and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+            added = self._added_realtime_flag_call_criterion(attrs, new_properties, existing_properties, team)
+        if added is not None:
             raise ValidationError(
-                {"filters": f"You can't add a new criterion on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
+
+    def _added_realtime_flag_call_criterion(
+        self, attrs: dict, new_properties: list[Property], existing_properties: list[Property], team: Team
+    ) -> HiddenEventRefusal | None:
+        """A flag-call criterion that a save puts on a realtime cohort, or None.
+
+        On FLAG_EVALUATIONS_ONLY, events holds no flag calls, and cohort-seeder backfills a realtime cohort from
+        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime.
+        """
+        if not self._saves_realtime_cohort(attrs, team):
+            return None
+        instance = cast(Optional[Cohort], self.instance)
+        was_realtime = instance is not None and not instance.is_static and instance.cohort_type == CohortType.REALTIME
+        added = _flag_call_criterion_counts(new_properties)
+        if was_realtime:
+            added -= _flag_call_criterion_counts(existing_properties)
+        if not added:
+            return None
+        return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_REALTIME_REASON)
+
+    def _saves_realtime_cohort(self, attrs: dict, team: Team) -> bool:
+        # Mirrors how create() and update() set cohort_type.
+        instance = cast(Optional[Cohort], self.instance)
+        if attrs.get("is_static", instance.is_static if instance is not None else False):
+            return False
+        filters = attrs.get("filters")
+        if not filters:
+            return instance is not None and instance.cohort_type == CohortType.REALTIME
+        _, cohort_type, _ = validate_filters_and_compute_realtime_support(
+            filters,
+            team,
+            current_cohort_type=attrs.get("cohort_type", instance.cohort_type if instance is not None else None),
+            cohort_count=instance.count if instance is not None else None,
+        )
+        return cohort_type == CohortType.REALTIME
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -1929,6 +2216,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
+                    # The editor sends filters on every save. An absolute start date that aged past the limit
+                    # must not take a realtime cohort off realtime on a rename, because flags that target it
+                    # would then match nobody.
+                    apply_history_limit=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type
@@ -2737,10 +3028,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[CohortCalculationHistoryQuerySerializer],
+        responses={200: CohortCalculationHistoryResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def calculation_history(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "100"))
-        offset = int(request.query_params.get("offset", "0"))
+        query = CohortCalculationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        limit: int = query.validated_data["limit"]
+        offset: int = query.validated_data["offset"]
 
         cohort: Cohort = self.get_object()
 

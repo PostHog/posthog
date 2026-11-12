@@ -82,6 +82,7 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
+    precompute_person_resolution_enabled,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -437,6 +438,7 @@ def resolve_exposure_linkage(
         breakdowns=(),
         only_count_matured_users=False,
         cuped_config=CupedQueryConfig(),
+        resolve_precomputed_persons=precompute_person_resolution_enabled(team),
         activation_config=exposure_params.activation_config,
     )
     read = _resolve_exposure_read(team, experiment, context)
@@ -480,8 +482,8 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     """
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
-    # hours wide (cheap on any team), and the current-day cache TTL would hide exposures
-    # from the tab for up to 15 minutes right when users watch it most.
+    # hours wide (cheap on any team), and the current-day cache TTL would hide new
+    # exposures from the tab until it expires, right when users watch it most.
     if not _precomputation_covers_full_window(config, experiment):
         tag_queries(experiment_exposures_path="direct_scan")
         return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)

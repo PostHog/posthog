@@ -55,11 +55,14 @@ class TestTaskCaptureEvent(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_SCOUT, "scout-trial:00000000-0000-4000-8000-000000000001"),
-            (Task.OriginProduct.USER_CREATED, None),
+            (Task.OriginProduct.SIGNALS_SCOUT, "scout-trial:00000000-0000-4000-8000-000000000001", None),
+            (Task.OriginProduct.USER_CREATED, None, None),
+            ("context_layer", None, "context_layer.dream"),
         ]
     )
-    def test_task_and_run_lifecycle_events_are_captured(self, origin_product: str, origin_key: str | None) -> None:
+    def test_task_and_run_lifecycle_events_are_captured(
+        self, origin_product: str, origin_key: str | None, profile: str | None
+    ) -> None:
         with (
             patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
             self.captureOnCommitCallbacks(execute=True),
@@ -70,6 +73,7 @@ class TestTaskCaptureEvent(TestCase):
                 description="Test prompt",
                 origin_product=origin_product,
                 origin_key=origin_key,
+                profile=profile,
                 created_by=self.user,
             )
             run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
@@ -79,6 +83,11 @@ class TestTaskCaptureEvent(TestCase):
         self.assertTrue(captured)
         events = {call.kwargs["event"] for call in capture.call_args_list}
         self.assertEqual(events, {"task_created", "task_run_created", "task_updated", "task_run_completed"})
+        for call in capture.call_args_list:
+            if profile == "context_layer.dream" and call.kwargs["event"] != "task_updated":
+                self.assertIs(call.kwargs["properties"]["$update_person_last_seen_at"], False)
+            else:
+                self.assertNotIn("$update_person_last_seen_at", call.kwargs["properties"])
 
     @parameterized.expand(
         [

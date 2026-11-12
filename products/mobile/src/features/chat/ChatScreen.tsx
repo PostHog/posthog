@@ -1,36 +1,41 @@
 import { BlurTargetView } from 'expo-blur'
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Keyboard, type TextInput, View } from 'react-native'
+import type { TextInputInstance, ViewInstance } from 'react-native'
+import { Keyboard, ScrollView, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
-
 import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useArchiveChat } from '@/features/chats/hooks'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
+import { usePostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
 import { taskWebUrl } from '@/model/adapters/chats'
 import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
+import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { createStyles } from '@/ui/theme'
+import { useOverlayFrame } from '@/ui/useOverlayFrame'
+import { useOverlayPane } from '@/ui/useOverlayPane'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
+import { AiIncidentNotice } from './AiIncidentNotice'
 import { AttachMenuSheet } from './attachments/AttachMenuSheet'
 import { AttachmentChip } from './attachments/AttachmentChip'
 import type { AttachmentSource, PendingAttachment } from './attachments/types'
 import { releaseAttachments, useComposerAttachments } from './attachments/useComposerAttachments'
 import { ChatAccessGate } from './ChatAccessGate'
 import { ChatEmptyState } from './ChatEmptyState'
-import { CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
+import { CHAT_COMPACT_HEADER_HEIGHT, CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
 import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
 import { Composer } from './Composer'
 import { ContextChip } from './ContextChip'
@@ -45,16 +50,12 @@ import {
 } from './chatRunOptions'
 import { type ChatSheetSource, useChatSheetEvents } from './chatSheetEvents'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
-import type { ChatDraft } from './draftStore'
 import { MentionPopover } from './MentionPopover'
 import {
     canDrain,
-    EMPTY_QUEUE,
     joinQueue,
     joinQueueAttachments,
-    type QueueState,
     queueActions,
-    queueReducer,
     type SendGate,
     sendNowState,
     shouldQueue,
@@ -78,7 +79,9 @@ interface ChatScreenProps {
     initialTaskId?: string
     initialRunId?: string
     source: ChatSheetSource
+    autoFocus?: boolean
     onBack: () => void
+    onNewChat?: () => void
 }
 
 function sessionTarget(taskId: string | undefined, runId: string | undefined): SessionOptions {
@@ -94,18 +97,28 @@ export function ChatScreen({
     initialTaskId,
     initialRunId,
     source,
+    autoFocus = false,
     onBack,
+    onNewChat,
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
+    const pane = useOverlayPane()
+    const frame = useOverlayFrame()
+    const { height: sceneHeight, width: sceneWidth } = pane
+    const compact = sceneHeight < 480 && sceneWidth >= 600
+    const headerHeight = compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT
     const now = useNow()
     const inbox = useInboxItems()
     const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
     const session = useSession(target)
     const scope = useProjectScope()
+    const { aiIncident } = usePostHogStatus(scope?.host)
+    const headerInset = pane.y === 0 ? insets.top + headerHeight : 0
+    const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
-    const blurTarget = useRef<View>(null)
+    const blurTarget = useRef<ViewInstance>(null)
     const archiveActions = useArchiveChat()
     const activeArchiveTarget = useRef(session.taskId)
     useEffect(() => {
@@ -117,6 +130,7 @@ export function ChatScreen({
     const preparingSend = useRef(false)
     const [preparing, setPreparing] = useState(false)
     const queueEpoch = useRef(0)
+    const conversationEpoch = useRef(0)
     const [visible, setVisible] = useState(true)
     const pathname = usePathname()
     const userUuid = useAuthStore((state) => state.user?.uuid)
@@ -134,6 +148,7 @@ export function ChatScreen({
     }, [visible, pathname, demo, scope, userUuid, session.taskId])
     const close = useCallback((): void => {
         queueEpoch.current++
+        conversationEpoch.current++
         setVisible(false)
         onBack()
     }, [onBack])
@@ -175,17 +190,9 @@ export function ChatScreen({
             reportIds: typeof value === 'function' ? value(attached) : value,
         })
     }
-    const [queue, dispatchQueue] = useReducer(queueReducer, EMPTY_QUEUE)
+    const queue = composerDraft.queue
     const delivering = useRef(false)
     const [isDelivering, setDelivering] = useState(false)
-    const latest = useRef<{ queue: QueueState; draft: ChatDraft; change: (draft: ChatDraft) => void }>({
-        queue,
-        draft: composerDraft.draft,
-        change: composerDraft.change,
-    })
-    useEffect(() => {
-        latest.current = { queue, draft: composerDraft.draft, change: composerDraft.change }
-    })
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
     const mentionTrigger = useRef<'button' | 'typed'>('button')
@@ -198,7 +205,16 @@ export function ChatScreen({
     // The files of the direct send in flight. They stay in the composer until it settles, and a queued message
     // never takes them.
     const [sendingFileIds, setSendingFileIds] = useState<readonly string[]>([])
-    const input = useRef<TextInput>(null)
+    const input = useRef<TextInputInstance>(null)
+    const inputRef = useCallback(
+        (node: TextInputInstance | null) => {
+            input.current = node
+            if (autoFocus) {
+                node?.focus()
+            }
+        },
+        [autoFocus]
+    )
     const historyStatus = session.history.status
     const optionsDisabled =
         session.phase !== 'idle' || historyStatus !== 'idle' || session.isSending || session.decision !== undefined
@@ -266,9 +282,14 @@ export function ChatScreen({
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
     const canMention = attachedObject === null && attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
     const bottomInset = insets.bottom
-    const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
+    const keyboardStyle = useAnimatedStyle(() => ({
+        paddingBottom: Math.max(
+            pane.y + pane.height - frame.height - keyboard.height.value,
+            pane.y + pane.height >= frame.height ? bottomInset : 0
+        ),
+    }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
-    const composerReady = composerDraft.ready && historyStatus === 'idle'
+    const composerReady = composerDraft.ready && !composerDraft.queuePending && historyStatus === 'idle'
     const ready = composerReady && !preparing && !session.isSending
     const gate: SendGate = {
         phase: session.phase,
@@ -276,7 +297,7 @@ export function ChatScreen({
         decisionPending: session.decision !== undefined,
     }
     const queueing = shouldQueue(gate, queue)
-    // Queueing needs no network, so only a direct send waits for the previous one.
+    // Queueing needs no network, but the device write must finish before the composer can submit again.
     const canSend = text.trim().length > 0 && (queueing ? composerReady : ready)
     const sendNow = sendNowState({
         ...gate,
@@ -370,9 +391,11 @@ export function ChatScreen({
         setAttachOpen(false)
         void attachments.pick(source).finally(() => input.current?.focus())
     }
-    const notice = attachments.notice ?? session.notice
+    const notice = composerDraft.draftError ?? composerDraft.queueError ?? attachments.notice ?? session.notice
     const dismissNotice = (): void => {
-        if (attachments.notice) {
+        if (composerDraft.queueError) {
+            composerDraft.dismissQueueError()
+        } else if (attachments.notice) {
             attachments.dismissNotice()
         } else {
             session.dismissNotice()
@@ -404,49 +427,45 @@ export function ChatScreen({
         })
         setAttached((previous) => previous.filter((id) => id !== reportId))
     }
-    // Queued messages go back into the composer draft, so closing the sheet or starting a new chat loses none.
-    // Returns the queued files; the draft cannot hold them.
-    const foldQueue = (): PendingAttachment[] => {
-        queueEpoch.current++
-        const { queue: current, draft, change } = latest.current
-        if (current.rows.length === 0) {
-            return []
+    const screenMounted = useRef(true)
+    const queuedFiles = useRef<PendingAttachment[]>([])
+    queuedFiles.current = joinQueueAttachments(queue.rows)
+    useEffect(() => {
+        screenMounted.current = true
+        return () => {
+            screenMounted.current = false
+            queueEpoch.current++
+            conversationEpoch.current++
+            releaseAttachments(queuedFiles.current)
         }
-        const next = { ...draft, text: [joinQueue(current.rows), draft.text.trim()].filter(Boolean).join('\n\n') }
-        latest.current = { queue: EMPTY_QUEUE, draft: next, change }
-        dispatchQueue(queueActions.clear())
-        change(next)
-        return joinQueueAttachments(current.rows)
-    }
-    // Native Back also unmounts the route without the header callback.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
-    useEffect(() => () => releaseAttachments(foldQueue()), [])
+    }, [])
     // The mode the chip shows, already mapped onto the harness the message runs on.
     const sendOptions = (): ChatRunOptions => ({ ...runOptions, permissionMode })
     const deliverQueue = (steer: boolean): void => {
         const rows = queue.rows
-        if (rows.length === 0 || delivering.current) {
+        if (!composerReady || rows.length === 0 || rows.some((row) => row.missingAttachments) || delivering.current) {
             return
         }
         const epoch = queueEpoch.current
+        const conversation = conversationEpoch.current
         delivering.current = true
         setDelivering(true)
-        // Cleared before the send, so a message queued while it is in flight waits for the next delivery.
-        dispatchQueue(queueActions.clear())
-        void session
-            .send(joinQueue(rows), buildContext(), sendOptions(), {
-                ...(steer ? { steer: true } : {}),
-                queuedCount: rows.length,
-                attachments: joinQueueAttachments(rows),
-            })
-            .catch(() => false)
-            .then((sent) => {
+        void composerDraft
+            .updateQueue(queueActions.hold('unconfirmed'))
+            .then(async (saved) => {
+                if (!saved || queueEpoch.current !== epoch) return
+                const sent = await session
+                    .send(joinQueue(rows), buildContext(), sendOptions(), {
+                        ...(steer ? { steer: true } : {}),
+                        queuedCount: rows.length,
+                        attachments: joinQueueAttachments(rows),
+                    })
+                    .catch(() => false)
                 if (sent) {
                     sheetEvents.countSent()
-                } else if (queueEpoch.current === epoch) {
-                    // Held, because the failed send may have reached the agent, and a second automatic try could
-                    // deliver it twice.
-                    dispatchQueue(queueActions.restore(rows))
+                    if (conversationEpoch.current === conversation) {
+                        await composerDraft.updateQueue({ type: 'delivered', ids: rows.map((row) => row.id) })
+                    }
                 }
             })
             .finally(() => {
@@ -454,7 +473,7 @@ export function ChatScreen({
                 setDelivering(false)
             })
     }
-    const drainable = composerReady && canDrain(gate, queue)
+    const drainable = composerReady && !composerDraft.queueError && canDrain(gate, queue)
     // biome-ignore lint/correctness/useExhaustiveDependencies: drains on the transition into a drainable state only.
     useEffect(() => {
         if (drainable) {
@@ -462,22 +481,37 @@ export function ChatScreen({
         }
     }, [drainable])
     const sendQueueNow = (): void => {
-        if (queue.rows.length === 0 || sendNow.pending || sendNow.disabledReason) {
+        if (!composerReady || queue.rows.length === 0 || sendNow.pending || sendNow.disabledReason) {
             return
         }
         track('mobile_session_queue_sent_now', { queued_count: queue.rows.length, steer: session.canSteer })
         deliverQueue(true)
     }
     const removeQueued = (id: string): void => {
-        releaseAttachments(queue.rows.find((row) => row.id === id)?.attachments ?? [])
-        dispatchQueue(queueActions.remove(id))
+        if (isDelivering) return
+        const files = queue.rows.find((row) => row.id === id)?.attachments ?? []
+        void composerDraft.updateQueue(queueActions.remove(id)).then((saved) => {
+            if (saved) releaseAttachments(files)
+        })
         track('mobile_session_queue_removed', {
             queue_length: queue.rows.filter((row) => row.id !== id).length,
         })
     }
+    const clearPreparation = (): void => {
+        preparingSend.current = false
+        setPreparing(false)
+        setSendingFileIds([])
+    }
+    const newChatDisabledReason =
+        !draftTaskId &&
+        (preparing || session.isSending || isDelivering || composerDraft.queuePending || queue.rows.length > 0)
+            ? 'Finish this message or remove queued messages before starting a new chat.'
+            : undefined
     const stop = (): void => {
+        queueEpoch.current++
+        clearPreparation()
         // The stopped turn ends like any other, so without the hold the queue would go out right after the Stop.
-        dispatchQueue(queueActions.hold('cancelled'))
+        void composerDraft.updateQueue(queueActions.hold('cancelled'))
         session.stop()
     }
     const send = (): void => {
@@ -488,10 +522,11 @@ export function ChatScreen({
         if (queueing || preparingSend.current) {
             setMentionOpen(false)
             const queuedFiles = attachments.files.filter((file) => !sendingFileIds.includes(file.id))
-            dispatchQueue(queueActions.enqueue(message, queuedFiles))
-            attachments.clear({ only: queuedFiles.map((file) => file.id), release: false })
+            void composerDraft.updateQueue(queueActions.enqueue(message, queuedFiles), true).then((saved) => {
+                if (saved) attachments.clear({ only: queuedFiles.map((file) => file.id), release: false })
+                else if (!screenMounted.current) releaseAttachments(queuedFiles)
+            })
             track('mobile_session_queued', { queue_length: queue.rows.length + 1 })
-            composerDraft.change({ text: '', reportIds: attached })
             return
         }
         if (!ready) {
@@ -526,19 +561,17 @@ export function ChatScreen({
             })
             .finally(() => {
                 if (queueEpoch.current === epoch) {
-                    preparingSend.current = false
-                    setPreparing(false)
-                    setSendingFileIds([])
+                    clearPreparation()
                 }
             })
     }
     const startNewChat = (): void => {
+        if (newChatDisabledReason || (!draftTaskId && (preparingSend.current || delivering.current))) return
         sheetEvents.countNewChat()
-        // The queued text folds into this chat's draft, so its files must not follow into the new chat.
-        releaseAttachments(foldQueue())
-        preparingSend.current = false
-        setPreparing(false)
-        setSendingFileIds([])
+        queueEpoch.current++
+        conversationEpoch.current++
+        releaseAttachments(joinQueueAttachments(queue.rows))
+        clearPreparation()
         if (target.taskId) {
             // The session reloads as an empty new chat when its task option goes.
             setTarget({})
@@ -555,6 +588,7 @@ export function ChatScreen({
         pickedOptions.current = false
         dispatchRunOptions({ type: 'reset' })
         input.current?.focus()
+        onNewChat?.()
     }
 
     const archiveChat = async (): Promise<void> => {
@@ -598,23 +632,49 @@ export function ChatScreen({
         <View style={styles.page} testID="chat-screen">
             <OverlayHost>
                 <View style={styles.page}>
-                    <BlurTargetView ref={blurTarget} style={styles.body}>
+                    <BlurTargetView
+                        ref={blurTarget}
+                        style={[
+                            styles.body,
+                            {
+                                position: 'absolute',
+                                left: pane.x + Math.max(0, (pane.width - READING_WIDTH) / 2),
+                                top: pane.y,
+                                width: Math.min(pane.width, READING_WIDTH),
+                                height: pane.height,
+                            },
+                        ]}
+                    >
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
+                            {aiIncident ? (
+                                <View style={{ paddingTop: headerInset }}>
+                                    <AiIncidentNotice incident={aiIncident} />
+                                </View>
+                            ) : null}
                             {showEmptyState ? (
-                                <View style={[styles.empty, { paddingTop: insets.top + CHAT_HEADER_HEIGHT }]}>
+                                <ScrollView
+                                    style={styles.empty}
+                                    contentContainerStyle={{ flexGrow: 1, paddingTop: contentInset, paddingBottom: 16 }}
+                                    keyboardShouldPersistTaps="handled"
+                                    keyboardDismissMode="on-drag"
+                                >
                                     <ChatEmptyState
                                         reportCount={attached.length}
                                         suggestedPrompts={suggestedPrompts}
                                         onPrompt={setText}
                                     />
-                                </View>
+                                </ScrollView>
                             ) : (
                                 <SessionThread
+                                    feedbackContext={
+                                        session.taskId ? { sessionId: session.taskId, runtime: 'sandbox' } : undefined
+                                    }
                                     session={session}
-                                    topInset={insets.top + CHAT_HEADER_HEIGHT}
+                                    topInset={contentInset}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
-                                        session.reloadHistory().catch(() => undefined)
+                                        if (session.reconnect) session.reconnect()
+                                        else session.reloadHistory().catch(() => undefined)
                                     }}
                                 />
                             )}
@@ -623,10 +683,29 @@ export function ChatScreen({
                                     <QueuedMessages
                                         rows={queue.rows}
                                         held={queue.hold !== null}
+                                        delivering={isDelivering}
                                         onRemove={removeQueued}
                                         onSendNow={sendQueueNow}
-                                        sendNowDisabledReason={sendNow.disabledReason}
-                                        sendNowPending={sendNow.pending}
+                                        sendNowDisabledReason={
+                                            queue.rows.some((row) => row.missingAttachments)
+                                                ? 'Files were not saved. Copy the queued text, remove it, and attach the files again.'
+                                                : historyStatus === 'loading'
+                                                  ? 'Loading conversation…'
+                                                  : historyStatus === 'error'
+                                                    ? 'Retry loading the conversation before sending.'
+                                                    : sendNow.disabledReason
+                                        }
+                                        notice={
+                                            queue.hold === 'unconfirmed'
+                                                ? 'Check the conversation before sending again. These messages may already have reached the agent.'
+                                                : undefined
+                                        }
+                                        sendNowPending={
+                                            sendNow.pending ||
+                                            !composerDraft.ready ||
+                                            composerDraft.queuePending ||
+                                            historyStatus === 'loading'
+                                        }
                                     />
                                     <SessionDecisionPanel
                                         decision={session.decision}
@@ -634,6 +713,9 @@ export function ChatScreen({
                                         pending={session.isSending}
                                         onAnswer={(answerInput) => void session.answer(answerInput)}
                                         onDismissNotice={dismissNotice}
+                                        onReconnect={notice === session.notice ? session.reconnect : undefined}
+                                        onRetryNotice={composerDraft.draftError ? composerDraft.retrySave : undefined}
+                                        noticePending={composerDraft.draftSaving}
                                     />
                                     {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
                                     {session.decision ? null : (
@@ -642,7 +724,8 @@ export function ChatScreen({
                                                 <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
                                             ) : null}
                                             <Composer
-                                                ref={input}
+                                                compact={compact}
+                                                ref={inputRef}
                                                 text={text}
                                                 onChangeText={changeText}
                                                 chips={chips}
@@ -670,11 +753,13 @@ export function ChatScreen({
                         </Animated.View>
                     </BlurTargetView>
                     <ChatHeader
+                        compact={compact}
                         key={session.taskId ?? 'new'}
                         webUrl={demo ? undefined : taskWebUrl(scope, session.taskId)}
                         blurTarget={blurTarget}
                         onBack={close}
                         onNewChat={startNewChat}
+                        newChatDisabledReason={newChatDisabledReason}
                         onArchive={session.taskId ? archiveChat : undefined}
                     />
                     <ChatOptionsSheet
@@ -699,7 +784,7 @@ const useStyles = createStyles(({ colors }) => ({
         flex: 1,
         backgroundColor: colors.surface,
     },
-    body: { flex: 1 },
+    body: { flex: 1, width: '100%', maxWidth: READING_WIDTH, alignSelf: 'center' },
     keyboard: { flex: 1 },
     empty: { flex: 1 },
     composerArea: { position: 'relative' },

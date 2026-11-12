@@ -4,14 +4,11 @@ import re
 import base64
 from collections import Counter
 from collections.abc import Callable
-from functools import lru_cache
 from typing import Any, Literal
 
 import structlog
-import posthoganalytics
 
 from posthog.dataclasses import frozen
-from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.ai_observability.backend.facade.blobs import BlobPointer
@@ -31,8 +28,6 @@ from products.ai_observability.backend.text_repr.formatters.media_blocks import 
 
 logger = structlog.get_logger(__name__)
 
-JUDGE_ATTACHMENTS_FLAG = "llm-analytics-judge-images"
-
 # Each attachment costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image dimension limit.
 MAX_ATTACHMENTS = 20
 # Bytes sent inline in one judge request. Links don't count: the provider downloads them.
@@ -49,6 +44,16 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
     "too_large": "not attached, too large",
     "unavailable": "could not be attached",
 }
+
+
+# Judges asked whether an answer matches a missing attachment otherwise tend to take the answer's word for it.
+_NOT_ATTACHED_NOTE = "You can't see the attachments marked not attached. Don't guess what they contain."
+
+
+def _names(labels: list[str]) -> str:
+    # Capped: these lines sit outside the transcript's text budget, and a transcript can hold thousands of markers.
+    rest = len(labels) - MAX_ATTACHMENTS
+    return ", ".join(labels[:MAX_ATTACHMENTS]) + (f", and {rest} more" if rest > 0 else "")
 
 
 _NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio|video) \d+\]")
@@ -109,7 +114,10 @@ class JudgeAttachments:
         key = pointer.sha256 if pointer else media.base64_data
         kind = _kind(media.modality, mime_type)
         if kind is None or mime_type is None or key is None:
-            return media.marker()
+            if media.url is not None and media.url.startswith(("https://", "http://")):
+                return media.marker()
+            # Covers an SDK placeholder like `[base64 image redacted]`: a bare `[image]` reads as if the judge had it.
+            return f"[{media.modality}, not attached]"
         if (image := self._media_by_key.get(key)) is None:
             self._counts[kind] += 1
             image = self._media_by_key[key] = _Media(
@@ -126,11 +134,16 @@ class JudgeAttachments:
         """The user message content: each referenced attachment under its label, then the transcript."""
         # Line sampling can drop a marker from a long transcript, and then its attachment only costs tokens.
         images = [image for image in self._media if image.marker in user_prompt]
+        unattached = ", not attached]" in user_prompt
         if not images:
-            return user_prompt
+            return f"{_NOT_ATTACHED_NOTE}\n\n{user_prompt}" if unattached else user_prompt
 
+        # One lookup per file type: on OpenRouter each one reads the whole model catalogue from the cache.
+        transports = {
+            mime: attachment_transport(provider, model, mime) for mime in {image.mime_type for image in images}
+        }
         # Attachments this judge can't read take no slot, so they can't push out ones it can.
-        readable = [image for image in images if attachment_transport(provider, model, image.mime_type) is not None]
+        readable = [image for image in images if transports[image.mime_type] is not None]
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
         ranked = sorted(readable, key=lambda image: user_prompt.rfind(image.marker))
         # Gemini rejects a request over its video limit, and the text-only retry would drop everything else too.
@@ -147,7 +160,7 @@ class JudgeAttachments:
         attachments: dict[str, _Attachment] = {}
         inline_bytes = 0
         for image in kept:
-            attachment = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
+            attachment = self._attach(image, provider, transports[image.mime_type], MAX_INLINE_BYTES - inline_bytes)
             inline_bytes += attachment.inline_bytes
             attachments[image.marker] = attachment
 
@@ -169,20 +182,33 @@ class JudgeAttachments:
             else:
                 parts.extend([{"type": "text", "text": f"{image.label}:"}, attachment.part])
         # One line each, not one per attachment: they sit outside the transcript's text budget.
-        if over_limit := len(readable) - len(attachments):
-            outcomes["over_limit"] = over_limit
-            parts.append({"type": "text", "text": f"Not attached, over the judge's attachment limit: {over_limit}."})
-        if unreadable := len(images) - len(readable):
-            outcomes["unreadable"] = unreadable
+        if over_limit := [image.label for image in readable if image.marker not in attachments]:
+            outcomes["over_limit"] = len(over_limit)
             parts.append(
-                {"type": "text", "text": f"Not attached, this judge can't read their file type: {unreadable}."}
+                {"type": "text", "text": f"Not attached, over the judge's attachment limit: {_names(over_limit)}."}
             )
+        if unreadable := [image.label for image in images if transports[image.mime_type] is None]:
+            outcomes["unreadable"] = len(unreadable)
+            parts.append(
+                {
+                    "type": "text",
+                    "text": f"Not attached, this judge can't read their file type: {_names(unreadable)}.",
+                }
+            )
+        if (
+            unattached
+            or over_limit
+            or unreadable
+            or any(attachment.part is None for attachment in attachments.values())
+        ):
+            parts.append({"type": "text", "text": _NOT_ATTACHED_NOTE})
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_attachments_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _attach(self, image: _Media, provider: str, model: str, inline_budget: int) -> _Attachment:
-        transport = attachment_transport(provider, model, image.mime_type)
+    def _attach(
+        self, image: _Media, provider: str, transport: Literal["url", "inline"] | None, inline_budget: int
+    ) -> _Attachment:
         if transport is None:
             return _Attachment(outcome="unavailable")
         provider_limit = MAX_IMAGE_BYTES.get(provider) if image.kind == "image" else _BYTE_LIMITS.get(image.kind)
@@ -250,6 +276,9 @@ _MIME_ALIASES = {
     "audio/mp3": "audio/mpeg",
     "audio/x-wav": "audio/wav",
     "audio/wave": "audio/wav",
+    "audio/x-aac": "audio/aac",
+    "audio/x-aiff": "audio/aiff",
+    "audio/x-flac": "audio/flac",
     "video/mpg": "video/mpeg",
 }
 
@@ -257,37 +286,9 @@ _MIME_ALIASES = {
 def _normalize_mime_type(mime_type: str | None) -> str | None:
     if mime_type is None:
         return None
-    normalized = mime_type.strip().lower()
+    # Parameters such as `codecs=opus` don't change which file type a provider accepts.
+    normalized = mime_type.split(";", 1)[0].strip().lower()
     return _MIME_ALIASES.get(normalized, normalized)
-
-
-@lru_cache(maxsize=4096)
-def _project_uuid(team_id: int) -> str | None:
-    project_uuid = Team.objects.filter(pk=team_id).values_list("uuid", flat=True).first()
-    return str(project_uuid) if project_uuid else None
-
-
-def judge_sees_attachments(evaluation: dict[str, Any]) -> bool:
-    if evaluation["evaluation_config"].get("include_media") is False:
-        return False
-    # Local evaluation keeps the check off the network. An inconclusive result means off.
-    try:
-        # Team ids repeat across regions and self-hosted instances, so the flag targets the project uuid.
-        project_uuid = _project_uuid(evaluation["team_id"])
-        if project_uuid is None:
-            return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                JUDGE_ATTACHMENTS_FLAG,
-                project_uuid,
-                groups={"project": project_uuid},
-                group_properties={"project": {"id": str(evaluation["team_id"]), "uuid": project_uuid}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
 
 
 def build_attachment_prompt(
@@ -297,7 +298,7 @@ def build_attachment_prompt(
 
     `render` builds the same transcript as the plain prompt, with media blocks rendered by the marker it gets.
     """
-    if not judge_sees_attachments(evaluation):
+    if evaluation["evaluation_config"].get("include_media") is False:
         return None
     attachments = JudgeAttachments(evaluation["team_id"])
     marked = render(attachments.marker)

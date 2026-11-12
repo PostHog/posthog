@@ -31,6 +31,35 @@ const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSche
     },
 })
 
+const ActivitySummarySearchSchema = () => {
+    const SignalsActivitySummaryMembersSearchQueryParams = orvalSchemas.SignalsActivitySummaryMembersSearchQueryParams()
+    return SignalsActivitySummaryMembersSearchQueryParams
+}
+
+const activitySummarySearch = (): ToolBase<
+    ReturnType<typeof ActivitySummarySearchSchema>,
+    Schemas.ActivitySummarySearchResult
+> => ({
+    name: 'activity-summary-search',
+    schema: ActivitySummarySearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ActivitySummarySearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummarySearchResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary_members/search/`,
+            query: {
+                exclude_user_uuids: params.exclude_user_uuids,
+                include_profile: params.include_profile,
+                limit: params.limit,
+                product: params.product,
+                query: params.query,
+                search_mode: params.search_mode,
+            },
+        })
+        return result
+    },
+})
+
 const ActivitySummaryVersionsListSchema = () => {
     const SignalsActivitySummaryVersionsRetrieveQueryParams =
         orvalSchemas.SignalsActivitySummaryVersionsRetrieveQueryParams()
@@ -196,7 +225,7 @@ const InboxReportArtefactsCreateSchema = () => {
         .extend(SignalsReportArtefactsCreateBody.shape)
         .extend({
             content: SignalsReportArtefactsCreateBody.shape['content'].describe(
-                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
+                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form, for annotating a report with context; to also steer the scouts use `scout-notes-create` with `report_id`, which records the note on the report too. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
             ),
         })
 }
@@ -441,6 +470,15 @@ const inboxReportChecksReplace = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.soak_minutes !== undefined) {
+            body['soak_minutes'] = params.soak_minutes
+        }
+        if (params.run_interval_minutes !== undefined) {
+            body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.runs_remaining !== undefined) {
+            body['runs_remaining'] = params.runs_remaining
+        }
         const result = await context.api.request<Schemas.SignalReportCheck>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/replace/`,
@@ -601,6 +639,77 @@ const inboxReportsClaim = (): ToolBase<
     },
 })
 
+const InboxReportsCreateSchema = () => {
+    const SignalsReportsCreateBody = orvalSchemas.SignalsReportsCreateBody()
+    return SignalsReportsCreateBody.meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
+}
+
+const inboxReportsCreate = (): ToolBase<
+    ReturnType<typeof InboxReportsCreateSchema>,
+    WithPostHogUrl<Schemas.EmitReportResponse>
+> => ({
+    name: 'inbox-reports-create',
+    schema: InboxReportsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
+        const result = await context.api.request<Schemas.EmitReportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
+    },
+})
+
 const InboxReportsFeedbackCreateSchema = () => {
     const SignalsReportsFeedbackCreateBody = orvalSchemas.SignalsReportsFeedbackCreateBody()
     const SignalsReportsFeedbackCreateParams = orvalSchemas.SignalsReportsFeedbackCreateParams()
@@ -652,6 +761,7 @@ const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema
             query: {
                 focus: params.focus,
                 limit: params.limit,
+                max_age_minutes: params.max_age_minutes,
                 refresh: params.refresh,
                 wait_seconds: params.wait_seconds,
             },
@@ -715,6 +825,7 @@ const inboxReportsList = (): ToolBase<
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 created_after: params.created_after,
+                created_before: params.created_before,
                 exclude: params.exclude,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
@@ -724,6 +835,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
                 ranking_min_probability: params.ranking_min_probability,
                 scope: params.scope,
@@ -776,6 +888,9 @@ const inboxReportsList = (): ToolBase<
                     'ranking.status',
                     'ranking.scored_at',
                     'ranking.predictions',
+                    'inbox_merge_key',
+                    'personal_tier',
+                    'personal_reason',
                     'created_at',
                     'updated_at',
                 ])
@@ -792,7 +907,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -852,7 +967,45 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+        )
+    },
+})
+
+const InboxReportsSearchSchema = () => {
+    const SignalsReportsSearchQueryParams = orvalSchemas.SignalsReportsSearchQueryParams()
+    return SignalsReportsSearchQueryParams
+}
+
+const inboxReportsSearch = (): ToolBase<
+    ReturnType<typeof InboxReportsSearchSchema>,
+    WithPostHogUrl<Schemas.SignalReportSearchResponse>
+> => ({
+    name: 'inbox-reports-search',
+    schema: InboxReportsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/search/`,
+            query: {
+                created_after: params.created_after,
+                include_unlisted: params.include_unlisted,
+                limit: params.limit,
+                query: params.query,
+                search_mode: params.search_mode,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
         )
     },
 })
@@ -1272,6 +1425,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         autostart_enabled: true,
         default_autostart_priority: true,
         default_slack_notification_channel: true,
+        default_slack_notification_min_priority: true,
         default_slack_notification_integration: true,
         autostart_base_branches: true,
         issue_tracking_integration: true,
@@ -1315,6 +1469,27 @@ const inboxSteeringInstructionsUpdate = (): ToolBase<
             'scout_instructions',
         ]) as typeof result
         return filtered
+    },
+})
+
+const InboxUsageGetSchema = () => {
+    const SignalsMonthlyUsageQueryParams = orvalSchemas.SignalsMonthlyUsageQueryParams()
+    return SignalsMonthlyUsageQueryParams
+}
+
+const inboxUsageGet = (): ToolBase<ReturnType<typeof InboxUsageGetSchema>, Schemas.MonthlyUsage> => ({
+    name: 'inbox-usage-get',
+    schema: InboxUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxUsageGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MonthlyUsage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/usage/`,
+            query: {
+                month: params.month,
+            },
+        })
+        return result
     },
 })
 
@@ -1675,6 +1850,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.reviewer_retry_reason !== undefined) {
             body['reviewer_retry_reason'] = params.reviewer_retry_reason
         }
+        if (params.reviewer_outcome_reason !== undefined) {
+            body['reviewer_outcome_reason'] = params.reviewer_outcome_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -1710,6 +1888,12 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -1796,6 +1980,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -1988,6 +2175,9 @@ const scoutNotesCreate = (): ToolBase<ReturnType<typeof ScoutNotesCreateSchema>,
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }
@@ -2041,6 +2231,7 @@ const scoutNotesList = (): ToolBase<
                 include_expired: params.include_expired,
                 include_general: params.include_general,
                 limit: params.limit,
+                only_without_expiry: params.only_without_expiry,
                 skill_name: params.skill_name,
                 text: params.text,
             },
@@ -3159,6 +3350,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.reviewer_retry_reason !== undefined) {
             body['reviewer_retry_reason'] = params.reviewer_retry_reason
         }
+        if (params.reviewer_outcome_reason !== undefined) {
+            body['reviewer_outcome_reason'] = params.reviewer_outcome_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -3194,6 +3388,12 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -3283,6 +3483,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -3640,6 +3843,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-get': activitySummaryGet,
+    'activity-summary-search': activitySummarySearch,
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
@@ -3658,12 +3862,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-reviewers-update': inboxReportReviewersUpdate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-create': inboxReportsCreate,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
     'inbox-reports-for-me': inboxReportsForMe,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
+    'inbox-reports-search': inboxReportsSearch,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
     'inbox-reviewer-exclusions-create': inboxReviewerExclusionsCreate,
@@ -3678,6 +3884,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
+    'inbox-usage-get': inboxUsageGet,
     'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,

@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -61,6 +62,7 @@ from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -81,6 +83,7 @@ class NamedBytesIO(io.BytesIO):
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
@@ -467,7 +470,10 @@ class SnowflakeField(Field):
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
-        snowflake_type = data_type_to_snowflake_type(field.type)
+        try:
+            snowflake_type = data_type_to_snowflake_type(field.type)
+        except TypeError as err:
+            raise ColumnTypeMappingError("Snowflake", field.name, field.type) from err
         return cls(field.name, snowflake_type, field.type, field.nullable)
 
     @classmethod
@@ -650,6 +656,18 @@ def _is_connect_error_retryable(err: Exception) -> bool:
 
 def _quote_snowflake_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _build_copy_select_expression(field: Field) -> str:
+    """Return the expression that a COPY INTO uses to load `field` from a staged Parquet file."""
+    column = f"$1:{_quote_snowflake_identifier(field.name)}"
+    name = field.name.lower()
+    if field.data_type != JsonType() or name == "elements":
+        return column
+    # PARSE_JSON fails the whole COPY on one malformed value, and every retry fails the same way.
+    # Snowflake support confirmed that COPY transformations support TRY_PARSE_JSON, although the
+    # list of supported functions in the Snowflake docs leaves it out.
+    return f"TRY_PARSE_JSON({column}, 'd')"
 
 
 class SnowflakeClient:
@@ -1186,12 +1204,7 @@ class SnowflakeClient:
             SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
                 perform this operation.
         """
-        select_fields = ", ".join(
-            f"PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
-            if field.data_type == JsonType() and field.name.lower() != "elements"
-            else f"$1:{_quote_snowflake_identifier(field.name)}"
-            for field in table
-        )
+        select_fields = ", ".join(_build_copy_select_expression(field) for field in table)
         query = f"""
         COPY INTO "{table.name}" ({", ".join(_quote_snowflake_identifier(field.name) for field in table)})
 
@@ -1487,7 +1500,7 @@ async def insert_into_snowflake_activity_from_stage(
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         if inputs.integration_id is None:
             raise SnowflakeIntegrationRequiredError(inputs.batch_export_id)
 
@@ -1506,6 +1519,7 @@ async def insert_into_snowflake_activity_from_stage(
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1537,15 +1551,16 @@ async def insert_into_snowflake_activity_from_stage(
         stage_table_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
         requires_merge = model.incremental_mode == IncrementalMode.MERGE
-        target_table = SnowflakeTable.from_arrow_schema(
-            record_batch_schema,
-            name=inputs.table_name,
-            table_schema=inputs.schema,
-            database=inputs.database,
-            primary_key=model.primary_key if requires_merge else (),
-            version_key=model.version_key if requires_merge else (),
-            stage_prefix=f"{inputs.batch_export_id}/{data_interval_end_str}",
-        )
+        with handle_column_type_mapping_errors(model):
+            target_table = SnowflakeTable.from_arrow_schema(
+                record_batch_schema,
+                name=inputs.table_name,
+                table_schema=inputs.schema,
+                database=inputs.database,
+                primary_key=model.primary_key if requires_merge else (),
+                version_key=model.version_key if requires_merge else (),
+                stage_prefix=f"{inputs.batch_export_id}/{data_interval_end_str}",
+            )
         if "elements" in target_table:
             # `elements` is exported into a 'VARIANT' column, despite it being a
             # pa.string.

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -24,12 +24,14 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource
 from products.tasks.backend.logic.services.startup_failure import (
     AgentStartupFailed,
     SandboxRunFailed as SandboxRunFailed,
     read_startup_failure,
 )
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -92,6 +94,9 @@ _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
 _TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
 
+# Pi reports the normal end of a turn as "stop". ACP adapters report the same state as "end_turn".
+_PI_END_TURN_STOP_REASON = "stop"
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -145,6 +150,7 @@ class CustomPromptSandboxContext:
     """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
     agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
     sub-agents included."""
+    disable_skills: bool = False
     disable_repo_hooks: bool = False
     """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
     can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
@@ -166,6 +172,7 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    github_token_scope: Literal["read", "push"] | None = None
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -326,15 +333,14 @@ def _with_session_files(
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
+    source: TaskSource | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     mcp_tool_allowlist: list[str] | None = None,
@@ -347,10 +353,13 @@ async def _create_task_and_trigger(
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
-    # None would clobber it. sandbox_environment_id already accepts None.
-    posthog_mcp_scopes: PosthogMcpScopes = (
-        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    options = TaskRunOptions(
+        adapter=context.runtime_adapter,
+        model=context.model,
+        reasoning_effort=context.reasoning_effort,
+        output_schema=output_schema,
+        mcp_scopes=context.posthog_mcp_scopes,
+        permission_mode=context.initial_permission_mode,
     )
     extra_run_state: dict[str, Any] = {}
     if context.system_prompt is not None:
@@ -363,6 +372,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if context.codex_shared_prompt_cache:
         extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_skills:
+        extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
@@ -375,32 +386,24 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
         repositories=list(context.repositories) or None,
         create_pr=False,
         mode="background",
         branch=branch,
-        signal_report_id=signal_report_id,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
-        model=context.model,
-        runtime_adapter=context.runtime_adapter,
         runtime=context.runtime,
         pending_user_message=description if context.runtime == "pi" else None,
-        reasoning_effort=context.reasoning_effort,
         service_tier=context.service_tier,
-        initial_permission_mode=context.initial_permission_mode,
-        internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        github_token_scope=context.github_token_scope,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,
@@ -408,7 +411,9 @@ async def _create_task_and_trigger(
         extra_run_state=extra_run_state,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
-        output_schema=output_schema,
+        profile=profile,
+        source=source,
+        options=options,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -420,15 +425,14 @@ async def _create_task_and_trigger(
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
+    source: TaskSource | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -438,16 +442,14 @@ async def create_task_and_trigger(
     task, task_run = await _create_task_and_trigger(
         description,
         context,
+        profile=profile,
         branch=branch,
         step_name=step_name,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
+        source=source,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        internal=internal,
         workflow_id_prefix=workflow_id_prefix,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         output_schema=output_schema,
@@ -491,6 +493,11 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
             exc_info=True,
         )
         return await sync_to_async(_read)()
+
+
+async def _saved_finish_report(task_run_id) -> str | None:
+    """The report a `finish` call saved. It can land before end_turn and outranks the log's commentary."""
+    return (await _refresh_task_run(task_run_id)).finish_report
 
 
 @frozen
@@ -629,7 +636,7 @@ async def poll_for_turn(
         # If success
         if log_state.agent_finished and log_state.last_message:
             return TurnPollResult(
-                last_message=log_state.last_message,
+                last_message=await _saved_finish_report(task_run.id) or log_state.last_message,
                 full_log=log_state.full_log,
                 total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
@@ -637,11 +644,12 @@ async def poll_for_turn(
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
         if log_state.empty_end_turn:
-            # If the agent emitted text in an earlier poll of this same turn, the turn
-            # is genuinely complete — end_turn just landed in a later slice.
-            if latest_assistant_text is not None:
+            # A finish report, or text the agent emitted in an earlier poll of this same turn,
+            # means the turn is genuinely complete — end_turn just landed in a later slice.
+            turn_message = await _saved_finish_report(task_run.id) or latest_assistant_text
+            if turn_message is not None:
                 return TurnPollResult(
-                    last_message=latest_assistant_text,
+                    last_message=turn_message,
                     full_log=log_state.full_log,
                     total_lines=log_state.total_lines,
                     printed_lines=printed_lines,
@@ -685,6 +693,7 @@ async def poll_for_turn(
                 error_message=refreshed.error_message,
                 failure_error_type=(refreshed.state or {}).get("failure_error_type"),
                 startup_failure=read_startup_failure(refreshed.state),
+                finish_report=refreshed.finish_report,
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -712,6 +721,7 @@ async def poll_for_turn(
             error_message=refreshed.error_message,
             failure_error_type=(refreshed.state or {}).get("failure_error_type"),
             startup_failure=read_startup_failure(refreshed.state),
+            finish_report=refreshed.finish_report,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -896,6 +906,7 @@ async def _drain_final_log(
     error_message: str | None = None,
     failure_error_type: str | None = None,
     startup_failure: AgentStartupFailure | None = None,
+    finish_report: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -911,6 +922,9 @@ async def _drain_final_log(
     it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
+
+    A report the agent passed to `finish` wins over the log, because the run ends before the turn
+    that carries it, so the log can hold only the commentary that came before it.
     """
     if refreshed_status == TaskRun.Status.FAILED and startup_failure is not None:
         raise AgentStartupFailed(
@@ -921,9 +935,10 @@ async def _drain_final_log(
         )
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-    if final_state.last_message:
+    last_message = finish_report or final_state.last_message
+    if last_message:
         return TurnPollResult(
-            last_message=final_state.last_message,
+            last_message=last_message,
             full_log=final_state.full_log,
             total_lines=final_state.total_lines,
             printed_lines=printed_lines,
@@ -995,7 +1010,9 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
 
 
 def _update_task_run_error_message(run_id: str, message: str) -> None:
-    TaskRun.objects.filter(id=run_id).update(error_message=message)
+    runs = TaskRun.objects.filter(id=run_id)
+    runs.update(error_message=message)
+    sync_task_statuses_on_commit(runs.values_list("task_id", flat=True))
 
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:
@@ -1056,10 +1073,74 @@ class TurnLogState:
     refused: bool
 
 
+def _is_subagent_update(update: dict[str, object]) -> bool:
+    # Older Codex adapters omit parent metadata on updates but namespace child tool IDs.
+    tool_call_id = update.get("toolCallId")
+    if isinstance(tool_call_id, str) and tool_call_id.startswith("subagent:"):
+        return True
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in ("posthog", "claudeCode"):
+        metadata = meta.get(channel)
+        if isinstance(metadata, dict):
+            parent = metadata.get("parentToolCallId")
+            if isinstance(parent, str) and parent:
+                return True
+    return False
+
+
+def _pi_event(entry: dict) -> dict | None:
+    """The conversation event of a log entry that a Pi run wrote in its native format."""
+    event = entry.get("event") if entry.get("type") == "pi_event" else None
+    return event if isinstance(event, dict) else None
+
+
+def _pi_turn_text(lines: list[str]) -> str | None:
+    """The last assistant text of the Pi turn that ends `lines`.
+
+    Pi logs one line for each streamed text delta, so a turn's text can span several polls and
+    the lines of one poll can hold only its tail. This reads back through the whole log for that
+    reason. Each delta carries its own whitespace, so this joins them unstripped: `_extract_text`
+    strips each entry, which deletes the spaces between words.
+
+    Pi writes a compaction summary as one assistant chunk directly after the completed `compacting`
+    status, with the same timestamp. That chunk is context for the model and not the answer, so this
+    drops it. Text from before a compaction is the answer only when no text follows the compaction.
+    """
+    parts: list[str] = []
+    earliest_chunk_timestamp: object = None
+    turn_closed = False
+    for line in reversed(lines):
+        try:
+            event = _pi_event(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if event is None:
+            continue
+        event_type = event.get("type")
+        if event_type == "assistant_message_chunk":
+            content = event.get("content")
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+                earliest_chunk_timestamp = event.get("timestamp")
+        elif event_type == "runtime_status" and event.get("status") == "compacting":
+            if parts and event.get("isComplete") and earliest_chunk_timestamp == event.get("timestamp"):
+                parts.pop()
+            if parts:
+                break
+        elif parts or event_type == "user_message" or (event_type == "turn_completed" and turn_closed):
+            break
+        elif event_type == "turn_completed":
+            turn_closed = True
+    return "".join(reversed(parts)).strip() or None
+
+
 def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
+    The end of a Pi turn is the exception: its text comes from the whole log (see `_pi_turn_text`).
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
@@ -1087,6 +1168,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         )
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
+    pi_turn_ended = False
     refused = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
@@ -1097,6 +1179,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        pi_event = _pi_event(entry)
+        if pi_event is not None:
+            if pi_event.get("type") == "turn_completed" and pi_event.get("stopReason") == _PI_END_TURN_STOP_REASON:
+                agent_finished = True
+                pi_turn_ended = True
             continue
         notification = entry.get("notification")
         if not isinstance(notification, dict):
@@ -1122,6 +1210,10 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         update = params.get("update") if isinstance(params, dict) else None
         if not isinstance(update, dict):
             continue
+        # Child activity can interleave with a parent's streamed answer without ending it.
+        # Child text must not become part of the response the caller validates either.
+        if _is_subagent_update(update):
+            continue
         parsed_updates.append(update)
     # Walk backwards from the end to find the final agent response.
     # First, skip non-agent entries (e.g. usage_update) to find the last
@@ -1132,18 +1224,18 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     found_agent_msg = False
     for update in reversed(parsed_updates):
         is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
-            break
+        if not is_agent_msg:
+            if found_agent_msg:
+                break
+            continue
+        found_agent_msg = True
         text = _extract_text(update)
         if text:
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
+    if pi_turn_ended:
+        latest_text = _pi_turn_text(all_lines)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:

@@ -1,12 +1,18 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { UsageIngestionClient } from '~/common/usage-ingestion/client'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     SessionReplayBatchProgress,
     SessionReplayPipeline,
     runSessionReplayPipeline,
 } from '~/ingestion/pipelines/sessionreplay'
+import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { RedisPool } from '~/types'
 
@@ -16,6 +22,7 @@ import {
     SessionRecordingIngesterCollaborators,
     SessionRecordingIngesterConfig,
 } from './consumer'
+import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { BatchCommitter, StagedBatchRunner } from './staged-batch'
@@ -31,6 +38,7 @@ jest.mock('~/common/kafka/consumer/consumer-v2', () => {
         public stopConsuming = jest.fn().mockResolvedValue(undefined)
         public disconnect = jest.fn().mockResolvedValue(undefined)
         public offsetsStore = jest.fn()
+        public hasFailed = jest.fn().mockReturnValue(false)
         public assignments = jest.fn().mockReturnValue([])
         public isHealthy = jest.fn()
     }
@@ -79,6 +87,7 @@ async function lagHistogramCount(partition: string): Promise<number | undefined>
 describe('SessionRecordingIngester', () => {
     let ingester: SessionRecordingIngester
     let events: string[]
+    let metadataStore: jest.Mocked<SessionMetadataSink>
 
     const runPipelineMock = jest.mocked(runSessionReplayPipeline)
 
@@ -112,16 +121,31 @@ describe('SessionRecordingIngester', () => {
         } as unknown as KeyStore
         const fakeEncryptor = {
             start: jest.fn().mockResolvedValue(undefined),
+            encryptBlockWithKey: jest.fn((_sessionId: string, _teamId: number, data: Buffer) => ({
+                data,
+            })),
         } as unknown as RecordingEncryptor
+        metadataStore = {
+            storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
+        }
+
+        const sessionTrackerRedis = {
+            mget: (keys: string[]) => Promise.resolve(keys.map(() => null)),
+            pipeline: () => ({ set: jest.fn().mockReturnThis(), exec: () => Promise.resolve([]) }),
+        }
 
         ingester = new SessionRecordingIngester(
             config,
             {} as jest.Mocked<PostgresRouter>,
             {} as unknown as ConstructorParameters<typeof SessionRecordingIngester>[2],
-            {} as unknown as RedisPool,
+            {
+                acquire: () => Promise.resolve(sessionTrackerRedis),
+                release: () => Promise.resolve(),
+            } as unknown as RedisPool,
             {} as unknown as RedisPool,
             {
                 fileStorage: new BlackholeSessionBatchFileStorage(),
+                metadataStore,
                 keyStore: fakeKeyStore,
                 encryptor: fakeEncryptor,
                 createPipeline: () => ({}) as unknown as SessionReplayPipeline,
@@ -138,10 +162,38 @@ describe('SessionRecordingIngester', () => {
         })
     }
 
+    const recordOneSession = (): void => {
+        const parsedMessage: ParsedMessageData = {
+            metadata: { partition: 0, topic: consumeTopic, offset: 42, timestamp: 1000, rawSize: 100 },
+            distinct_id: 'distinct-1',
+            session_id: 'session-1',
+            token: 'token',
+            eventsByWindowId: { window1: [{ type: 2, timestamp: 1000, data: {} }] },
+            eventsRange: { start: DateTime.fromMillis(1000), end: DateTime.fromMillis(1000) },
+            snapshot_source: 'web',
+            snapshot_library: 'posthog-js',
+        }
+        runPipelineMock.mockImplementation(async (_pipeline, _messages, recorder) => {
+            await recorder.record(
+                {
+                    team: { teamId: 1, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
+                    message: parsedMessage,
+                },
+                '30d',
+                createMockSessionKey()
+            )
+            return progress(new Map([[0, 42]]))
+        })
+    }
+
     beforeEach(() => {
         events = []
         runPipelineMock.mockReset()
         createIngester()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('stop() stores the in-flight batch offsets only after its side effects settle, before disconnect', async () => {
@@ -188,6 +240,68 @@ describe('SessionRecordingIngester', () => {
         expect(events).toEqual(['side_effect_settled', 'offsets_stored', 'disconnected'])
     })
 
+    it('stop() disconnects and stops the key store when the final flush cannot store its offsets', async () => {
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementation(() => {
+            throw new Error('offset store refused')
+        })
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        await expect(ingester.stop()).rejects.toThrow('offset store refused')
+
+        expect(events).toEqual(['disconnected'])
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
+    })
+
+    it('stop() skips the final flush once a background task has failed', async () => {
+        jest.mocked(ingester.kafkaConsumer).hasFailed.mockReturnValue(true)
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+        const flush = jest.spyOn(ingester['currentBatch'], 'flush')
+
+        await ingester.stop()
+
+        expect(flush).not.toHaveBeenCalled()
+        expect(events).toEqual(['disconnected'])
+    })
+
+    it('revoke skips the flush once a background task has failed', async () => {
+        jest.mocked(ingester.kafkaConsumer).hasFailed.mockReturnValue(true)
+        jest.mocked(ingester.kafkaConsumer).assignments.mockReturnValue([{ topic: consumeTopic, partition: 0 }])
+        await ingester.start()
+        const onPartitionsRevoked = jest.mocked(ingester.kafkaConsumer).connect.mock.calls[0][1]!
+        const flush = jest.spyOn(ingester['currentBatch'], 'flush')
+
+        await onPartitionsRevoked([{ topic: consumeTopic, partition: 0 }])
+
+        expect(flush).not.toHaveBeenCalled()
+        expect(events).not.toContain('offsets_stored')
+    })
+
+    it('stop() runs the remaining cleanup and rejects when disconnect fails after a clean flush', async () => {
+        jest.mocked(ingester.kafkaConsumer).disconnect.mockRejectedValue(new Error('disconnect refused'))
+        const stopRestrictions = jest.fn()
+        ingester['stopEventIngestionRestrictionManager'] = stopRestrictions
+
+        await expect(ingester.stop()).rejects.toThrow('disconnect refused')
+
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
+        expect(stopRestrictions).toHaveBeenCalled()
+    })
+
+    it('stop() rejects with the flush error and still runs cleanup when disconnect also fails', async () => {
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementation(() => {
+            throw new Error('offset store refused')
+        })
+        jest.mocked(ingester.kafkaConsumer).disconnect.mockRejectedValue(new Error('disconnect refused'))
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        await expect(ingester.stop()).rejects.toThrow('offset store refused')
+
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
+    })
+
     it('flushes on the age trigger: side effects drain before the batch offsets are stored, at exactly highest+1', async () => {
         createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
 
@@ -232,6 +346,64 @@ describe('SessionRecordingIngester', () => {
         runPipelineMock.mockResolvedValue(progress(new Map([[0, 43]]), [flushedMessage]))
         await ingester.handleEachBatch([flushedMessage])
         expect(await lagHistogramCount('0')).toBe(1)
+    })
+
+    it('persists replay metadata when usage ingestion fails', async () => {
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+        jest.spyOn(UsageRecordBatch.prototype, 'flush').mockRejectedValueOnce(new Error('usage unavailable'))
+        recordOneSession()
+
+        await expect(ingester.handleEachBatch([kafkaMessage(0, 42)])).resolves.toBeUndefined()
+
+        expect(metadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+            expect.objectContaining({ teamId: 1, sessionId: 'session-1' }),
+        ])
+        expect(jest.mocked(ingester.kafkaConsumer).offsetsStore).toHaveBeenCalledWith([
+            { topic: consumeTopic, partition: 0, offset: 43 },
+        ])
+    })
+
+    it.each<[string, Partial<SessionRecordingIngesterCollaborators>, unknown[], string[]]>([
+        [
+            'the main lane bills a persisted session before it stores the offsets',
+            {},
+            [[[expect.objectContaining({ teamId: 1, usageKey: 'session_replay_recordings', recordId: 'session-1' })]]],
+            ['usage_sent', 'offsets_stored'],
+        ],
+        ['the ML mirror lane bills nothing', { reportUsage: false }, [], ['offsets_stored']],
+    ])('%s', async (_name, collaborators, expectedIngestCalls, expectedEvents) => {
+        createIngester(
+            {
+                SESSION_RECORDING_MAX_BATCH_AGE_MS: 0,
+                USAGE_INGESTION_ADDR: 'localhost:1',
+                USAGE_INGESTION_REPORT_TEAMS: '*',
+            },
+            collaborators
+        )
+        const ingest = jest.spyOn(UsageIngestionClient.prototype, 'ingest').mockImplementation((records) => {
+            events.push('usage_sent')
+            return Promise.resolve(records)
+        })
+        recordOneSession()
+
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        expect(metadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
+        expect(ingest.mock.calls).toEqual(expectedIngestCalls)
+        expect(events).toEqual(expectedEvents)
+    })
+
+    it.each([
+        ['skips an empty poll', [], []],
+        ['records a poll with messages', [kafkaMessage(0, 42)], [[4 / 1024]]],
+    ])('decoded batch size %s', async (_, messages, observed) => {
+        const decodedKbSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeKafkaBatchDecodedKb')
+        runPipelineMock.mockResolvedValue(progress(new Map(), []))
+
+        await ingester.handleEachBatch(messages)
+
+        expect(decodedKbSpy.mock.calls).toEqual(observed)
+        decodedKbSpy.mockRestore()
     })
 
     it('samples the pipeline OK-result messages, not the raw consumed batch', async () => {

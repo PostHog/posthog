@@ -9,6 +9,7 @@ from typing import Any, ParamSpec, Protocol, TypeVar
 from uuid import UUID
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import F, QuerySet, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
@@ -49,7 +50,6 @@ from posthog.temporal.common.metrics import get_metric_meter
 from posthog.temporal.common.utils import asyncify, make_sync_retryable_with_exponential_backoff
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
 from posthog.temporal.weekly_digest.queries import (
-    query_new_dashboards,
     query_new_error_issues,
     query_new_event_definitions,
     query_new_external_data_sources,
@@ -77,6 +77,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     OrganizationDigest,
+    OrganizationIdRange,
     PlaylistCount,
     RecordingCount,
     SendWeeklyDigestBatchInput,
@@ -90,6 +91,8 @@ from posthog.temporal.weekly_digest.types import (
 from posthog.token_bucket import BucketDecision, Budget, consume
 from posthog.utils import get_instance_region
 
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import TeamDashboardRef
 from products.error_tracking.backend.facade.api import get_new_issues_for_team
 from products.experiments.backend.facade import api as experiments_api
 from products.experiments.backend.facade.contracts import DigestCompletedExperiment, DigestLaunchedExperiment
@@ -297,16 +300,38 @@ def generate_digest_data_lookup(
     _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
 
 
+type _DigestRow = TeamDashboardRef | DigestLaunchedExperiment | DigestCompletedExperiment
+
+
+class _ListDigestRows(Protocol):
+    def __call__(self, *, period_start: datetime, period_end: datetime, team_ids: range) -> Iterable[_DigestRow]: ...
+
+
+def _generate_facade_lookup(
+    input: GenerateDigestDataBatchInput,
+    key_kind: TeamDataKey,
+    list_rows: _ListDigestRows,
+    resource_type: DigestResourceType,
+) -> None:
+    logger = _bind_batch_logger(input)
+    logger.info("Generating digest data batch", key_kind=key_kind)
+
+    eligible_team_ids = _eligible_team_ids(input)
+    rows = list_rows(
+        period_start=input.digest.period_start,
+        period_end=input.digest.period_end,
+        team_ids=range(input.team_id_range.start, input.team_id_range.end),
+    )
+    rows_by_team = _rows_by_team((dataclasses.asdict(row) for row in rows), eligible_team_ids)
+    resources_by_team = _validate_by_team(logger, rows_by_team, resource_type)
+    _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
+
+
 @activity.defn(name="generate-dashboard-lookup")
 @asyncify
 def generate_dashboard_lookup(input: GenerateDigestDataBatchInput) -> None:
     with HeartbeaterSync(logger=LOGGER):
-        generate_digest_data_lookup(
-            input,
-            key_kind=TeamDataKey.DASHBOARDS,
-            query_func=query_new_dashboards,
-            resource_type=DashboardList,
-        )
+        _generate_facade_lookup(input, TeamDataKey.DASHBOARDS, dashboards_api.dashboards_created_between, DashboardList)
 
 
 @activity.defn(name="generate-event-definition-lookup")
@@ -321,35 +346,15 @@ def generate_event_definition_lookup(input: GenerateDigestDataBatchInput) -> Non
         )
 
 
-class _ListDigestExperiments(Protocol):
-    def __call__(
-        self, *, period_start: datetime, period_end: datetime, team_ids: range
-    ) -> Iterable[DigestLaunchedExperiment | DigestCompletedExperiment]: ...
-
-
-def _generate_experiment_lookup(
-    input: GenerateDigestDataBatchInput, key_kind: TeamDataKey, list_experiments: _ListDigestExperiments
-) -> None:
-    logger = _bind_batch_logger(input)
-    logger.info("Generating digest data batch", key_kind=key_kind)
-
-    eligible_team_ids = _eligible_team_ids(input)
-    experiments = list_experiments(
-        period_start=input.digest.period_start,
-        period_end=input.digest.period_end,
-        team_ids=range(input.team_id_range.start, input.team_id_range.end),
-    )
-    rows_by_team = _rows_by_team((dataclasses.asdict(experiment) for experiment in experiments), eligible_team_ids)
-    resources_by_team = _validate_by_team(logger, rows_by_team, ExperimentList)
-    _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
-
-
 @activity.defn(name="generate-experiment-completed-lookup")
 @asyncify
 def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInput) -> None:
     with HeartbeaterSync(logger=LOGGER):
-        _generate_experiment_lookup(
-            input, TeamDataKey.EXPERIMENTS_COMPLETED, experiments_api.list_completed_experiments_for_digest
+        _generate_facade_lookup(
+            input,
+            TeamDataKey.EXPERIMENTS_COMPLETED,
+            experiments_api.list_completed_experiments_for_digest,
+            ExperimentList,
         )
 
 
@@ -357,8 +362,11 @@ def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInput) ->
 @asyncify
 def generate_experiment_launched_lookup(input: GenerateDigestDataBatchInput) -> None:
     with HeartbeaterSync(logger=LOGGER):
-        _generate_experiment_lookup(
-            input, TeamDataKey.EXPERIMENTS_LAUNCHED, experiments_api.list_launched_experiments_for_digest
+        _generate_facade_lookup(
+            input,
+            TeamDataKey.EXPERIMENTS_LAUNCHED,
+            experiments_api.list_launched_experiments_for_digest,
+            ExperimentList,
         )
 
 
@@ -868,13 +876,6 @@ def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput) -> N
         _generate_product_suggestion_lookup(input)
 
 
-@activity.defn(name="count-organizations")
-@asyncify
-def count_organizations() -> int:
-    with HeartbeaterSync(logger=LOGGER):
-        return query_orgs_for_digest().count()
-
-
 def _cut_team_id_ranges(team_ids: list[int], batch_size: int) -> list[TeamIdRange]:
     """Cut ordered team ids into [start, end) ranges of at most `batch_size` teams each."""
     return [
@@ -892,6 +893,54 @@ def list_team_id_ranges(input: CommonInput) -> list[TeamIdRange]:
     """One index scan of the team ids replaces a LIMIT/OFFSET scan per batch per generator."""
     with HeartbeaterSync(logger=LOGGER):
         return _cut_team_id_ranges(list(query_team_ids_for_digest()), input.batch_size)
+
+
+def _cut_organization_id_ranges(organization_ids: list[UUID], batch_size: int) -> list[OrganizationIdRange]:
+    """Cut ordered organization ids into [start, end) ranges of at most `batch_size` organizations each."""
+    return [
+        OrganizationIdRange(
+            start=organization_ids[start],
+            end=organization_ids[start + batch_size] if start + batch_size < len(organization_ids) else None,
+        )
+        for start in range(0, len(organization_ids), batch_size)
+    ]
+
+
+def _organizations_to_send(organization_ids: list[str] | None) -> QuerySet:
+    organizations = query_orgs_for_digest()
+    return organizations if organization_ids is None else organizations.filter(id__in=organization_ids)
+
+
+@activity.defn(name="list-organization-id-ranges")
+@asyncify
+def list_organization_id_ranges(
+    input: CommonInput, organization_ids: list[str] | None = None
+) -> list[OrganizationIdRange]:
+    """One index scan of the organization ids replaces a LIMIT/OFFSET scan per batch."""
+    with HeartbeaterSync(logger=LOGGER):
+        ordered_ids = list(_organizations_to_send(organization_ids).values_list("id", flat=True))
+        return _cut_organization_id_ranges(ordered_ids, input.batch_size)
+
+
+def _organizations_in_range(
+    organization_id_range: OrganizationIdRange, organization_ids: list[str] | None = None
+) -> QuerySet:
+    # A range also spans the unlisted organizations between listed ones, so a resend filters by its list again.
+    organizations = _organizations_to_send(organization_ids).filter(id__gte=organization_id_range.start)
+    if organization_id_range.end is not None:
+        organizations = organizations.filter(id__lt=organization_id_range.end)
+    return organizations
+
+
+def _bind_organization_batch_logger(
+    digest_key: str, organization_id_range: OrganizationIdRange
+) -> FilteringBoundLogger:
+    bind_contextvars(
+        digest_key=digest_key,
+        organization_id_start=str(organization_id_range.start),
+        organization_id_end=str(organization_id_range.end) if organization_id_range.end is not None else None,
+    )
+    return LOGGER.bind()
 
 
 # Positions follow TeamDataKey order and the TeamDigest constructor below.
@@ -944,15 +993,13 @@ def _team_digest(team: Team, raw_values: list[str | None]) -> TeamDigest:
 
 
 def _generate_organization_digest_batch(input: GenerateOrganizationDigestInput) -> None:
-    bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
-    logger = LOGGER.bind()
+    logger = _bind_organization_batch_logger(input.digest.key, input.organization_id_range)
     logger.info("Generating organization-level digest batch")
 
     organization_count = 0
     team_count = 0
 
-    batch_start, batch_end = input.batch
-    organizations = list(query_orgs_for_digest()[batch_start:batch_end])
+    organizations = list(_organizations_in_range(input.organization_id_range))
     teams_by_org: dict[UUID, list[Team]] = defaultdict(list)
     for team in query_teams_for_organizations([organization.id for organization in organizations]):
         teams_by_org[team.organization_id].append(team)
@@ -1114,11 +1161,12 @@ def _record_workflows_send_failure(reason: str) -> None:
     ).add(1)
 
 
-def _post_to_workflows(session: requests.Session, body: dict[str, Any], idempotency_key: str) -> None:
+def _post_to_workflows(session: requests.Session, body: bytes, idempotency_key: str) -> None:
     # The secret authenticates the post, so only the digest send can start the workflow. The idempotency key
     # makes a retried post, in this attempt or the next one, start no second run.
     headers = {
         "Authorization": f"Bearer {settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET}",
+        "Content-Type": "application/json",
         "Idempotency-Key": idempotency_key,
     }
     reason = "connection_error"
@@ -1129,7 +1177,7 @@ def _post_to_workflows(session: requests.Session, body: dict[str, Any], idempote
         try:
             response = session.post(
                 settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL,
-                json=body,
+                data=body,
                 headers=headers,
                 timeout=WORKFLOWS_WEBHOOK_TIMEOUT_SECONDS,
             )
@@ -1146,8 +1194,7 @@ def _post_to_workflows(session: requests.Session, body: dict[str, Any], idempote
 
 
 def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
-    bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
-    logger = LOGGER.bind()
+    logger = _bind_organization_batch_logger(input.digest.key, input.organization_id_range)
     logger.info("Sending weekly digest batch")
 
     sent_digest_count = 0
@@ -1192,8 +1239,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
 
     try:
         with _digest_redis(input.common) as r:
-            batch_start, batch_end = input.batch
-            for organization in query_orgs_for_digest()[batch_start:batch_end]:
+            for organization in _organizations_in_range(input.organization_id_range, input.organization_ids):
                 _raise_if_cancelled()
                 partial = False
                 try:
@@ -1260,6 +1306,13 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
+                        # One evaluation decides the route. A second one could disagree and send a Workflows-only
+                        # resend to Customer.io.
+                        routes_to_workflows = _routes_to_workflows(user)
+                        # A Workflows-only resend never captures for Customer.io, so nobody there gets a second copy.
+                        if input.workflows_only and not routes_to_workflows:
+                            continue
+
                         payload = digest_for_user.render_payload(input.digest)
 
                         if input.dry_run:
@@ -1268,29 +1321,41 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 digest=payload,
                                 user_email=user.email,
                             )
-                        elif _routes_to_workflows(user):
+                        elif routes_to_workflows:
                             workflows_payload = digest_for_user.render_payload(
                                 input.digest, event_definitions_limit=WORKFLOWS_EVENT_DEFINITIONS_LIMIT
                             )
                             body = {
                                 "event": WORKFLOWS_DIGEST_EVENT,
                                 "distinct_id": _workflows_distinct_id(user),
-                                "properties": {**workflows_payload, "to": user.email},
+                                "properties": {
+                                    **workflows_payload,
+                                    "to": user.email,
+                                    "$update_person_last_seen_at": False,
+                                },
                             }
-                            if len(json.dumps(body, default=str).encode()) > WORKFLOWS_WEBHOOK_BODY_LIMIT:
-                                logger.error(
-                                    "Digest exceeds the Workflows webhook size limit, leaving the organization unsent",
-                                    organization_id=organization.id,
-                                    user_id=user.id,
-                                )
-                                _record_workflows_send_failure("oversized")
-                                failed_organization_ids.add(str(organization.id))
-                                continue
-                            _wait_for_workflows_post(r, input.digest.key)
-                            partial = True
                             try:
-                                _post_to_workflows(workflows_session, body, f"{input.digest.key}:{user.id}")
+                                # The payload holds UUIDs and datetimes, which plain json cannot encode.
+                                encoded_body = json.dumps(body, cls=DjangoJSONEncoder).encode()
+                                if len(encoded_body) > WORKFLOWS_WEBHOOK_BODY_LIMIT:
+                                    logger.error(
+                                        "Digest exceeds the Workflows webhook size limit, leaving the organization unsent",
+                                        organization_id=organization.id,
+                                        user_id=user.id,
+                                    )
+                                    _record_workflows_send_failure("oversized")
+                                    failed_organization_ids.add(str(organization.id))
+                                    continue
+                                _wait_for_workflows_post(r, input.digest.key)
+                                partial = True
+                                # Both regions post to one workflow and user ids repeat across regions, so the key uses the UUID.
+                                _post_to_workflows(workflows_session, encoded_body, f"{input.digest.key}:{user.uuid}")
                             except WorkflowsWebhookError:
+                                failed_organization_ids.add(str(organization.id))
+                                raise
+                            except Exception:
+                                # Any other error still leaves the organization unsent, so the next attempt resends it.
+                                _record_workflows_send_failure("unexpected_error")
                                 failed_organization_ids.add(str(organization.id))
                                 raise
                         elif len(json.dumps(payload, default=str).encode()) > DIGEST_PAYLOAD_SIZE_LIMIT:
@@ -1306,7 +1371,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             queued = ph_client.capture(
                                 distinct_id=user.distinct_id,
                                 event=CUSTOMER_IO_DIGEST_EVENT,
-                                properties=payload,
+                                properties={**payload, "$update_person_last_seen_at": False},
                                 groups={
                                     "organization": str(organization.id),
                                     "instance": settings.SITE_URL,
