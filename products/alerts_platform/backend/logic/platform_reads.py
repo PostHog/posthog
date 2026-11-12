@@ -163,7 +163,7 @@ def owned_copies_by_legacy_id(
             legacy_configuration_id__in=list(legacy_configuration_ids),
             owner=PlatformAlertOwner.PLATFORM,
         )
-        .prefetch_related(Prefetch("alerts", queryset=PlatformAlert.objects.none()))
+        .prefetch_related(Prefetch("alerts", queryset=PlatformAlert.objects.unscoped().none()))
     )
     return {
         legacy_id: _configuration_view(copy)
