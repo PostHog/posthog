@@ -8,7 +8,7 @@ import operator
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from functools import reduce
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
@@ -172,6 +172,30 @@ def team_ids_with_copies(source_kind: str) -> tuple[int, ...]:
         .values_list("team_id", flat=True)
         .distinct()
     )
+
+
+def owned_copy_ids(*, team_id: int, source_kind: str, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
+    """The source row id of every copy of a kind the platform owns. With `created_by_uuid`, only the
+    ones that user created."""
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__isnull=False
+    )
+    if created_by_uuid is not None:
+        rows = rows.filter(created_by__uuid=created_by_uuid)
+    return tuple(rows.values_list("legacy_configuration_id", flat=True))
+
+
+def owned_copies(
+    *, team_id: int, source_kind: str, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies the platform owns of these source rows, keyed by source row id. A copy its source
+    still owns is left out, because the source's row then holds its settings."""
+    if not legacy_configuration_ids:
+        return {}
+    rows = _readable(team_id, [source_kind]).filter(
+        owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__in=list(legacy_configuration_ids)
+    )
+    return {cast(UUID, row.legacy_configuration_id): _configuration_view(row) for row in rows}
 
 
 def native_configuration_matches(

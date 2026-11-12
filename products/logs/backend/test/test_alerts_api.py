@@ -229,10 +229,11 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # One for the runtime, one for the history's ids and one for the control-plane changes' ids,
-        # whatever the page size. A list also reads the alerts with no logs row.
+        # One for the settings, one for the runtime, one for the history's ids and one for the
+        # control-plane changes' ids, whatever the page size. A list also reads which alerts the
+        # platform owns and the alerts with no logs row.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == (4 if action == "list" else 3)
+        assert len(platform_reads) == (6 if action == "list" else 4)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -2440,6 +2441,35 @@ class TestLogsAlertAPI(APIBaseTest):
         with team_scope(self.team.id):
             return platform_testing.copy_of(UUID(alert_id))
 
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_an_alert_the_platform_owns_reads_from_its_copy_not_its_logs_row(self, action: str) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        created = self._create_via_api()
+        assert created["platform_owned"] is True
+        LogsAlertConfiguration.objects.filter(id=created["id"]).update(
+            name="Only on the logs row",
+            enabled=False,
+            threshold_count=999,
+            state=LogsAlertConfiguration.State.SNOOZED,
+            snooze_until=timezone.now() + timedelta(hours=1),
+            first_enabled_at=None,
+            created_by=other_user,
+        )
+
+        if action == "list":
+            response = self.client.get(self.base_url)
+            (read,) = response.json()["results"]
+            by_row_creator = self.client.get(self.base_url, {"created_by": str(other_user.uuid)})
+            assert by_row_creator.json()["results"] == []
+        else:
+            response = self.client.get(f"{self.base_url}{created['id']}/")
+            read = response.json()
+
+        assert response.status_code == status.HTTP_200_OK
+        fields = ("name", "enabled", "threshold_count", "state", "snooze_until", "first_enabled_at", "created_at")
+        assert {field: read[field] for field in fields} == {field: created[field] for field in fields}
+        assert read["created_by"]["id"] == self.user.pk
+
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
         created = self._owned_by_the_platform()
         copy = self._copy(created["id"])
@@ -3754,6 +3784,8 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         LogsAlertConfiguration.objects.filter(pk=self.alert.pk).update(
             state="snoozed" if snooze_until is not None else "not_firing", snooze_until=snooze_until
         )
+        with team_scope(self.team.id):
+            platform_testing.set_snooze_until(platform_testing.copy_of(self.alert.id).id, snooze_until)
 
         [row] = self._rows("retrieve")
 

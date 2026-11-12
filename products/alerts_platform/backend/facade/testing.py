@@ -206,6 +206,13 @@ def set_source_config(configuration_id: UUID, source_config: dict[str, Any]) -> 
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(source_config=source_config)
 
 
+def set_snooze_until(configuration_id: UUID, snooze_until: datetime | None) -> None:
+    """Set a configuration's mute as it is, with no schedule change, as an expired snooze leaves it. The
+    caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(snooze_until=snooze_until)
+
+
 def forget_source_row(configuration_id: UUID) -> None:
     """Turn a copy into an alert its source keeps no row for, as a native create leaves it. The caller
     holds the team scope."""
