@@ -60,5 +60,17 @@ describe('TextCard', () => {
             expect(handles).toHaveLength(1)
             expect(handles[0]).toHaveClass('corner', 'bottom-right')
         })
+
+        it('draws no border on a transparent card while editing', () => {
+            const { container } = render(
+                <TextCard
+                    textTile={makeTextTile({ transparent_background: true })}
+                    placement={DashboardPlacement.Dashboard}
+                    showResizeHandles={true}
+                />
+            )
+
+            expect(container.querySelector('[data-attr="text-card"]')).not.toHaveClass('border')
+        })
     })
 })

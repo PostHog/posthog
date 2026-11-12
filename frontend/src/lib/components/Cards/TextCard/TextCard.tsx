@@ -47,7 +47,6 @@ function TextCardInternal(
             className={clsx(
                 'DashboardTileCard TextCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
-                isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className
             )}
             data-attr="text-card"
