@@ -31,6 +31,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -448,11 +449,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 description="The created training run. Poll it through the training runs endpoint.",
             ),
             400: OpenApiResponse(
-                description=(
-                    "A training run is already in progress, the pipeline is paused, "
-                    "the pipeline's target or creator is no longer valid, "
-                    "or the pipeline is a draft and the project already has its limit of live pipelines."
-                )
+                description="The request body is invalid, or the pipeline's action target needs the action:read scope."
             ),
             403: OpenApiResponse(
                 description=(
@@ -461,6 +458,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+            409: OpenApiResponse(
+                description=(
+                    "A training run is already in progress, the pipeline is paused, "
+                    "the pipeline's target or creator is no longer valid, "
+                    "or the pipeline is a draft and the project already has its limit of live pipelines."
+                )
+            ),
             429: OpenApiResponse(
                 response=TrainingRunCapReachedSerializer,
                 description=(
@@ -506,7 +510,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         except InvalidTarget as exc:
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
-            raise ValidationError(str(exc)) from exc
+            raise Conflict(str(exc)) from exc
         except TrainingRunCapReached as exc:
             body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
             return Response(TrainingRunCapReachedSerializer(instance=body).data, status=429)

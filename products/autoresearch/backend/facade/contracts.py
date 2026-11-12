@@ -41,7 +41,8 @@ class SuggestionNotFound(LookupError):
 class AutoresearchConflict(ValueError):
     """The request is well-formed but the pipeline or run is in the wrong state for it.
 
-    The viewset maps it to a 400 with the message as-is, so the message is user-facing copy.
+    The viewset maps it to a 400 (a 409 on the train action) with the message as-is, so the
+    message is user-facing copy.
     """
 
 
@@ -68,8 +69,7 @@ class TrainingRunCapReached(Exception):
 class LivePipelineCapReached(AutoresearchConflict):
     """The project already has its limit of live pipelines, so another cannot go live.
 
-    An ``AutoresearchConflict``, so the viewsets map it to a 400 with the message as-is, and the
-    message is user-facing copy.
+    An ``AutoresearchConflict``, so the message is user-facing copy.
     """
 
     def __init__(self, *, used: int, limit: int) -> None:
