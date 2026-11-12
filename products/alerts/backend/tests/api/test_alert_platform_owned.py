@@ -51,6 +51,7 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     InvestigationStatus,
     InvestigationVerdict,
+    Threshold,
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
@@ -72,6 +73,7 @@ from products.alerts_platform.backend.facade.api import (
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertDelivery,
     DestinationType,
     InvalidPlatformAlertEdit,
@@ -502,6 +504,62 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{self.url}/")
 
         assert response.json()["results"] == []
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_a_moved_alert_reads_back_its_settings_from_the_platform_after_its_row_drifts(self, action: str) -> None:
+        threshold = {"type": "absolute", "bounds": {"lower": 10.0, "upper": 50.0}}
+        written: dict[str, Any] = {
+            "name": "Written",
+            "enabled": True,
+            "condition": {"type": "absolute_value"},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
+            "calculation_interval": AlertCalculationInterval.HOURLY.value,
+            "skip_weekend": True,
+            "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            "snoozed_until": _iso(self.now + timedelta(days=1)),
+        }
+        patched = self.client.patch(
+            f"{self.url}/{self.alert.id}/", {**written, "threshold": {"configuration": threshold}}, format="json"
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.json()
+        # Writes that bypass the API leave the row apart from the copy.
+        AlertConfiguration.objects.filter(id=self.alert.id).update(
+            name="Drifted",
+            enabled=False,
+            condition={"type": "relative_increase"},
+            config={"type": "TrendsAlertConfig", "series_index": 1},
+            calculation_interval=AlertCalculationInterval.DAILY.value,
+            skip_weekend=False,
+            schedule_restriction=None,
+            snoozed_until=None,
+        )
+        Threshold.objects.filter(alertconfiguration__id=self.alert.id).update(
+            configuration={"type": "percentage", "bounds": {"upper": 0.5}}
+        )
+
+        row = self._row(action)
+
+        assert {key: row[key] for key in written} == written
+        assert (row["threshold"]["configuration"], row["state"]) == (threshold, "Snoozed")
+
+    def test_a_moved_alert_keeps_its_rows_settings_that_an_older_copy_lacks(self) -> None:
+        row_config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}
+        AlertConfiguration.objects.filter(id=self.alert.id).update(config=row_config, skip_weekend=True)
+        with team_scope(self.team.id):
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    "insight_id": self.alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                    },
+                },
+            )
+
+        row = self._row("retrieve")
+
+        assert (row["config"], row["skip_weekend"]) == (row_config, True)
 
     def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
         self._record(30, "firing", value=150.0)

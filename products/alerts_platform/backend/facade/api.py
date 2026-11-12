@@ -233,6 +233,17 @@ def list_configurations(
     )
 
 
+def owned_copies_by_legacy_id(
+    *, team_id: int, source_kind: SourceKind, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies of the named source rows that the platform owns, by source row id, so a source can
+    show their settings as the platform holds them. The views carry no instances. A row with no such
+    copy is left out."""
+    return platform_reads.owned_copies_by_legacy_id(
+        team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
 def native_configuration_keys(
     *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
 ) -> tuple[tuple[datetime, UUID], ...]:
