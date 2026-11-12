@@ -1,6 +1,6 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
@@ -73,7 +73,7 @@ function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Elem
     )
 }
 
-function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Element {
+function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JSX.Element {
     const scale = CALENDAR_SCALE()
     const { row, steps, lanes } = track
     const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
@@ -131,6 +131,18 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
         </div>
     )
 }
+
+const laneSteps = (track: Track): (RolloutStep[] | undefined)[] =>
+    track.lanes.map((lane) => (lane.kind === 'flag' ? lane.steps : undefined))
+
+const TrackLanes = memo(
+    TrackLanesContent,
+    (previous, next) =>
+        previous.open === next.open &&
+        previous.track.row === next.track.row &&
+        previous.track.steps === next.track.steps &&
+        laneSteps(previous.track).every((steps, index) => steps === laneSteps(next.track)[index])
+)
 
 interface CachedSteps {
     flag: FeatureFlagApi

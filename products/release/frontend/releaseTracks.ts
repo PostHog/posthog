@@ -15,6 +15,7 @@ export const DAY = 30
 export const TOTAL = CALENDAR_DAYS_BEFORE + CALENDAR_DAYS_AFTER
 export const LANE = 34
 export const FLAG_LANE = 52
+const NO_STEPS: RolloutStep[] = []
 
 export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; color: string }> = {
     flag: { top: 30, height: 14, color: STAGE_COLOR.flag },
@@ -92,7 +93,7 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             title: flag.key,
             status: flag.active ? 'Live' : 'Off',
             live: !!flag.active,
-            steps: stepsByFlag.get(flag.id) ?? [],
+            steps: stepsByFlag.get(flag.id) ?? NO_STEPS,
             events: row.events.filter(
                 (event) => event.kind === 'schedule' && event.upcoming && event.flagId === flag.id
             ),
@@ -144,7 +145,7 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             href: urls.broadcast(broadcast.id),
         })
     }
-    return { row, steps: row.flags[0] ? (stepsByFlag.get(row.flags[0].id) ?? []) : [], lanes }
+    return { row, steps: row.flags[0] ? (stepsByFlag.get(row.flags[0].id) ?? NO_STEPS) : NO_STEPS, lanes }
 }
 
 export function sendLabel(event: ReleaseEvent): string {
