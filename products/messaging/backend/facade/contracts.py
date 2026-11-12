@@ -359,6 +359,26 @@ class EmailStatus:
     reason: str | None = None
 
 
+@frozen
+class ScheduledEmail:
+    message_id: str
+    to: str
+    scheduled_at: datetime
+    created_at: datetime
+
+
+@frozen
+class ScheduledEmailCursor:
+    scheduled_at: datetime
+    message_id: str
+
+
+@frozen
+class ScheduledEmailPage:
+    results: tuple[ScheduledEmail, ...]
+    next_after: ScheduledEmailCursor | None
+
+
 class EmailLogEventKind(LabeledStrEnum):
     QUEUED = "queued", "Queued"
     FAILED = "failed", "Failed"

@@ -25,6 +25,9 @@ from products.messaging.backend.facade.contracts import (
     QueuedEmail,
     QueuedEmailStatus,
     RescheduleTooFar,
+    ScheduledEmail,
+    ScheduledEmailCursor,
+    ScheduledEmailPage,
     TransactionalEmailError,
     UploadQuotaExceeded,
 )
@@ -47,13 +50,17 @@ from products.messaging.backend.services.transactional_email import (
     sync_transactional_workflow,
     transactional_email_stage,
 )
-from products.messaging.backend.services.transactional_email_status import get_email_status
+from products.messaging.backend.services.transactional_email_status import get_email_status, list_scheduled_emails
 
 __all__ = [
     "AlreadySending",
     "EmailCanceled",
     "EmailNotFound",
     "RescheduleTooFar",
+    "ScheduledEmail",
+    "ScheduledEmailCursor",
+    "ScheduledEmailPage",
+    "list_scheduled_emails",
     "cancel_email",
     "reschedule_email",
     "PIPELINE_ADDRESS_PATTERN",

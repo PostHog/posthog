@@ -1,3 +1,5 @@
+import json
+import base64
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -17,7 +19,7 @@ from posthog.models.utils import generate_random_token_secret
 from posthog.redis import TEST_redis_down
 from posthog.uuidt import UUIDT
 
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE
+from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics, FakeCdpApi
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
@@ -33,6 +35,13 @@ RANK = {
     "bounced": 6,
     "complained": 7,
 }
+
+
+_CURSOR_ID = "01890000-0000-7000-8000-000000000000"
+
+
+def _encoded_cursor(due: str, message_id: object) -> str:
+    return base64.urlsafe_b64encode(json.dumps([due, message_id]).encode()).decode()
 
 
 class EmailsApiTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -743,3 +752,206 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
         assert response.status_code == status.HTTP_200_OK
         assert self.cdp.jobs[(self.team.id, self.message_id)] == expected_job
+
+
+@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+@patch(
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+class TestListScheduledEmails(EmailsApiTestBase):
+    def setUp(self):
+        super().setUp()
+        self.list_url = f"/api/projects/{self.team.id}/messaging/emails/"
+
+    def _email(
+        self, to: str, hours_ago: int, rows: list[tuple[str, int, float | None]], team: Team | None = None
+    ) -> str:
+        """Insert (status, seconds after the send, hours from now it is due) rows of one email."""
+        created_at = datetime.now(UTC) - timedelta(hours=hours_ago)
+        message_id = self._message_id(created_at)
+        sync_execute(
+            f"""
+            INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
+                (team_id, message_id, status, version, created_at, status_at, reason, recipient, function_id,
+                 sending_domain, scheduled_at, _timestamp, _offset, _partition)
+            VALUES
+            """,
+            [
+                {
+                    "team_id": (team or self.team).id,
+                    "message_id": message_id,
+                    "status": row_status,
+                    "version": RANK[row_status] * 2**48
+                    + int((created_at + timedelta(seconds=seconds)).timestamp() * 1000),
+                    "created_at": created_at,
+                    "status_at": created_at + timedelta(seconds=seconds),
+                    "reason": "",
+                    "recipient": to if row_status == "scheduled" else "",
+                    "function_id": "",
+                    "sending_domain": "",
+                    "scheduled_at": datetime.now(UTC) + timedelta(hours=due) if due is not None else None,
+                    "_timestamp": created_at,
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+                for row_status, seconds, due in rows
+            ],
+        )
+        return message_id
+
+    def _list(self, query: str = "status=scheduled", client: APIClient | None = None) -> Any:
+        return (client or self.client).get(f"{self.list_url}?{query}")
+
+    def test_lists_the_emails_that_wait_soonest_first(self, _flag):
+        later = self._email("later@example.com", 2, [("scheduled", 0, 48)])
+        sooner = self._email("sooner@example.com", 1, [("scheduled", 0, 5)])
+        moved = self._email("moved@example.com", 3, [("scheduled", 0, 1), ("scheduled", 60, 24)])
+        self._email("canceled@example.com", 4, [("scheduled", 0, 10), ("canceled", 60, None)])
+        self._email("sent@example.com", 5, [("scheduled", 0, -1), ("sent", 3 * 3600, None)])
+        self._email("due-and-waiting-for-a-worker@example.com", 6, [("scheduled", 0, -1)])
+        self._email("send-now@example.com", 1, [("queued", 0, None)])
+        self._email("other-project@example.com", 1, [("scheduled", 0, 2)], team=self._other_team())
+
+        response = self._list()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "results": [
+                {
+                    "id": sooner,
+                    "to": "sooner@example.com",
+                    "scheduled_at": "2026-06-15T17:00:00Z",
+                    "created_at": "2026-06-15T11:00:00Z",
+                },
+                {
+                    "id": moved,
+                    "to": "moved@example.com",
+                    "scheduled_at": "2026-06-16T12:00:00Z",
+                    "created_at": "2026-06-15T09:00:00Z",
+                },
+                {
+                    "id": later,
+                    "to": "later@example.com",
+                    "scheduled_at": "2026-06-17T12:00:00Z",
+                    "created_at": "2026-06-15T10:00:00Z",
+                },
+            ],
+            "next": None,
+        }
+
+    def test_walks_the_pages_with_the_cursor(self, _flag):
+        due_together = sorted(
+            self._email(f"user{hours}@example.com", hours, [("scheduled", 0, 24 + 0.5 / 3600)]) for hours in (1, 2)
+        )
+        last = self._email("last@example.com", 3, [("scheduled", 0, 24 + 0.75 / 3600)])
+
+        ids: list[str] = []
+        query = "status=scheduled&limit=1"
+        for _ in range(4):
+            page = self._list(query).json()
+            ids += [email["id"] for email in page["results"]]
+            if page["next"] is None:
+                break
+            query = f"status=scheduled&limit=1&cursor={page['next']}"
+
+        assert ids == [*due_together, last]
+
+    def test_the_schema_describes_one_page(self, _flag):
+        schema = self.client.get("/api/schema/").data
+
+        listing = schema["paths"]["/api/projects/{project_id}/messaging/emails/"]["get"]
+        page = listing["responses"]["200"]["content"]["application/json"]["schema"]
+        assert set(schema["components"]["schemas"][page["$ref"].rsplit("/", 1)[-1]]["properties"]) == {
+            "results",
+            "next",
+        }
+
+    @parameterized.expand(
+        [
+            ("no_status", "", "status", "required"),
+            ("another_status", "status=sent", "status", "invalid_choice"),
+            ("a_made_up_cursor", "status=scheduled&cursor=not-a-cursor", "cursor", "invalid_input"),
+            (
+                "a_cursor_with_a_number_for_an_id",
+                f"status=scheduled&cursor={_encoded_cursor('2026-06-16T12:00:00+00:00', 123)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_without_an_offset",
+                f"status=scheduled&cursor={_encoded_cursor('2026-06-16T12:00:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_before_the_first_utc_day",
+                f"status=scheduled&cursor={_encoded_cursor('0001-01-01T00:00:00+01:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_before_clickhouse_can_hold",
+                f"status=scheduled&cursor={_encoded_cursor('0001-01-01T00:00:00+00:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_after_clickhouse_can_hold",
+                f"status=scheduled&cursor={_encoded_cursor('2300-01-01T00:00:00+00:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            ("too_many", "status=scheduled&limit=101", "limit", "max_value"),
+        ]
+    )
+    def test_refuses_a_query_it_cannot_answer(self, _flag, _name, query, attr, code):
+        response = self._list(query)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["attr"], response.json()["code"]) == (attr, code)
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["transactional_email:read"], status.HTTP_200_OK, "transactional_email"),
+            ("workflow_read_scope", ["hog_flow:read"], status.HTTP_200_OK, "hog_flow"),
+            ("other_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN, None),
+        ]
+    )
+    def test_records_each_page_for_usage(self, _flag, _name, scopes, expected_status, expected_authorized_by):
+        analytics = FakeAnalytics()
+
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
+            side_effect=analytics.capture,
+        ):
+            response = self._list(client=self._psak_client(scopes))
+
+        assert response.status_code == expected_status
+        assert analytics.properties_of("transactional email api manage") == (
+            [
+                {
+                    "team_id": self.team.id,
+                    "action": "list",
+                    "outcome": "listed",
+                    "auth_method": "project_secret_api_key",
+                    "authorized_by": expected_authorized_by,
+                }
+            ]
+            if expected_authorized_by
+            else []
+        )
+
+    def test_a_session_cannot_list(self, _flag):
+        session = APIClient()
+        session.force_login(self.user)
+
+        assert self._list(client=session).status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_lists_nothing_with_both_send_flags_off(self, flag):
+        flag.return_value = False
+
+        assert self._list().status_code == status.HTTP_404_NOT_FOUND
+
+    def _other_team(self) -> Team:
+        return Team.objects.create(organization=self.organization, name="Other")

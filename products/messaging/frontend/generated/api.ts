@@ -29,6 +29,7 @@ import type {
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingEmailsListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
@@ -48,6 +49,7 @@ import type {
     RemoveSuppressionRequestApi,
     RescheduleEmailApi,
     RescheduledEmailApi,
+    ScheduledEmailPageApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
@@ -103,6 +105,37 @@ export const messagingAttachmentsUploadsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
+
+export const getMessagingEmailsListUrl = (projectId: string, params: MessagingEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/`
+}
+
+/**
+ * List the emails that wait for their time, soonest first, a page at a time. An email leaves the list when it goes out or is canceled. A new email, a cancel or a move usually shows in the list within a minute. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too.
+ * @summary List scheduled emails
+ */
+export const messagingEmailsList = async (
+    projectId: string,
+    params: MessagingEmailsListParams,
+    options?: RequestInit
+): Promise<ScheduledEmailPageApi> => {
+    return apiMutator<ScheduledEmailPageApi>(getMessagingEmailsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

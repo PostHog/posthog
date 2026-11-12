@@ -71,6 +71,27 @@ export interface AttachmentUploadsResponseApi {
     files: AttachmentUploadSlotApi[]
 }
 
+export interface ScheduledEmailApi {
+    /** The `message_id` that the send returned. */
+    id: string
+    /** The recipient's address. */
+    to: string
+    /** When the email goes out, to the millisecond. */
+    scheduled_at: string
+    /** When the send was made. */
+    created_at: string
+}
+
+export interface ScheduledEmailPageApi {
+    /** The emails, soonest first. */
+    results: ScheduledEmailApi[]
+    /**
+     * Pass this as `cursor` to read the next page. Null on the last page.
+     * @nullable
+     */
+    next: string | null
+}
+
 /**
  * * `scheduled` - Scheduled
  * * `queued` - Queued
@@ -1557,6 +1578,33 @@ export interface TransactionalEmailStatsOverTimeApi {
     /** Totals for the same length of time just before the period. Null when retention no longer covers it. */
     previous: TransactionalEmailStatsCountsApi | null
 }
+
+export type MessagingEmailsListParams = {
+    /**
+     * The `next` value of the page before. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * How many emails a page holds, 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Which emails to list. Only `scheduled` is supported: the emails that wait for their time.
+     *
+     * * `scheduled` - Scheduled
+     * @minLength 1
+     */
+    status: MessagingEmailsListStatus
+}
+
+export type MessagingEmailsListStatus = (typeof MessagingEmailsListStatus)[keyof typeof MessagingEmailsListStatus]
+
+export const MessagingEmailsListStatus = {
+    Scheduled: 'scheduled',
+} as const
 
 export type MessagingCategoriesListParams = {
     /**

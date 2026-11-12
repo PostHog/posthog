@@ -5,15 +5,25 @@ The send API writes `queued` or `scheduled`, a cancel `canceled`, the email work
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_READ_DAYS, EMAIL_STATUS_TABLE
+from products.messaging.backend.facade.contracts import (
+    EmailSendStatus,
+    EmailStatus,
+    ScheduledEmail,
+    ScheduledEmailCursor,
+    ScheduledEmailPage,
+)
+from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_EVENTS_TABLE,
+    EMAIL_STATUS_READ_DAYS,
+    EMAIL_STATUS_TABLE,
+)
 
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
@@ -73,4 +83,69 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,
+    )
+
+
+_LONGEST_WAIT = timedelta(days=30)
+_SCHEDULED_EMAILS_QUERY = f"""
+SELECT toString(message_id) AS id, argMax(recipient, version), argMax(scheduled_at, version) AS due, any(created_at)
+FROM {EMAIL_STATUS_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND created_at >= %(start)s
+  AND (created_at, message_id) IN (
+      SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE}
+      WHERE team_id = %(team_id)s AND created_at >= %(start)s AND status = 'scheduled'
+        AND scheduled_at > toDateTime64(%(now)s, 6, 'UTC') {{candidate_after}}
+  )
+GROUP BY message_id
+HAVING argMax(status, version) = 'scheduled' AND due > toDateTime64(%(now)s, 6, 'UTC') {{after}}
+ORDER BY due, id
+LIMIT %(limit)s
+"""
+
+
+_AFTER_AT = "toDateTime64(%(after_at)s, 6, 'UTC')"
+
+
+def _datetime64_with_microseconds(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def list_scheduled_emails(team_id: int, *, after: ScheduledEmailCursor | None, limit: int) -> ScheduledEmailPage:
+    """The team's emails that wait for their time, soonest first, starting after the `after` email."""
+    now = datetime.now(UTC)
+    params: dict[str, Any] = {
+        "team_id": team_id,
+        "start": now - _LONGEST_WAIT - _CLOCK_SKEW,
+        "now": _datetime64_with_microseconds(now),
+        "limit": limit + 1,
+    }
+    if after is not None:
+        params["after_at"] = _datetime64_with_microseconds(after.scheduled_at)
+        params["after_id"] = after.message_id
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _SCHEDULED_EMAILS_QUERY.format(
+                after=f"AND (due, id) > ({_AFTER_AT}, %(after_id)s)" if after else "",
+                candidate_after=f"AND (scheduled_at, toString(message_id)) > ({_AFTER_AT}, %(after_id)s)"
+                if after
+                else "",
+            ),
+            params,
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        ),
+    )
+    emails = tuple(
+        ScheduledEmail(message_id=message_id, to=to, scheduled_at=due, created_at=created_at)
+        for message_id, to, due, created_at in rows[:limit]
+    )
+    has_more = len(rows) > limit
+    return ScheduledEmailPage(
+        results=emails,
+        next_after=ScheduledEmailCursor(scheduled_at=emails[-1].scheduled_at, message_id=emails[-1].message_id)
+        if has_more
+        else None,
     )

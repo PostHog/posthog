@@ -1,12 +1,16 @@
+import json
+import base64
+import binascii
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ErrorDetail, NotFound
@@ -18,6 +22,7 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.enums import LabeledStrEnum
 from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 
@@ -29,9 +34,12 @@ from products.messaging.backend.facade.transactional_email import (
     EmailSendStatus,
     EmailStatus,
     RescheduleTooFar,
+    ScheduledEmailCursor,
+    ScheduledEmailPage,
     TransactionalEmailError,
     cancel_email,
     get_email_status,
+    list_scheduled_emails,
     reschedule_email,
 )
 from products.messaging.backend.presentation.views.code_send_fields import ScheduledAtField
@@ -123,6 +131,64 @@ class RescheduledEmailSerializer(serializers.Serializer):
     )
 
 
+class ListedEmailStatus(LabeledStrEnum):
+    SCHEDULED = "scheduled", "Scheduled"
+
+
+_EARLIEST_CLICKHOUSE_TIME = datetime(1900, 1, 1, tzinfo=UTC)
+_LATEST_CLICKHOUSE_TIME_EXCLUSIVE = datetime(2300, 1, 1, tzinfo=UTC)
+
+
+class ScheduledEmailListQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=ListedEmailStatus.choices,
+        help_text="Which emails to list. Only `scheduled` is supported: the emails that wait for their time.",
+    )
+    cursor = serializers.CharField(
+        required=False, help_text="The `next` value of the page before. Leave it out for the first page."
+    )
+    limit = serializers.IntegerField(
+        required=False, default=100, min_value=1, max_value=100, help_text="How many emails a page holds, 1 to 100."
+    )
+
+    def validate_cursor(self, value: str) -> ScheduledEmailCursor:
+        try:
+            due, message_id = json.loads(base64.urlsafe_b64decode(value.encode()))
+            if not (isinstance(due, str) and isinstance(message_id, str)):
+                raise ValueError
+            due_at = datetime.fromisoformat(due)
+            if due_at.tzinfo is None:
+                raise ValueError
+            due_at = due_at.astimezone(UTC)
+            if not _EARLIEST_CLICKHOUSE_TIME <= due_at < _LATEST_CLICKHOUSE_TIME_EXCLUSIVE:
+                raise ValueError
+            return ScheduledEmailCursor(scheduled_at=due_at, message_id=str(UUID(message_id)))
+        except (binascii.Error, UnicodeDecodeError, TypeError, ValueError, OverflowError):
+            raise serializers.ValidationError("This cursor isn't one a page returned. Start again without it.")
+
+
+class ScheduledEmailSerializer(serializers.Serializer):
+    id = serializers.CharField(source="message_id", help_text="The `message_id` that the send returned.")
+    to = serializers.CharField(help_text="The recipient's address.")
+    scheduled_at = serializers.DateTimeField(help_text="When the email goes out, to the millisecond.")
+    created_at = serializers.DateTimeField(help_text="When the send was made.")
+
+
+@extend_schema_serializer(many=False)
+class ScheduledEmailPageSerializer(serializers.Serializer):
+    results = ScheduledEmailSerializer(many=True, help_text="The emails, soonest first.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Pass this as `cursor` to read the next page. Null on the last page."
+    )
+
+
+def _cursor(page: ScheduledEmailPage) -> str | None:
+    if page.next_after is None:
+        return None
+    cursor = [page.next_after.scheduled_at.isoformat(), page.next_after.message_id]
+    return base64.urlsafe_b64encode(json.dumps(cursor).encode()).decode()
+
+
 MANAGE_ACTIONS = ("cancel", "partial_update")
 ALREADY_SENDING_RESPONSE = OpenApiResponse(
     description="PostHog has started sending this email, so it can't change. `code` is `already_sending`."
@@ -140,7 +206,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["retrieve", *MANAGE_ACTIONS]
+    psak_allowed_actions = ["list", "retrieve", *MANAGE_ACTIONS]
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return [TRANSACTIONAL_EMAIL_SEND_SCOPE if self.action in MANAGE_ACTIONS else TRANSACTIONAL_EMAIL_STATUS_SCOPE]
@@ -190,6 +256,41 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ValueError:
             return None
         return get_email_status(self.team_id, message_id)
+
+    @extend_schema(
+        parameters=[ScheduledEmailListQuerySerializer],
+        responses={
+            200: ScheduledEmailPageSerializer,
+            400: OpenApiResponse(description="`status` is missing or isn't `scheduled`, or the cursor isn't valid."),
+            401: OpenApiResponse(description="The request has no project secret API key."),
+        },
+        summary="List scheduled emails",
+        description=(
+            "List the emails that wait for their time, soonest first, a page at a time. An email leaves the list "
+            "when it goes out or is canceled. A new email, a cancel or a move usually shows in the list within a "
+            "minute. "
+            "Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` "
+            "also works, but that scope reaches the rest of Workflows too."
+        ),
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        _require_project_secret_api_key(request)
+        require_email_status_read(self.team)
+        query = ScheduledEmailListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        page = list_scheduled_emails(
+            self.team_id, after=query.validated_data.get("cursor"), limit=query.validated_data["limit"]
+        )
+        self._capture(
+            request,
+            "transactional email api manage",
+            {
+                "action": "list",
+                "outcome": "listed",
+                "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_STATUS_SCOPE),
+            },
+        )
+        return Response(ScheduledEmailPageSerializer({"results": page.results, "next": _cursor(page)}).data)
 
     @extend_schema(
         request=None,
