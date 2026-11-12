@@ -174,6 +174,7 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
+    recheck_pending_email_senders,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -1084,6 +1085,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="7", minute="0"),
+        recheck_pending_email_senders.s(),
+        name="workflows pending email sender recheck",
     )
 
     add_periodic_task_with_expiry(
