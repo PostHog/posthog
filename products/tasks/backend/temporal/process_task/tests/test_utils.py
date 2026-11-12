@@ -1,9 +1,13 @@
+from dataclasses import replace
+
+import pytest
 import time_machine
 from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration, Organization, Team
@@ -14,11 +18,14 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
+from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
+    PUSH_SANDBOX_GITHUB_PERMISSIONS,
+    READONLY_SANDBOX_GITHUB_PERMISSIONS,
     GitHubCredentialSource,
     McpServerConfig,
     PrAuthorshipMode,
@@ -39,15 +46,20 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_github_integration,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_for_task,
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
@@ -63,17 +75,17 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
-    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
-        for model in ("claude-fable-5", "claude-fable-5-1"):
-            assert model in get_models_for_runtime_adapter("claude")
-            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max",
-                "ultracode",
-            )
+    @parameterized.expand([("claude-fable-5",), ("claude-fable-5-1",), ("claude-fable-5-2",)])
+    def test_fable_models_support_all_public_reasoning_efforts(self, model: str) -> None:
+        assert model in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+        )
 
 
 class TestRunStateModelAccess(SimpleTestCase):
@@ -419,6 +431,50 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
 
+    @parameterized.expand(
+        [
+            ("no_profile", None, ["docs-search"], ["docs-search"]),
+            ("profile_only", ("user-get",), None, ["user-get"]),
+            ("profile_and_run", ("user-get",), ["docs-search", "user-get"], ["user-get", "docs-search"]),
+            ("profile_hides_nothing", (), ["docs-search"], ["docs-search"]),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_adds_the_run_to_the_profile(
+        self, _name: str, profile_tools: tuple[str, ...] | None, run_tools: list[str] | None, expected: list[str]
+    ) -> None:
+        task = MagicMock()
+        task.stored_profile = (
+            None if profile_tools is None else replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        )
+        state = None if run_tools is None else {"mcp_exclude_tools": run_tools}
+        assert mcp_exclude_tools_for_task(task, state) == expected
+
+    @parameterized.expand(
+        [
+            ("profile_and_run_fill_the_cap", 31, 1, False),
+            ("run_overflows_the_cap", 31, 2, True),
+            ("run_alone_overflows_the_cap", 0, 34, True),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_refuses_a_run_past_the_cap(
+        self, _name: str, profile_count: int, run_count: int, refused: bool
+    ) -> None:
+        profile_tools = tuple(f"profile-{i}" for i in range(profile_count))
+        run_tools = [f"run-{i}" for i in range(run_count)]
+        task = MagicMock()
+        task.stored_profile = replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        labels = {"profile": BUSINESS_KNOWLEDGE.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+
+        if refused:
+            with pytest.raises(ProcessTaskFatalError):
+                mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools})
+        else:
+            assert mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools}) == [*profile_tools, *run_tools]
+
+        after = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+        assert after - before == (1 if refused else 0)
+
 
 class TestMcpServerConfigToDict(SimpleTestCase):
     def test_description_is_serialized_for_the_sandbox(self) -> None:
@@ -481,22 +537,41 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
-    @parameterized.expand([(None, True), ("account_audit", False)])
+    @parameterized.expand(
+        [
+            ("no_profile", None, None, True),
+            ("account_audit", "account_audit", None, False),
+            ("profile_without_store_servers", None, BUSINESS_KNOWLEDGE, False),
+            (
+                "profile_agent",
+                None,
+                replace(BUSINESS_KNOWLEDGE, key="test.support", mcp_store_servers=True, mcp_agent="support"),
+                True,
+            ),
+        ]
+    )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_builds_configs_from_facade_results(
-        self, origin_product: str | None, mounts_store: bool, mock_facade, mock_api_url
+        self,
+        _name: str,
+        origin_product: str | None,
+        profile: TaskProfile | None,
+        mounts_store: bool,
+        mock_facade,
+        mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
         mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product
+            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product, profile=profile
         ).configs
 
         if not mounts_store:
             assert configs == []
+            mock_facade.assert_not_called()
             return
 
         mock_facade.assert_called_once_with(
@@ -508,6 +583,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=profile is not None,
+            profile_agent_key=profile.mcp_agent if profile is not None else None,
         )
         assert configs == [
             McpServerConfig(
@@ -638,6 +715,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
+            has_profile=False,
+            profile_agent_key=None,
         )
         assert configs == [
             McpServerConfig(
@@ -651,6 +730,19 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             ),
         ]
         assert all(header["name"] != "X-PostHog-Task-Id" for header in configs[0].headers)
+
+    @parameterized.expand(
+        [
+            ("internal", True, None, False),
+            ("user_created", False, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+        ]
+    )
+    def test_include_personal_mcp_for_task(
+        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+    ) -> None:
+        task = MagicMock(internal=internal, stored_profile=profile)
+        assert include_personal_mcp_for_task(task) is expected
 
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
@@ -670,6 +762,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=False,
+            profile_agent_key=None,
         )
 
     @patch(MOCK_API_URL)
@@ -824,7 +918,7 @@ class TestGetGithubToken(TestCase):
         )
 
         with self.assertRaises(CredentialUnavailableError):
-            get_github_token(integration.id)
+            get_github_token(integration.team_id, integration.id)
 
     @override_settings(
         TASKS_REDIS_URL="",
@@ -850,39 +944,15 @@ class TestGetGithubToken(TestCase):
         )
 
         with patch.object(GitHubIntegration, "mint_scoped_installation_token", side_effect=["ghs_1", "ghs_2"]) as mint:
-            first = [get_github_token(integration.id, repositories=["acme/api"]) for _ in range(2)]
+            first = [get_github_token(integration.team_id, integration.id, repositories=["acme/api"]) for _ in range(2)]
             forget_cached_github_tokens(
                 GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL), ["Acme/API"]
             )
-            second = get_github_token(integration.id, repositories=["acme/api"])
+            second = get_github_token(integration.team_id, integration.id, repositories=["acme/api"])
 
         assert first == ["ghs_1", "ghs_1"]
         assert second == "ghs_2"
         assert mint.call_count == 2
-
-    @parameterized.expand(
-        [
-            ("readable", 200, False),
-            ("not_found", 404, True),
-            ("forbidden", 403, True),
-            ("unauthorized", 401, False),
-            ("upstream_error", 503, False),
-            ("probe_raises", None, False),
-        ]
-    )
-    def test_installation_confirms_repository_denied_only_on_a_clear_refusal(self, _name, status, expected):
-        from posthog.models.integration import GitHubIntegration
-
-        from products.tasks.backend.temporal.process_task.utils import installation_confirms_repository_denied
-
-        github = MagicMock(spec=GitHubIntegration)
-        if status is None:
-            github.api_request.side_effect = RuntimeError("probe failed")
-        else:
-            github.api_request.return_value = MagicMock(status_code=status)
-
-        assert installation_confirms_repository_denied(github, "acme/api") is expected
-        github.api_request.assert_called_once_with("GET", "/repos/acme/api", endpoint="/repos/{owner}/{repo}")
 
     @parameterized.expand(
         [
@@ -929,7 +999,9 @@ class TestGetGithubToken(TestCase):
                 ),
             ) as lookup,
         ):
-            tokens = [get_github_token(integration.id, repositories=repositories) for _ in range(2)]
+            tokens = [
+                get_github_token(integration.team_id, integration.id, repositories=repositories) for _ in range(2)
+            ]
 
         if account_name in ("OldAcme", "INSTALL", None) or (
             account_name == "Acme" and any(r.startswith("evilorg/") for r in repositories)
@@ -1002,21 +1074,21 @@ class TestGetGithubToken(TestCase):
             if expected_names is None:
                 expected_error = GitHubIntegrationError if probe_status >= 500 else CredentialUnavailableError
                 with self.assertRaises(expected_error) as raised:
-                    get_github_token(integration.id, repositories)
+                    get_github_token(integration.team_id, integration.id, repositories)
                 if isinstance(raised.exception, GitHubIntegrationError):
                     assert raised.exception.status_code == probe_status
                 else:
                     assert "acme/api" in str(raised.exception)
                     assert "installation settings" in str(raised.exception)
             else:
-                token = get_github_token(integration.id, repositories)
+                token = get_github_token(integration.team_id, integration.id, repositories)
                 assert token == ("ghs_scoped" if expected_names else None)
-                assert get_github_token(integration.id, repositories) == token
+                assert get_github_token(integration.team_id, integration.id, repositories) == token
                 if not expected_names:
                     clock.shift(299)
-                    assert get_github_token(integration.id, repositories) is None
+                    assert get_github_token(integration.team_id, integration.id, repositories) is None
                     clock.shift(2)
-                    assert get_github_token(integration.id, repositories) == "ghs_scoped"
+                    assert get_github_token(integration.team_id, integration.id, repositories) == "ghs_scoped"
 
         expected_calls = [call(None, repositories=sorted(names))]
         if expected_names:
@@ -1045,7 +1117,7 @@ class TestGetGithubToken(TestCase):
             patch.object(GitHubIntegration, "api_request") as request,
             self.assertRaises(GitHubIntegrationError) as raised,
         ):
-            get_github_token(integration.id, ["acme/api"])
+            get_github_token(integration.team_id, integration.id, ["acme/api"])
         assert raised.exception is error
         request.assert_not_called()
 
@@ -1133,6 +1205,26 @@ class TestGetUserGithubIntegration(TestCase):
         assert resolved.integration.integration_id == "222"
 
 
+class TestResolveUserGithubIntegrationForTask(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_access", {"github_access": "none"}, False),
+            ("read_access", {"github_access": "read"}, True),
+            ("no_limit", None, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    def test_a_task_without_github_access_resolves_no_personal_integration(
+        self, _name: str, options: dict | None, resolves: bool, mock_get_identity: MagicMock
+    ) -> None:
+        identity = MagicMock(name="identity")
+        mock_get_identity.return_value = identity
+
+        resolved = resolve_user_github_integration_for_task(Task(options=options), actor_user=MagicMock())
+
+        assert resolved is (identity if resolves else None)
+
+
 class TestGetSandboxGitHubToken(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1173,10 +1265,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
 
         mock_get_github_token.return_value = expected_token
         result = get_sandbox_github_token(
-            123,
-            run_id="run-1",
-            state={"pr_authorship_mode": "user"},
-            created_by=creator,
+            123, run_id="run-1", state={"pr_authorship_mode": "user"}, created_by=creator, team_id=1
         )
         assert result == expected_token
 
@@ -1194,9 +1283,36 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             if has_identity:
                 mock_resolve.assert_called_once_with(identity)
         if error_case in ("missing", "reauthorization", "empty_token"):
-            mock_get_github_token.assert_called_once_with(123, repositories=[])
+            mock_get_github_token.assert_called_once_with(1, 123, repositories=[])
         else:
             mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_access_user_authored", {"github_access": "none"}, "user", None),
+            ("no_access_bot_authored", {"github_access": "none"}, "bot", None),
+            ("read_access_user_authored", {"github_access": "read"}, "user", "ghp_cached"),
+            ("no_limit_bot_authored", None, "bot", "ghs_team"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token", return_value="ghs_team")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value="ghp_cached")
+    def test_a_task_without_github_access_resolves_no_token(
+        self,
+        _name: str,
+        options: dict | None,
+        mode: str,
+        expected: str | None,
+        _mock_cached: MagicMock,
+        _mock_get_github_token: MagicMock,
+    ) -> None:
+        task = Task(options=options, github_integration_id=123)
+
+        token = get_sandbox_github_token(
+            123, run_id="run-1", state={"pr_authorship_mode": mode}, task=task, repository="posthog/posthog"
+        )
+
+        assert token == expected
 
     @parameterized.expand(
         [
@@ -1229,6 +1345,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
                 run_id="run-1",
                 state={"pr_authorship_mode": "user"},
                 created_by=MagicMock(name="creator"),
+                team_id=1,
             )
 
     @parameterized.expand(
@@ -1258,29 +1375,62 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
         mock_get_github_token.return_value = "ghs_bot"
 
         result = get_sandbox_github_token(
-            123, run_id="run-1", state={"pr_authorship_mode": "bot", **extra_state}, repository=repository
+            123, run_id="run-1", state={"pr_authorship_mode": "bot", **extra_state}, repository=repository, team_id=1
         )
 
         assert result == "ghs_bot"
-        mock_get_github_token.assert_called_once_with(123, repositories=expected_repositories)
+        mock_get_github_token.assert_called_once_with(1, 123, repositories=expected_repositories)
+
+    @parameterized.expand(
+        [
+            ("bot_authored_push", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("user_authored_push", "user", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("bot_authored_read", "bot", "read", READONLY_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("no_attached_installation", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_scoped_github_token")
+    def test_scoped_run_mints_only_from_the_attached_installation(
+        self, _name, authorship, scope, permissions, integration_id, mock_scoped, mock_full, mock_user_install
+    ) -> None:
+        mock_scoped.return_value = "ghs_scoped"
+
+        result = get_sandbox_github_token(
+            integration_id,
+            run_id="run-1",
+            state={"pr_authorship_mode": authorship, "github_token_scope": scope, "repositories": ["acme/api"]},
+            github_user_integration_id="user-install",
+            team_id=1,
+        )
+
+        if integration_id is None:
+            assert result is None
+            mock_scoped.assert_not_called()
+        else:
+            assert result == "ghs_scoped"
+            mock_scoped.assert_called_once_with(1, integration_id, ["acme/api"], permissions)
+        mock_full.assert_not_called()
+        mock_user_install.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_no_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
         mock_get_github_token.return_value = "ghs_default"
 
-        result = get_sandbox_github_token(123, run_id="run-1", state=None)
+        result = get_sandbox_github_token(123, run_id="run-1", state=None, team_id=1)
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123, repositories=[])
+        mock_get_github_token.assert_called_once_with(1, 123, repositories=[])
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_empty_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
         mock_get_github_token.return_value = "ghs_default"
 
-        result = get_sandbox_github_token(123, run_id="run-1", state={})
+        result = get_sandbox_github_token(123, run_id="run-1", state={}, team_id=1)
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123, repositories=[])
+        mock_get_github_token.assert_called_once_with(1, 123, repositories=[])
 
     def test_no_integration_id_returns_none(self) -> None:
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
@@ -1300,6 +1450,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "user", "github_credential_source": "caller_token"},
             created_by=MagicMock(name="creator"),
+            team_id=1,
         )
 
         assert result is None
@@ -1329,6 +1480,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
             actor_user=actor,
             repository="posthog/posthog",
+            team_id=1,
         )
 
         assert result == "ghu_actor"
@@ -1361,6 +1513,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
                 run_id="run-1",
                 state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
                 actor_user=MagicMock(name="actor"),
+                team_id=1,
             )
 
         mock_get_github_token.assert_not_called()
@@ -1393,11 +1546,45 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         ):
             assert is_caller_token_run("run-1", {}) is expected
 
-    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_repository", None, "ghs_user_scoped"),
+            ("repository_the_user_can_open", "acme/web-app", "ghs_user_scoped"),
+            ("renamed_repository_the_user_can_open", "acme/old-web-app", "ghs_user_scoped"),
+            ("repository_the_user_cannot_open", "acme/secret", None),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(
+        self,
+        _name: str,
+        repository: str | None,
+        expected: str | None,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
         from posthog.models import Organization, Team
         from posthog.models.user import User
         from posthog.models.user_integration import UserIntegration
 
+        get_tasks_cache().clear()
+        user_responses = {
+            "/user/installations/install-1/repositories": (
+                200,
+                {"total_count": 1, "repositories": [{"name": "web-app"}]},
+            ),
+            "/repos/acme/web-app": (200, {"full_name": "acme/web-app"}),
+            "/repos/acme/old-web-app": (200, {"full_name": "acme/web-app"}),
+            "/repos/acme/secret": (404, {"message": "Not Found"}),
+        }
+
+        def user_request(method: str, url: str, **kwargs: object) -> MagicMock:
+            status, body = user_responses[url.removeprefix("https://api.github.com")]
+            return MagicMock(status_code=status, headers={}, json=lambda: body)
+
+        mock_user_request.side_effect = user_request
+        mock_client_request.return_value = MagicMock(status_code=201, json=lambda: {"token": "ghs_user_scoped"})
         organization = Organization.objects.create(name="bot-fallback-org")
         Team.objects.create(organization=organization, name="bot-fallback-team")
         user = User.objects.create(email="bot-fallback@test.com")
@@ -1405,8 +1592,8 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id="install-1",
-            config={},
-            sensitive_config={"access_token": "ghs_user_install"},
+            config={"installation_id": "install-1", "account": {"name": "acme"}},
+            sensitive_config={"access_token": "ghs_user_install", "user_access_token": "ghu_user"},
         )
 
         result = get_sandbox_github_token(
@@ -1414,9 +1601,15 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            team_id=1,
+            repository=repository,
         )
 
-        assert result == "ghs_user_install"
+        assert result == expected
+        minted = [call.kwargs.get("json_body", {}).get("repositories") for call in mock_client_request.call_args_list]
+        assert all(repositories == ["web-app"] for repositories in minted)
+        listed_all = any("/user/installations/" in call.args[1] for call in mock_user_request.call_args_list)
+        assert listed_all is (repository is None)
 
     def test_bot_authorship_prefers_team_integration_over_user_install_token(self) -> None:
         from posthog.models import Integration, Organization, Team
@@ -1446,6 +1639,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            team_id=team.id,
         )
 
         assert result == "ghs_team"

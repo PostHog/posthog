@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.logs.backend import services_query_runner
+from products.logs.backend.models import LogsExclusionRule
 from products.logs.backend.services_query_runner import rule_could_apply_to_service
 from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups, log_row
 
@@ -226,6 +227,22 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         services = response.json()["services"]
         self.assertEqual({s["service_name"] for s in services}, {"cdp-legacy-events-consumer"})
+
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
+    def test_active_rules_list_log_rules_only(self):
+        for name, source in (("log rule", "logs"), ("span rule", "spans")):
+            LogsExclusionRule.objects.create(
+                team_id=self.team.id,
+                name=name,
+                enabled=True,
+                rule_type=LogsExclusionRule.RuleType.PATH_DROP,
+                config={"patterns": ["/healthz"]},
+                source=source,
+            )
+
+        services = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")["services"]
+
+        assert {rule["rule_name"] for s in services for rule in s["active_rules"]} == {"log rule"}
 
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_sparkline_covers_exactly_the_returned_services(self):

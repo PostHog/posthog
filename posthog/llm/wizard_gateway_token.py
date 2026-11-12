@@ -182,12 +182,15 @@ _MAX_ALLOWED_MODELS = 32
 # that mint for a tool keep working when the allowlist is unreadable.
 WIZARD_DEFAULT_MODELS: tuple[str, ...] = (
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "claude-haiku-4-5",
     "gpt-5.6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-6-luna",
     "gpt-6-sol",
+    "gpt-6.1-sol",
+    "gpt-6.1-terra",
 )
 WIZARD_DEFAULT_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
 WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (

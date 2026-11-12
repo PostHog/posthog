@@ -1,11 +1,11 @@
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { isFileSystemImportFlagEnabled } from './fileSystemImportFlags'
+import { isFileSystemImportFlagEnabled, isFileSystemImportShown } from './fileSystemImportFlags'
 
-describe('isFileSystemImportFlagEnabled', () => {
-    const flags = (enabled: string[]): FeatureFlagsSet =>
-        Object.fromEntries(enabled.map((flag) => [flag, true])) as FeatureFlagsSet
+const flags = (enabled: string[]): FeatureFlagsSet =>
+    Object.fromEntries(enabled.map((flag) => [flag, true])) as FeatureFlagsSet
 
+describe('fileSystemImportFlags', () => {
     it.each([
         { name: 'no flag', item: {}, enabled: [], expected: true },
         { name: 'flag on', item: { flag: 'a' }, enabled: ['a'], expected: true },
@@ -24,5 +24,19 @@ describe('isFileSystemImportFlagEnabled', () => {
         },
     ])('$name', ({ item, enabled, expected }) => {
         expect(isFileSystemImportFlagEnabled(item, flags(enabled))).toBe(expected)
+    })
+
+    it.each([
+        { name: 'every hiding flag on', item: { hiddenWhenFlags: ['a', 'b'] }, enabled: ['a', 'b'], expected: false },
+        { name: 'one hiding flag on', item: { hiddenWhenFlags: ['a', 'b'] }, enabled: ['b'], expected: true },
+        {
+            name: 'hiding flags on, own flag off',
+            item: { flag: 'c', hiddenWhenFlags: ['a'] },
+            enabled: ['a'],
+            expected: false,
+        },
+        { name: 'no hiding flags, own flag off', item: { flag: 'c' }, enabled: [], expected: false },
+    ])('shown: $name', ({ item, enabled, expected }) => {
+        expect(isFileSystemImportShown(item, flags(enabled))).toBe(expected)
     })
 })

@@ -59,7 +59,7 @@ class TestOpenAIAudioTranscription:
     def test_transcription_with_product_route(self, gateway_url: str, audio_file: Path):
         client = OpenAI(
             api_key="phx_fake_personal_api_key",
-            base_url=f"{gateway_url}/llm_gateway/v1",
+            base_url=f"{gateway_url}/django/v1",
         )
 
         with open(audio_file, "rb") as f:

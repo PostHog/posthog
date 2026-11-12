@@ -183,6 +183,33 @@ function readRunPostHogReferences(run: TaskRun): Array<{
   });
 }
 
+function rowTimestamp(row: ArtifactRow): number {
+  switch (row.kind) {
+    case "pr":
+    case "canvas":
+      return row.ts;
+    case "file":
+      return Date.parse(row.group.latest.uploaded_at ?? "") || 0;
+    case "posthog_object":
+      return Date.parse(row.uploadedAt ?? "") || 0;
+    case "slack":
+      return 0;
+  }
+}
+
+export function orderRows(rows: ArtifactRow[]): {
+  pullRequests: ArtifactRow[];
+  others: ArtifactRow[];
+} {
+  const newestFirst = [...rows].sort(
+    (a, b) => rowTimestamp(b) - rowTimestamp(a),
+  );
+  return {
+    pullRequests: newestFirst.filter((row) => row.kind === "pr"),
+    others: newestFirst.filter((row) => row.kind !== "pr"),
+  };
+}
+
 export function buildRows(
   task: Task,
   timeline: ThreadTimelineRow<TaskThreadMessage>[],

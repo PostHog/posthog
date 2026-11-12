@@ -386,7 +386,8 @@ describe('inbox hooks', () => {
         const polling = queryClient
             .fetchQuery({
                 queryKey: key,
-                queryFn: async ({ signal }) => (await postReadStates(['report-1'], undefined, signal)).states,
+                queryFn: async ({ signal }) =>
+                    (await postReadStates(scopeOf(), ['report-1'], undefined, signal)).states,
             })
             .catch(() => undefined)
         const wrapper = ({ children }: { children: ReactNode }): ReactElement => (

@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
-from django.db.models import Q
-from django.utils import timezone
+from django.db.models import Q, TextChoices
 
 import temporalio
 from anthropic import APIConnectionError
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -39,7 +37,12 @@ from products.data_warehouse.backend.facade.api import (
     is_any_external_data_schema_paused,
     is_custom_source_ai_builder_enabled_for_team,
 )
-from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.api import (
+    effective_source_status,
+    schema_needs_webhook,
+    sources_missing_webhook,
+    validate_source_prefix,
+)
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_INPUT_KEY,
     SharedCredentialsEdit,
@@ -47,15 +50,21 @@ from products.warehouse_sources.backend.facade.contracts import (
     UnusableCredentialsReferenceError,
 )
 from products.warehouse_sources.backend.facade.models import (
+    PENDING_CREDENTIAL_TTL,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
-from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.source_inputs import (
+    SourceCredentialsMissingError,
+    SourceInputsStore,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
@@ -90,7 +99,12 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, SourceKey
+from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseManagedViewSetKind,
+    SettableSyncFrequency,
+    SourceKey,
+)
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
@@ -98,8 +112,11 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     PINNED_TABLE_IDS_CONTEXT_KEY,
+    WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    canonical_masked_columns,
+    masked_columns_error,
     pinned_table_ids,
     source_supports_column_selection,
     unsupported_row_filter_reason,
@@ -111,6 +128,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
 )
 
 from . import base, connection_options, credential_store, helpers, shared_credentials, webhook_setup
+from .setup_errors import SourceSetupErrorCode, setup_error_response
 
 
 def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
@@ -121,6 +139,21 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
     return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
+def _is_column_name_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(column, str) for column in value)
+
+
+def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
+    """A table's `sync_frequency` from the create payload, such as `1hour`, or the 6-hour default.
+
+    Only frequencies a schema update accepts count, so creation cannot go below the 5-minute floor.
+    """
+    interval = (
+        sync_frequency_to_sync_frequency_interval(frequency) if frequency in SettableSyncFrequency.values else None
+    )
+    return interval or timedelta(hours=6)
+
+
 class ExternalDataSourceListSerializer(serializers.ListSerializer):
     def to_representation(
         self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
@@ -129,11 +162,27 @@ class ExternalDataSourceListSerializer(serializers.ListSerializer):
         child = self.child
         assert isinstance(child, ExternalDataSourceSerializers)
         child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
+        child.preloaded_webhook_missing_by_source = self._webhook_missing_by_source(child, sources)
         return super().to_representation(sources)
+
+    def _webhook_missing_by_source(
+        self, child: ExternalDataSourceSerializers, sources: list[ExternalDataSource]
+    ) -> dict[UUID, bool] | None:
+        """One webhook lookup for every listed source, or None to look each source up on its own."""
+        schemas: list[ExternalDataSchema] = []
+        for source in sources:
+            prefetched = child._prefetched_schemas(source)
+            if prefetched is None:
+                return None
+            schemas.extend(prefetched)
+        if not sources:
+            return {}
+        return sources_missing_webhook(sources[0].team_id, schemas)
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     preloaded_source_inputs: dict[UUID, dict[str, Any]] = {}
+    preloaded_webhook_missing_by_source: dict[UUID, bool] | None = None
 
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
@@ -155,6 +204,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    webhook_not_registered = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether at least one table of this source uses webhook sync, but the source has no enabled "
+            "webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, "
+            "which is slower and can read the whole table. Set up the webhook, or change the sync method "
+            "of those tables."
+        ),
+    )
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
@@ -235,6 +293,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "API could not reach the database. Null otherwise."
         ),
     )
+    payload = credential_store.SourceUpdatePayloadSerializer(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do "
+            "not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -262,11 +328,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "revenue_analytics_config",
             "user_access_level",
             "supports_webhooks",
+            "webhook_not_registered",
             "supports_column_selection",
             "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
+            "payload",
         ]
         read_only_fields = [
             "id",
@@ -282,6 +350,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "access_method",
             "supports_webhooks",
+            "webhook_not_registered",
             "supports_column_selection",
             "file_name",
             "api_version",
@@ -293,6 +362,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if instance.id in self.preloaded_source_inputs:
             return self.preloaded_source_inputs[instance.id]
         return SourceInputsStore.load(instance)
+
+    def validate_job_inputs(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError("Must be an object.")
+        return value
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -337,9 +411,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
-        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
-
-        return latest_completed_run.created_at.isoformat() if latest_completed_run else None
+        latest_completed_run_at = getattr(instance, "latest_completed_run_at", None)
+        return latest_completed_run_at.isoformat() if latest_completed_run_at else None
 
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
@@ -351,6 +424,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
+
+    def _webhook_missing_by_source(self, instance: ExternalDataSource) -> dict[UUID, bool]:
+        if self.preloaded_webhook_missing_by_source is not None:
+            return self.preloaded_webhook_missing_by_source
+        cached: dict[UUID, bool] | None = getattr(instance, "_webhook_missing_by_source", None)
+        if cached is None:
+            schemas = self._prefetched_schemas(instance)
+            if schemas is None:
+                schemas = [schema for schema in instance.schemas.exclude(deleted=True) if schema_needs_webhook(schema)]
+            cached = sources_missing_webhook(instance.team_id, schemas)
+            instance._webhook_missing_by_source = cached  # type: ignore[attr-defined]
+        return cached
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_webhook_not_registered(self, instance: ExternalDataSource) -> bool:
+        return self._webhook_missing_by_source(instance).get(instance.pk, False)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_name(self, instance: ExternalDataSource) -> str | None:
@@ -405,7 +494,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
         cached = getattr(instance, "_error_redaction_values", None)
         if cached is None:
-            cached = helpers.get_error_redaction_values(instance)
+            try:
+                job_inputs = self._source_inputs(instance)
+            except UnreadableSourceInputsError:
+                job_inputs = {}
+            cached = helpers.get_error_redaction_values(instance, job_inputs)
             instance._error_redaction_values = cached  # type: ignore[attr-defined]
         return cached
 
@@ -423,10 +516,57 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             **self.context,
             "error_redaction_values": self._error_redaction_values(instance),
             PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
+            WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY: {
+                source_id: missing
+                for source_id, missing in self._webhook_missing_by_source(instance).items()
+                if source_id == instance.pk
+            },
         }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
+
+    def _stored_credential_for_update(
+        self, instance: ExternalDataSource, validated_data: dict[str, Any]
+    ) -> PendingSourceCredential | None:
+        """Resolve `payload.credential_id` and put the stored values in `validated_data["job_inputs"]`.
+
+        The stored values are the whole connection change, so inline `job_inputs` and a reference to other
+        saved credentials are refused: either one could pair the user's new secrets with a target or
+        credentials that the user did not enter on the connect page.
+        """
+        update_payload = validated_data.pop("payload", None)
+        if update_payload is None:
+            return None
+        if "job_inputs" in validated_data:
+            raise ValidationError(
+                {"payload": "Send a stored credential without job_inputs. Its values replace the connection details."}
+            )
+        # A PATCH skips required fields of nested serializers, so the id is checked here.
+        credential_id = update_payload.get("credential_id")
+        if credential_id is None:
+            raise ValidationError({"payload": {"credential_id": "This field is required."}})
+        try:
+            stored_credential = credential_store.find_stored_credential(
+                team_id=instance.team_id,
+                user=cast(User, self.context["request"].user),
+                credential_id=credential_id,
+                source_type=instance.source_type,
+            )
+        except credential_store.StoredCredentialUnavailableError as error:
+            raise ValidationError({"payload": {"credential_id": str(error)}})
+        if stored_credential.payload.get(CREDENTIALS_REFERENCE_INPUT_KEY) not in (None, ""):
+            raise ValidationError(
+                {
+                    "payload": {
+                        "credential_id": "This stored credential points at other saved credentials. "
+                        "Ask the user to enter the connection details on a new connect link."
+                    }
+                }
+            )
+        # The stored values go through the same path as job_inputs from the settings form.
+        validated_data["job_inputs"] = dict(stored_credential.payload)
+        return stored_credential
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
@@ -457,7 +597,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        existing_job_inputs = SourceInputsStore.load(instance)
+        stored_credential = self._stored_credential_for_update(instance, validated_data)
+
+        try:
+            existing_job_inputs = SourceInputsStore.load(instance)
+        except SourceCredentialsMissingError:
+            # The credentials row of a stripped source is lost. The update must still accept new credentials, so it
+            # starts from the settings that `job_inputs` still holds.
+            existing_job_inputs = SourceInputsStore.load_settings(instance)
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
@@ -468,7 +615,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         discovered_schemas: list[SourceSchema] | None = None
         connection_warning: str | None = None
 
-        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+        if stored_credential is None:
+            new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+            secrets_base: dict[str, Any] = existing_job_inputs
+        else:
+            # The connect page checked the stored values on their own. So a reconnect keeps only the source's
+            # sync settings and runtime state, and takes every connection field from the stored values: no
+            # host, TLS setting, SSH tunnel or secret that the user did not enter there carries over.
+            new_job_inputs = {**SourceInputsStore.load_settings(instance), **incoming_job_inputs}
+            secrets_base = {}
 
         # CDC resource ownership changes must go through the CDC-specific endpoints.
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
@@ -529,7 +684,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if connection_host_changed or ssh_tunnel_changed or job_inputs_host_added:
             gate_sensitive_fields = sensitive_fields - helpers._CREATION_ONLY_SECRET_FIELDS
             preserved_credentials = helpers.has_preserved_credentials(
-                existing_job_inputs,
+                secrets_base,
                 incoming_job_inputs,
                 gate_sensitive_fields,
                 nested_containers=(*helpers._NESTED_AUTH_CONTAINERS, *declared_field_names.switch_groups),
@@ -543,15 +698,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
         for key in sensitive_fields:
-            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
-                new_job_inputs[key] = existing_job_inputs[key]
+            if secrets_base.get(key) and not incoming_job_inputs.get(key):
+                new_job_inputs[key] = secrets_base[key]
 
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
         # list as the host-change gate above, so a merge here always has a matching preserved-credential check.
         for container_key in helpers._NESTED_AUTH_CONTAINERS:
-            existing_container = existing_job_inputs.get(container_key)
+            existing_container = secrets_base.get(container_key)
             incoming_container = incoming_job_inputs.get(container_key)
             if incoming_container is not None and not isinstance(incoming_container, dict):
                 raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
@@ -582,9 +737,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             incoming_group = incoming_job_inputs[incoming_key]
             if not isinstance(incoming_group, dict):
                 raise ValidationError({"job_inputs": {group_key: "Must be an object."}})
-            existing_group = helpers._stored_value(existing_job_inputs, group_key)
+            existing_group = helpers._stored_value(secrets_base, group_key)
             if not isinstance(existing_group, dict):
-                continue
+                if stored_credential is None:
+                    continue
+                existing_group = {}
             merged_group = {**existing_group, **incoming_group}
             # No switch group declares a secret today, but keep the carry-over so one could.
             for key in sensitive_fields:
@@ -598,9 +755,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if incoming_ssh_tunnel is not None:
-            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
-                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
-            )
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(secrets_base.get("ssh_tunnel"), incoming_ssh_tunnel)
 
         # A client may point the source at another credentials row only when the source can use that row.
         # The check runs for every team, also while the dual-write flag is off, because it keeps a client
@@ -762,6 +917,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     credentials_reference=requested_reference,
                 )
             updated_source: ExternalDataSource = super().update(instance, validated_data)
+            if stored_credential is not None:
+                # Stored credentials are single-use. A concurrent update that used the same credential first
+                # deleted it, so roll this update back.
+                deleted_count, _ = (
+                    PendingSourceCredential.objects.for_team(instance.team_id).filter(pk=stored_credential.pk).delete()
+                )
+                if not deleted_count:
+                    raise ValidationError(
+                        {"payload": {"credential_id": f"Stored credential '{stored_credential.pk}' was already used"}}
+                    )
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -819,6 +984,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+class ExternalDataSourceCreateCreatedVia(TextChoices):
+    """The `CreatedVia` values a caller may set. The class name keeps the generated enum name.
+
+    `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+    caller (that would let any client self-label as wizard- or self-driving-created). They
+    are derived server-side by upgrading a machine-injected `mcp` value based on the request
+    transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
+    """
+
+    WEB = "web", "web"
+    API = "api", "api"
+    MCP = "mcp", "mcp"
+
+
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
     source_type = SourceTypeField(
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
@@ -846,15 +1025,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
-        # caller (that would let any client self-label as wizard- or self-driving-created). They
-        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
-        # transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
-        choices=[
-            ExternalDataSource.CreatedVia.WEB,
-            ExternalDataSource.CreatedVia.API,
-            ExternalDataSource.CreatedVia.MCP,
-        ],
+        choices=ExternalDataSourceCreateCreatedVia.choices,
         required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
@@ -901,8 +1072,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Connection details as flat keys for the source_type (discover required fields with the wizard "
             "tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection "
             "details the user stored via the connect-link page (discover ids with the stored_credentials "
-            "endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth "
-            "integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). "
+            "endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is "
+            "created, and must be stored for the same source_type. An already-connected OAuth integration can be "
+            "passed via its id key instead. The key name differs per source and is listed in the wizard output "
+            "as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} "
+            "or {'meta_ads_integration_id': 67}. "
             "For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified "
             "RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth "
             "type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' "
@@ -950,7 +1124,18 @@ class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
 
 
 class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
-    message = serializers.CharField(help_text="Human-readable explanation of why the source could not be created.")
+    message = serializers.CharField(
+        help_text="Human-readable explanation of why the request failed and what to do next."
+    )
+    code = serializers.ChoiceField(
+        choices=SourceSetupErrorCode.choices,
+        required=False,
+        help_text=(
+            "Stable machine-readable failure cause, for example 'credential_expired', 'invalid_config' or "
+            "'credential_validation_failed'. Branch on this instead of parsing the message. Absent on errors "
+            "that have no dedicated code."
+        ),
+    )
 
 
 class SourcePreviewRequestSerializer(serializers.Serializer):
@@ -1070,54 +1255,135 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+# Inline payload keys that route a connection or secure it, dropped when a stored credential is used.
+# The SSH tunnel keys also come in flat form (`ssh_tunnel_host`), so they match by prefix.
+_CONNECTION_ROUTING_KEYS = frozenset(
+    {
+        *helpers._CONNECTION_TARGET_FIELDS,
+        "connection_string",
+        "verify_server_certificate",
+        "ca_certificate",
+        "client_certificate",
+        "client_key",
+    }
+)
+_SSH_TUNNEL_KEY_PREFIX = "ssh_tunnel"
+
+SETUP_400_DESCRIPTION = (
+    "The source was not created. The body carries a human-readable `message` and, for most causes, a stable "
+    "`code` such as `credential_expired`, `invalid_config` or `credential_validation_failed`."
+)
+
+
+def _reserved_name_response() -> Response:
+    return setup_error_response(
+        SourceSetupErrorCode.RESERVED_NAME, f"{helpers.RESERVED_SOURCE_NAME_MESSAGE} Choose a different prefix."
+    )
+
+
+def _direct_query_unsupported_response() -> Response:
+    return setup_error_response(
+        SourceSetupErrorCode.DIRECT_QUERY_UNSUPPORTED, helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE
+    )
+
+
+def _direct_query_name_required_response() -> Response:
+    return setup_error_response(
+        SourceSetupErrorCode.DIRECT_QUERY_NAME_REQUIRED,
+        "Name is required for direct query sources. Pass a non-empty prefix to name the connection.",
+    )
+
+
+def _duplicate_source_response() -> Response:
+    return setup_error_response(
+        SourceSetupErrorCode.DUPLICATE_SOURCE,
+        "You already have a source of this type. Add a table prefix so this connection's tables don't clash "
+        "with your existing source.",
+    )
+
+
+def _duplicate_prefix_response(prefix: str) -> Response:
+    return setup_error_response(
+        SourceSetupErrorCode.DUPLICATE_PREFIX,
+        f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this "
+        "connection's tables don't clash.",
+    )
+
+
+def _stored_credential_error_response(
+    error: credential_store.StoredCredentialUnavailableError, credential_id: Any, source_type: str
+) -> Response:
+    if error.problem == credential_store.StoredCredentialProblem.EXPIRED:
+        return setup_error_response(
+            SourceSetupErrorCode.CREDENTIAL_EXPIRED,
+            f"Stored credential '{credential_id}' not found or expired. Stored credentials last "
+            f"{int(PENDING_CREDENTIAL_TTL.total_seconds() // 3600)} hours. Ask the user to fill in a new "
+            "connect link from 'data-warehouse-source-connect-link', then find the new id with "
+            "'data-warehouse-stored-credentials-list'.",
+        )
+    if error.problem == credential_store.StoredCredentialProblem.SOURCE_TYPE_MISMATCH:
+        return setup_error_response(
+            SourceSetupErrorCode.CREDENTIAL_SOURCE_TYPE_MISMATCH,
+            f"Stored credential '{credential_id}' is for '{error.stored_source_type}', not '{source_type}'. "
+            f"Set source_type to '{error.stored_source_type}', or pass a credential stored for '{source_type}'.",
+        )
+    return setup_error_response(
+        SourceSetupErrorCode.CREDENTIAL_NOT_FOUND,
+        f"Stored credential '{credential_id}' not found or expired. It may have been used already "
+        "(stored credentials work once), or it belongs to another user or project. List current ids "
+        "with 'data-warehouse-stored-credentials-list', or ask the user to fill in a new connect link "
+        "from 'data-warehouse-source-connect-link'.",
+    )
+
+
 class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> credential_store.ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
 
         Lets the create and setup flows reference credentials the user entered on the connect page
-        instead of passing secrets inline. Only credentials the requesting user stored resolve —
-        ids are listable within a team, so without the owner check any member could consume a
-        teammate's stashed secrets into a source they control. Returns the (possibly merged)
-        payload, the resolved credential (which the caller deletes once consumed — stored
-        credentials are single-use), and a 400 Response to return as-is on a lookup miss or
-        source-type mismatch.
+        instead of passing secrets inline. `credential_store.find_stored_credential` does the lookup and
+        its checks. Returns the (possibly merged) payload, the resolved credential (which a caller that
+        creates a source deletes once consumed — stored credentials are single-use; read-only discovery
+        leaves it in place), and a 400 Response to return as-is on a lookup miss or source-type mismatch.
         """
         credential_id = payload.pop("credential_id", None)
         if credential_id is None:
             return credential_store.ResolvedStoredCredential(payload=payload, credential=None, error_response=None)
         try:
-            credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                id=credential_id, created_by=cast(User, self.request.user), expires_at__gt=timezone.now()
+            credential = credential_store.find_stored_credential(
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                credential_id=credential_id,
+                source_type=source_type,
             )
-        except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+        except credential_store.StoredCredentialUnavailableError as error:
             return credential_store.ResolvedStoredCredential(
                 payload=payload,
                 credential=None,
-                error_response=Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
-                ),
-            )
-        if credential.source_type != source_type:
-            return credential_store.ResolvedStoredCredential(
-                payload=payload,
-                credential=None,
-                error_response=Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.source_type}', not '{source_type}'"
-                    },
-                ),
+                error_response=_stored_credential_error_response(error, credential_id, source_type),
             )
         # Stored credentials win over inline keys so an agent can't override what the user entered.
+        # Inline keys that decide where the connection goes or how it is secured are dropped as well:
+        # a key the user left blank on the connect page is absent from the stored payload, so the merge
+        # alone would let an inline value reroute the stored secrets, for example through an SSH tunnel.
+        routing_keys = _CONNECTION_ROUTING_KEYS | set(
+            base.SourceRegistry.get_source(known_source_key(source_type)).connection_host_fields
+        )
+        inline_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in routing_keys and not key.startswith(_SSH_TUNNEL_KEY_PREFIX)
+        }
         return credential_store.ResolvedStoredCredential(
-            payload={**payload, **credential.payload}, credential=credential, error_response=None
+            payload={**inline_payload, **credential.payload}, credential=credential, error_response=None
         )
 
     @extend_schema(
         request=ExternalDataSourceCreateSerializer,
-        responses={201: ExternalDataSourceCreateResponseSerializer},
+        responses={
+            201: ExternalDataSourceCreateResponseSerializer,
+            400: OpenApiResponse(response=ExternalDataSourceErrorResponseSerializer, description=SETUP_400_DESCRIPTION),
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
@@ -1179,10 +1445,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "source_type": instance.source_type,
                 "created_via": instance.created_via,
                 "source_id": str(instance.pk),
+                "used_stored_credential": "payload" in serializer.validated_data,
             },
             team=self.team,
             request=self.request,
         )
+
+    @staticmethod
+    def _delete_new_source(source: ExternalDataSource, cdc_adapter: CDCSourceAdapter | None) -> None:
+        # A hard delete leaves no source row for the orphan-slot sweeper to find, so drop the slot
+        # and publication created for this source first.
+        if cdc_adapter is not None:
+            cdc_adapter.cleanup_resources(source)
+        SourceInputsStore.discard_created(source)
 
     def _create_external_data_source(
         self,
@@ -1227,24 +1502,15 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
 
         if ExternalDataSource.is_system_managed_prefix(prefix):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers.RESERVED_SOURCE_NAME_MESSAGE},
-            )
+            return _reserved_name_response()
 
         if is_direct_query and source_type not in direct_capable_source_types_for_team(self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
-            )
+            return _direct_query_unsupported_response()
 
         if is_direct_query:
             prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not prefix:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Name is required for direct query sources"},
-                )
+                return _direct_query_name_required_response()
         else:
             is_valid, error_message = validate_source_prefix(prefix)
             if not is_valid:
@@ -1252,26 +1518,16 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             if not prefix:
                 if self.prefix_required(source_type):
-                    return Response(
-                        status=status.HTTP_400_BAD_REQUEST,
-                        data={
-                            "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
-                        },
-                    )
+                    return _duplicate_source_response()
             elif self.prefix_exists(source_type, prefix):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this connection's tables don't clash."
-                    },
-                )
+                return _duplicate_prefix_response(prefix)
 
         if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
             self.team_id
         ):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
+            return setup_error_response(
+                SourceSetupErrorCode.BILLING_LIMIT_REACHED,
+                "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
         # Strip leading and trailing whitespace
@@ -1282,31 +1538,22 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
         if not is_direct_query and not source.supports_scheduled_sync:
-            return Response(
-                ExternalDataSourceErrorResponseSerializer(
-                    {
-                        "message": f"{source.get_source_config.label or source_type_model} is available only as a direct connection."
-                    }
-                ).data,
-                status=status.HTTP_400_BAD_REQUEST,
+            return setup_error_response(
+                SourceSetupErrorCode.SOURCE_UNAVAILABLE,
+                f"{source.get_source_config.label or source_type_model} is available only as a direct connection. "
+                "Create it with access_method 'direct' instead.",
             )
         if source.syncs_on_demand is True:
-            return Response(
-                ExternalDataSourceErrorResponseSerializer(
-                    {"message": f"A {source_type_model.label} source can't be created here. Use its own setup flow."}
-                ).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
+            return setup_error_response(
+                SourceSetupErrorCode.SOURCE_UNAVAILABLE,
+                f"A {source_type_model.label} source can't be created here. Use its own setup flow.",
             )
         max_instances = source.max_instances_per_team
         if max_instances is not None and helpers.count_active_sources(self.team_id, source_type_model) >= max_instances:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"You can create at most {max_instances} sources of this type per project."},
+            return setup_error_response(
+                SourceSetupErrorCode.MAX_INSTANCES_REACHED,
+                f"You can create at most {max_instances} sources of this type per project. "
+                "Reuse or delete an existing source of this type first.",
             )
         if skip_credential_validation:
             source_config: Config = source.parse_config(payload)
@@ -1319,11 +1566,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             source_config = validated_config
 
         api_version = source.default_version
-        cdc_enabled = (
-            payload.get("cdc_enabled", False)
-            and source_type_supports_cdc(source_type_model)
-            and base.is_cdc_enabled_for_team(self.team)
-        )
+        cdc_enabled = payload.get("cdc_enabled", False) and source_type_supports_cdc(source_type_model)
 
         # Schema discovery and the payload checks run before the insert, so a failure leaves no source and
         # no credentials row. Discovery opens its own connection, so it must not run in a transaction.
@@ -1334,9 +1577,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased scaffold the UI hides).
             # Return a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
+            return setup_error_response(
+                SourceSetupErrorCode.SOURCE_UNAVAILABLE, helpers._source_unavailable_message(source_type)
             )
         except Exception as e:
             # `get_schemas` opens its own connection, so credentials validated above can still fail
@@ -1346,10 +1588,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": error_message},
-            )
+            return setup_error_response(SourceSetupErrorCode.SCHEMA_DISCOVERY_FAILED, error_message)
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
         source_config_dict = source_config.to_dict()
@@ -1633,15 +1872,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 payload_row_filters if isinstance(payload_row_filters, list) and payload_row_filters else None
             )
 
+            payload_masked_columns = schema.get("masked_columns")
+            # Dropping a malformed mask would sync the column in plaintext, so reject it.
+            if payload_masked_columns is not None and not _is_column_name_list(payload_masked_columns):
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"masked_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
+            masked_columns: list[str] | None = payload_masked_columns or None
+
+            # A stored string key would later split into one key per character.
+            if primary_key_columns is not None and not _is_column_name_list(primary_key_columns):
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"primary_key_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
+
             if should_sync and requires_incremental_fields and incremental_field is None:
-                SourceInputsStore.discard_created(new_source_model)
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
             if should_sync and requires_incremental_fields and incremental_field_type is None:
-                SourceInputsStore.discard_created(new_source_model)
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
@@ -1649,6 +1910,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
+            detected_primary_keys = source_schema.detected_primary_keys if source_schema else None
+            # A caller who sent no key gets the one discovery detected. Sync-time re-detection can
+            # disagree with discovery (e.g. permissions differences across query paths) and leave
+            # the merge without a key.
+            effective_primary_key_columns = primary_key_columns or detected_primary_keys
 
             # An incremental sync merges rows on a primary key. Created without one, the table
             # syncs once (the first write overwrites) and then fails on every later run, so the
@@ -1664,10 +1930,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 and sync_type == "incremental"
                 and not primary_key_columns
                 and introspected_columns
-                and not source_schema.detected_primary_keys  # type: ignore[union-attr]
+                and not detected_primary_keys
                 and not has_id_column
             ):
-                SourceInputsStore.discard_created(new_source_model)
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     data={
                         "message": f"Table '{schema_name}' has no primary key to sync incrementally on. "
@@ -1719,7 +1985,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 # Only sources that push filters into their query (SQL WHERE) can honor them — a
                 # saved-but-ignored filter would silently sync unfiltered rows.
                 if not source.supports_row_filters:
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
@@ -1730,7 +1996,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 if reason := unsupported_row_filter_reason(
                     is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
@@ -1740,7 +2006,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         row_filters, schema_metadata, source.row_filter_columns_for_schema(schema_name)
                     )
                 except RowFilterValidationError as e:
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"Invalid row filter for schema '{schema_name}': {e}"},
@@ -1753,13 +2019,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # enables get a concrete CDC method + config.
             cdc_not_set_up = is_cdc_schema and not should_sync
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
-                # If the caller didn't provide primary_key_columns, fall back to whatever the
-                # source detected during schema discovery. Otherwise we rely on sync-time
-                # re-detection, which can disagree with discovery (e.g. permissions differences
-                # across query paths) and leave incremental syncs without a primary key.
-                effective_primary_key_columns = primary_key_columns or (
-                    source_schema.detected_primary_keys if source_schema else None
-                )
                 # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
                 # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
                 # creation paths reject the same inputs instead of silently dropping null/float values.
@@ -1777,7 +2036,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
                     is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
                     if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
-                        SourceInputsStore.discard_created(new_source_model)
+                        self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                         return Response(
                             status=status.HTTP_400_BAD_REQUEST,
                             data={
@@ -1816,15 +2075,43 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "cdc_table_mode": cdc_table_mode,
                 }
                 sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
+            elif sync_type == ExternalDataSchema.SyncType.XMIN and new_source_model.supports_scheduled_sync:
+                # The xmin reader keys on the source's own primary key, so a caller's pick would not match it.
+                sync_type_config = {
+                    "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": detected_primary_keys} if detected_primary_keys else {}),
+                }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
+            if masked_columns:
+                masking_error = masked_columns_error(
+                    masked_columns,
+                    source_type=source_type,
+                    is_direct_query=is_direct_query,
+                    source_columns=[column[0] for column in introspected_columns],
+                    # A sync merges and partitions on `id` when no key is stored or detected.
+                    primary_key_columns=sync_type_config.get("primary_key_columns")
+                    or detected_primary_keys
+                    or [column[0] for column in introspected_columns if column[0].lower() == "id"][:1],
+                    incremental_fields=[incremental_field],
+                )
+                if masking_error:
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Column masking not allowed for schema '{schema_name}': {masking_error}"},
+                    )
+                masked_columns = canonical_masked_columns(
+                    masked_columns, [column[0] for column in introspected_columns]
+                )
+
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
-            # and the value prop is near-real-time. Other sync types use the 6h default.
+            # and the value prop is near-real-time. Other sync types use the payload's frequency, or 6h.
             schema_sync_frequency_interval = (
                 timedelta(minutes=5)
                 if is_cdc_schema and not cdc_not_set_up and new_source_model.supports_scheduled_sync
-                else timedelta(hours=6)
+                else _payload_sync_frequency_interval(schema.get("sync_frequency"))
             )
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
@@ -1838,6 +2125,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 label=schema_label_by_name.get(schema_name),
                 sync_frequency_interval=schema_sync_frequency_interval,
                 enabled_columns=enabled_columns,
+                masked_columns=masked_columns,
                 row_filters=row_filters,
             )
 
@@ -1859,10 +2147,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         cast(str, metadata_source_schema),
                         cast(str, metadata_source_table_name),
                     )
-                    # A hard delete leaves no source row for the orphan-slot sweeper to find, so
-                    # drop the slot and publication created above before deleting the source.
-                    cdc_adapter.cleanup_resources(new_source_model)
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter)
                     return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": message})
 
             if direct_engine_adapter is not None and is_direct_query and should_sync:
@@ -1877,7 +2162,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     columns=filter_dwh_columns_by_enabled_columns(
                         direct_engine_adapter.columns_to_dwh_columns(source_schema.columns if source_schema else []),
                         enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
+                        detected_primary_keys,
                         incremental_field,
                         normalize=False,
                     ),
@@ -1987,6 +2272,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 table_mode=schema_model.cdc_table_mode,
                 request=request,
             )
+
+        create_default_failure_alert(self.team)
 
         return Response(
             status=status.HTTP_201_CREATED,
@@ -2134,9 +2421,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         )
 
         if is_any_external_data_schema_paused(self.team_id):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
+            return setup_error_response(
+                SourceSetupErrorCode.BILLING_LIMIT_REACHED,
+                "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
         try:
@@ -2156,7 +2443,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
     @extend_schema(
         request=SourceSetupSerializer,
-        responses={201: SourceSetupResponseSerializer},
+        responses={
+            201: SourceSetupResponseSerializer,
+            400: OpenApiResponse(response=ExternalDataSourceErrorResponseSerializer, description=SETUP_400_DESCRIPTION),
+        },
     )
     @action(methods=["POST"], detail=False)
     def setup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2182,6 +2472,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if secret_ref_response is not None:
             return secret_ref_response
 
+        return self._setup_source(
+            request,
+            source_type=source_type,
+            payload=payload,
+            build_schemas=lambda source_schemas, permission_errors: build_default_schemas(
+                source_schemas, permission_errors=permission_errors
+            ),
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+        )
+
+    def _setup_source(
+        self,
+        request: Request,
+        *,
+        source_type: str,
+        payload: dict,
+        build_schemas: Callable[[list[SourceSchema], Mapping[str, str | None]], list[dict]],
+        prefix: str | None,
+        description: str | None,
+        created_via: str,
+        direct_query_enabled: bool = False,
+        destination_ids: list | None = None,
+        webhook_tables: Callable[[], Collection[str]] | None = None,
+    ) -> Response:
+        """Validate a payload, discover its tables, and create the source with `build_schemas(tables, permission_errors)`.
+
+        `webhook_tables`, read after `build_schemas` runs, limits which tables a registered webhook may turn on.
+        """
         resolved = self._resolve_stored_credential(source_type, payload)
         if resolved.error_response is not None:
             return resolved.error_response
@@ -2190,11 +2511,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:
@@ -2217,9 +2533,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
+            return setup_error_response(
+                SourceSetupErrorCode.SOURCE_UNAVAILABLE, helpers._source_unavailable_message(source_type)
             )
         except Exception as e:
             # Credentials validated above can still fail here — `get_schemas` opens its own
@@ -2228,12 +2543,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
+            return setup_error_response(SourceSetupErrorCode.SCHEMA_DISCOVERY_FAILED, error_message)
 
         if not source_schemas:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "No tables found for this source. Check the credentials and permissions."},
+            return setup_error_response(
+                SourceSetupErrorCode.NO_TABLES_FOUND,
+                "No tables found for this source. Check the credentials and permissions.",
             )
 
         # Same best-effort per-table scope probe the schema picker runs, so one-shot setup doesn't
@@ -2258,18 +2573,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Build the schemas array server-side so the caller never has to. We've already validated
         # config + credentials above, so `_create_external_data_source` skips that second gate
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
-        payload["schemas"] = build_default_schemas(source_schemas, permission_errors=setup_permissions)
+        payload["schemas"] = build_schemas(source_schemas, setup_permissions)
 
         response = self._create_external_data_source(
             request,
             source_type=source_type,
             payload=payload,
-            prefix=serializer.validated_data.get("prefix"),
-            description=serializer.validated_data.get("description"),
+            prefix=prefix,
+            description=description,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            created_via=created_via,
+            direct_query_enabled=direct_query_enabled,
             skip_credential_validation=True,
+            destination_ids=destination_ids,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2277,7 +2593,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
+                source,
+                source_config,
+                str(response.data["id"]),
+                source_schemas,
+                permission_errors=setup_permissions,
+                only_tables=webhook_tables() if webhook_tables else None,
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
@@ -2451,9 +2772,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
             return (
-                Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Invalid source config: {', '.join(errors)}"},
+                setup_error_response(
+                    SourceSetupErrorCode.INVALID_CONFIG,
+                    f"Invalid source config: {', '.join(errors)}. Call 'external-data-sources-wizard' with this "
+                    "source_type to see the required fields, including the OAuth integration field name, or pass "
+                    "a credential_id from 'data-warehouse-source-connect-link'.",
                 ),
                 None,
             )
@@ -2479,9 +2802,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             credentials_valid, credentials_error = helpers._credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return (
-                Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE},
+                setup_error_response(
+                    SourceSetupErrorCode.CREDENTIAL_VALIDATION_FAILED,
+                    credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE,
                 ),
                 None,
             )
@@ -2494,41 +2817,22 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
         if ExternalDataSource.is_system_managed_prefix(prefix):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers.RESERVED_SOURCE_NAME_MESSAGE},
-            )
+            return _reserved_name_response()
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
             if source_type not in direct_capable_source_types():
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
-                )
+                return _direct_query_unsupported_response()
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not normalized_prefix:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Name is required for direct query sources"},
-                )
+                return _direct_query_name_required_response()
 
             return Response(status=status.HTTP_200_OK)
 
         if not prefix:
             if self.prefix_required(source_type):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
-                    },
-                )
+                return _duplicate_source_response()
         elif self.prefix_exists(source_type, prefix):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={
-                    "message": f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this connection's tables don't clash."
-                },
-            )
+            return _duplicate_prefix_response(prefix)
 
         return Response(status=status.HTTP_200_OK)

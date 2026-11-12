@@ -101,6 +101,13 @@
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
 
+# rust/logs-ingestion. Named apart from the Node logs-ingestion release, and
+# shares ingestion-consumer's Depot project because both build on ingestion-framework.
+- image: logs-ingestion-rust
+  bin: logs-ingestion
+  dockerfile: ./rust/Dockerfile
+  project: mtvzx98zjn
+
 # Internal web tool for the ingestion team (lag analysis, consumer debug
 # visualizer).
 - image: ingestion-control-plane

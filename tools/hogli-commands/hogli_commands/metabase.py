@@ -37,7 +37,7 @@ LOGIN_TIMEOUT_SECONDS: float = 180.0
 LOGIN_POLL_INTERVAL_SECONDS: float = 1.0
 
 # Per-browser profile-cookie locations. Each entry is (loader_name, base_directory).
-# We glob `<base>/*/Cookies` to discover every profile (Default, Profile 1, ...).
+# We glob `<base>/*/Network/Cookies` and `<base>/*/Cookies` to discover every profile (Default, Profile 1, ...).
 _HOME = Path.home()
 _CHROMIUM_PROFILE_ROOTS: dict[str, list[Path]] = {
     "chrome": [_HOME / "Library/Application Support/Google/Chrome"],
@@ -135,6 +135,10 @@ def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
     directory so users with multiple profiles (work + personal) don't have to
     care which one they logged in with.
 
+    Current Chromium keeps the db at `<profile>/Network/Cookies`, older builds at
+    `<profile>/Cookies`. A profile holding both yields both, the newer location
+    first, because a dead session in the stale copy only costs one rejected probe.
+
     Firefox and Safari fall back to the default `browser_cookie3` loader.
     """
     targets: list[tuple[str, Path]] = []
@@ -143,8 +147,9 @@ def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
             for root in _CHROMIUM_PROFILE_ROOTS[name]:
                 if not root.exists():
                     continue
-                for cookies_db in sorted(root.glob("*/Cookies")):
-                    targets.append((name, cookies_db))
+                cookie_dbs = [*root.glob("*/Network/Cookies"), *root.glob("*/Cookies")]
+                cookie_dbs.sort(key=lambda db: (db.relative_to(root).parts[0], db.parent.name != "Network"))
+                targets.extend((name, db) for db in cookie_dbs)
         else:
             targets.append((name, Path()))
     return targets
@@ -194,6 +199,14 @@ def _iter_cookie_candidates(
     targets = _enumerate_cookie_files(browser)
     found_candidate = False
     errors: list[str] = []
+    browsers_with_targets = {name for name, _ in targets}
+    for name in _ordered_browsers(browser):
+        if name in browsers_with_targets:
+            continue
+        for root in _CHROMIUM_PROFILE_ROOTS.get(name, []):
+            # A blocked root already gets the Full Disk Access note, so only flag a readable one.
+            if root.exists() and not _is_directory_blocked(root):
+                errors.append(f"{name}: no cookie database under {root}")
     for loader_name, cookie_file in targets:
         loader = dia if loader_name == "dia" else getattr(browser_cookie3, loader_name, None)
         if loader is None:

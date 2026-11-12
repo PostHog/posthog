@@ -28,6 +28,7 @@ from posthog.api.github_callback.state import (
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState, github_oauth_authorize_url
 from posthog.api.user_integration import _has_unlinked_github_installations
+from posthog.constants import AvailableFeature
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -38,8 +39,10 @@ from posthog.models.integration import (
     Integration,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_AT_CONFIG_KEY,
+    USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY,
     GitHubInstallRequest,
     ReauthorizationRequired,
     UserGitHubIntegration,
@@ -47,6 +50,8 @@ from posthog.models.user_integration import (
     user_github_integration_from_installation,
 )
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -211,8 +216,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_repos_refresh_reports_unavailable_installation(self, mock_sync):
         mock_sync.side_effect = GitHubIntegrationError("token refresh after 401 failed")
         integration = _create_user_integration(self.user)
-        integration.config = {**integration.config, "installation_unavailable_since": 1704110400}
+        cached_at = timezone.now() - timedelta(days=1)
+        integration.config = {
+            **integration.config,
+            "installation_unavailable_since": 1704110400,
+            USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: cached_at.isoformat(),
+        }
         integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+        integration.repository_cache_updated_at = cached_at
         integration.save()
 
         response = self.client.post("/api/users/@me/integrations/github/12345/repos/refresh/")
@@ -221,6 +232,54 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         data = response.json()
         self.assertEqual(data["installation_status"], "unavailable")
         self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
+
+    @parameterized.expand(
+        [
+            ("GET", "repos/", False),
+            ("GET", "repos/", True),
+            ("POST", "repos/refresh/", False),
+            ("POST", "repos/refresh/", True),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.sync_repository_cache")
+    def test_github_repos_ask_to_reconnect_when_the_user_token_is_unusable(
+        self, method, path, has_stale_snapshot, mock_sync
+    ):
+        mock_sync.side_effect = ReauthorizationRequired("GitHub rejected the stored user token.")
+        integration = _create_user_integration(self.user)
+        if has_stale_snapshot:
+            integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+            integration.repository_cache_updated_at = timezone.now() - timedelta(days=1)
+            integration.save()
+
+        response = self.client.generic(method, f"/api/users/@me/integrations/github/12345/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Your GitHub connection has expired. Reconnect GitHub in settings.")
+
+    @parameterized.expand([("user_can_open_the_repository", 200, 200), ("user_cannot_open_it", 404, 404)])
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_cached_branches")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_github_branches_need_access_to_the_repository(
+        self,
+        _name,
+        github_status,
+        expected_status,
+        mock_github_request,
+        mock_client_request,
+        mock_list_cached_branches,
+    ):
+        mock_github_request.return_value = MagicMock(
+            status_code=github_status, headers={}, json=lambda: {"full_name": "octocat/repo1"}
+        )
+        mock_list_cached_branches.return_value = (["main"], "main", False)
+        _create_user_integration(self.user)
+
+        response = self.client.get("/api/users/@me/integrations/github/12345/branches/?repo=octocat/repo1")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_list_cached_branches.called, expected_status == 200)
 
     @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/"), ("GET", "branches/?repo=octocat/repo1")])
     def test_github_installation_endpoints_reject_a_flagged_link(self, method, path):
@@ -546,7 +605,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
         self.assertIs(_has_unlinked_github_installations(self.user), expected)
 
-    @parameterized.expand([("oauth_discover", "posthog_code"), ("app_install", None)])
+    @parameterized.expand(
+        [
+            (flow, source, policy)
+            for flow, source in (("oauth_discover", "posthog_code"), ("app_install", None))
+            for policy in ("none", "target", "selection", "private_target", "private_allowed")
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=None)
     @patch(
@@ -554,16 +619,46 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_records_the_selected_project_organization(
-        self, expected_flow, connect_from, _mock_settings, _mock_unlinked
+        self, expected_flow, connect_from, policy, _mock_settings, _mock_unlinked
     ):
         other_org = Organization.objects.create(name="Synthetic other organization")
         OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        other_team = Team.objects.create(organization=other_org)
         self.user.current_organization = other_org
-        self.user.save(update_fields=["current_organization"])
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        if policy in ("private_target", "private_allowed"):
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        if policy != "none":
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization
+                if policy in ("target", "private_target", "private_allowed")
+                else other_org,
+                ip_restrictions=["203.0.113.0/24"],
+            )
 
         body = {"team_id": self.team.id, **({"connect_from": connect_from} if connect_from else {})}
-        response = self.client.post("/api/users/@me/integrations/github/start/", body, content_type="application/json")
+        response = self.client.post(
+            "/api/users/@me/integrations/github/start/",
+            body,
+            content_type="application/json",
+            REMOTE_ADDR="203.0.113.7" if policy == "private_allowed" else "198.51.100.7",
+        )
 
+        if policy == "private_allowed":
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+            self.assertIn("Invalid or inaccessible team_id", response.json()["detail"])
+            return
+        if policy in ("target", "private_target"):
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["connect_flow"], expected_flow)
         state = parse_qs(urlparse(response.json()["install_url"]).query)["state"][0]
@@ -1041,13 +1136,28 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(discover_state.flow, FlowKind.OAUTH_DISCOVER)
         self.assertEqual(discover_state.connect_from, "posthog_code")
 
-    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @parameterized.expand(
+        [
+            ("no_policy",),
+            ("allowed",),
+            ("blocked",),
+            ("removed_member",),
+            ("demoted",),
+            ("missing_team",),
+            ("new_member",),
+            ("new_member_blocked",),
+        ]
+    )
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret", IS_BEHIND_PROXY=False
+    )
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.github.GitHubIntegration.client_request")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_team_oauth_authorize_creates_team_integration(
         self,
+        policy,
         mock_user_from_code,
         mock_client_request,
         mock_verify_get,
@@ -1066,19 +1176,24 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         }
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
-        # Writing a team integration requires admin-level access.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        team_integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_install_token"},
-            created_by=self.user,
-        )
-        mock_integration_from_install.return_value = team_integration
+        def create_team_integration(*args):
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"installation_id": "12345"},
+                sensitive_config={"access_token": "ghs_install_token"},
+                created_by=self.user,
+            )
+
+        team_integration = None if policy.startswith("new_member") else create_team_integration()
+        if team_integration is None:
+            mock_integration_from_install.side_effect = create_team_integration
+        else:
+            mock_integration_from_install.return_value = team_integration
 
         state = "tok_team_oauth_123"
         store_unified_authorize_state(
@@ -1086,18 +1201,47 @@ class TestUserIntegrationEndpoints(APIBaseTest):
                 token=state,
                 flow=FlowKind.TEAM_OAUTH,
                 user_id=self.user.id,
-                team_id=self.team.pk,
+                team_id=None if policy == "missing_team" else self.team.pk,
                 installation_id="12345",
                 next_url="/project/{}/integrations/github".format(self.team.pk),
             ),
         )
 
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Selected organization")
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        if policy in ("allowed", "blocked", "new_member_blocked"):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        elif policy == "removed_member":
+            self.organization_membership.delete()
+        if policy in ("demoted", "new_member", "new_member_blocked"):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
         response = self.client.get(
             "/complete/github-link/",
             {"code": "test_code", "state": state},
+            REMOTE_ADDR="203.0.113.7" if policy == "allowed" else "198.51.100.7",
         )
 
+        if policy in ("blocked", "removed_member", "demoted", "missing_team", "new_member_blocked"):
+            self.assertEqual(response.status_code, 403 if policy in ("blocked", "new_member_blocked") else 302)
+            mock_user_from_code.assert_not_called()
+            mock_integration_from_install.assert_not_called()
+            self.assertFalse(UserIntegration.objects.filter(user=self.user).exists())
+            self.assertIsNotNone(load_authorize_state(state, user_id=self.user.id))
+            if team_integration is not None:
+                team_integration.refresh_from_db()
+                self.assertEqual(team_integration.sensitive_config, {"access_token": "ghs_install_token"})
+            else:
+                self.assertFalse(Integration.objects.filter(team=self.team, kind="github").exists())
+            return
+
         self.assertEqual(response.status_code, 302)
+        team_integration = Integration.objects.get(team=self.team, kind="github", integration_id="12345")
         # Used the OAuth-flow redirect URI so the code exchange matches GitHub's expectation.
         mock_user_from_code.assert_called_once()
         _, kwargs = mock_user_from_code.call_args
@@ -1126,16 +1270,29 @@ class TestGetGithubLoginPrecedence(APIBaseTest):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="99", extra_data={"login": "ghuser"})
         self.assertEqual(self.user.get_github_login(), "ghuser")
 
-    def test_uses_team_integration_when_only_source(self):
+    @parameterized.expand(
+        [
+            ("own_row_in_current_team", "current", "self", "teamuser"),
+            ("own_row_in_another_organization", "other_org", "self", "teamuser"),
+            ("row_of_another_user", "current", "other", None),
+        ]
+    )
+    def test_uses_team_integration_when_only_source(self, _name, team_kind, creator, expected):
+        team = self.team
+        if team_kind == "other_org":
+            team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        created_by = self.user
+        if creator == "other":
+            created_by = User.objects.create_and_join(self.organization, "other@example.com", None)
         Integration.objects.create(
-            team=self.team,
+            team=team,
             kind="github",
             integration_id="inst-1",
             config={"connecting_user_github_login": "teamuser"},
             sensitive_config={},
-            created_by=self.user,
+            created_by=created_by,
         )
-        self.assertEqual(self.user.get_github_login(), "teamuser")
+        self.assertEqual(self.user.get_github_login(), expected)
 
     def test_user_integration_takes_precedence_over_social_auth(self):
         from social_django.models import UserSocialAuth
@@ -1674,11 +1831,41 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-    def test_slack_start_returns_install_url_when_workspace_connected(self):
+    @parameterized.expand(
+        [(False, True, "203.0.113.7", 200), (True, True, "198.51.100.7", 403), (True, False, "198.51.100.7", 200)]
+    )
+    def test_slack_start_returns_install_url_when_workspace_connected(
+        self, select_other: bool, restrict_target: bool, ip: str, expected_status: int
+    ) -> None:
         self._seed_workspace_integration()
+        policy_organization = self.organization
+        if select_other:
+            other = Organization.objects.create(name="Other example organization")
+            other_team = Team.objects.create(organization=other)
+            self.user.join(organization=other)
+            self.user.current_organization = other
+            self.user.current_team = other_team
+            self.user.save()
+            if not restrict_target:
+                policy_organization = other
+        OrganizationIPRestrictions.objects.create(organization=policy_organization, ip_restrictions=["203.0.113.0/24"])
         with self._enable_flag():
-            response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+            listed = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/", REMOTE_ADDR=ip)
+            response = self.client.post(
+                "/api/users/@me/integrations/slack/start/",
+                data={"team_id": self.team.id},
+                format="json",
+                REMOTE_ADDR=ip,
+            )
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.content)
+        self.assertEqual(
+            [row["slack_team_id"] for row in listed.json()["results"]],
+            [] if expected_status == status.HTTP_403_FORBIDDEN else ["T12345"],
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            return
         install_url = response.json()["install_url"]
         # Routes through the same backend authorize entry — settings is just
         # another invite origin, not a separate OAuth flow.

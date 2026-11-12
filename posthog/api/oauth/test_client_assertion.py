@@ -19,12 +19,13 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.cimd import CIMDFetchError
+from posthog.api.oauth.cimd import THROWAWAY_JWKS_HOST_MESSAGE, CIMDFetchError
 from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     JWKS_CACHE_PREFIX,
     MAX_ASSERTION_LIFETIME_SECONDS,
     ClientAssertionError,
+    JWKSUnavailableError,
     ResolvedClientAssertion,
     extract_client_assertion,
     load_jwks,
@@ -279,6 +280,32 @@ class TestClientAssertion(BaseTest):
                     load_jwks(JWKS_URI)
             # A client with a broken jwks_uri must not turn each request into an outbound fetch.
             fetch.assert_called_once()
+
+    def test_stored_jwks_uri_on_a_throwaway_host_is_refused_before_any_fetch(self):
+        self.app.jwks_uri = "https://x0.at/oXXP.json"
+        self.app.save(update_fields=["jwks_uri"])
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
+            for _ in range(2):
+                with self.assertRaises(ClientAssertionError) as ctx:
+                    verify_client_assertion(self.app, self._assertion())
+                # Also on a repeat call, where a cached failure must not hide the reason.
+                assert not isinstance(ctx.exception, JWKSUnavailableError)
+                assert str(ctx.exception).startswith(THROWAWAY_JWKS_HOST_MESSAGE)
+            fetch.assert_not_called()
+
+    def test_stored_cimd_jwks_uri_on_another_domain_is_refused_before_any_fetch(self):
+        self.app.is_cimd_client = True
+        self.app.jwks_uri = "https://keys.partner-cdn.net/jwks.json"
+        self.app.save(update_fields=["is_cimd_client", "jwks_uri"])
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
+            with self.assertRaisesMessage(ClientAssertionError, "same domain as your client_id (example.com"):
+                verify_client_assertion(self.app, self._assertion())
+            fetch.assert_not_called()
+
+    def test_stored_cimd_jwks_uri_on_the_client_domain_verifies(self):
+        self.app.is_cimd_client = True
+        self.app.save(update_fields=["is_cimd_client"])
+        self._verify(self._assertion())
 
     @parameterized.expand(
         [

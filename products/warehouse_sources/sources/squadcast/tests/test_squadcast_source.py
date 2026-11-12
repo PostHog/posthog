@@ -19,14 +19,15 @@ class TestSquadcastSource:
 
     def test_only_date_windowed_endpoints_support_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
+        windowed = {"incidents": "created_at", "postmortems": "created_at", "audit_logs": "timestamp"}
 
-        for name in ("incidents", "postmortems"):
+        for name, field in windowed.items():
             assert schemas[name].supports_incremental is True, name
-            assert schemas[name].incremental_fields[0]["field"] == "created_at"
+            assert schemas[name].incremental_fields[0]["field"] == field
             assert schemas[name].incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
 
         for name in ENDPOINTS:
-            if name in ("incidents", "postmortems"):
+            if name in windowed:
                 continue
             assert schemas[name].supports_incremental is False, name
             assert schemas[name].incremental_fields == [], name

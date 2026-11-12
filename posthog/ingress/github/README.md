@@ -49,7 +49,7 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{commands,conversations,error_tracking,review_hog,tasks,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{commands,conversations,error_tracking,knowledge_writer,review_hog,tasks,visual_review,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
 The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
@@ -60,6 +60,10 @@ Removing a link from a later description does not remove the reference.
 The commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
 The task checks the commenter's write access with GitHub and their linked PostHog account before any command runs.
 See `products/commands/README.md`.
+
+The Visual Review consumer reads pushes to a repository's default branch and queues one task per project whose Visual Review repo follows that repository with its baseline ledger on.
+The push is only a signal: the task reads the new commits from GitHub, and a periodic task moves the same ledgers when a push is lost.
+Each project's task reads GitHub through that project's own integration, so the consumer matches projects by repository id and needs no installation lookup.
 
 ### Picking the project
 

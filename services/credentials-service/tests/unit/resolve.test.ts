@@ -20,15 +20,19 @@ const MOUNTED = mounted({
     STRIPE_APP_SECRET_KEY: { state: 'steady', value: 'sk-live', versionId: 'v1', fetchedAt: 'now' },
 })
 
-function identity(requestedKeys: string[]): CallerIdentity {
-    return { deployment: 'temporal-worker-data-warehouse', caller: 'warehouse-sources', requestedKeys }
+function identity(requestedKeys: string[], allowed: string[] | null = null): CallerIdentity {
+    return {
+        deployment: 'temporal-worker-data-warehouse',
+        caller: 'warehouse-sources',
+        requestedKeys,
+        allowedKeys: allowed === null ? null : new Set(allowed),
+    }
 }
 
 describe('resolve', () => {
-    // There is no per-deployment allowlist: any authenticated deployment may read anything
-    // on the mount. Containment is revoking that deployment's signing key, not a list
-    // somebody has to keep current.
-    it('serves anything on the mount to an authenticated deployment', async () => {
+    // The allowlist is opt-in per deployment, so a deployment with no entry keeps reading
+    // anything on the mount that is not reserved.
+    it('serves anything on the mount to a deployment with no allowlist', async () => {
         const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY']), MOUNTED)
 
         expect(Object.keys(response.secrets).sort()).toEqual(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'])
@@ -72,6 +76,50 @@ describe('resolve', () => {
         expect(response.secrets).toHaveProperty('GOOGLE_ADS_APP_CLIENT_ID')
     })
 
+    it.each([
+        ['a name outside the allowlist', ['GOOGLE_ADS_APP_CLIENT_ID'], 'STRIPE_APP_SECRET_KEY'],
+        ['any name when the allowlist is empty', [], 'GOOGLE_ADS_APP_CLIENT_ID'],
+    ])('refuses %s and reports it as missing', async (_label, allowed, key) => {
+        register.resetMetrics()
+        const response = resolveKeys(identity([key], allowed), MOUNTED)
+
+        expect(response.secrets).toEqual({})
+        expect(response.missing).toEqual([key])
+        const results = (await resolveTotal.get()).values.map((v) => v.labels['result'])
+        expect(results).toEqual(['not_allowed'])
+    })
+
+    it('serves an allowlisted name', async () => {
+        const response = resolveKeys(
+            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'], ['GOOGLE_ADS_APP_CLIENT_ID']),
+            MOUNTED
+        )
+
+        expect(Object.keys(response.secrets)).toEqual(['GOOGLE_ADS_APP_CLIENT_ID'])
+        expect(response.missing).toEqual(['STRIPE_APP_SECRET_KEY'])
+    })
+
+    // The mount drops `__` entries, and resolve refuses them again, so a provider secret stays
+    // unreachable even if a change to the mount let one into the secret set.
+    it.each([
+        ['with no allowlist', null],
+        ['when an allowlist names it', ['__PROVIDER_GITHUB_APP_PRIVATE_KEY']],
+    ])('never serves a __PROVIDER_ entry %s', async (_label, allowed) => {
+        const withProvider = mounted({
+            ...MOUNTED.secrets,
+            __PROVIDER_GITHUB_APP_PRIVATE_KEY: {
+                state: 'steady',
+                value: 'pem-fake',
+                versionId: 'v1',
+                fetchedAt: 'now',
+            },
+        })
+        const response = resolveKeys(identity(['__PROVIDER_GITHUB_APP_PRIVATE_KEY'], allowed), withProvider)
+
+        expect(response.secrets).toEqual({})
+        expect(response.missing).toEqual(['__PROVIDER_GITHUB_APP_PRIVATE_KEY'])
+    })
+
     it('serves a recovery field with no value so the caller fails fast', async () => {
         const response = resolveKeys(
             identity(['STRIPE_APP_SECRET_KEY']),
@@ -92,7 +140,7 @@ describe('resolve', () => {
         const claimedCaller = 'a-product-nobody-registered-4b81'
 
         const response = resolveKeys(
-            { deployment: 'posthog-django', caller: claimedCaller, requestedKeys: [invented] },
+            { deployment: 'posthog-django', caller: claimedCaller, requestedKeys: [invented], allowedKeys: null },
             MOUNTED
         )
 

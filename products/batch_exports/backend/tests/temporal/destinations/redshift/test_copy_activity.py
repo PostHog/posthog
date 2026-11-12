@@ -19,10 +19,10 @@ from products.batch_exports.backend.service import (
 )
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     AWSCredentials,
-    ConnectionParameters,
     CopyParameters,
     RedshiftCopyActivityInputs,
     S3StageBucketParameters,
+    ServerConnectionParameters,
     TableParameters,
     copy_into_redshift_activity_from_stage,
     redshift_default_fields,
@@ -36,6 +36,8 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    make_aws_s3_integration,
+    make_redshift_integration,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 from products.batch_exports.backend.tests.temporal.utils.persons import (
@@ -101,10 +103,8 @@ async def _run_activity(
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=redshift_default_fields(),
     )
-    connection_parameters = ConnectionParameters(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
+    integration = await make_redshift_integration(team.pk, redshift_config)
+    connection_parameters = ServerConnectionParameters(
         port=redshift_config["port"],
         database=redshift_config["database"],
     )
@@ -114,20 +114,22 @@ async def _run_activity(
         properties_data_type=properties_data_type,
     )
 
+    aws_s3_integration = await make_aws_s3_integration(team.pk, credentials)
     copy_parameters = CopyParameters(
         s3_bucket=S3StageBucketParameters(
             name=bucket_name,
             region_name=bucket_region,
-            credentials=credentials,
+            credentials=aws_s3_integration.id,
         ),
         s3_key_prefix=key_prefix,
-        authorization=credentials,
+        authorization=aws_s3_integration.id,
     )
 
     copy_inputs = RedshiftCopyActivityInputs(
         batch_export=batch_export_inputs,
         connection=connection_parameters,
         table=table_parameters,
+        integration_id=integration.id,
         copy=copy_parameters,
     )
 

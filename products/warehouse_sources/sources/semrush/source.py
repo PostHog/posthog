@@ -25,10 +25,14 @@ from products.warehouse_sources.sources.semrush.settings import (
     API_DOCS_URL,
     API_VERSION,
     AUTH_ERROR,
-    ENDPOINTS,
+    DATABASE_ACCESS_ERROR,
+    DOMAIN_ERROR,
+    DOMAIN_REPORT_ERROR,
     ERROR_MESSAGES,
+    INCREMENTAL_FIELDS,
     PROJECT_ID_ERROR,
     REQUEST_ERROR,
+    TABLES,
 )
 
 
@@ -50,6 +54,9 @@ class SemrushSource(SimpleSource[SemrushSourceConfig]):
             **{message: message for message in ERROR_MESSAGES.values()},
             PROJECT_ID_ERROR: PROJECT_ID_ERROR,
             REQUEST_ERROR: REQUEST_ERROR,
+            DATABASE_ACCESS_ERROR: DATABASE_ACCESS_ERROR,
+            DOMAIN_REPORT_ERROR: DOMAIN_REPORT_ERROR,
+            DOMAIN_ERROR: DOMAIN_ERROR,
             "401 Client Error": AUTH_ERROR,
             "403 Client Error": ACCESS_ERROR,
         }
@@ -66,7 +73,7 @@ class SemrushSource(SimpleSource[SemrushSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(TABLES, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -78,7 +85,17 @@ class SemrushSource(SimpleSource[SemrushSourceConfig]):
         return validate_credentials(config.api_key, config.project_id, team_id)
 
     def source_for_pipeline(self, config: SemrushSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return semrush_source(config.api_key, config.project_id, inputs.schema_name, inputs.team_id, inputs.job_id)
+        return semrush_source(
+            config.api_key,
+            config.project_id,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            domain=config.domain,
+            database=config.database,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -90,7 +107,10 @@ class SemrushSource(SimpleSource[SemrushSourceConfig]):
                 "Requires an SEO Business subscription and a project with Site Audit enabled. "
                 "Find your v3 API key under [API keys](https://www.semrush.com/accounts/api-keys/active) in your Semrush profile. "
                 "Syncs use your account's API units: 100 units per table request. Retries can use more units. "
-                "Connection validation also uses 100 units."
+                "Connection validation also uses 100 units. "
+                "Site audit history costs 10,000 units per audit snapshot, and incremental syncs fetch only new snapshots. "
+                "Domain organic reports cost 10 units (keywords) or 40 units (competitors) per row, "
+                "and each sync reads up to 10,000 rows."
             ),
             iconPath="/static/services/semrush.png",
             fields=cast(
@@ -111,6 +131,26 @@ class SemrushSource(SimpleSource[SemrushSourceConfig]):
                         required=True,
                         placeholder="123456",
                         secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="domain",
+                        label="Domain for organic reports",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="example.com",
+                        caption="Leave empty to use your Semrush project's domain.",
+                        secret=False,
+                        sync_setting=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="database",
+                        label="Regional database for organic reports",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="us",
+                        caption="A Semrush regional database code, such as `us`, `uk` or `de`. Defaults to `us`.",
+                        secret=False,
+                        sync_setting=True,
                     ),
                 ],
             ),

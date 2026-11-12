@@ -95,6 +95,9 @@ class AlertExtractionError(Exception):
 
     Routed to the errored-alert notification path — distinct from "evaluated fine,
     no data this interval", which is represented as SeriesPoint(value=None).
+
+    Its subclass `AlertDataUnavailableError` keeps the alert enabled, so a caller that disables on
+    this error catches the subclass first.
     """
 
 

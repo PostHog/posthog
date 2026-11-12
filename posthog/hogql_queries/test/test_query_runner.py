@@ -91,6 +91,7 @@ from posthog.hogql_queries.query_runner import (
     get_query_runner_or_none,
     shared_insights_execution_mode,
 )
+from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_TRACKING_FLAG
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import get_events_route
 from posthog.models.instance_setting import override_instance_config
@@ -1351,6 +1352,39 @@ class TestQueryRunner(BaseTest):
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
 
+    @parameterized.expand(
+        [(raw, change) for raw in (False, True) for change in ("extra_field", "missing_field", "invalid_field")]
+    )
+    @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
+    def test_cached_response_schema_compatibility(self, raw: bool, change: str) -> None:
+        runner = self.setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
+        fresh = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        payload = fresh.model_dump()
+        payload["results"] = [["cached", 42]]
+        payload["future_response_metadata"] = {"version": 2}
+        payload["warehouse_suggestions"] = []
+        if change == "missing_field":
+            del payload["last_refresh"]
+        elif change == "invalid_field":
+            payload["last_refresh"] = "invalid timestamp"
+        cache_manager = QueryCache(team_id=self.team.pk, cache_key=runner.get_cache_key())
+        assert cache_manager.store_result(response=payload, target_age=None)
+
+        runner.serve_raw_cached_results = raw
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        if change == "extra_field":
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
+            results = (
+                json.loads(runner.raw_cached_results_bytes) if runner.raw_cached_results_bytes else response.results
+            )
+            assert results == [["cached", 42]]
+            assert response.warehouse_suggestions == []
+            assert "future_response_metadata" not in response.model_dump()
+        else:
+            assert isinstance(response, CacheMissResponse)
+
     @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
     def test_schema_change_triggers_recalculation(self, mock_query_cache_cls):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -1693,6 +1727,42 @@ class TestQueryRunner(BaseTest):
             == failure_delta
         )
         assert SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get() > before_duration_sum
+
+    @parameterized.expand(
+        [
+            ("on", True, True, 2),
+            ("turned_off_after_caching", True, False, 1),
+            ("off", False, False, 0),
+        ]
+    )
+    @mock.patch("posthog.hogql_queries.utils.event_usage.get_producer")
+    def test_property_usage_tracking_follows_its_flag(
+        self, _name: str, fresh_flag: bool, cache_hit_flag: bool, expected_payloads: int, mock_get_producer
+    ) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        query = {
+            "some_attr": "bla",
+            "other_attr": [{"key": "plan", "type": "person", "value": "pro", "operator": "exact"}],
+        }
+
+        def flags(enabled: bool):
+            return lambda key, *args, **kwargs: enabled and key == PROPERTY_USAGE_TRACKING_FLAG
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=flags(fresh_flag)):
+            TestQueryRunner(query=query, team=self.team).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=flags(cache_hit_flag)):
+            response = TestQueryRunner(query=query, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        self.assertTrue(response.is_cached)
+
+        property_payloads = [
+            call.kwargs["data"]
+            for call in mock_get_producer.return_value.produce.call_args_list
+            if call.kwargs["data"]["app_source"] == "property_usage"
+        ]
+        self.assertEqual(len(property_payloads), expected_payloads)
 
 
 class TestSeriesCustomNameCaching(BaseTest):

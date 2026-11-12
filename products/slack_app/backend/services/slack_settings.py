@@ -1,7 +1,6 @@
 """Read helpers for per-(Slack workspace, Slack user) settings backed by
 `models.SlackSettings` (today: the untagged follow-up and question modes, the thread
-join mode, the channel welcome mode and the automatic model choice), plus the shared
-AI-triple value object.
+join mode, the channel welcome mode, the automatic model choice and the onboarding thread), plus the shared AI-triple value object.
 
 Model preferences themselves live in the central tasks config
 (`products.tasks.backend.facade.ai_run_defaults`); `AIPreferences` keeps the
@@ -12,9 +11,13 @@ layer with zero translation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Literal, TypeVar
+from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
+
+from posthog.dataclasses import frozen
 
 from products.slack_app.backend.models import ChannelWelcomeMode, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
@@ -188,6 +191,175 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
+# Stored with each onboarding, so a later version can find people who finished an earlier one.
+ONBOARDING_VERSION = 1
+
+OnboardingCompletedReason = Literal["finished", "nothing_to_set_up"]
+
+
+@frozen(slots=False)
+class OnboardingState:
+    """A person's onboarding thread in the PostHog DM. ``root_ts`` is None until the top message is posted,
+    and stays None when there was nothing to set up. ``planned`` holds the step keys the thread promised at
+    its start, in display order."""
+
+    channel: str | None
+    root_ts: str | None
+    root_status: str | None
+    planned: tuple[str, ...]
+    step_ts: dict[str, str]
+    summarized: tuple[str, ...]
+    skipped: tuple[str, ...]
+    started_at: str | None
+    completed_at: str | None
+    reminded_at: str | None
+    work_focus_at: str | None
+    completed_reason: OnboardingCompletedReason | None
+
+    @property
+    def completed(self) -> bool:
+        return self.completed_at is not None
+
+
+def _keys(value: object) -> tuple[str, ...]:
+    return tuple(str(key) for key in value) if isinstance(value, list) else ()
+
+
+def parse_onboarding(stored: object) -> OnboardingState | None:
+    if not isinstance(stored, dict):
+        return None
+    step_ts = stored.get("step_ts")
+    reason = stored.get("completed_reason")
+    return OnboardingState(
+        channel=stored.get("channel") or None,
+        root_ts=stored.get("root_ts") or None,
+        root_status=stored.get("root_status") or None,
+        planned=_keys(stored.get("planned")),
+        step_ts={str(key): str(ts) for key, ts in step_ts.items()} if isinstance(step_ts, dict) else {},
+        summarized=_keys(stored.get("summarized")),
+        skipped=_keys(stored.get("skipped")),
+        started_at=stored.get("started_at") or None,
+        completed_at=stored.get("completed_at") or None,
+        reminded_at=stored.get("reminded_at") or None,
+        work_focus_at=stored.get("work_focus_at") or None,
+        completed_reason=reason if reason in ("finished", "nothing_to_set_up") else None,
+    )
+
+
+def resolve_onboarding(slack_workspace_id: str, slack_user_id: str) -> OnboardingState | None:
+    from products.slack_app.backend.models import SlackSettings
+
+    stored = (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("onboarding", flat=True)
+        .first()
+    )
+    return parse_onboarding(stored)
+
+
+def _append_key(card: dict, field: str, key: str) -> None:
+    card[field] = [*(existing for existing in card.get(field) or [] if existing != key), key]
+
+
+def update_onboarding(
+    slack_workspace_id: str,
+    slack_user_id: str,
+    *,
+    start: bool = False,
+    root: tuple[str, str] | None = None,
+    planned: list[str] | None = None,
+    root_status: str | None = None,
+    step_ts: tuple[str, str] | None = None,
+    summarized_step: str | None = None,
+    skip_step: str | None = None,
+    forget_step: str | None = None,
+    reset_thread: bool = False,
+    reminded: bool = False,
+    work_focus_outcome: str | None = None,
+    completed_reason: OnboardingCompletedReason | None = None,
+) -> None:
+    """``root`` is (channel, ts) and ``step_ts`` is (step key, ts). The row lock stops a skip click and a
+    workflow write from losing each other's change."""
+    from products.slack_app.backend.models import SlackSettings
+
+    now = timezone.now().isoformat()
+    with transaction.atomic():
+        row, _ = SlackSettings.objects.select_for_update().get_or_create(
+            slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id
+        )
+        card = dict(row.onboarding) if isinstance(row.onboarding, dict) else {}
+        if start:
+            card.setdefault("started_at", now)
+            card.setdefault("version", ONBOARDING_VERSION)
+        if root is not None:
+            card["channel"], card["root_ts"] = root
+        if planned is not None:
+            card["planned"] = planned
+        if root_status is not None:
+            card["root_status"] = root_status
+        if step_ts is not None:
+            card["step_ts"] = {**(card.get("step_ts") or {}), step_ts[0]: step_ts[1]}
+        if summarized_step is not None:
+            _append_key(card, "summarized", summarized_step)
+        if skip_step is not None:
+            _append_key(card, "skipped", skip_step)
+        if forget_step is not None:
+            card["step_ts"] = {key: ts for key, ts in (card.get("step_ts") or {}).items() if key != forget_step}
+        if reset_thread:
+            # Skips stay, so a new thread does not ask again for what the person turned down.
+            for field in ("channel", "root_ts", "root_status", "planned", "step_ts", "summarized"):
+                card.pop(field, None)
+        if reminded:
+            card.setdefault("reminded_at", now)
+        if work_focus_outcome is not None:
+            card["work_focus_at"], card["work_focus_outcome"] = now, work_focus_outcome
+        if completed_reason is not None:
+            card["completed_at"], card["completed_reason"] = now, completed_reason
+        row.onboarding = card
+        row.save(update_fields=["onboarding", "updated_at"])
+
+
+def reset_onboarding(settings_ids: list[UUID]) -> int:
+    """Forget the onboarding of these settings rows, so each person gets a new thread on their next trigger, and a new
+    work focus the next time they link their account. Returns how many rows had an onboarding to forget."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(id__in=settings_ids, onboarding__isnull=False).update(
+        onboarding=None, updated_at=timezone.now()
+    )
+
+
+def onboarding_status_label(stored: object) -> str:
+    """One short line for staff tools: where the person's onboarding stands."""
+    state = parse_onboarding(stored)
+    # The work focus stores its outcome in the same field, which is not an onboarding that started.
+    if state is None or (state.started_at is None and state.root_ts is None):
+        return "Not started"
+    if state.completed:
+        return "Nothing to set up" if state.completed_reason == "nothing_to_set_up" else "Done"
+    if state.root_status:
+        return f"In progress, {state.root_status}"
+    return "Starting"
+
+
+def has_chosen_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str) -> bool:
+    """Whether this person picked a mode, as opposed to getting the ``ASK`` default."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(
+        slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id, untagged_followup_mode__isnull=False
+    ).exists()
+
+
+def has_chosen_channel_welcome_mode(slack_workspace_id: str) -> bool:
+    """Whether an admin picked a mode, as opposed to getting the ``CHANNEL`` default."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(
+        slack_workspace_id=slack_workspace_id, slack_user_id__isnull=True, channel_welcome_mode__isnull=False
+    ).exists()
+
+
 def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | None:
     """The integration that the workspace-wide row routes mentions to."""
 
@@ -213,6 +385,15 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
 
 
 __all__ = [
+    "ONBOARDING_VERSION",
+    "OnboardingState",
+    "parse_onboarding",
+    "has_chosen_channel_welcome_mode",
+    "has_chosen_untagged_followup_mode",
+    "onboarding_status_label",
+    "reset_onboarding",
+    "resolve_onboarding",
+    "update_onboarding",
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",

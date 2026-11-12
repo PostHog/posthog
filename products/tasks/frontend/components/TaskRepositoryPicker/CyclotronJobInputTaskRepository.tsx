@@ -10,7 +10,7 @@ import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombo
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 // Matches MAX_TASK_REPOSITORIES in products/cdp/backend/validation.py.
-const MAX_REPOSITORIES = 10
+const MAX_REPOSITORIES = 20
 
 function selectedRepositories(value: unknown): string[] {
     if (typeof value === 'string') {

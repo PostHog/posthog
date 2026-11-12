@@ -215,6 +215,7 @@ function installation(): MCPServerInstallationApi {
     return {
         id: 'installation-id',
         template_id: null,
+        gateway_server_id: null,
         name: 'Custom server',
         icon_key: '',
         icon_domain: '',

@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { KafkaConsumerInterface } from '~/common/kafka/consumer'
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -25,6 +27,7 @@ export interface MetricsPipelineConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
     outputs: MetricsIngestionOutputs
+    usageBatch: UsageRecordBatch
 }
 
 /**
@@ -59,6 +62,7 @@ export class MetricsPipelineConsumer {
     private promiseScheduler: FailureLatchingPromiseScheduler
     private pipeline: MetricsIngestionPipeline
     private outputs: MetricsIngestionOutputs
+    private usageBatch: UsageRecordBatch
     private teamManager: TeamManager
 
     constructor(config: MetricsIngestionConsumerConfig, deps: MetricsPipelineConsumerDeps) {
@@ -69,6 +73,7 @@ export class MetricsPipelineConsumer {
             topic: config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC,
         })
         this.outputs = deps.outputs
+        this.usageBatch = deps.usageBatch
         this.teamManager = deps.teamManager
         this.promiseScheduler = new FailureLatchingPromiseScheduler()
         this.pipeline = createMetricsIngestionPipeline({
@@ -77,6 +82,7 @@ export class MetricsPipelineConsumer {
             teamManager: deps.teamManager,
             quotaLimiting: deps.quotaLimiting,
             rateLimiter: new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config)),
+            isAggregationEnabled: buildIntegerMatcher(config.METRICS_AGGREGATION_ENABLED_TEAMS, true),
         })
     }
 
@@ -121,7 +127,7 @@ export class MetricsPipelineConsumer {
                 await this.teamManager.setTeamsIngestedData(
                     [...usage.entries()].filter(([, stats]) => stats.recordsAllowed > 0).map(([teamId]) => teamId)
                 )
-                await emitMetricsUsage(this.outputs, usage)
+                await emitMetricsUsage(this.outputs, this.usageBatch, usage)
             }),
         }
     }

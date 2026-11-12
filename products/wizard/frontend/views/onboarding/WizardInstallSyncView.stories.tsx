@@ -55,6 +55,9 @@ const artifacts: WizardRunArtifactApi[] = [
         head_branch: 'posthog/setup',
         base_branch: 'main',
         created_at: '2026-09-23T10:02:00Z',
+        state: 'open',
+        merged_at: null,
+        closed_at: null,
     },
     {
         id: 'artifact-diff',

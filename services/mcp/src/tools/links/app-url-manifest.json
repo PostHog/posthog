@@ -235,7 +235,7 @@
         "scope": "project"
     },
     "analyticsSpaces": {
-        "template": "/analytics/spaces",
+        "template": "/analytics/collections",
         "params": [],
         "scope": "project"
     },
@@ -621,6 +621,11 @@
     },
     "dataWarehouseManagedViewsets": {
         "template": "/data-management/managed-viewsets",
+        "params": [],
+        "scope": "project"
+    },
+    "dataWarehouseMigrationConnect": {
+        "template": "/data-warehouse/migrate/connect",
         "params": [],
         "scope": "project"
     },
@@ -1269,11 +1274,6 @@
         "params": ["tab"],
         "scope": "project"
     },
-    "mcpRegistry": {
-        "template": "/mcp-registry",
-        "params": [],
-        "scope": "project"
-    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1479,6 +1479,21 @@
         "params": [],
         "scope": "project"
     },
+    "release": {
+        "template": "/releases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "releaseList": {
+        "template": "/releases/list",
+        "params": [],
+        "scope": "project"
+    },
+    "releases": {
+        "template": "/releases",
+        "params": [],
+        "scope": "project"
+    },
     "replay": {
         "template": "/replay/home",
         "params": [],
@@ -1623,11 +1638,6 @@
         "template": "/signup",
         "params": [],
         "scope": "global"
-    },
-    "simpleOnboarding": {
-        "template": "/onboarding/simple",
-        "params": [],
-        "scope": "project"
     },
     "site": {
         "template": "/site/{url}",
@@ -1790,7 +1800,7 @@
         "scope": "project"
     },
     "taskNewSession": {
-        "template": "/spaces/new",
+        "template": "/ai/new",
         "params": [],
         "scope": "project"
     },
@@ -1856,6 +1866,26 @@
     },
     "transactional": {
         "template": "/transactional",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "transactionalEmailLogEntry": {
+        "template": "/transactional/log/{messageId}",
+        "params": ["messageId"],
+        "scope": "project"
+    },
+    "transactionalLog": {
+        "template": "/transactional/log",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalMetrics": {
+        "template": "/transactional/metrics",
         "params": [],
         "scope": "project"
     },
@@ -1994,6 +2024,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilotPrompt": {
+        "template": "/web/content-autopilot/prompts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "webAnalyticsHealth": {
         "template": "/web/health",
         "params": [],
@@ -2082,6 +2117,11 @@
     "workflowsLibraryTemplateNew": {
         "template": "/workflows/library/templates/new",
         "params": [],
+        "scope": "project"
+    },
+    "workloadTrustPolicyRequest": {
+        "template": "/workload-trust-policy-requests/{id}",
+        "params": ["id"],
         "scope": "project"
     }
 }

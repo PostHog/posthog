@@ -1,0 +1,67 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/chart_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/chart_widget_background"
+  android:clipToOutline="true"
+  android:orientation="vertical"
+  android:padding="@dimen/chart_widget_padding_small">
+
+  <TextView
+    android:id="@+id/chart_title"
+    style="@style/ChartWidgetText.Title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content" />
+
+  <TextView
+    android:id="@+id/chart_value"
+    style="@style/ChartWidgetText.Value"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="2dp" />
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="2dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <TextView
+      android:id="@+id/chart_delta"
+      style="@style/ChartWidgetText.Pill"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginEnd="6dp" />
+
+    <TextView
+      android:id="@+id/chart_range"
+      style="@style/ChartWidgetText.Meta"
+      android:layout_width="0dp"
+      android:layout_height="wrap_content"
+      android:layout_weight="1" />
+  </LinearLayout>
+
+  <FrameLayout
+    android:id="@+id/chart_frame"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginTop="6dp"
+    android:layout_weight="1">
+      <ImageView
+        android:id="@+id/chart_image_light"
+        style="@style/ChartWidgetChartImage"
+        android:visibility="@integer/chart_widget_light_visibility" />
+      <ImageView
+        android:id="@+id/chart_image_dark"
+        style="@style/ChartWidgetChartImage"
+        android:visibility="@integer/chart_widget_dark_visibility" />
+  </FrameLayout>
+
+  <TextView
+    android:id="@+id/chart_updated"
+    style="@style/ChartWidgetText.Footer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="4dp" />
+</LinearLayout>

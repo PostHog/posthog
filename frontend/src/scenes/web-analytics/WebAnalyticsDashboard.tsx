@@ -15,7 +15,6 @@ import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -70,10 +69,7 @@ import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopil
 import { MarketingAnalyticsFilterHint } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsFilterHint'
 import { PageReportsTabLabel } from 'products/web_analytics/frontend/pageReports/PageReportsTabLabel'
 
-import { BotAnalyticsFilters } from './BotAnalyticsFilters'
-import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
-import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { PagePerformance } from './PagePerformance'
 import { PagePerformanceFilters } from './PagePerformanceFilters'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
@@ -666,13 +662,12 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
-        case ProductTab.BOT_ANALYTICS:
-            return <BotAnalyticsFilters tabs={tabs} />
         case ProductTab.PAGE_PERFORMANCE:
             return <PagePerformanceFilters tabs={tabs} />
         case ProductTab.AGENTS:
             return <AgentAnalyticsFilters tabs={tabs} />
         case ProductTab.CONTENT_AUTOPILOT:
+        case ProductTab.BOT_ANALYTICS:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
@@ -700,10 +695,6 @@ const MainContent = (): JSX.Element => {
         )
     }
 
-    if (productTab === ProductTab.BOT_ANALYTICS) {
-        return <BotAnalyticsTiles />
-    }
-
     if (productTab === ProductTab.PAGE_PERFORMANCE) {
         return <PagePerformance />
     }
@@ -712,29 +703,11 @@ const MainContent = (): JSX.Element => {
         return <AgentAnalytics />
     }
 
-    if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+    if (productTab === ProductTab.CONTENT_AUTOPILOT || productTab === ProductTab.BOT_ANALYTICS) {
         return <ContentAutopilot />
     }
 
     return <Tiles />
-}
-
-const BotAnalyticsTiles = (): JSX.Element => {
-    // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
-    useMountedLogic(botAnalyticsLogic)
-    const { tiles } = useValues(botAnalyticsLogic)
-
-    return (
-        <>
-            <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
-                Bot detection is based on user agent pattern matching. Events with no user agent are excluded from these
-                results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
-                don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
-            </LemonBanner>
-            <LiveBotTiles />
-            <Tiles tiles={tiles} />
-        </>
-    )
 }
 
 const HealthTabLabel = (): JSX.Element => {
@@ -772,29 +745,6 @@ const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string
     ]
 }
 
-const botAnalyticsTab = (
-    featureFlags: FeatureFlagsSet
-): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
-        return []
-    }
-
-    return [
-        {
-            key: ProductTab.BOT_ANALYTICS,
-            label: (
-                <div className="flex items-center gap-1">
-                    Bots
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
-                    </LemonTag>
-                </div>
-            ),
-            link: urls.webAnalyticsBotAnalytics(),
-        },
-    ]
-}
-
 const pagePerformanceTab = (
     featureFlags: FeatureFlagsSet
 ): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
@@ -807,7 +757,7 @@ const pagePerformanceTab = (
             key: ProductTab.PAGE_PERFORMANCE,
             label: (
                 <div className="flex items-center gap-1">
-                    Search & AI
+                    AI traffic
                     <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
@@ -851,7 +801,7 @@ const contentAutopilotTab = (
             key: ProductTab.CONTENT_AUTOPILOT,
             label: (
                 <div className="flex items-center gap-1">
-                    Content autopilot
+                    AI visibility
                     <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
@@ -970,7 +920,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     return (
         <LemonTabs<ProductTab>
-            activeKey={productTab}
+            // The retired Bots route renders AI visibility, so it keeps that tab active.
+            activeKey={productTab === ProductTab.BOT_ANALYTICS ? ProductTab.CONTENT_AUTOPILOT : productTab}
             onChange={setProductTab}
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
@@ -985,7 +936,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     link: '/web/page-reports',
                 },
                 ...liveTab(),
-                ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),
                 ...agentAnalyticsTab(featureFlags),
                 ...contentAutopilotTab(featureFlags),

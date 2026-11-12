@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FileFormatChoice,
 )
 
-FEATURE_FLAG = "dwh-object-storage-sources"
 KEYWORDS = ["bucket", "csv", "parquet", "delta lake"]
 
 

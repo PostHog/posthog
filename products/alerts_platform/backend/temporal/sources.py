@@ -93,6 +93,13 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         evaluation_timeout=dt.timedelta(seconds=120),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
+    # One `trace_spans` query per check on the logs cluster. A batch stops starting queries at its budget.
+    SourceKind.TRACES: SourceBinding(
+        workflow="traces-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=120),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
 }
 
 

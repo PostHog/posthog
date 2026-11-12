@@ -1,5 +1,4 @@
 import hashlib
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -21,6 +20,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql import ast
 
@@ -33,13 +33,15 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
-from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
-from posthog.temporal.ai_observability.message_utils import last_message_text
+from posthog.rate_limit import (
+    AIObservabilityEvaluationJudgeTestTeamThrottle,
+    AIObservabilityEvaluationJudgeTestThrottle,
+)
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
-from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
+from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
@@ -49,7 +51,6 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 from ..evaluation_conditions import build_condition_filter
 from ..facade import (
@@ -57,12 +58,15 @@ from ..facade import (
     contracts,
 )
 from ..facade.contracts import Contract
-from ..hog import compile_ai_observability_hog
+from ..hog import compile_ai_observability_hog, hog_compile_error_message
 from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
 from ..llm.decisions import is_decision_model
 from ..llm.errors import ProviderConnectionError
 from ..llm.providers.openai import OpenAIConfig
 from ..llm.providers.openrouter import is_non_chat_model
+from ..logic.evaluations.preview_outcomes import outcome_counts, preview_grader
+from ..logic.evaluations.preview_queries import generation_io_preview, load_generation_events
+from ..logic.evaluations.preview_units import session_quiet_period_seconds, trace_window_seconds
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -553,6 +557,28 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
+    def _is_paused_without_model(self, data: dict[str, object]) -> bool:
+        """An LLM judge that is created paused without a model, or stays that way through an edit. A team with
+        no provider key has no model to pick, so the judge may wait for one. Turning it on runs
+        `_validate_can_run`, which needs a key and a model that can run it.
+
+        A new evaluation counts only when the payload sets `enabled` to false, so a request that forgot the
+        model still gets the error. An edit counts only when it leaves the type and the judge method as they
+        are, so choosing a method for an older evaluation still asks for a model."""
+        if data.get("model_configuration") or data.get("enabled", False) is not False:
+            return False
+        if self.instance is None:
+            return "enabled" in data
+        config = data.get("evaluation_config", self.instance.evaluation_config)
+        method = config.get("judge_method") if isinstance(config, dict) else None
+        return (
+            self.instance.evaluation_type == EvaluationType.LLM_JUDGE.value
+            and data.get("evaluation_type", self.instance.evaluation_type) == EvaluationType.LLM_JUDGE.value
+            and not self.instance.enabled
+            and self.instance.model_configuration_id is None
+            and method == (self.instance.evaluation_config or {}).get("judge_method")
+        )
+
     def _uses_decision_model(self, data: dict[str, object]) -> bool:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         if evaluation_type != EvaluationType.LLM_JUDGE.value:
@@ -573,6 +599,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         model_configuration = self._effective_model_configuration(data) or {}
         if judge_method is not None and not model_configuration:
+            if self._is_paused_without_model(data):
+                return False
             raise serializers.ValidationError(
                 {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
             )
@@ -601,6 +629,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        requests_reasoning_level = isinstance(data.get("evaluation_config"), dict) and (
+            "reasoning_level" in data["evaluation_config"]
+        )
         if "evaluation_config" in data:
             config = data["evaluation_config"]
             if not isinstance(config, dict):
@@ -642,7 +673,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             clears_existing_model_configuration = bool(
                 self.instance and self.instance.model_configuration_id and "model_configuration" in data
             )
-            if newly_requires_model_configuration or clears_existing_model_configuration:
+            if (
+                newly_requires_model_configuration and not self._is_paused_without_model(data)
+            ) or clears_existing_model_configuration:
                 raise serializers.ValidationError(
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
@@ -652,7 +685,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
-        self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
+        self._validate_reasoning_level(
+            data, uses_decision_model=uses_decision_model, requested=requests_reasoning_level
+        )
 
         should_validate_configs = (
             self.instance is None
@@ -756,7 +791,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 }
             )
 
-    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
+    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool, requested: bool) -> None:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         if evaluation_type != EvaluationType.LLM_JUDGE.value:
             return
@@ -765,6 +800,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             return
         model_config = self._effective_model_configuration(data) or {}
         if uses_decision_model or not supports_reasoning_level(model_config.get("provider"), model_config.get("model")):
+            if self.instance is not None and not requested:
+                # A saved level must not block a model change. The create page drops it the same way.
+                data["evaluation_config"] = {k: v for k, v in evaluation_config.items() if k != "reasoning_level"}
+                return
             raise serializers.ValidationError(
                 {
                     "evaluation_config": "This judge model doesn't support a reasoning level. Choose an Anthropic or OpenAI reasoning model, or use the model default."
@@ -1029,22 +1068,39 @@ class EvaluationListSerializer(EvaluationSerializer):
         read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
 
 
+class PreviewSettleStrategy(models.TextChoices):
+    FIXED_WINDOW = "fixed_window", "Fixed window"
+    INACTIVITY = "inactivity", "Inactivity"
+
+
 class TestHogTargetConfigSerializer(serializers.Serializer):
+    """The evaluation's own `target_config` works here, so a client sends it as it is."""
+
+    strategy = serializers.ChoiceField(
+        choices=PreviewSettleStrategy.choices,
+        required=False,
+        help_text=(
+            "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on "
+            "sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`."
+        ),
+    )
     window_seconds = serializers.IntegerField(
         required=False,
-        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
         min_value=TRACE_EVAL_MIN_WINDOW_SECONDS,
-        max_value=TRACE_EVAL_MAX_WINDOW_SECONDS,
-        help_text="Aggregation window for trace samples, in seconds.",
+        max_value=SESSION_EVAL_MAX_WINDOW_SECONDS,
+        help_text=(
+            f"Aggregation window in seconds. A trace preview defaults to {TRACE_EVAL_DEFAULT_WINDOW_SECONDS} "
+            f"and uses at most {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
     )
     quiet_period_seconds = serializers.IntegerField(
         required=False,
-        default=SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
         min_value=SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
         max_value=SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
         help_text=(
             "For session samples: only sessions with no activity for this long are previewed, "
-            "matching when a session evaluation would actually run."
+            "matching when a session evaluation would actually run. Defaults to "
+            f"{SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS}."
         ),
     )
 
@@ -1120,7 +1176,42 @@ class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
     )
 
 
-class TestHogRequestSerializer(serializers.Serializer):
+class PreviewConditionSerializer(EvaluationConditionSerializer):
+    """A trigger condition set, as on an evaluation. The id is optional here."""
+
+    id = serializers.CharField(max_length=100, required=False, help_text="Identifier of this condition set, if any.")
+
+
+class _EvaluationPreviewScopeSerializer(serializers.Serializer):
+    """What a preview samples from: the unsaved evaluation's conditions and target."""
+
+    conditions = PreviewConditionSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Optional trigger conditions to filter which events are sampled.",
+    )
+    target = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        required=False,
+        default=EvaluationTarget.GENERATION,
+        help_text=(
+            "What the evaluation runs against: 'generation' samples individual generations, "
+            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
+            "quiet. Each target runs against the same globals it would run against online."
+        ),
+    )
+    target_config = TestHogTargetConfigSerializer(
+        required=False,
+        default=dict,
+        help_text=(
+            "Target-specific preview settings. For a trace target, set window_seconds between "
+            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
+    )
+
+
+class TestHogRequestSerializer(_EvaluationPreviewScopeSerializer):
     output_type = serializers.ChoiceField(
         choices=HogEvaluationOutputType.choices,
         required=False,
@@ -1152,28 +1243,16 @@ class TestHogRequestSerializer(serializers.Serializer):
     allows_na = serializers.BooleanField(
         required=False, default=False, help_text="Whether the evaluation can return N/A for non-applicable generations."
     )
-    conditions = serializers.ListField(
-        child=serializers.DictField(),
+    sample_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
         required=False,
-        default=list,
-        help_text="Optional trigger conditions to filter which events are sampled.",
-    )
-    target = serializers.ChoiceField(
-        choices=EvaluationTarget.choices,
-        required=False,
-        default=EvaluationTarget.GENERATION,
+        max_length=facade.MAX_PREVIEW_UNITS,
         help_text=(
-            "What the evaluation runs against: 'generation' samples individual generations, "
-            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
-            "quiet. Each target runs against the same globals it would run against online."
-        ),
-    )
-    target_config = TestHogTargetConfigSerializer(
-        required=False,
-        default=dict,
-        help_text=(
-            "Target-specific preview settings. For a trace target, set window_seconds between "
-            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+            "Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, "
+            f"matching `target`. Up to {facade.MAX_PREVIEW_UNITS}, and only units from the last "
+            f"{EVALUATION_TEST_LOOKBACK_DAYS} days. Conditions and sampling are ignored for pinned units, and "
+            "unknown IDs are skipped. A session target tests at most "
+            f"{SESSION_TEST_HOG_MAX_SAMPLES} sessions."
         ),
     )
 
@@ -1188,6 +1267,13 @@ class TestHogRequestSerializer(serializers.Serializer):
         data["output_config"] = output_config
         data["allows_na"] = output_config.get("allows_na", False)
         return data
+
+
+class PreviewOutcome(models.TextChoices):
+    PASS = "pass", "Pass"
+    FAIL = "fail", "Fail"
+    NA = "na", "Not applicable"
+    ERROR = "error", "Error"
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
@@ -1217,6 +1303,14 @@ class TestHogResultItemSerializer(serializers.Serializer):
     )
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
+    outcome = serializers.ChoiceField(
+        choices=PreviewOutcome.choices,
+        allow_null=True,
+        help_text=(
+            "How the evaluation's passing rule grades this result: pass, fail, na for a not-applicable result, "
+            "or error. Null when there is no rule to grade it, such as a score with no passing rule."
+        ),
+    )
 
 
 class TestHogResponseSerializer(serializers.Serializer):
@@ -1226,28 +1320,97 @@ class TestHogResponseSerializer(serializers.Serializer):
     )
 
 
-def _hog_test_result_counts(
-    results: Sequence[Mapping[str, object]], output_type: str, output_config: dict[str, object] | None
-) -> dict[str, int]:
-    config = output_config or {}
-    # Preview telemetry and reports must agree on polarity and thresholds.
-    definition = get_outcome_definition(
-        output_type, true_is_failure=config.get("true_is_failure") is True, output_config=config
+class EvaluationSampleTrafficRequestSerializer(_EvaluationPreviewScopeSerializer):
+    count = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=facade.MAX_PREVIEW_UNITS,
+        help_text=(
+            f"How many units to return, {facade.DEFAULT_PREVIEW_UNITS} by default. Sessions return at most "
+            f"{SESSION_TEST_HOG_MAX_SAMPLES}, the number a session test covers."
+        ),
     )
-    counts: Counter[str | None] = Counter()
-    for result in results:
-        if result["error"]:
-            counts["error"] += 1
-        else:
-            value = (
-                result.get("categories")
-                if output_type == "categorical"
-                else result.get("score")
-                if output_type == "numeric"
-                else result["result"]
-            )
-            counts[definition.label_for(value, applicable=value is not None)] += 1
-    return {f"{outcome}_count": counts[outcome] for outcome in ("pass", "fail", "na", "error")}
+
+
+class EvaluationSampleTrafficItemSerializer(serializers.Serializer):
+    sample_id = serializers.CharField(help_text="Generation event UUID, trace ID, or session ID, matching `target`.")
+    sample_type = serializers.ChoiceField(
+        choices=EvaluationTarget.choices, help_text="Type of unit: generation, trace, or session."
+    )
+    trace_id = serializers.CharField(
+        allow_null=True,
+        help_text="Trace to open for this unit. For a session, its most recent trace. Null when the unit has none.",
+    )
+    timestamp = serializers.DateTimeField(help_text="When the unit's latest generation happened.")
+    input_preview = serializers.CharField(
+        help_text="First 200 characters of the last user message in the unit's latest generation."
+    )
+    output_preview = serializers.CharField(
+        help_text="First 200 characters of the last assistant message in the unit's latest generation."
+    )
+
+
+class EvaluationSampleTrafficResponseSerializer(serializers.Serializer):
+    results = EvaluationSampleTrafficItemSerializer(many=True)
+
+
+# Sentiment is not offered: its classifier ships only in the AI observability worker image, not the web image.
+class TestOnSampleEvaluationType(models.TextChoices):
+    LLM_JUDGE = EvaluationType.LLM_JUDGE.value, EvaluationType.LLM_JUDGE.label
+
+
+class EvaluationTestOnSampleRequestSerializer(_EvaluationPreviewScopeSerializer):
+    evaluation_type = serializers.ChoiceField(
+        choices=TestOnSampleEvaluationType.choices,
+        help_text="'llm_judge' runs the judge, or the decision model, on your own provider key.",
+    )
+    evaluation_config = _EvaluationConfigField(
+        help_text="Same as on an evaluation: {prompt, judge_method}.",
+    )
+    model_configuration = ModelConfigurationSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Provider and model for an llm_judge, as on an evaluation. Required for llm_judge.",
+    )
+    output_type = serializers.ChoiceField(
+        choices=OutputType.choices,
+        required=False,
+        default=OutputType.BOOLEAN,
+        help_text="Expected output: boolean, numeric, or categorical.",
+    )
+    output_config = _OutputConfigField(
+        required=False,
+        default=dict,
+        help_text="Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules.",
+    )
+    sample_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        max_length=facade.MAX_JUDGE_TEST_UNITS,
+        help_text=(
+            f"Test exactly these units instead of sampling, up to {facade.MAX_JUDGE_TEST_UNITS}: generation event "
+            "UUIDs, trace IDs, or session IDs, matching `target`. Conditions are ignored for pinned units, and "
+            "unknown IDs are skipped."
+        ),
+    )
+
+
+def _preview_settle(target_config: Mapping[str, Any]) -> contracts.EvaluationPreviewSettle:
+    return contracts.EvaluationPreviewSettle(
+        strategy=target_config.get("strategy"),
+        window_seconds=target_config.get("window_seconds"),
+        quiet_period_seconds=target_config.get("quiet_period_seconds"),
+    )
+
+
+def _preview_scope(data: Mapping[str, Any]) -> contracts.EvaluationPreviewScope:
+    return contracts.EvaluationPreviewScope(
+        target=data["target"], conditions=data["conditions"], settle=_preview_settle(data["target_config"])
+    )
+
+
+def _hog_test_row_counts(results: Sequence[Mapping[str, object]]) -> dict[str, int]:
+    return outcome_counts(cast("contracts.PreviewOutcome | None", result["outcome"]) for result in results)
 
 
 def _humanize_seconds(seconds: int) -> str:
@@ -1274,6 +1437,7 @@ def _test_hog_over_sessions(
     quiet_period_seconds: int,
     output_type: str = "boolean",
     output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> Response:
     """Session-target variant of `test_hog`: sample sessions that have gone quiet and run the code
     against session-level globals, so the editor preview matches how a session eval runs online."""
@@ -1289,10 +1453,12 @@ def _test_hog_over_sessions(
             output_type=output_type,
             output_config=output_config,
             quiet_period_seconds=quiet_period_seconds,
+            sample_ids=sample_ids,
         )
     except AIEventsUnavailableError:
         session_results = []
 
+    grader = preview_grader(output_type, output_config)
     results = [
         {
             "sample_id": r.session_id,
@@ -1306,6 +1472,7 @@ def _test_hog_over_sessions(
             **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
+            "outcome": grader.outcome(error=r.error, result=r.verdict, score=r.score, categories=r.categories),
         }
         for r in session_results
     ]
@@ -1316,7 +1483,7 @@ def _test_hog_over_sessions(
         {
             "sample_count": sample_count,
             "results_count": len(results),
-            **_hog_test_result_counts(results, output_type, output_config),
+            **_hog_test_row_counts(results),
             "target": EvaluationTarget.SESSION.value,
             "condition_count": len(conditions),
         },
@@ -1352,6 +1519,7 @@ def _test_hog_over_traces(
     window_seconds: int,
     output_type: str = "boolean",
     output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> Response:
     """Trace-target variant of the `test_hog` action: sample recent whole traces and run the code
     against trace-level globals, so the editor preview matches how a trace eval runs online."""
@@ -1367,10 +1535,12 @@ def _test_hog_over_traces(
             output_type=output_type,
             output_config=output_config,
             window_seconds=window_seconds,
+            sample_ids=sample_ids,
         )
     except AIEventsUnavailableError:
         trace_results = []
 
+    grader = preview_grader(output_type, output_config)
     results = [
         {
             "sample_id": r.trace_id,
@@ -1384,6 +1554,7 @@ def _test_hog_over_traces(
             **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
+            "outcome": grader.outcome(error=r.error, result=r.verdict, score=r.score, categories=r.categories),
         }
         for r in trace_results
     ]
@@ -1396,7 +1567,7 @@ def _test_hog_over_traces(
             "allows_na": allows_na,
             "condition_count": len(conditions),
             "result_count": len(results),
-            **_hog_test_result_counts(results, output_type, output_config),
+            **_hog_test_row_counts(results),
             "no_events": not results,
             "target": EvaluationTarget.TRACE.value,
         },
@@ -1414,6 +1585,133 @@ def _test_hog_over_traces(
     return Response({"results": results})
 
 
+def _test_hog_over_generations(
+    *,
+    request: Request,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    conditions: list[dict[str, Any]],
+    output_type: str = "boolean",
+    output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
+) -> Response:
+    """Generation-target variant of the `test_hog` action: run the code against recent generations."""
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    try:
+        events = load_generation_events(
+            team,
+            cast("User", request.user),
+            condition_filter=condition_filter,
+            sample_count=sample_count,
+            sample_ids=sample_ids,
+        )
+    except AIEventsUnavailableError:
+        events = []
+
+    grader = preview_grader(output_type, output_config)
+    results = []
+    for event_data in events:
+        result = run_hog_eval(
+            bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
+        )
+        io_preview = generation_io_preview(event_data)
+        results.append(
+            {
+                "sample_id": event_data["uuid"],
+                "sample_type": EvaluationTarget.GENERATION.value,
+                "event_uuid": event_data["uuid"],
+                "trace_id": event_data["properties"].get("$ai_trace_id"),
+                "input_preview": io_preview.input,
+                "output_preview": io_preview.output,
+                "result": result.get("verdict"),
+                **({"score": result.get("score")} if output_type == "numeric" else {}),
+                **({"categories": result.get("categories")} if output_type == "categorical" else {}),
+                "reasoning": result["reasoning"],
+                "error": result["error"],
+                "outcome": grader.outcome(
+                    error=result["error"],
+                    result=result.get("verdict"),
+                    score=result.get("score"),
+                    categories=result.get("categories"),
+                ),
+            }
+        )
+
+    report_user_action(
+        request.user,
+        "llma evaluation hog code tested",
+        {
+            "sample_count": sample_count,
+            "allows_na": allows_na,
+            "condition_count": len(conditions),
+            "result_count": len(results),
+            **_hog_test_row_counts(results),
+            "no_events": not results,
+            "target": EvaluationTarget.GENERATION.value,
+        },
+        team=team,
+        request=request,
+    )
+
+    if not results:
+        return Response(
+            {
+                "results": [],
+                "message": f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
+            }
+        )
+    return Response({"results": results})
+
+
+def _config_length(instance: Evaluation) -> int:
+    """Get the relevant config content length for tracking."""
+    if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+        content_key = get_evaluation_config_content_key(instance.evaluation_type)
+        content = instance.evaluation_config.get(content_key, "") if content_key else ""
+        return len(content) if isinstance(content, str) else 0
+    return 0
+
+
+def create_evaluation(
+    serializer: EvaluationSerializer,
+    *,
+    request: Request,
+    team: Team,
+) -> Evaluation:
+    """Save a validated evaluation with its default report and track the creation."""
+    with transaction.atomic():
+        instance = serializer.save()
+
+        if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
+            # Auto-create a default report config so reports are generated from the start.
+            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+            # and users add email/Slack delivery targets later if they want notifications.
+            EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+
+    conditions = instance.conditions or []
+    report_user_action(
+        request.user,
+        "llma evaluation created",
+        {
+            "evaluation_id": str(instance.id),
+            "evaluation_name": instance.name,
+            "evaluation_type": instance.evaluation_type,
+            "output_type": instance.output_type,
+            "has_description": bool(instance.description),
+            "enabled": instance.enabled,
+            "condition_count": len(conditions),
+            "has_rollout_percentage": any(condition.get("rollout_percentage", 100) < 100 for condition in conditions),
+            "config_length": _config_length(instance),
+        },
+        team=team,
+        request=request,
+    )
+    return instance
+
+
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -1421,6 +1719,15 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     queryset = Evaluation.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = EvaluationFilter
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "test_on_sample":
+            return [
+                *super().get_throttles(),
+                AIObservabilityEvaluationJudgeTestThrottle(),
+                AIObservabilityEvaluationJudgeTestTeamThrottle(),
+            ]
+        return super().get_throttles()
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
@@ -1456,50 +1763,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "List the project's evaluations to look one up by name."
             )
 
-    @staticmethod
-    def _get_config_length(instance) -> int:
-        """Get the relevant config content length for tracking."""
-        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            content_key = get_evaluation_config_content_key(instance.evaluation_type)
-            content = instance.evaluation_config.get(content_key, "") if content_key else ""
-            return len(content) if isinstance(content, str) else 0
-        return 0
-
     def perform_create(self, serializer):
-        with transaction.atomic():
-            instance = serializer.save()
-
-            if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
-                # Auto-create a default report config so reports are generated from the start.
-                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-                # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
-
-        # Calculate properties for tracking
-        conditions = instance.conditions or []
-        condition_count = len(conditions)
-        has_rollout_percentage = any(condition.get("rollout_percentage", 100) < 100 for condition in conditions)
-
-        config_length = self._get_config_length(instance)
-
-        # Track evaluation created
-        report_user_action(
-            self.request.user,
-            "llma evaluation created",
-            {
-                "evaluation_id": str(instance.id),
-                "evaluation_name": instance.name,
-                "evaluation_type": instance.evaluation_type,
-                "output_type": instance.output_type,
-                "has_description": bool(instance.description),
-                "enabled": instance.enabled,
-                "condition_count": condition_count,
-                "has_rollout_percentage": has_rollout_percentage,
-                "config_length": config_length,
-            },
-            team=self.team,
-            request=self.request,
-        )
+        create_evaluation(serializer, request=self.request, team=self.team)
 
     def perform_update(self, serializer):
         previously_supported_reports = evaluation_supports_reports(
@@ -1775,38 +2040,57 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         conditions = serializer.validated_data.get("conditions", [])
         target = serializer.validated_data["target"]
         target_config = serializer.validated_data["target_config"]
+        sample_ids = serializer.validated_data.get("sample_ids") or None
 
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
         except serializers.ValidationError as e:
-            return Response({"error": f"Compilation error: {e.detail}"}, status=400)
+            # The code lets the editor tell code that does not compile from a request that failed for another reason.
+            return Response({"error": hog_compile_error_message(source, e), "code": "hog_compile_error"}, status=400)
         except Exception:
             logger.exception("Unexpected error compiling Hog source")
             return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
 
         team = Team.objects.get(id=self.team_id)
+        settle = _preview_settle(target_config)
 
         # Both targets reuse it; for traces it filters which triggering generation qualifies.
         condition_filter = build_condition_filter(conditions, team)
 
-        if target == EvaluationTarget.SESSION.value:
-            return _test_hog_over_sessions(
-                request=request,
-                team=team,
-                bytecode=bytecode,
-                condition_filter=condition_filter,
-                sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
-                allows_na=allows_na,
-                output_type=output_type,
-                output_config=output_config,
-                conditions=conditions,
-                quiet_period_seconds=target_config.get(
-                    "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
-                ),
-            )
+        # The editor runs this on every pause in typing, so it holds the slots a query runner holds.
+        with query_concurrency_slots(team):
+            if target == EvaluationTarget.SESSION.value:
+                return _test_hog_over_sessions(
+                    request=request,
+                    team=team,
+                    bytecode=bytecode,
+                    condition_filter=condition_filter,
+                    sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
+                    allows_na=allows_na,
+                    output_type=output_type,
+                    output_config=output_config,
+                    conditions=conditions,
+                    quiet_period_seconds=session_quiet_period_seconds(settle),
+                    # Each session is a whole conversation, so pinned sessions share the sampled cap.
+                    sample_ids=sample_ids[:SESSION_TEST_HOG_MAX_SAMPLES] if sample_ids else None,
+                )
 
-        if target == EvaluationTarget.TRACE.value:
-            return _test_hog_over_traces(
+            if target == EvaluationTarget.TRACE.value:
+                return _test_hog_over_traces(
+                    request=request,
+                    team=team,
+                    bytecode=bytecode,
+                    condition_filter=condition_filter,
+                    sample_count=sample_count,
+                    allows_na=allows_na,
+                    output_type=output_type,
+                    output_config=output_config,
+                    conditions=conditions,
+                    window_seconds=trace_window_seconds(settle),
+                    sample_ids=sample_ids,
+                )
+
+            return _test_hog_over_generations(
                 request=request,
                 team=team,
                 bytecode=bytecode,
@@ -1816,143 +2100,111 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 output_type=output_type,
                 output_config=output_config,
                 conditions=conditions,
-                window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+                sample_ids=sample_ids,
             )
 
-        where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=["$ai_generation"]),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now", args=[]),
-                    right=ast.Call(
-                        name="toIntervalDay",
-                        args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
-                    ),
-                ),
-            ),
-        ]
-        if condition_filter is not None:
-            where_exprs.append(condition_filter)
+    @validated_request(
+        request_serializer=EvaluationSampleTrafficRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=EvaluationSampleTrafficResponseSerializer),
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="sample_traffic", required_scopes=["evaluation:read"])
+    def sample_traffic(self, request: ValidatedRequest, **kwargs) -> Response:
+        """The latest units an unsaved evaluation would run on, newest first."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
 
-        query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["uuid"]),
-                ast.Field(chain=["event"]),
-                ast.Field(chain=["properties"]),
-                ast.Field(chain=["distinct_id"]),
-                ast.Field(chain=["timestamp"]),
-                *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
-            where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-            limit=ast.Constant(value=sample_count),
+        data = request.validated_data
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        with query_concurrency_slots(self.team):
+            samples = facade.sample_evaluation_traffic(
+                self.team, cast("User", request.user), _preview_scope(data), data.get("count")
+            )
+        return Response(EvaluationSampleTrafficResponseSerializer({"results": samples}).data)
+
+    @validated_request(
+        request_serializer=EvaluationTestOnSampleRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TestHogResponseSerializer),
+            429: OpenApiResponse(
+                description="This user already has a test running, or too many queries are running for the project."
+            ),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="test_on_sample", required_scopes=["evaluation:write"])
+    def test_on_sample(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Run an unsaved LLM judge on a few samples. Saves nothing and emits no results."""
+        # Each call spends the team's own provider key, so it takes the access that saving an evaluation does.
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "editor"):
+            raise exceptions.PermissionDenied()
+
+        data = request.validated_data
+        # The create path's validation, so a test accepts exactly what saving would.
+        evaluation_serializer = EvaluationSerializer(
+            data={
+                "name": "Unsaved evaluation",
+                "evaluation_type": data["evaluation_type"],
+                "evaluation_config": data["evaluation_config"],
+                "output_type": data["output_type"],
+                "output_config": data["output_config"],
+                "target": data["target"],
+                "model_configuration": data.get("model_configuration"),
+            },
+            context=self.get_serializer_context(),
         )
+        evaluation_serializer.is_valid(raise_exception=True)
+        validated = evaluation_serializer.validated_data
+        model = validated.get("model_configuration")
+        judge = contracts.UnsavedJudge(
+            evaluation_config=validated["evaluation_config"],
+            output_type=data["output_type"],
+            output_config=validated["output_config"],
+            model=contracts.JudgeModel(
+                provider=model["provider"],
+                model=model["model"],
+                provider_key_id=str(model["provider_key_id"]) if model.get("provider_key_id") else None,
+            )
+            if model
+            else None,
+        )
+        sample_ids = data.get("sample_ids") or None
+        team = self.team
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
         try:
-            response = query_ai_events(
-                query=query,
-                placeholders={"where_clause": ast.And(exprs=where_exprs)},
-                team=team,
-                user=cast("User", request.user),
-                query_type="EvaluationTestHog",
-                fall_back_to_events=False,
-                limit_context=None,
+            results = facade.run_unsaved_judge(
+                team,
+                cast("User", request.user),
+                judge,
+                _preview_scope(data),
+                sample_ids,
+                # The slots cover each read, not the model calls between them.
+                reading=lambda: query_concurrency_slots(team),
             )
-            query_results = response.results or []
-        except AIEventsUnavailableError:
-            query_results = []
-
-        if not query_results:
-            report_user_action(
-                request.user,
-                "llma evaluation hog code tested",
-                {
-                    "sample_count": sample_count,
-                    "allows_na": allows_na,
-                    "condition_count": len(conditions),
-                    "result_count": 0,
-                    "pass_count": 0,
-                    "fail_count": 0,
-                    "error_count": 0,
-                    "na_count": 0,
-                    "no_events": True,
-                    "target": target,
-                },
-                team=self.team,
-                request=self.request,
-            )
-            return Response(
-                {
-                    "results": [],
-                    "message": f"No recent AI events found in the last {EVALUATION_TEST_LOOKBACK_DAYS} days",
-                }
-            )
-
-        results = []
-        for row in query_results:
-            event_uuid = str(row[0])
-            event_type = row[1]
-            timestamp = row[4]
-            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
-            heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))
-            properties = merge_heavy_properties(row[2], heavy_columns)
-            distinct_id = row[3]
-
-            event_data = {
-                "uuid": event_uuid,
-                "event": event_type,
-                "properties": properties,
-                "distinct_id": distinct_id or "",
-                "timestamp": timestamp,
-            }
-
-            result = run_hog_eval(
-                bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
-            )
-
-            io = extract_event_io(event_type, properties)
-            input_preview = last_message_text(io.input_raw, "user")[:200]
-            output_preview = last_message_text(io.output_raw, "assistant")[:200]
-
-            results.append(
-                {
-                    "sample_id": event_uuid,
-                    "sample_type": EvaluationTarget.GENERATION.value,
-                    "event_uuid": event_uuid,
-                    "trace_id": properties.get("$ai_trace_id"),
-                    "input_preview": input_preview,
-                    "output_preview": output_preview,
-                    "result": result.get("verdict"),
-                    **({"score": result.get("score")} if output_type == "numeric" else {}),
-                    **({"categories": result.get("categories")} if output_type == "categorical" else {}),
-                    "reasoning": result["reasoning"],
-                    "error": result["error"],
-                }
-            )
+        except contracts.JudgeModelError as error:
+            raise serializers.ValidationError({"model_configuration": str(error)})
+        except contracts.JudgeTestAlreadyRunningError:
+            raise exceptions.Throttled(detail="A test is already running. Wait for it to finish, then try again.")
 
         report_user_action(
             request.user,
-            "llma evaluation hog code tested",
+            "llma evaluation tested on sample",
             {
-                "sample_count": sample_count,
-                "allows_na": allows_na,
-                "condition_count": len(conditions),
-                "result_count": len(results),
-                **_hog_test_result_counts(results, output_type, output_config),
-                "no_events": False,
-                "target": target,
+                "evaluation_type": data["evaluation_type"],
+                "output_type": data["output_type"],
+                "target": data["target"],
+                "sample_count": len(results),
+                "pinned": sample_ids is not None,
+                "condition_count": len(data["conditions"]),
+                **outcome_counts(result.outcome for result in results),
             },
-            team=self.team,
-            request=self.request,
+            team=team,
+            request=request,
         )
 
-        return Response({"results": results})
+        response: dict[str, Any] = {"results": results}
+        if not results:
+            response["message"] = f"Nothing to test on from the last {EVALUATION_TEST_LOOKBACK_DAYS} days."
+        return Response(TestHogResponseSerializer(response).data)

@@ -5,7 +5,6 @@ import { IconArrowRight, IconCheckCircle, IconExternal, IconInfo } from '@postho
 import { LemonButton, LemonCard, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -14,10 +13,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import {
-    VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
+    VALID_FILE_MARKETING_SOURCES,
+    VALID_WAREHOUSE_MARKETING_SOURCES,
     getEnabledNativeMarketingSourcesInDisplayOrder,
-    nativeSourceDisplayLabel,
+    marketingSourceDisplayLabel,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -29,7 +28,7 @@ const HedgehogMoney = pngHoggie(moneyPng)
 interface MarketingSource {
     id: string
     isConnected: boolean
-    category: 'native' | 'external' | 'self-managed'
+    category: 'native' | 'external' | 'file'
 }
 
 interface SourceCatalogProps {
@@ -54,18 +53,15 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
             isConnected: validNativeSources.some((source) => source.source.source_type === sourceType),
             category: 'native' as const,
         })),
-        ...VALID_NON_NATIVE_MARKETING_SOURCES.map((sourceType) => ({
+        ...VALID_WAREHOUSE_MARKETING_SOURCES.map((sourceType) => ({
             id: sourceType,
             isConnected: validExternalTables.some((table) => table.source_type === sourceType),
             category: 'external' as const,
         })),
-        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]
-            ? []
-            : VALID_SELF_MANAGED_MARKETING_SOURCES
-        ).map((sourceType) => ({
+        ...VALID_FILE_MARKETING_SOURCES.map((sourceType) => ({
             id: sourceType,
             isConnected: validExternalTables.some((table) => table.source_type === sourceType),
-            category: 'self-managed' as const,
+            category: 'file' as const,
         })),
     ]
 
@@ -85,21 +81,12 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
         )
     }
 
-    const nativeSources = allSources.filter(
-        (s) =>
-            nativeSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase()) &&
-            s.category === 'native'
+    const matchingSources = allSources.filter((s) =>
+        marketingSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase())
     )
-    const externalSources = allSources.filter(
-        (s) =>
-            nativeSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase()) &&
-            s.category === 'external'
-    )
-    const selfManagedSources = allSources.filter(
-        (s) =>
-            nativeSourceDisplayLabel(s.id).toLowerCase().includes(manualSourceSearch.toLowerCase()) &&
-            s.category === 'self-managed'
-    )
+    const nativeSources = matchingSources.filter((s) => s.category === 'native')
+    const externalSources = matchingSources.filter((s) => s.category === 'external')
+    const fileSources = matchingSources.filter((s) => s.category === 'file')
 
     const totalConnected = validNativeSources.length + validExternalTables.length
 
@@ -126,7 +113,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
                     value={manualSourceSearch}
                     onChange={setManualSourceSearch}
                 />
-                {!nativeSources.length && !externalSources.length && !selfManagedSources.length && (
+                {!nativeSources.length && !externalSources.length && !fileSources.length && (
                     <p className="text-secondary">No integrations match your search.</p>
                 )}
                 {/* Native Sources */}
@@ -161,20 +148,20 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
                     </div>
                 )}
 
-                {/* Self-managed Sources */}
-                {selfManagedSources.length > 0 && (
+                {/* File Sources */}
+                {fileSources.length > 0 && (
                     <div>
                         <div className="text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
-                            Self-managed
+                            Files
                             <Tooltip
-                                title="Connect your own data source (e.g. S3, GCS) where you already store marketing data."
+                                title="Import spend data from CSV, JSON, or Parquet files in a storage bucket, or upload a file."
                                 delayMs={0}
                             >
                                 <IconInfo className="w-3 h-3 cursor-help" />
                             </Tooltip>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {selfManagedSources.map((source) => (
+                            {fileSources.map((source) => (
                                 <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />
                             ))}
                         </div>
@@ -219,7 +206,7 @@ function SourceChip({ source, onSelect }: { source: MarketingSource; onSelect: (
             onClick={() => onSelect(source.id)}
             data-attr="marketing-manual-connect-source"
         >
-            {nativeSourceDisplayLabel(source.id)}
+            {marketingSourceDisplayLabel(source.id)}
             {source.isConnected && <IconCheckCircle className="ml-2 text-success" />}
         </LemonButton>
     )

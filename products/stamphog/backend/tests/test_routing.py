@@ -5,12 +5,11 @@ import pytest
 from owners_yaml import Addition, Resolution
 from parameterized import parameterized
 
+from products.stamphog.backend.facade.enums import LlmSkipReason, OwnerKind, PinReason, RoutingOwnerReason
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
     OwnerCandidate,
-    OwnerKind,
     Pin,
-    PinReason,
     find_candidates,
     paths_to_resolve,
 )
@@ -20,7 +19,6 @@ from products.stamphog.backend.logic.routing.cut import (
     CUT_SYSTEM_PROMPT,
     DIFF_MAX_CHARS,
     CutOwner,
-    LlmSkipReason,
     RoutingDecision,
     apply_cut_guards,
     build_cut_prompt,
@@ -54,13 +52,14 @@ def _resolution(
     status: str = "active",
     sensitive: bool = False,
     added: Addition | None = None,
+    source: str = "owners.yaml",
 ) -> Resolution:
     return Resolution(
         path=path,
         owners=owners,
         status=status,
         slack=None,
-        source="owners.yaml",
+        source=source,
         unowned_by_design=False,
         added=added,
         sensitive=sensitive,
@@ -108,7 +107,9 @@ class TestFindCandidates:
     ) -> None:
         file = _file(path, status=status, previous_path=previous_path)
         resolutions = {
-            "ci/baseline.txt": _resolution("ci/baseline.txt", ["team-guard"], status=path_status, sensitive=True),
+            "ci/baseline.txt": _resolution(
+                "ci/baseline.txt", ["team-guard"], status=path_status, sensitive=True, source="ci/owners.yaml"
+            ),
             "ci/moved.txt": _resolution("ci/moved.txt", ["team-other"]),
         }
 
@@ -116,6 +117,8 @@ class TestFindCandidates:
 
         assert candidates["team-guard"].pins == _SENSITIVE_PIN
         assert candidates["team-guard"].files == (file,)
+        # A rename reaches the guard through its old path, so the old path's file decided the owner.
+        assert candidates["team-guard"].owners_sources == {path: "ci/owners.yaml"}
         if "team-other" in candidates:
             assert not candidates["team-other"].is_pinned
 
@@ -123,15 +126,17 @@ class TestFindCandidates:
     def test_addition_pins_owners_of_additions(self, status: str, expect_pin: bool) -> None:
         path = "products/new_thing/backend/api.py"
         added = Addition(path="products/new_thing", additions=["team-architecture"])
-        resolutions = {path: _resolution(path, ["team-products"], added=added)}
+        resolutions = {path: _resolution(path, ["team-products"], added=added, source="products/owners.yaml")}
 
         candidates = {
             candidate.owner: candidate for candidate in find_candidates([_file(path, status=status)], resolutions)
         }
 
         assert not candidates["team-products"].is_pinned
+        assert candidates["team-products"].owners_sources == {path: "products/owners.yaml"}
         if expect_pin:
             assert candidates["team-architecture"].pins == {Pin(reason=PinReason.NEW_PATH, path="products/new_thing")}
+            assert candidates["team-architecture"].owners_sources == {}
         else:
             assert "team-architecture" not in candidates
 
@@ -210,15 +215,28 @@ class TestApplyCutGuards:
                 "cuts_a_small_owner",
                 {"cuts": [{"owner": "team-small", "reason": "Only an import moved."}]},
                 ["team-small"],
+                {"team-small": "Only an import moved."},
             ),
-            ("never_cuts_a_pin", {"cuts": [{"owner": "team-pinned", "reason": "x"}]}, []),
-            ("never_cuts_an_unseen_diff", {"cuts": [{"owner": "team-unseen", "reason": "x"}]}, []),
-            ("ignores_unknown_owner", {"cuts": [{"owner": "team-nobody", "reason": "x"}]}, []),
-            ("none_cuts_nobody", None, []),
-            ("malformed_cuts_nobody", {"cuts": "team-small"}, []),
+            # A cut a guard blocks keeps the model's reason, which is what an evaluation of the cut step reads.
+            ("never_cuts_a_pin", {"cuts": [{"owner": "team-pinned", "reason": "x"}]}, [], {"team-pinned": "x"}),
+            (
+                "never_cuts_an_unseen_diff",
+                {"cuts": [{"owner": "team-unseen", "reason": "x"}]},
+                [],
+                {"team-unseen": "x"},
+            ),
+            ("ignores_unknown_owner", {"cuts": [{"owner": "team-nobody", "reason": "x"}]}, [], {}),
+            ("none_cuts_nobody", None, [], {}),
+            ("malformed_cuts_nobody", {"cuts": "team-small"}, [], {}),
         ]
     )
-    def test_guards(self, _name: str, model_output: Mapping[str, object] | None, expected_cut: list[str]) -> None:
+    def test_guards(
+        self,
+        _name: str,
+        model_output: Mapping[str, object] | None,
+        expected_cut: list[str],
+        expected_model_reasons: dict[str, str],
+    ) -> None:
         candidates = [
             _candidate("team-big", lines=50),
             _candidate("team-small", lines=2),
@@ -232,6 +250,17 @@ class TestApplyCutGuards:
 
         assert [cut.candidate.owner for cut in decision.cut] == expected_cut
         assert len(decision.kept) + len(decision.cut) == len(candidates)
+        uncut_reasons = {
+            "team-big": RoutingOwnerReason.MODEL_KEPT,
+            "team-small": RoutingOwnerReason.MODEL_KEPT,
+            "team-pinned": RoutingOwnerReason.SENSITIVE,
+            "team-unseen": RoutingOwnerReason.DIFF_NOT_SEEN,
+        }
+        assert decision.reasons == {
+            **uncut_reasons,
+            **dict.fromkeys(expected_cut, RoutingOwnerReason.MODEL_CUT),
+        }
+        assert decision.model_reasons == expected_model_reasons
 
     def test_cutting_everyone_keeps_the_largest(self) -> None:
         candidates = [_candidate("team-small", lines=2), _candidate("team-big", lines=50)]
@@ -241,23 +270,46 @@ class TestApplyCutGuards:
 
         assert [candidate.owner for candidate in decision.kept] == ["team-big"]
         assert [cut.candidate.owner for cut in decision.cut] == ["team-small"]
+        assert decision.reasons == {
+            "team-small": RoutingOwnerReason.MODEL_CUT,
+            "team-big": RoutingOwnerReason.LARGEST_OWNER,
+        }
+        assert decision.model_reasons == {"team-small": "x", "team-big": "y"}
 
 
 class TestDecideCuts:
     @parameterized.expand(
         [
-            ("single_candidate", [_candidate("team-a")], False, LlmSkipReason.SINGLE_CANDIDATE),
-            ("fork", [_candidate("team-a"), _candidate("team-b")], True, LlmSkipReason.FORK),
+            (
+                "single_candidate",
+                [_candidate("team-a")],
+                False,
+                LlmSkipReason.SINGLE_CANDIDATE,
+                RoutingOwnerReason.CUT_SKIPPED,
+            ),
+            (
+                "fork",
+                [_candidate("team-a"), _candidate("team-b")],
+                True,
+                LlmSkipReason.FORK,
+                RoutingOwnerReason.CUT_SKIPPED,
+            ),
             (
                 "all_pinned",
                 [_candidate("team-a", pins=_SENSITIVE_PIN), _candidate("team-b", pins=_SENSITIVE_PIN)],
                 False,
                 LlmSkipReason.NOTHING_CUTTABLE,
+                RoutingOwnerReason.SENSITIVE,
             ),
         ]
     )
     def test_skips_the_model(
-        self, _name: str, candidates: list[OwnerCandidate], is_fork: bool, reason: LlmSkipReason
+        self,
+        _name: str,
+        candidates: list[OwnerCandidate],
+        is_fork: bool,
+        reason: LlmSkipReason,
+        keep_reason: RoutingOwnerReason,
     ) -> None:
         def call_model(system: str, user: str, schema: Mapping[str, object]) -> Mapping[str, object] | None:
             pytest.fail("the model must not be called")
@@ -266,7 +318,12 @@ class TestDecideCuts:
             candidates=candidates, title="t", description="d", is_fork=is_fork, call_model=call_model
         )
 
-        assert decision == RoutingDecision(kept=tuple(candidates), cut=(), llm_skipped=reason)
+        assert decision == RoutingDecision(
+            kept=tuple(candidates),
+            cut=(),
+            llm_skipped=reason,
+            reasons={candidate.owner: keep_reason for candidate in candidates},
+        )
 
     @parameterized.expand(
         [
@@ -313,6 +370,7 @@ class TestRenderRoutingComment:
             cut=(
                 CutOwner(candidate=_candidate("team-small"), reason=hostile),
                 CutOwner(candidate=_candidate("@alice"), reason="Formatting only."),
+                CutOwner(candidate=_candidate("team-other"), reason="Formatting\nonly."),
             ),
             llm_skipped=None,
         )
@@ -325,7 +383,7 @@ class TestRenderRoutingComment:
         items = [line for line in lines if line.startswith("- ")]
         assert len(items) == 2
         assert items[0].startswith("- `@PostHog/team-small`: Only a rename. ")
-        assert items[1] == "- `@alice`: Formatting only."
+        assert items[1] == "- `@alice`, `@PostHog/team-other`: Formatting only."
         assert "\n## " not in body
         assert "![" not in body
         assert "@PostHog/security" not in body

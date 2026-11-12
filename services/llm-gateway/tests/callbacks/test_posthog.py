@@ -332,13 +332,18 @@ class TestPostHogCallback:
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch(
                 "llm_gateway.callbacks.posthog.get_posthog_properties",
-                return_value={"llm_gateway_request_id": "spoofed", "$ai_span_id": "collapsed"},
+                return_value={
+                    "llm_gateway_request_id": "spoofed",
+                    "$ai_span_id": "collapsed",
+                    "$update_person_last_seen_at": True,
+                },
             ),
         ):
             await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         properties = mock_client.capture.call_args.kwargs["properties"]
         assert properties["llm_gateway_request_id"] == "req-abc-123"
+        assert properties["$update_person_last_seen_at"] is False
         assert properties["$ai_span_id"] != "collapsed"
         assert _is_uuid(properties["$ai_span_id"])
 
@@ -428,7 +433,7 @@ class TestPostHogCallback:
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=None),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="django"),
             patch("llm_gateway.callbacks.posthog.uuid4", return_value=MagicMock(hex="test-uuid")),
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
@@ -456,7 +461,7 @@ class TestPostHogCallback:
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="django"),
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id="end-user-123")
 
@@ -551,7 +556,7 @@ class TestPostHogCallback:
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="django"),
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
@@ -805,7 +810,7 @@ class TestPostHogCallback:
         assert "$ai_reasoning_tokens" not in props
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["wizard", "posthog_code", "django"])
     async def test_on_success_includes_ai_product(
         self,
         callback: PostHogCallback,
@@ -830,7 +835,7 @@ class TestPostHogCallback:
             assert props["ai_product"] == product
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["wizard", "posthog_code", "django"])
     async def test_on_failure_includes_ai_product(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, product: str, mock_posthog_client: tuple
     ) -> None:
@@ -876,7 +881,7 @@ class TestPostHogCallback:
         assert props["$ai_billable"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["background_agents", "wizard", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["background_agents", "wizard", "django"])
     async def test_on_success_does_not_mark_other_products_billable(
         self,
         callback: PostHogCallback,

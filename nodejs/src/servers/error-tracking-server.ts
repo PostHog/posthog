@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
@@ -189,7 +190,10 @@ export class ErrorTrackingServer implements NodeServer {
         await geoipService.get()
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // The same outputs instance backs the pipeline's emissions and the hog
         // transformer's monitoring (app_metrics + log_entries).
@@ -202,6 +206,7 @@ export class ErrorTrackingServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: outputs,
+            teamManager: sharedServices.container.teamManager,
         }
 
         const errorTrackingSharedScope = extend(sharedServicesScope, 'errortracking-shared', (_container, builder) =>
