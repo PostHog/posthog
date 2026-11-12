@@ -13,6 +13,7 @@ import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePrevi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
@@ -128,6 +129,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
     return (
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
             <SceneTitleSection
+                nameAction={<TodayPeoplePinButton />}
                 name={account.name}
                 nameSuffix={<AccountStatusTags account={account} />}
                 resourceType={{

@@ -4,6 +4,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { useMocks } from '~/mocks/jest'
 import { GroupTab } from '~/models/groupTabs'
 import { initKeaTests } from '~/test/init'
@@ -16,6 +18,7 @@ import {
     peopleSidebarRows,
     todayPeopleLogic,
 } from './todayPeopleLogic'
+import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
 const groupTypes = (...indexes: number[]): Map<GroupTypeIndex, GroupType> =>
     new Map(
@@ -206,5 +209,48 @@ describe('todayPeopleLogic', () => {
 
         logic.actions.setSearchQuery('')
         expect(logic.values.isSectionOpen('customer-analytics')).toBe(false)
+    })
+
+    it('lists a cohort starred in the classic navigation under Pinned, not Recents, and its title pin removes the star', async () => {
+        const requests: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system_shortcut/': {
+                    results: [
+                        { id: 'sc-dashboard', type: 'dashboard', path: 'KPIs', ref: '7', href: '/dashboard/7' },
+                        {
+                            id: 'sc-cohort',
+                            type: 'cohort',
+                            path: 'Unfiled/Power users',
+                            ref: '12',
+                            href: '/cohorts/12',
+                        },
+                    ],
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/file_system_shortcut/:id/': ({ params }) => {
+                    requests.push(`delete ${params.id}`)
+                    return [204, null]
+                },
+            },
+        })
+        initKeaTests()
+        const logic = todayPeopleLogic()
+        logic.mount()
+        todayPeopleRecentsLogic.actions.addRecent({ type: 'cohort', name: 'Power users', href: '/cohorts/12' })
+        todayPeopleRecentsLogic.actions.addRecent({ type: 'person', name: 'Ada', href: '/persons/ada' })
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        expect(logic.values.pinnedRows).toEqual([
+            { key: 'cohort:/cohorts/12', type: 'cohort', name: 'Power users', href: '/cohorts/12' },
+        ])
+        expect(logic.values.matchingRecentRows.map((recent) => recent.name)).toEqual(['Ada'])
+
+        await expectLogic(sidebarPinsLogic, () =>
+            sidebarPinsLogic.actions.togglePinned({ type: 'cohort', name: 'Power users', href: '/cohorts/12' })
+        ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
+        expect(requests).toEqual(['delete sc-cohort'])
+        expect(logic.values.pinnedRows).toEqual([])
     })
 })

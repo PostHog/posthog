@@ -40,6 +40,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
 import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -264,6 +265,7 @@ export function PersonScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
+                nameAction={<TodayPeoplePinButton />}
                 name={asDisplay(person, undefined, true)}
                 resourceType={{
                     type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',

@@ -13,15 +13,17 @@ import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { GroupTab, groupTabs as groupTabsFor } from '~/models/groupTabs'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
 
 import { cohortsList } from 'products/cohorts/frontend/generated/api'
 import { accountsList, customerJourneysList } from 'products/customer_analytics/frontend/generated/api'
 
 import { matchesPaneQuery } from './todayPaneSearch'
-import { TodayPeopleRecent, peopleRecentRowKey } from './todayPeople'
+import { TodayPeoplePin, TodayPeopleRecent, peoplePinsFromShortcuts, peopleRecentRowKey } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 import {
     TODAY_PEOPLE_ROWS,
@@ -167,6 +169,7 @@ export interface todayPeopleLogicValues {
         hash: string
     } // router
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    shortcutData: FileSystemEntry[] // sidebarPinsLogic
     currentRecent: TodayPeopleRecent | null // todayPeopleRecentsLogic
     recentRows: TodayPeopleRecent[] // todayPeopleRecentsLogic
     recents: TodayPeopleRecent[] // todayPeopleRecentsLogic
@@ -178,8 +181,10 @@ export interface todayPeopleLogicValues {
     groupTabs: GroupTab[]
     isSearching: boolean
     isSectionOpen: (section: TodayPeopleSection) => boolean
+    matchingPinnedRows: TodayPeoplePin[]
     matchingRecentRows: TodayPeopleRecent[]
     matchingRows: TodayPeopleRow[]
+    pinnedRows: TodayPeoplePin[]
     rowSections: TodayPeopleRowSectionGroup[]
     rows: TodayPeopleRow[]
     searchQuery: string
@@ -241,7 +246,13 @@ export interface todayPeopleLogicMeta {
         matchingRows: (rows: TodayPeopleRow[], searchQuery: string) => TodayPeopleRow[]
         topRows: (matchingRows: TodayPeopleRow[]) => TodayPeopleRow[]
         rowSections: (matchingRows: TodayPeopleRow[]) => TodayPeopleRowSectionGroup[]
-        matchingRecentRows: (recentRows: TodayPeopleRecent[], searchQuery: string) => TodayPeopleRecent[]
+        pinnedRows: (shortcutData: FileSystemEntry[]) => TodayPeoplePin[]
+        matchingPinnedRows: (pinnedRows: TodayPeoplePin[], searchQuery: string) => TodayPeoplePin[]
+        matchingRecentRows: (
+            recentRows: TodayPeopleRecent[],
+            pinnedRows: TodayPeoplePin[],
+            searchQuery: string
+        ) => TodayPeopleRecent[]
         isSearching: (searchQuery: string) => boolean
         isSectionOpen: (
             collapsedSections: TodayPeopleSection[],
@@ -271,6 +282,8 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
             ['location'],
             teamLogic,
             ['currentTeam'],
+            sidebarPinsLogic,
+            ['shortcutData'],
         ],
     })),
     actions({
@@ -390,10 +403,28 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
             (s) => [s.matchingRows],
             (rows: TodayPeopleRow[]): TodayPeopleRowSectionGroup[] => peopleRowSections(rows),
         ],
+        pinnedRows: [
+            (s) => [s.shortcutData],
+            (shortcutData: FileSystemEntry[]): TodayPeoplePin[] => peoplePinsFromShortcuts(shortcutData),
+        ],
+        matchingPinnedRows: [
+            (s) => [s.pinnedRows, s.searchQuery],
+            (pinnedRows: TodayPeoplePin[], searchQuery: string): TodayPeoplePin[] =>
+                pinnedRows.filter((pin) => matchesPaneQuery(pin.name, searchQuery)),
+        ],
+        // A pinned record shows once, under Pinned, so its row value stays unique on the keyboard path.
         matchingRecentRows: [
-            (s) => [s.recentRows, s.searchQuery],
-            (recentRows: TodayPeopleRecent[], searchQuery: string): TodayPeopleRecent[] =>
-                recentRows.filter((recent) => matchesPaneQuery(recent.name, searchQuery)),
+            (s) => [s.recentRows, s.pinnedRows, s.searchQuery],
+            (
+                recentRows: TodayPeopleRecent[],
+                pinnedRows: TodayPeoplePin[],
+                searchQuery: string
+            ): TodayPeopleRecent[] => {
+                const pinnedHrefs = new Set(pinnedRows.map((pin) => pin.href))
+                return recentRows.filter(
+                    (recent) => !pinnedHrefs.has(recent.href) && matchesPaneQuery(recent.name, searchQuery)
+                )
+            },
         ],
         isSearching: [(s) => [s.searchQuery], (searchQuery: string): boolean => searchQuery.trim() !== ''],
         /** A search opens every section, so no match hides in a collapsed one. */

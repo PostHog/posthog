@@ -9,6 +9,7 @@ import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { PINNED_TOAST, UNPINNED_TOAST, sessionPinKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { UserBasicType } from '~/types'
 
 import {
@@ -118,6 +119,9 @@ export interface todaySessionMenuLogicActions {
     sessionUpdated: (sessionId: string) => {
         sessionId: string
     }
+    setRecentlyPinned: (key: string) => {
+        key: string
+    } // sidebarPinsLogic
     setHandoffUser: (user: UserBasicType | null) => {
         user: UserBasicType | null
     }
@@ -165,7 +169,7 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
     path(['layout', 'today', 'todaySessionMenuLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [todaySpacesLogic, ['loadPinnedTasks', 'loadRecentTasks']],
+        actions: [todaySpacesLogic, ['loadPinnedTasks', 'loadRecentTasks'], sidebarPinsLogic, ['setRecentlyPinned']],
     })),
     actions({
         setSessionPinned: (sessionId: string, pinned: boolean) => ({ sessionId, pinned }),
@@ -278,6 +282,10 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
             setSessionPinned: async ({ sessionId, pinned }) => {
                 try {
                     await tasksPinCreate(String(values.currentTeamId), sessionId, { pinned })
+                    if (pinned) {
+                        actions.setRecentlyPinned(sessionPinKey(sessionId))
+                    }
+                    toast.success({ title: pinned ? PINNED_TOAST : UNPINNED_TOAST })
                     actions.sessionUpdated(sessionId)
                 } catch {
                     toast.error({ title: `Couldn’t ${pinned ? 'pin' : 'unpin'} this session. Try again.` })
