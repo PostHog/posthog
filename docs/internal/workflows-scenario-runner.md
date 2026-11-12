@@ -782,6 +782,8 @@ A run that stops before judging has no groups, so a missing group means not judg
 **Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, and `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`.
 Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.
 The unit is in the measurement's definition and in the evidence.
+A per-role value that may be short also carries `m_<name>_<role>_incomplete: true`. For `role_rss_max_bytes`, a scrape of that role was missed. For `role_cpu_seconds`, the role restarted, or a scrape after its last sample was missed.
+A complete value has no `_incomplete` property, so compare a flagged value with care.
 
 ## Provisioning the scorecard project
 
