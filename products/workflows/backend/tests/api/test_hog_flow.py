@@ -931,8 +931,9 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?latest_send_first=true")
         assert [flow["name"] for flow in response.json()["results"]] == ["Finished last", "Finished first", "Never ran"]
 
-    def test_list_field_filter_rejection_keeps_the_validation_code(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?status=invalid-status")
+    @parameterized.expand([("list", ""), ("summaries", "/summaries")])
+    def test_list_field_filter_rejection_keeps_the_validation_code(self, _name: str, suffix: str):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows{suffix}?status=invalid-status")
         assert response.status_code == 400, response.json()
         assert response.json() == {
             "type": "validation_error",
