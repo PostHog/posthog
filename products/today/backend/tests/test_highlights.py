@@ -771,6 +771,36 @@ class TestProgressiveHighlights(BaseTest):
             (expected, [key for key in expected if key.startswith("insight:pop")]),
         )
 
+    @parameterized.expand(
+        [
+            ("no own numbers keep every key metric", [], ["key:0", "key:1", "key:2", "key:3"]),
+            ("own numbers leave room for popular ones", ["own:0"], ["own:0", "pop:0", "pop:1", "pop:2"]),
+        ]
+    )
+    def test_fallback_numbers_are_chosen_before_the_candidate_limit(
+        self, _name: str, own: list[str], expected: list[str]
+    ) -> None:
+        def numbers(keys: list[str], reason: HighlightMetricReason) -> tuple[contracts.HighlightMetric, ...]:
+            return tuple(replace(metric(key), reason=reason) for key in keys)
+
+        sources = (
+            HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
+            HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
+        )
+        found = {
+            "routine": HighlightFindings(
+                pulse=numbers(own, HighlightMetricReason.ROUTINE)
+                + numbers([f"pop:{i}" for i in range(4)], HighlightMetricReason.POPULAR)
+            ),
+            "key_metrics": HighlightFindings(
+                pulse=numbers([f"key:{i}" for i in range(4)], HighlightMetricReason.KEY_METRIC)
+            ),
+        }
+
+        built = highlights.build_highlights(sources, found, Team(timezone="UTC"), DAY)
+
+        self.assertEqual([m.key for m in built.pulse], expected)
+
     def test_a_pinned_key_metric_stays_beside_own_numbers(self) -> None:
         slots = [
             contracts.PulseSlot(key="key:0", name="Key 0", status=PulseSlotStatus.READY),

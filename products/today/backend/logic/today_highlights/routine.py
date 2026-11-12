@@ -13,7 +13,6 @@ from posthog.models import FileSystemViewLog
 from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
 from products.alerts.backend.facade.api import insight_short_ids_watched_by
-from products.customer_analytics.backend.facade.api import get_key_metric_names, get_key_metrics
 from products.dashboards.backend.facade.api import (
     DashboardInsights,
     DashboardInsightTile,
@@ -249,18 +248,6 @@ def _eligible_choices(
     return choices
 
 
-def _key_metric_places(context: Context) -> int:
-    if not context.allows("customer_analytics:read"):
-        return 0
-    metrics = context.guard("key metrics", partial(get_key_metrics, team=context.team, user=context.user), None)
-    if metrics is not None:
-        keys = [metric.key for metric in metrics if metric.this_week or metric.last_week]
-    else:
-        none: dict[str, str] = {}
-        keys = list(context.guard("key metric names", partial(get_key_metric_names, team=context.team), none))
-    return sum(key not in context.pinned and key not in context.hidden for key in keys)
-
-
 def _popular_refs(context: Context) -> list[str]:
     rows = (
         FileSystemViewLog.objects.filter(
@@ -283,8 +270,7 @@ def _with_popular(
 ) -> tuple[list[PulseChoice], int]:
     if not fill_popular:
         return own, 0
-    has_own = bool(own or context.pinned)
-    room = ROW_TILES - len(context.pinned) - (0 if has_own else _key_metric_places(context))
+    room = ROW_TILES - len(context.pinned)
     if room <= 0:
         return own, 0
     return [*own, *_popular_choices(context, excluded, own)], room

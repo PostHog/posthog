@@ -290,6 +290,17 @@ def _pulse_content(
     return replace(content, pulse=pulse, pulse_slots=selected)
 
 
+def _with_fallbacks(
+    chosen: list[contracts.HighlightMetric], suggested: list[contracts.HighlightMetric]
+) -> list[contracts.HighlightMetric]:
+    fallback_reasons = (HighlightMetricReason.KEY_METRIC, HighlightMetricReason.POPULAR)
+    own = [metric for metric in suggested if metric.reason not in fallback_reasons]
+    key_metrics = [] if chosen or own else [m for m in suggested if m.reason == HighlightMetricReason.KEY_METRIC]
+    popular = [metric for metric in suggested if metric.reason == HighlightMetricReason.POPULAR]
+    room = max(0, ROW_TILES - len(chosen) - len(own) - len(key_metrics))
+    return [*chosen, *own, *key_metrics, *popular[:room]]
+
+
 def _key_metrics_without_own_numbers(
     slots: list[contracts.PulseSlot], key_metrics: set[str], pinned: set[str]
 ) -> list[contracts.PulseSlot]:
@@ -462,7 +473,7 @@ def build_highlights(
     resolved = {**offered, **(pinned or {})}
     chosen = [resolved[key] for key in pins if key in resolved]
     suggested = [metric for key, metric in offered.items() if key not in pins]
-    pulse = [*chosen, *suggested][:PULSE_CANDIDATES]
+    pulse = _with_fallbacks(chosen, suggested)[:PULSE_CANDIDATES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
         status=HighlightsStatus.READY,
