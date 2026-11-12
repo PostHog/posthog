@@ -47,7 +47,7 @@ def lock_sender_domain(cursor: Any, domain: str) -> None:
     cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
 
 
-def _lock_organization_sender_domains(cursor: Any, organization_id: str) -> None:
+def lock_organization_sender_domains(cursor: Any, organization_id: str) -> None:
     cursor.execute(
         "SELECT pg_advisory_xact_lock(hashtext('email_organization_domains'), hashtext(%s))", [organization_id]
     )
@@ -115,7 +115,7 @@ class EmailIntegration:
 
         if not same_domain_integrations.exists():
             with connection.cursor() as cursor:
-                _lock_organization_sender_domains(cursor, str(organization_id))
+                lock_organization_sender_domains(cursor, str(organization_id))
             _refuse_another_unverified_domain(str(organization_id))
 
         # Create domain in the appropriate provider
