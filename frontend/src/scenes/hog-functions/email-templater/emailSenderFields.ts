@@ -77,11 +77,18 @@ export function fromWithSenders(
 ): EmailTemplateFrom {
     const domain = sharedSenderDomain(selectedSenders(from, senders))
     const nextDomain = sharedSenderDomain(senders.filter((candidate) => integrationIds.includes(candidate.id)))
+    const localPart = addressLocalPart(from.email, domain)
+    // A lone `{{ ... }}` cut from a full address is only the part before the @, so it moves to the new domain.
+    const movedTemplate = localPart !== from.email && !!nextDomain && isSingleTemplateExpression(localPart)
     return {
         ...from,
         integrationId: integrationIds[0],
         integrationIds: integrationIds.length > 1 ? integrationIds : undefined,
-        email: from.email ? addressFromLocalPart(addressLocalPart(from.email, domain), nextDomain) : undefined,
+        email: !from.email
+            ? undefined
+            : movedTemplate
+              ? `${localPart.trim()}@${nextDomain}`
+              : addressFromLocalPart(localPart, nextDomain),
     }
 }
 

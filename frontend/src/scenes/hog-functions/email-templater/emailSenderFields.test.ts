@@ -70,6 +70,12 @@ describe('emailSenderFields', () => {
             { integrationId: 3, email: 'team-{{ variables.team }}@example.org' },
         ],
         [
+            'moves a lone template local part to the new sender domain',
+            { integrationId: 1, email: '{{ variables.alias }}@example.com' },
+            [3],
+            { integrationId: 3, email: '{{ variables.alias }}@example.org' },
+        ],
+        [
             'drops the rotation list when one sender is picked',
             { integrationId: 1, integrationIds: [1, 3] },
             [3],

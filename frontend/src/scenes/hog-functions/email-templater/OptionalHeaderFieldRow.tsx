@@ -19,7 +19,11 @@ export function OptionalHeaderFieldRow({ field }: { field: OptionalHeaderField }
     return (
         <LemonField name={field.key} renderError={() => null}>
             {({ value, onChange }: ChildFunctionProps) => (
-                <EmailHeaderRow label={field.label} info={field.info}>
+                <EmailHeaderRow
+                    label={field.label}
+                    info={field.info}
+                    error={field.key === 'preheader' ? logicProps.fieldErrors?.preheader : undefined}
+                >
                     <LiquidSupportedText value={value} onChange={onChange} globals={logicProps.variables} />
                     <LemonButton
                         size="xsmall"
