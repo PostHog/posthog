@@ -2,10 +2,12 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { type ChartScales, useChartLayout } from '@posthog/quill-charts'
 
 import type { Dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataRetentionBannerLogic } from './dataRetentionBannerLogic'
@@ -13,7 +15,8 @@ import { lastDeletedBucket } from './lastDeletedBucket'
 import { type RetentionDeletionChart, showsRetentionDeletion } from './showsRetentionDeletion'
 
 const TAG_INSET = 8
-const MIN_TAG_WIDTH = 120
+const MIN_LABEL_WIDTH = 120
+const DELETION_LABEL = 'Older than your retention period · may be deleted soon'
 
 function deletionEdgeX(
     labels: string[],
@@ -71,18 +74,33 @@ export function RetentionDeletionOverlay(chart: RetentionDeletionChart): JSX.Ele
                 className="absolute border-l border-dashed border-warning"
                 style={{ left: x, top: plotTop, height: plotHeight }}
             />
-            <LemonTag
-                type="warning"
-                wrap
-                className="absolute left-0 w-max bg-fill-warning-secondary text-warning"
-                style={{
-                    top: plotTop + TAG_INSET,
-                    maxWidth: Math.max(x - plotLeft - 2 * TAG_INSET, MIN_TAG_WIDTH),
-                    transform: centerBetween((plotLeft + x) / 2, plotLeft + TAG_INSET, plotRight - TAG_INSET),
-                }}
-            >
-                Older than your retention period · may be deleted soon
-            </LemonTag>
+            {x - plotLeft >= MIN_LABEL_WIDTH + 2 * TAG_INSET ? (
+                <LemonTag
+                    type="warning"
+                    wrap
+                    className="absolute left-0 w-max bg-fill-warning-secondary text-warning"
+                    style={{
+                        top: plotTop + TAG_INSET,
+                        maxWidth: x - plotLeft - 2 * TAG_INSET,
+                        transform: centerBetween((plotLeft + x) / 2, plotLeft + TAG_INSET, plotRight - TAG_INSET),
+                    }}
+                >
+                    {DELETION_LABEL}
+                </LemonTag>
+            ) : (
+                <Tooltip title={DELETION_LABEL}>
+                    <LemonTag
+                        type="warning"
+                        data-hog-charts-interactive-overlay
+                        data-attr="retention-deletion-marker"
+                        aria-label={DELETION_LABEL}
+                        className="pointer-events-auto absolute left-0 bg-fill-warning-secondary text-warning"
+                        style={{ top: plotTop + TAG_INSET, transform: centerBetween(x, plotLeft, plotRight) }}
+                    >
+                        <IconWarning />
+                    </LemonTag>
+                </Tooltip>
+            )}
         </>
     )
 }

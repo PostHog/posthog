@@ -134,8 +134,6 @@ frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/sc
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/scenes/surveys/utils/opportunityDetection.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/alerts/frontend/logic/insightAlertsLogic.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/alerts/frontend/views/ManageAlertsModal.tsx
-frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic.ts
-frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/product_analytics/frontend/insights/dataRetention/exceedsRetention.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/product_analytics/frontend/insights/editor/insightDisplayOptions.tsx
 frontend/src/lib/components/Cards/InsightCard/QueryCard.tsx -> frontend/src/queries/Query/Query.tsx
 frontend/src/lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay.tsx -> frontend/src/scenes/session-recordings/filters/DurationFilter.tsx
