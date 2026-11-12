@@ -110,6 +110,15 @@ missing required fields).
    headless automation; no `schemas` array is needed. On success you get the new source `id`; call
    `external-data-schemas-list` to show the user what was enabled and how each table will sync.
 
+   The OAuth integration id key is different for every source.
+   Do not guess it: call `external-data-sources-wizard` with the `source_type` and use the name of the field whose type is `oauth`
+   (for example `google_ads_integration_id` for GoogleAds).
+   A failed call returns a 400 with a `message` that says how to fix it and, for most causes, a stable `code`
+   such as `credential_expired`, `credential_not_found`, `credential_source_type_mismatch`, `invalid_config`,
+   `credential_validation_failed`, `duplicate_source` or `no_tables_found`.
+   A failed call does not use up a stored credential, so after fixing the cause you can retry with the same `credential_id`.
+   Only `credential_expired` and `credential_not_found` need a new connect link.
+
 Notes specific to this path:
 
 - **All discovered tables are enabled.** That's intended (incremental defaults keep ongoing cost low), but flag row

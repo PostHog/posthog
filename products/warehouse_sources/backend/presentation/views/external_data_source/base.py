@@ -89,6 +89,7 @@ __all__ = [
 
 
 if TYPE_CHECKING:
+    from .credential_store import ResolvedStoredCredential
 
     class ExternalDataSourceViewSetBase(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
         """The assembled viewset as each mixin sees it. Cross-mixin methods are declared here
@@ -107,6 +108,8 @@ if TYPE_CHECKING:
             permission_errors: Mapping[str, str | None] | None = None,
             only_tables: Collection[str] | None = None,
         ) -> dict | None: ...
+
+        def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential: ...
 
         def _setup_cdc_resources(
             self, adapter: CDCSourceAdapter, source_model: ExternalDataSource, payload: dict
