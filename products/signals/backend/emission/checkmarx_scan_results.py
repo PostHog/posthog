@@ -1,7 +1,9 @@
 """Signal emitter for checkmarx `scan_results` (record kind: scanner_finding).
 
 The table holds one row per finding per scan, so a finding repeats in every later scan.
-The fetcher groups rows by engine `type` and `similarity_id`, the id Checkmarx keeps for a finding across scans.
+The fetcher groups rows by engine `type`, `similarity_id` (the id Checkmarx keeps for a finding across scans) and `first_scan_id`.
+The table has no project column, and an SCA `similarity_id` can repeat across projects.
+`first_scan_id` is the first scan of the finding in its project, so it keeps the findings of different projects apart.
 Each group emits once: the window is on `first_found_at`, and the ledger keys on the group alone.
 `status` compares a finding with the previous scan (NEW, RECURRENT, FIXED) and `state` is the triage state.
 Older scans keep their rows, so the group filter reads both from the latest scan of the finding.
@@ -31,6 +33,7 @@ MAX_DESCRIPTION_CHARS = 1500
 CHECKMARX_FIELDS = (
     "result_type",
     "similarity_id",
+    "origin_scan_id",
     "query_name",
     "finding_description",
     "finding_severity",
@@ -44,6 +47,7 @@ CHECKMARX_EXTRA_FIELDS = ("result_type", "finding_severity", "finding_state", "f
 _SELECT_SQL = """
     type AS result_type,
     similarity_id,
+    ifNull(first_scan_id, '') AS origin_scan_id,
     max(JSONExtractString(toString(data), 'queryName')) AS query_name,
     max(description) AS finding_description,
     argMax(severity, scan_created_at) AS finding_severity,
@@ -54,7 +58,9 @@ _SELECT_SQL = """
 
 
 def checkmarx_source_id(record: dict[str, Any]) -> str:
-    return hashed_source_id("checkmarx", record.get("result_type"), record.get("similarity_id"))
+    return hashed_source_id(
+        "checkmarx", record.get("result_type"), record.get("similarity_id"), record.get("origin_scan_id")
+    )
 
 
 def checkmarx_scan_result_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -90,7 +96,7 @@ CHECKMARX_CONFIG = SignalSourceTableConfig(
     emitter=checkmarx_scan_result_emitter,
     record_fetcher=grouped_warehouse_record_fetcher(
         select_sql=_SELECT_SQL,
-        group_by_sql="type, similarity_id",
+        group_by_sql="type, similarity_id, ifNull(first_scan_id, '')",
         order_by_sql="first_seen DESC",
         source_id_for=checkmarx_source_id,
         window_days=SCANNER_GROUP_WINDOW_DAYS,
@@ -102,7 +108,10 @@ CHECKMARX_CONFIG = SignalSourceTableConfig(
     record_processed_outputs=True,
     partition_field=datetime_expression("first_found_at"),
     fields=CHECKMARX_FIELDS,
+    # A scan is never older than the first-found time of its rows, so the bound on `scan_created_at` drops no row
+    # that the `first_found_at` window keeps. It stops the query from reading every historical scan.
     where_clause=(
+        f"{datetime_expression('scan_created_at')} > now() - interval {SCANNER_GROUP_WINDOW_DAYS} day AND "
         "notEmpty(ifNull(similarity_id, '')) AND "
         "(notEmpty(ifNull(description, '')) OR notEmpty(JSONExtractString(toString(data), 'queryName')))"
     ),

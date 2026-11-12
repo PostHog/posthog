@@ -22,6 +22,7 @@ from products.signals.backend.emission.veracode_sca_findings import veracode_sca
 CHECKMARX = {
     "result_type": "sast",
     "similarity_id": "-1234567",
+    "origin_scan_id": "scan-1",
     "query_name": "SQL_Injection",
     "finding_description": "The application builds a query from user input.",
     "finding_severity": "HIGH",
@@ -243,6 +244,7 @@ def test_missing_required_column_raises(emitter, record, missing):
     "source_id_for,record,same_group_change,other_group_change",
     [
         (checkmarx_source_id, CHECKMARX, {"scans": 9, "finding_state": "CONFIRMED"}, {"result_type": "sca"}),
+        (checkmarx_source_id, CHECKMARX, {"first_seen": "2026-02-01T00:00:00Z"}, {"origin_scan_id": "scan-2"}),
         (
             veracode_sca_source_id,
             VERACODE_SCA,
