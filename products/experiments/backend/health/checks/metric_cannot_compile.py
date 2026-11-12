@@ -64,7 +64,7 @@ _ELEMENT_LABELS = {"selector": "CSS selector", "tag_name": "tag name", "href": "
 
 def metric_compile_values(ctx: HealthContext) -> CheckValues:
     compiles = ctx.metric_compiles
-    if ctx.archived or compiles is None or compiles.exposure_query_fails:
+    if ctx.archived or compiles is None or compiles.exposure_query_fails or compiles.metric_count == 0:
         return {}
     return {
         ExperimentHealthValueKey.METRIC_COUNT: compiles.metric_count,

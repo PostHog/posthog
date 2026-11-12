@@ -21,7 +21,7 @@ from products.experiments.backend.health.skips import (
     flag_to_check,
     not_applicable,
 )
-from products.experiments.backend.health.split_changes import describe_split
+from products.experiments.backend.health.split_changes import split_value
 
 # pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 FLAG_HAS_NO_VARIANTS = "flag_has_no_variants"
@@ -33,7 +33,7 @@ def flag_variants_values(ctx: HealthContext) -> CheckValues:
     if isinstance(flag, CheckSkip):
         return {}
     return {
-        ExperimentHealthValueKey.FLAG_SPLIT: describe_split(flag.variants),
+        ExperimentHealthValueKey.FLAG_SPLIT: split_value(flag.variants),
         ExperimentHealthValueKey.BASELINE_VARIANT: ctx.baseline_variant_key,
     }
 

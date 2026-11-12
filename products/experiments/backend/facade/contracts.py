@@ -534,6 +534,11 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "other_running_experiment_count",
         "Other experiments that run on the same feature flag and are not archived",
     )
+    ASSIGNED_OUTSIDE_COUNT = (
+        "assigned_outside_count",
+        "Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local "
+        "evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout",
+    )
     OTHER_DRAFT_EXPERIMENT_COUNT = (
         "other_draft_experiment_count",
         "Other draft experiments on the same feature flag that are not archived",

@@ -230,6 +230,12 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         uncheckedMetrics ? reading("Metrics it couldn't check", formatCount(uncheckedMetrics)) : null,
         typeof calculatedAt === 'string' ? { label: 'Last calculated', time: calculatedAt } : null,
         flagReading(values),
+        numberReading(
+            `${capitalizeFirstLetter(units)} who got a variant outside PostHog`,
+            values,
+            'assigned_outside_count',
+            formatCount
+        ),
         textReading('Feature flag variants', values, 'flag_split'),
         textReading('Baseline variant', values, 'baseline_variant'),
         numberReading('Other running experiments on this flag', values, 'other_running_experiment_count', formatCount),

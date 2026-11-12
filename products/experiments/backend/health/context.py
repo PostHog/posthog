@@ -71,7 +71,8 @@ from products.feature_flags.backend.facade.flags import get_organization_flag_ev
 
 # A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
 # (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
-# question in `exposure_gate.py`, its row in `inputs_payload.py`, and its check.
+# question in `exposure_gate.py`, its row in `inputs_payload.py`, its words in `_described`
+# (`checks/flag_change_findings.py`), and its check.
 FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 

@@ -2698,6 +2698,7 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `flag_split` - The feature flag's variants with their rollout percentages, in words
  * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
  * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+ * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
  * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
  */
 export type ExperimentHealthValueKeyEnumApi =
@@ -2758,6 +2759,7 @@ export const ExperimentHealthValueKeyEnumApi = {
     FlagSplit: 'flag_split',
     BaselineVariant: 'baseline_variant',
     OtherRunningExperimentCount: 'other_running_experiment_count',
+    AssignedOutsideCount: 'assigned_outside_count',
     OtherDraftExperimentCount: 'other_draft_experiment_count',
 } as const
 
@@ -2840,6 +2842,7 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `flag_split` - The feature flag's variants with their rollout percentages, in words
      * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
@@ -2903,6 +2906,7 @@ export interface ExperimentHealthCheckRuleApi {
      * * `flag_split` - The feature flag's variants with their rollout percentages, in words
      * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */

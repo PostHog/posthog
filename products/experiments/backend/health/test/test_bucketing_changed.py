@@ -310,8 +310,8 @@ class TestBucketingChangedMidRun(TestCase):
             [
                 {
                     ExperimentHealthValueKey.CHANGED_SETTING: "Match by",
-                    ExperimentHealthValueKey.BEFORE: "user ID",
-                    ExperimentHealthValueKey.AFTER: "device ID",
+                    ExperimentHealthValueKey.BEFORE: "User ID",
+                    ExperimentHealthValueKey.AFTER: "Device ID",
                 }
             ],
         )

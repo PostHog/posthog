@@ -19,6 +19,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
+    ConditionSetTraffic,
     ExperimentOnFlag,
     ExposureEvents,
     ExposureTotals,
@@ -590,6 +591,33 @@ class TestEvaluate(TestCase):
                 },
             ),
             (
+                "flag_state_at_a_zero_rollout_reads_the_people_assigned_outside_and_not_the_last_call",
+                Key.FLAG_STATE,
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=0, property_count=0),)
+                    ),
+                    "condition_set_traffic": ConditionSetTraffic(
+                        since=LAUNCHED_AT,
+                        until=datetime(2026, 10, 8, tzinfo=UTC),
+                        team_timezone="UTC",
+                        people_by_set={},
+                        calls=40,
+                        remotely_evaluated_calls=0,
+                        people_assigned_outside=12,
+                    ),
+                    "flag_last_called_at": datetime(2026, 10, 8, tzinfo=UTC),
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: False,
+                    Value.SHIPPED_VARIANT: None,
+                    Value.ASSIGNED_OUTSIDE_COUNT: 12,
+                },
+            ),
+            (
                 "zero_exposures_on_flag_calls_reads_the_last_call",
                 Key.ZERO_EXPOSURES,
                 {
@@ -644,6 +672,39 @@ class TestEvaluate(TestCase):
                 },
                 Status.NOT_CHECKED,
                 {Value.METRIC_COUNT: 4, Value.INVALID_METRIC_COUNT: 0, Value.UNCHECKED_METRIC_COUNT: 2},
+            ),
+            (
+                "flag_variants_without_variants_read_none",
+                Key.FLAG_VARIANTS_MISMATCH,
+                {"flag": replace(UNEVEN_FLAG, variants=())},
+                Status.FINDING,
+                {Value.FLAG_SPLIT: "None", Value.BASELINE_VARIANT: None},
+            ),
+            (
+                "metric_compiles_without_metrics_read_nothing",
+                Key.METRIC_CANNOT_COMPILE,
+                {
+                    "metric_compiles": MetricCompiles(
+                        metric_count=0, failures=(), unknown_count=0, no_access_count=0, exposure_query_fails=False
+                    )
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
+                "metric_calculation_without_metrics_reads_nothing",
+                Key.METRIC_CALCULATION_FAILED,
+                {
+                    "latest_calculation": LatestCalculation(
+                        metric_count=0,
+                        finished_at=LAUNCHED_AT,
+                        failures=(),
+                        completed_count=0,
+                        completed_exposures_paths=frozenset(),
+                    )
+                },
+                Status.NOT_APPLICABLE,
+                {},
             ),
             (
                 "exposure_criteria_read_the_custom_event",

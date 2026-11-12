@@ -41,7 +41,7 @@ from products.experiments.backend.health.skips import (
     not_applicable,
     not_checked,
 )
-from products.experiments.backend.health.split_changes import describe_split
+from products.experiments.backend.health.split_changes import split_value
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
     BucketingSetting,
@@ -137,14 +137,16 @@ def _described(change: FlagChange) -> dict[ExperimentHealthValueKey, str]:
     match change:
         case SplitChange():
             return {
-                ExperimentHealthValueKey.BEFORE: describe_split(change.before),
-                ExperimentHealthValueKey.AFTER: describe_split(change.after),
+                ExperimentHealthValueKey.BEFORE: split_value(change.before),
+                ExperimentHealthValueKey.AFTER: split_value(change.after),
             }
         case BucketingChange():
             return {
                 ExperimentHealthValueKey.CHANGED_SETTING: _SETTING_LABELS[change.setting],
-                ExperimentHealthValueKey.BEFORE: describe_bucketing_value(change.setting, change.before),
-                ExperimentHealthValueKey.AFTER: describe_bucketing_value(change.setting, change.after),
+                ExperimentHealthValueKey.BEFORE: _sentence_case(
+                    describe_bucketing_value(change.setting, change.before)
+                ),
+                ExperimentHealthValueKey.AFTER: _sentence_case(describe_bucketing_value(change.setting, change.after)),
             }
         case ConditionsChange():
             return {
@@ -156,7 +158,7 @@ def _described(change: FlagChange) -> dict[ExperimentHealthValueKey, str]:
 def _describe_conditions(conditions: tuple[ReleaseCondition, ...]) -> str:
     """The release conditions in the flag page's order, one set per line, for example 'Set 1: 100%, filters on plan'."""
     if not conditions:
-        return "no release conditions"
+        return "None"
     sets = []
     for number, condition in enumerate(conditions, start=1):
         parts = [f"Set {number}: {condition.rollout:g}%"]
@@ -166,6 +168,11 @@ def _describe_conditions(conditions: tuple[ReleaseCondition, ...]) -> str:
             parts.append(f'forces "{condition.variant}"')
         sets.append(", ".join(parts))
     return "\n".join(sets)
+
+
+def _sentence_case(text: str) -> str:
+    # The findings use these words mid-sentence, so they start lowercase. A quoted flag key keeps its case.
+    return text[:1].upper() + text[1:]
 
 
 def _filter_name(property_key: str) -> str:
