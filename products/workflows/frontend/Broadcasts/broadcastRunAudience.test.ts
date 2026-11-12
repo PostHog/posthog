@@ -62,16 +62,6 @@ describe('broadcastRunAudience', () => {
         expect(run?.stillSending).toEqual(stillSending)
     })
 
-    it('does not read opt-outs from before the metric existed as still to send', () => {
-        const run = getRunAudience(
-            { triggered: 100, email_sent: 90 },
-            '2026-11-03T18:00:00Z',
-            dayjs('2026-11-03T20:00:00Z')
-        )
-        expect(run && describeRunAudience(run)).toEqual('100 in audience: 90 sent, 10 not sent')
-        expect(run?.stillSending).toEqual(false)
-    })
-
     it.each<[Record<string, number> | null]>([[null], [{}], [{ triggered: 0, email_sent: 3 }]])(
         'has nothing to say without an audience: %j',
         (totals) => {

@@ -1,8 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-// Runs that started before this date recorded opt-outs in logs only, so their opt-outs read as not sent.
-const OPT_OUTS_COUNTED_SINCE = dayjs('2026-11-20T00:00:00Z')
 // The longest a person can wait: the longest frequency cap hold, or a slow send on a low sending limit.
 const STILL_SENDING_WINDOW_DAYS = 7
 
@@ -55,9 +53,7 @@ export function getRunAudience(
     const waitingOnCap = Math.min(unfinished, count('message_frequency_cap_held'))
     const remaining = unfinished - waitingOnCap
 
-    const started = dayjs(runStartedAt)
-    const withinWindow = now.diff(started, 'day', true) <= STILL_SENDING_WINDOW_DAYS
-    const countsOptOuts = !started.isBefore(OPT_OUTS_COUNTED_SINCE)
+    const withinWindow = now.diff(dayjs(runStartedAt), 'day', true) <= STILL_SENDING_WINDOW_DAYS
     return {
         audience,
         sent,
@@ -68,7 +64,7 @@ export function getRunAudience(
         skippedAtCap,
         noEmail,
         failed,
-        stillSending: withinWindow && (waitingOnCap > 0 || (countsOptOuts && remaining > 0)),
+        stillSending: withinWindow && (waitingOnCap > 0 || remaining > 0),
     }
 }
 
