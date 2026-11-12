@@ -6517,7 +6517,9 @@ class HogQLQueryModifiers(BaseModel):
             "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate"
             " into the joined persons subquery, so the latest-version lookup only reads"
             " persons that the outer query's left-table filters can reach. Applies only"
-            " to a persons join from the query's own FROM table."
+            " to a persons join from the query's own FROM table. Unset, it applies to a"
+            " persons join from `posthog.flag_evaluations` or from the union of events"
+            " and flag_evaluations, and to no other join."
         ),
     )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None

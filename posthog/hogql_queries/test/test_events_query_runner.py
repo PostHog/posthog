@@ -1403,8 +1403,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         expect_pushdown = person_id_pushdown is not False
         assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
-        assert response.modifiers is not None
-        assert response.modifiers.personIdPushdown is expect_pushdown
         assert "properties.$feature_flag," not in response.hogql
         assert len(response.results) == 1
         star, *columns = response.results[0]

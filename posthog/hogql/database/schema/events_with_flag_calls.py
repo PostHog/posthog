@@ -142,6 +142,7 @@ class EventsWithFlagCallsTable(LazyTable):
     """
 
     fields: dict[str, FieldOrTable] = {}
+    person_id_pushdown_default: bool = True
 
     def avoid_asterisk_fields(self) -> list[str]:
         return list(EVENTS_AVOID_ASTERISK_FIELDS)
