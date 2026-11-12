@@ -413,7 +413,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             ['scoutConfigs', 'scoutConfigsLoading', 'scoutFleetSynced'],
             scoutSuggestionsLogic,
             ['suggestions', 'suggestionSetLoading', 'isRefreshing'],
-            selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }),
+            selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId }),
             ['trial'],
         ],
         actions: [
