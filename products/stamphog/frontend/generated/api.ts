@@ -31,8 +31,10 @@ import type {
     StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
+    StamphogRoutingOwnerCountApi,
     StamphogRoutingRunDetailApi,
     StamphogRoutingRunsListParams,
+    StamphogRoutingRunsOwnersListParams,
     StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
 } from './api.schemas'
@@ -457,7 +459,7 @@ export const getStamphogRoutingRunsListUrl = (projectId: string, params?: Stamph
 }
 
 /**
- * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review. Get one run for the files each owner owns.
+ * List reviewer routing runs, newest run first by default or newest merge first with ordering=-merged_at. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list what landed in an owner's area. Get one run for the files each owner owns.
  */
 export const stamphogRoutingRunsList = async (
     projectId: string,
@@ -483,6 +485,39 @@ export const stamphogRoutingRunsRetrieve = async (
     options?: RequestInit
 ): Promise<StamphogRoutingRunDetailApi> => {
     return apiMutator<StamphogRoutingRunDetailApi>(getStamphogRoutingRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getStamphogRoutingRunsOwnersListUrl = (
+    projectId: string,
+    params?: StamphogRoutingRunsOwnersListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/stamphog/routing_runs/owners/?${stringifiedParams}`
+        : `/api/projects/${projectId}/stamphog/routing_runs/owners/`
+}
+
+/**
+ * List the owners that routing runs decided about, with how many distinct pull requests each one touched, most first. Defaults to the last 90 days of runs.
+ */
+export const stamphogRoutingRunsOwnersList = async (
+    projectId: string,
+    params?: StamphogRoutingRunsOwnersListParams,
+    options?: RequestInit
+): Promise<StamphogRoutingOwnerCountApi[]> => {
+    return apiMutator<StamphogRoutingOwnerCountApi[]>(getStamphogRoutingRunsOwnersListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

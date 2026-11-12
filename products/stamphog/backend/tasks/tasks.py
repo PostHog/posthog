@@ -55,6 +55,7 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
+from products.stamphog.backend.logic.merge_approval import approving_run_at_head
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
@@ -927,35 +928,11 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     else:
         # Writer pin: an auto-merge fires this webhook the instant GitHub records the approval, so
         # the APPROVED run post_verdict just committed may not have replicated to the reader yet.
-        approving_run = (
-            ReviewRun.objects.for_team(team_id)
-            .using(router.db_for_write(ReviewRun))
-            .filter(
-                pull_request=pr_obj,
-                verdict=ReviewVerdict.APPROVED,
-                head_sha=pr_head_sha,
-                # A dismissed approval is no longer stamphog's verdict — a same-head re-review may
-                # have voided it and then refused, and the digest must not brand that merge approved.
-                approval_dismissed_at__isnull=True,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-    if approving_run is None and pr_head_sha:
-        # A retained approval covers a head that it was never posted at (see
-        # _record_retained_head). The diff at that head is byte-identical to the approved diff, so
-        # the merge is stamphog-approved.
-        approving_run = (
-            ReviewRun.objects.for_team(team_id)
-            .using(router.db_for_write(ReviewRun))
-            .filter(
-                pull_request=pr_obj,
-                verdict=ReviewVerdict.APPROVED,
-                approval_dismissed_at__isnull=True,
-                **{f"output__{RETAINED_HEADS_KEY}__contains": [pr_head_sha]},
-            )
-            .order_by("-created_at")
-            .first()
+        # A retained approval counts too: without it every retained merge would read as unapproved
+        # and drop out of the digest for good (see _record_retained_head).
+        approving_run = approving_run_at_head(
+            ReviewRun.objects.for_team(team_id).using(router.db_for_write(ReviewRun)).filter(pull_request=pr_obj),
+            pr_head_sha,
         )
 
     approved = approving_run is not None

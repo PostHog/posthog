@@ -227,7 +227,7 @@ export const StamphogReviewRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review. Get one run for the files each owner owns.
+ * List reviewer routing runs, newest run first by default or newest merge first with ordering=-merged_at. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list what landed in an owner's area. Get one run for the files each owner owns.
  */
 export const StamphogRoutingRunsListParams = () => zod.object({
     project_id: zod
@@ -238,6 +238,8 @@ export const StamphogRoutingRunsListParams = () => zod.object({
 })
 
 export const stamphogRoutingRunsListQueryHeadShaMax = 64
+
+export const stamphogRoutingRunsListQueryLatestPerPrDefault = false
 
 export const StamphogRoutingRunsListQueryParams = () => zod.object({
     created_after: zod.iso
@@ -254,13 +256,46 @@ export const StamphogRoutingRunsListQueryParams = () => zod.object({
         .max(stamphogRoutingRunsListQueryHeadShaMax)
         .optional()
         .describe('Keep only runs on this head commit. Pass the full 40-character SHA.'),
+    latest_per_pr: zod
+        .boolean()
+        .default(stamphogRoutingRunsListQueryLatestPerPrDefault)
+        .describe(
+            "Keep only the newest run of each pull request. The newest run is picked over the pull request's whole history first, and every other filter then applies to it: a pull request whose newest run fails a filter drops out and is never replaced by an older run. With this flag, `count` counts pull requests."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    outcome: zod
-        .enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested'])
+    merged: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because stamphog does not record a close. Omit for both.'
+        ),
+    merged_after: zod.iso
+        .datetime({ offset: true })
         .optional()
         .describe(
-            'Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.\n\n\* `requested` - Requested\n\* `labeled` - Labeled\n\* `refused` - Refused by GitHub\n\* `cut` - Cut\n\* `not_requested` - Not requested\n\* `already_requested` - Already requested'
+            'Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.'
+        ),
+    merged_before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.'
+        ),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-created_at', '-merged_at'])
+        .optional()
+        .describe(
+            "'-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, then the newest run, with unmerged pull requests last.\n\n\* `-created_at` - Newest run first\n\* `-merged_at` - Newest merge first"
+        ),
+    outcome: zod
+        .union([
+            zod.enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested']),
+            zod.array(zod.enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested'])),
+        ])
+        .optional()
+        .describe(
+            'Keep only runs where an owner got one of these outcomes. Pass one, or several as a list: a comma-separated value, a JSON-encoded array, or the repeated parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.'
         ),
     owner: zod
         .string()

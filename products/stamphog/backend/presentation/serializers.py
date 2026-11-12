@@ -12,6 +12,8 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
+
 from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
@@ -27,6 +29,7 @@ from ..facade.enums import (
     RoutingMode,
     RoutingOwnerOutcome,
     RoutingOwnerReason,
+    RoutingRunOrdering,
     RoutingScope,
     RoutingStatus,
 )
@@ -1011,6 +1014,25 @@ class StamphogOwnersFileSerializer(serializers.Serializer):
     )
 
 
+_OUTCOME_VALUES = [outcome.value for outcome in RoutingOwnerOutcome]
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "enum": _OUTCOME_VALUES},
+            {"type": "array", "items": {"type": "string", "enum": _OUTCOME_VALUES}},
+        ]
+    }
+)
+class RoutingOutcomeQueryField(RepeatedOrCommaSeparatedListField, JSONTolerantListField):
+    """Owner outcomes as one value, a list, a comma-separated value or a JSON-encoded array.
+
+    The generated TS client sends a comma-separated value and the MCP client a JSON-encoded array.
+    The JSON parse runs before the comma split, so the array's own commas never split it.
+    """
+
+
 class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     """Query parameters for listing reviewer routing runs."""
 
@@ -1025,12 +1047,13 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
             "'team-devex', or a GitHub login such as '@octocat'."
         ),
     )
-    outcome = serializers.ChoiceField(
-        choices=RoutingOwnerOutcome.choices,
+    outcome = RoutingOutcomeQueryField(
+        child=serializers.ChoiceField(choices=RoutingOwnerOutcome.choices),
         required=False,
         help_text=(
-            "Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so "
-            "`owner=team-devex&outcome=cut` lists the runs that cut team-devex."
+            "Keep only runs where an owner got one of these outcomes. Pass one, or several as a list: a comma-separated value, a JSON-encoded array, or the repeated parameter. "
+            "With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs "
+            "that cut team-devex."
         ),
     )
     reason = serializers.ChoiceField(
@@ -1049,6 +1072,72 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     created_before = serializers.DateTimeField(
         required=False, help_text="Keep only runs created before this time (ISO 8601)."
     )
+    latest_per_pr = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Keep only the newest run of each pull request. The newest run is picked over the pull request's whole "
+            "history first, and every other filter then applies to it: a pull request whose newest run fails a "
+            "filter drops out and is never replaced by an older run. With this flag, `count` counts pull requests."
+        ),
+    )
+    merged = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open "
+            "ones and ones closed without merging, because stamphog does not record a close. Omit for both."
+        ),
+    )
+    merged_after = serializers.DateTimeField(
+        required=False,
+        help_text="Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.",
+    )
+    merged_before = serializers.DateTimeField(
+        required=False,
+        help_text="Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.",
+    )
+    ordering = serializers.ChoiceField(
+        choices=RoutingRunOrdering.choices,
+        required=False,
+        help_text=(
+            "'-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, "
+            "then the newest run, with unmerged pull requests last."
+        ),
+    )
+
+
+SIZE_NULL_HELP = "{}. Null until the pull request merges, because stamphog stores the size at merge."
+
+
+@extend_schema_serializer(component_name="StamphogRoutingPullRequest")
+class RoutingPullRequestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = contracts.RoutingPullRequestDTO
+        extra_kwargs = {
+            "title": {"help_text": "The pull request title, as stamphog last saw it."},
+            "author": {"help_text": "The GitHub login of the pull request author."},
+            "url": {"help_text": "Link to the pull request on GitHub."},
+            "merged_at": {"help_text": "When the pull request merged. Null when it is not merged."},
+            "additions": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Added lines")},
+            "deletions": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Deleted lines")},
+            "changed_files": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Changed files")},
+            "summary": {
+                "allow_null": True,
+                "help_text": (
+                    "The stamphog reviewer's one sentence about the whole change, from the newest completed review "
+                    "of the pull request that wrote one, at any head. Null when no review wrote one."
+                ),
+            },
+            "approved_by_stamphog": {
+                "help_text": (
+                    "Whether a standing stamphog approval (posted at the head, or kept there because the diff did "
+                    "not change) covers the head this routing run decided on. That is the head routing last "
+                    "decided on with latest_per_pr, which is usually but not always the merged head."
+                )
+            },
+        }
 
 
 @extend_schema_serializer(component_name="StamphogRoutingPin")
@@ -1132,6 +1221,13 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
             },
             "lines": {"help_text": "Changed lines in the files this owner owns."},
             "file_count": {"help_text": "Changed files this owner owns."},
+            "summary": {
+                "allow_null": True,
+                "help_text": (
+                    "The stamphog reviewer's clause about this owner's part of the change. Set only when the "
+                    "reviewer wrote one clause per owning team, which it does when several teams own changed files."
+                ),
+            },
         }
 
 
@@ -1169,6 +1265,10 @@ class RoutingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Why the cut step made no model call. Null when it made one.",
     )
+    pull_request = RoutingPullRequestSerializer(
+        read_only=True,
+        help_text="The pull request the run routed, as stamphog last saw it rather than as it was at the run.",
+    )
 
     class Meta:
         dataclass = contracts.RoutingRunDTO
@@ -1176,6 +1276,7 @@ class RoutingRunSerializer(DataclassSerializer):
             "id",
             "repository",
             "pr_number",
+            "pull_request",
             "head_sha",
             "mode",
             "trigger",
@@ -1212,6 +1313,33 @@ class RoutingRunSerializer(DataclassSerializer):
                 "help_text": "The default-branch commit whose owners.yaml files decided the owners. Blank when unknown."
             },
             "created_at": {"help_text": "When the run made its requests."},
+        }
+
+
+class StamphogRoutingOwnersQuerySerializer(serializers.Serializer):
+    """Query parameters for listing the owners routing runs decided about."""
+
+    created_after = serializers.DateTimeField(
+        required=False,
+        help_text="Count only runs created at or after this time (ISO 8601). Defaults to 90 days ago.",
+    )
+
+
+@extend_schema_serializer(component_name="StamphogRoutingOwnerCount")
+class RoutingOwnerCountSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingOwnerCountDTO
+        extra_kwargs = {
+            "owner": {
+                "help_text": "The owner as owners.yaml spells it: a team slug such as 'team-devex', or a login such as '@octocat'."
+            },
+            "pr_count": {
+                "help_text": "Distinct pull requests whose routing runs decided about this owner in the window."
+            },
         }
 
 

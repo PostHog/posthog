@@ -120,6 +120,13 @@ class RoutingOwnerReason(LabeledStrEnum):
     STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
 
 
+class RoutingRunOrdering(LabeledStrEnum):
+    """The sort order of the routing run list."""
+
+    NEWEST_RUN = "-created_at", "Newest run first"
+    NEWEST_MERGE = "-merged_at", "Newest merge first"
+
+
 # The pull_request actions that start a reviewer routing run. The webhook consumer imports this at
 # module level, so it lives in this light module.
 ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})

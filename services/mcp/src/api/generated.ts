@@ -79221,6 +79221,42 @@ export namespace Schemas {
       results: StamphogRepoConfig[];
     }
 
+    export interface StamphogRoutingPullRequest {
+      /** The pull request title, as stamphog last saw it. */
+      title: string;
+      /** The GitHub login of the pull request author. */
+      author: string;
+      /** Link to the pull request on GitHub. */
+      url: string;
+      /**
+         * When the pull request merged. Null when it is not merged.
+         * @nullable
+         */
+      merged_at?: string | null;
+      /**
+         * Added lines. Null until the pull request merges, because stamphog stores the size at merge.
+         * @nullable
+         */
+      additions?: number | null;
+      /**
+         * Deleted lines. Null until the pull request merges, because stamphog stores the size at merge.
+         * @nullable
+         */
+      deletions?: number | null;
+      /**
+         * Changed files. Null until the pull request merges, because stamphog stores the size at merge.
+         * @nullable
+         */
+      changed_files?: number | null;
+      /**
+         * The stamphog reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
+         * @nullable
+         */
+      summary?: string | null;
+      /** Whether a standing stamphog approval (posted at the head, or kept there because the diff did not change) covers the head this routing run decided on. That is the head routing last decided on with latest_per_pr, which is usually but not always the merged head. */
+      approved_by_stamphog?: boolean;
+    }
+
     /**
      * * `requested` - Requested
      * * `labeled` - Labeled
@@ -79323,6 +79359,11 @@ export namespace Schemas {
       lines?: number;
       /** Changed files this owner owns. */
       file_count?: number;
+      /**
+         * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+         * @nullable
+         */
+      summary?: string | null;
     }
 
     export interface StamphogRoutingRun {
@@ -79332,6 +79373,8 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
+      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      readonly pull_request: StamphogRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
       /** The repository's routing_mode when the run made its requests.
@@ -114389,6 +114432,18 @@ export namespace Schemas {
       owners_source?: string | null;
     }
 
+    export interface StamphogRoutingOwnerCount {
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a login such as '@octocat'. */
+      owner: string;
+      /** Distinct pull requests whose routing runs decided about this owner in the window. */
+      pr_count: number;
+    }
+
     export interface StamphogRoutingRunOwnerDetail {
       /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
        *
@@ -114427,6 +114482,11 @@ export namespace Schemas {
       lines?: number;
       /** Changed files this owner owns. */
       file_count?: number;
+      /**
+         * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+         * @nullable
+         */
+      summary?: string | null;
     }
 
     export interface StamphogRoutingRunDetail {
@@ -114436,6 +114496,8 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
+      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      readonly pull_request: StamphogRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
       /** The repository's routing_mode when the run made its requests.
@@ -141051,25 +141113,42 @@ export namespace Schemas {
      */
     head_sha?: string;
     /**
+     * Keep only the newest run of each pull request. The newest run is picked over the pull request's whole history first, and every other filter then applies to it: a pull request whose newest run fails a filter drops out and is never replaced by an older run. With this flag, `count` counts pull requests.
+     */
+    latest_per_pr?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
+    /**
+     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because stamphog does not record a close. Omit for both.
+     * @nullable
+     */
+    merged?: boolean | null;
+    /**
+     * Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.
+     */
+    merged_after?: string;
+    /**
+     * Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.
+     */
+    merged_before?: string;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
     /**
-     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     * '-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, then the newest run, with unmerged pull requests last.
      *
-     * * `requested` - Requested
-     * * `labeled` - Labeled
-     * * `refused` - Refused by GitHub
-     * * `cut` - Cut
-     * * `not_requested` - Not requested
-     * * `already_requested` - Already requested
+     * * `-created_at` - Newest run first
+     * * `-merged_at` - Newest merge first
      * @minLength 1
      */
-    outcome?: StamphogRoutingRunsListOutcome;
+    ordering?: StamphogRoutingRunsListOrdering;
+    /**
+     * Keep only runs where an owner got one of these outcomes. Pass one, or several as a list: a comma-separated value, a JSON-encoded array, or the repeated parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     */
+    outcome?: 'requested' | 'labeled' | 'refused' | 'cut' | 'not_requested' | 'already_requested' | ('requested' | 'labeled' | 'refused' | 'cut' | 'not_requested' | 'already_requested')[];
     /**
      * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
@@ -141100,16 +141179,12 @@ export namespace Schemas {
     repository?: string;
     };
 
-    export type StamphogRoutingRunsListOutcome = typeof StamphogRoutingRunsListOutcome[keyof typeof StamphogRoutingRunsListOutcome];
+    export type StamphogRoutingRunsListOrdering = typeof StamphogRoutingRunsListOrdering[keyof typeof StamphogRoutingRunsListOrdering];
 
 
-    export const StamphogRoutingRunsListOutcome = {
-      Requested: 'requested',
-      Labeled: 'labeled',
-      Refused: 'refused',
-      Cut: 'cut',
-      NotRequested: 'not_requested',
-      AlreadyRequested: 'already_requested',
+    export const StamphogRoutingRunsListOrdering = {
+      CreatedAt: '-created_at',
+      MergedAt: '-merged_at',
     } as const;
 
     export type StamphogRoutingRunsListReason = typeof StamphogRoutingRunsListReason[keyof typeof StamphogRoutingRunsListReason];
@@ -141125,6 +141200,13 @@ export namespace Schemas {
       ModelCut: 'model_cut',
       StamphogApproved: 'stamphog_approved',
     } as const;
+
+    export type StamphogRoutingRunsOwnersListParams = {
+    /**
+     * Count only runs created at or after this time (ISO 8601). Defaults to 90 days ago.
+     */
+    created_after?: string;
+    };
 
     export type StreamlitAppsListParams = {
     /**
