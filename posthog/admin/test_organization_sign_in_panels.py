@@ -11,6 +11,8 @@ from social_django.models import UserSocialAuth
 from posthog.admin.console.member_email_migration import RequestedEmailChange
 from posthog.admin.console.organization_sign_in_panels import ChangeMemberEmailsForm
 from posthog.models import Organization, OrganizationDomain, User
+from posthog.models.id_jag_identity import IdJagIdentity
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.session.models import Session
 
 _PAIR = [("ada@old.example.com", "a.lovelace@new.example.com")]
@@ -120,6 +122,22 @@ class TestChangeMemberEmails(BaseTest):
         assert LogEntry.objects.filter(
             object_id=str(self.member.pk), user_id=self.user.pk, change_message__contains="IdP migration"
         ).exists()
+
+    def test_confirm_removes_the_bindings_to_this_organizations_identity_providers(self, _send: MagicMock) -> None:
+        other_organization = Organization.objects.create(name="Other")
+        bindings = {}
+        for organization in (self.organization, other_organization):
+            config = IdentityProviderConfig.objects.create(
+                organization=organization, id_jag_issuer_url="https://idp.example.com"
+            )
+            bindings[organization.pk] = IdJagIdentity.objects.create(
+                identity_provider_config=config, issuer="https://idp.example.com", subject="ada", user=self.member
+            )
+
+        self._change("ada@old.example.com")
+
+        assert not IdJagIdentity.objects.filter(pk=bindings[self.organization.pk].pk).exists()
+        assert IdJagIdentity.objects.filter(pk=bindings[other_organization.pk].pk).exists()
 
     def test_a_new_email_on_the_line_wins_over_the_new_domain(self, _send: MagicMock) -> None:
         self._change("ada@old.example.com A.Lovelace@new.example.com")

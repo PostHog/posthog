@@ -22,6 +22,7 @@ from posthog.helpers.email_utils import (
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
 )
+from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
@@ -170,6 +171,11 @@ class MemberEmailMigration:
                 user.save(update_fields=["email", "pending_email"])
                 # Delete social auth so the identity at the old provider can't keep logging in.
                 UserSocialAuth.objects.filter(user=user).delete()
+                # An ID-JAG resolves a bound subject without reading the email. Delete the bindings to this
+                # organization's identity providers, so the old provider cannot get access tokens for the account.
+                IdJagIdentity.objects.filter(
+                    user=user, identity_provider_config__organization=self.organization
+                ).delete()
                 # In the same transaction, so an email never changes while the old sessions stay signed in.
                 revoke_other_sessions(user, keep_session_key=None)
                 # The same entry ModelAdmin.log_change writes, so the history on the user's Django admin
