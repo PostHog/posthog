@@ -1874,7 +1874,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             request.user,
             "logs alert destination deleted",
-            {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+            {"alert_id": str(alert.id), "count": len(hog_function_ids) + len(remaining)},
             request=request,
         )
         return Response(status=204)

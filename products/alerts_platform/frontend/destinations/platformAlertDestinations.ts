@@ -23,14 +23,20 @@ export type AlertDestinationEntry = Omit<PlatformAlertDestinationApi, 'event_kin
     message_customized?: boolean
 }
 
+// Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
+export const MAX_DESTINATIONS_PER_ALERT = 5
+
 /** The routes an alert's destinations are read and written through. */
 export interface AlertDestinationsApi {
+    /** The most destinations the routes accept on one alert, or undefined for no cap. */
+    maxDestinations?: number
     list: (projectId: string, alertId: string) => Promise<AlertDestinationEntry[]>
     create: (projectId: string, alertId: string, destination: PlatformAlertCreateDestinationApi) => Promise<unknown>
     remove: (projectId: string, alertId: string, destination: AlertDestinationEntry) => Promise<unknown>
 }
 
 export const PLATFORM_DESTINATIONS_API: AlertDestinationsApi = {
+    maxDestinations: MAX_DESTINATIONS_PER_ALERT,
     list: (projectId, alertId) => platformAlertsDestinationsList(projectId, alertId),
     create: (projectId, alertId, destination) => platformAlertsDestinationsCreate(projectId, alertId, destination),
     remove: (projectId, alertId, destination) =>
@@ -65,9 +71,6 @@ const URL_INPUTS: Partial<Record<PlatformAlertDestinationTypeEnumApi, AlertNotif
 export function destinationTypeLabel(type: PlatformAlertDestinationTypeEnumApi): string {
     return TYPE_LABELS[type] ?? type
 }
-
-// Mirrors the API's cap, so a new alert's pending destinations never exceed what its create can save.
-export const MAX_DESTINATIONS_PER_ALERT = 5
 
 // The URL shapes the API accepts for each provider, so a URL it would refuse is caught before the alert is
 // saved rather than failing when its destinations are added afterwards.

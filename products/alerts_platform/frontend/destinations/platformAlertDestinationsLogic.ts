@@ -24,7 +24,6 @@ import {
 import {
     AlertDestinationEntry,
     AlertDestinationsApi,
-    MAX_DESTINATIONS_PER_ALERT,
     PLATFORM_DESTINATIONS_API,
     destinationUrlError,
     urlInputFor,
@@ -288,7 +287,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
         ],
     }),
 
-    selectors({
+    selectors(({ props }) => ({
         slackIntegration: [
             (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
             (
@@ -327,8 +326,12 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                 if (savingDestinations) {
                     return 'Saving the last destination'
                 }
-                if (destinations.length + pendingDestinations.length >= MAX_DESTINATIONS_PER_ALERT) {
-                    return `An alert can have at most ${MAX_DESTINATIONS_PER_ALERT} destinations`
+                const { maxDestinations } = destinationsApi(props)
+                if (
+                    maxDestinations !== undefined &&
+                    destinations.length + pendingDestinations.length >= maxDestinations
+                ) {
+                    return `An alert can have at most ${maxDestinations} destinations`
                 }
                 if (selectedType === PlatformAlertDestinationTypeEnumApi.Pagerduty) {
                     return pagerDutyRoutingKeyError(pagerDutyRoutingKey)
@@ -342,7 +345,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                 return destinationUrlError(selectedType, webhookUrl)
             },
         ],
-    }),
+    })),
 
     listeners(({ actions, values, props }) => ({
         addSelectedDestination: () => {
