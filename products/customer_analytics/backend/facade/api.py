@@ -74,7 +74,7 @@ from posthog.models.team import Team
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -94,6 +94,12 @@ from products.conversations.backend.facade.api import (
     trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
+from products.customer_analytics.backend.constants import (
+    ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.customer_analytics.backend.events import emit_account_tags_added, emit_account_tags_removed
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
@@ -124,6 +130,7 @@ from products.customer_analytics.backend.logic import (
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
+from products.customer_analytics.backend.logic.account_activity_access import get_account_activity_account
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
@@ -132,6 +139,10 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.activity_query_access import (
+    validate_activity_query_property_access as validate_activity_property_access,
+)
+from products.customer_analytics.backend.logic.book_activity_access import validate_book_activity_query_access
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -401,8 +412,68 @@ def _resolve_accessible_account(
         return None
 
 
-def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+def validate_activity_query_property_access(team: Team, user: "User | None", labels: list[str]) -> None:
+    validate_activity_property_access(team, user, labels)
+
+
+def validate_account_users_access(
+    team: Team, user: "User | None", account_id: str, *, access: UserAccessControl | None = None
+) -> None:
     raise PermissionDenied("Run the account-user query synchronously.")
+
+
+def validate_account_activity_access(
+    team: Team, user: "User | None", account_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    get_account_activity_account(team=team, user=user, account_id=account_id, access=access)
+
+
+def get_activity_query_status_scopes(labels: list[str]) -> list[str] | None:
+    person_prefixes = (
+        ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+        BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
+    )
+    activity_prefixes = (
+        *person_prefixes,
+        BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+        BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX,
+    )
+    if not any(label.startswith(activity_prefixes) for label in labels):
+        return None
+    scopes = ["query:read", "account:read"]
+    if any(label.startswith(person_prefixes) for label in labels):
+        scopes.append("person:read")
+    return scopes
+
+
+def validate_book_activity_access(
+    team: Team, user: "User | None", labeled_user_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    if user is None or str(user.id) != labeled_user_id:
+        raise UserAccessControlError("account", "viewer")
+    validate_book_activity_query_access(team, user, access)
+
+
+def validate_book_activity_accounts_access(
+    team: Team, user: "User | None", labeled_account_ids: str, *, access: UserAccessControl | None = None
+) -> None:
+    if user is None:
+        raise UserAccessControlError("account", "viewer")
+    account_ids = set(labeled_account_ids.split(",")) if labeled_account_ids else set()
+    access = access if access is not None else UserAccessControl(user=user, team=team)
+    accessible = _accounts_queryset(team.id, access).filter(id__in=account_ids, ignored_at__isnull=True)
+    if accessible.count() != len(account_ids):
+        raise UserAccessControlError("account", "viewer")
+
+
+def validate_book_activity_people_access(
+    team: Team, user: "User | None", labeled_user_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    if user is None:
+        raise UserAccessControlError("account", "viewer")
+    access = access if access is not None else UserAccessControl(user=user, team=team)
+    validate_book_activity_access(team, user, labeled_user_id, access=access)
+    access.assert_access_level_for_resource("person", "viewer")
 
 
 def get_account(

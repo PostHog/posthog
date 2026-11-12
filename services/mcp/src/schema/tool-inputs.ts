@@ -313,6 +313,8 @@ export const ScoreDefinitionConfigSchema = z
         'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
 
+export const OptionalScoreDefinitionConfigSchema = ScoreDefinitionConfigSchema.optional()
+
 const OfflineExperimentUploadBody = AiObservabilityOfflineExperimentsUploadCreateBody().shape
 const OfflineExperimentUploadItem = OfflineExperimentUploadBody.items.unwrap().element
 const OfflineExperimentUploadResult = OfflineExperimentUploadBody.results.element
@@ -1008,6 +1010,154 @@ export const TaskAgentRunCreateSchema = z
     })
     .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
+
+// Warehouse sync failure alerts. The platform alert API accepts one body shape per source kind. These schemas
+// keep the two warehouse kinds, so a model sees one flat object, and they check the grouping rule early.
+const WarehouseSyncAlertSourceConfigSchema = z
+    .object({
+        source_ids: z
+            .array(z.string().uuid())
+            .max(100)
+            .optional()
+            .describe(
+                'For source_kind=warehouse_source: IDs of the sources to watch, from external-data-sources-list. Empty or omitted watches every source in the project, including sources added later.'
+            ),
+        group_by: z
+            .enum(['schema', 'source'])
+            .optional()
+            .describe(
+                'For source_kind=warehouse_source. source (default) keeps one alert group, and sends one message, per failing source. schema does the same per failing table. It must match grouping.keys: source_id for source, schema_id for schema.'
+            ),
+        include_billing_limits: z
+            .boolean()
+            .optional()
+            .describe(
+                "For source_kind=warehouse_source. Also fire when a table stops syncing at the project's billing limit. Defaults to false."
+            ),
+        destination_ids: z
+            .array(z.string().uuid())
+            .max(100)
+            .optional()
+            .describe(
+                'For source_kind=warehouse_destination: IDs of the destinations to watch, from external-data-destinations-list. Empty or omitted watches every destination in the project, including destinations added later.'
+            ),
+        email_project_members: z
+            .boolean()
+            .optional()
+            .describe(
+                'Also email the project members who get data pipeline error emails when the alert fires or resolves. Defaults to false.'
+            ),
+    })
+    .strict()
+
+const WarehouseSyncAlertGroupingSchema = z
+    .object({
+        mode: z.literal('by_result_labels').describe('Always by_result_labels for warehouse alerts.'),
+        keys: z
+            .array(z.enum(['source_id', 'schema_id', 'destination_id']))
+            .length(1)
+            .describe(
+                'One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination.'
+            ),
+    })
+    .describe(
+        'How the alert splits into groups, each of which fires and resolves on its own. Replaces the stored grouping as a whole.'
+    )
+
+const WarehouseSyncAlertNameSchema = z
+    .string()
+    .min(1)
+    .max(255)
+    .describe('Name of the alert, such as "Stripe sync failures".')
+
+const WarehouseSyncAlertCooldownSchema = z
+    .number()
+    .int()
+    .min(0)
+    .describe('Minimum minutes between messages for the same failing table, source or destination. 0 sends every time.')
+
+function validateWarehouseSyncAlertGrouping(
+    data: {
+        source_kind?: 'warehouse_source' | 'warehouse_destination' | undefined
+        source_config?: z.infer<typeof WarehouseSyncAlertSourceConfigSchema> | undefined
+        grouping?: z.infer<typeof WarehouseSyncAlertGroupingSchema> | undefined
+    },
+    ctx: z.RefinementCtx
+): void {
+    const { source_kind: sourceKind, source_config: sourceConfig, grouping } = data
+    if (!sourceKind || !sourceConfig || !grouping) {
+        return
+    }
+    if (sourceKind === 'warehouse_destination') {
+        const wrongFields = ['source_ids', 'group_by', 'include_billing_limits'].filter((key) => key in sourceConfig)
+        if (wrongFields.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['source_config'],
+                message: `${wrongFields.join(', ')} apply only to source_kind=warehouse_source. Use destination_ids.`,
+            })
+        }
+        if (grouping.keys[0] !== 'destination_id') {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['grouping', 'keys'],
+                message: 'Use keys ["destination_id"] for source_kind=warehouse_destination.',
+            })
+        }
+        return
+    }
+    if ('destination_ids' in sourceConfig) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['source_config', 'destination_ids'],
+            message: 'destination_ids applies only to source_kind=warehouse_destination. Use source_ids.',
+        })
+    }
+    const expectedKey = sourceConfig.group_by === 'schema' ? 'schema_id' : 'source_id'
+    if (grouping.keys[0] !== expectedKey) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['grouping', 'keys'],
+            message: `Use keys ["${expectedKey}"] when group_by is ${sourceConfig.group_by ?? 'omitted (source)'}.`,
+        })
+    }
+}
+
+export const WarehouseSyncAlertCreateSchema = z
+    .object({
+        source_kind: z
+            .enum(['warehouse_source', 'warehouse_destination'])
+            .describe(
+                'What the alert watches. warehouse_source alerts when a source or one of its tables fails to sync. warehouse_destination alerts when a destination that sources sync to fails or is paused.'
+            ),
+        name: WarehouseSyncAlertNameSchema.optional(),
+        enabled: z.boolean().optional().describe('Whether the alert runs. Defaults to true.'),
+        source_config: WarehouseSyncAlertSourceConfigSchema.describe(
+            'What to watch. Send {} to watch every source (or destination) in the project.'
+        ),
+        grouping: WarehouseSyncAlertGroupingSchema,
+        cooldown_minutes: WarehouseSyncAlertCooldownSchema.optional(),
+    })
+    .superRefine(validateWarehouseSyncAlertGrouping)
+
+export const WarehouseSyncAlertUpdateSchema = z
+    .object({
+        id: z.string().uuid().describe('ID of the alert, from platform-alerts-list.'),
+        source_kind: z
+            .enum(['warehouse_source', 'warehouse_destination'])
+            .optional()
+            .describe(
+                'The alert kind. It cannot change. Send it only when you also send source_config or grouping, so the two can be checked against each other.'
+            ),
+        name: WarehouseSyncAlertNameSchema.optional(),
+        enabled: z.boolean().optional().describe('Set false to stop the alert without deleting it.'),
+        source_config: WarehouseSyncAlertSourceConfigSchema.optional().describe(
+            'The new settings of what to watch. Replaces the stored source_config as a whole, so send every field you want to keep.'
+        ),
+        grouping: WarehouseSyncAlertGroupingSchema.optional(),
+        cooldown_minutes: WarehouseSyncAlertCooldownSchema.optional(),
+    })
+    .superRefine(validateWarehouseSyncAlertGrouping)
 
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({

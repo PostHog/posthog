@@ -12,6 +12,7 @@ import { ANALYTICS_TYPE_INFO, AnalyticsType } from 'scenes/analytics/analyticsUt
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { productPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -41,8 +42,8 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
-    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
-    const { movePinned } = useActions(analyticsPinnedLogic)
+    const { pinnedAnalytics, recentlyPinnedKey } = useValues(analyticsPinnedLogic)
+    const { movePinned, clearRecentlyPinned } = useActions(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const listFilters =
@@ -57,6 +58,11 @@ export function TodayAnalyticsSidebar(): JSX.Element {
 
     const isOpen = (targetPath: string): boolean =>
         path === removeProjectIdIfPresent(targetPath) && (targetPath !== urls.analyticsList() || openFolder === null)
+
+    const enterWrap = (key: string): SidebarNavigationItem['wrap'] =>
+        key === recentlyPinnedKey
+            ? (row) => <SidebarRowEnter onEntered={clearRecentlyPinned}>{row}</SidebarRowEnter>
+            : undefined
 
     const lists: Record<AnalyticsListSourceApi, SidebarNavigationItem[]> = {
         pinned: pinnedAnalytics.map((pinned) =>
@@ -74,6 +80,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-starred-space',
+                      wrap: enterWrap(pinned.key),
                   }
                 : {
                       value: `pinned:${pinned.key}`,
@@ -93,6 +100,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-pinned',
+                      wrap: enterWrap(pinned.key),
                   }
         ),
         recents: recentAnalytics.map((item) => ({
