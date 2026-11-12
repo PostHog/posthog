@@ -125,19 +125,9 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_reports_the_latest_status_of_the_send(self, _flag, _name, rows, expected_status, status_offset, reason):
         self._status_rows(rows)
 
-        with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
-            response = self.client.get(self._url(self.message_id))
+        response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert capture.call_args.kwargs["properties"] == {
-            "team_id": self.team.id,
-            "outcome": "found",
-            "status": expected_status,
-            "auth_method": "project_secret_api_key",
-            "authorized_by": "hog_flow",
-        }
         assert response.json() == {
             "id": self.message_id,
             "status": expected_status,
@@ -167,13 +157,32 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "old": self._message_id(datetime.now(UTC) - timedelta(days=61)),
         }
 
+        response = self.client.get(self._url(ids.get(message_id, message_id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("found", [("scheduled", 0, "")], "found", "scheduled"),
+            ("not_found", [], "not_found", None),
+        ]
+    )
+    def test_records_each_read_for_usage(self, _flag, _name, rows, expected_outcome, expected_status):
+        self._status_rows(rows)
+
         with patch(
             "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
         ) as capture:
-            response = self.client.get(self._url(ids.get(message_id, message_id)))
+            self.client.get(self._url(self.message_id))
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert capture.call_args.kwargs["properties"]["outcome"] == "not_found"
+        assert capture.call_args.kwargs["event"] == "transactional email api status read"
+        assert capture.call_args.kwargs["properties"] == {
+            "team_id": self.team.id,
+            "outcome": expected_outcome,
+            "status": expected_status,
+            "auth_method": "project_secret_api_key",
+            "authorized_by": "hog_flow",
+        }
 
     @parameterized.expand(
         [

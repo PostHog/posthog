@@ -288,7 +288,6 @@ class EmailDeliveryStatus(LabeledStrEnum):
     COMPLAINED = "complained", "Complained"
 
 
-# What the status read answers: the delivery statuses, plus the two a send has before it goes out.
 class EmailSendStatus(LabeledStrEnum):
     SCHEDULED = "scheduled", "Scheduled"
     QUEUED = "queued", "Queued"

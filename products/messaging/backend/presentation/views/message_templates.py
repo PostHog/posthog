@@ -491,8 +491,7 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
     )
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        # A send by template ignores fields it doesn't know. An email it was asked to hold must not go out at once.
-        if isinstance(self.initial_data, Mapping) and "scheduled_at" in self.initial_data:
+        if "scheduled_at" in _sent_fields(self.initial_data):
             raise serializers.ValidationError(
                 {
                     "scheduled_at": "PostHog doesn't schedule emails here, so it didn't send the email. Leave out "
@@ -633,7 +632,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         data = super().validate(data)
-        sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        sent = _sent_fields(self.initial_data)
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
@@ -660,6 +659,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _sent_fields(initial_data: Any) -> set[str]:
+    if not isinstance(initial_data, Mapping):
+        return set()
+    return {field for field in initial_data if not (field == "scheduled_at" and initial_data[field] is None)}
 
 
 def _within_body_limit(value: str, body: str) -> str:
