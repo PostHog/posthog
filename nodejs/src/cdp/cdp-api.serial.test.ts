@@ -5209,7 +5209,6 @@ describe('CDP API', () => {
         let mockQueueInvocations: jest.Mock
         const body = { distinct_id: 'distinct_A_1', variables: { order_id: '42' } }
 
-        // The wire contract with Django: the transactional email audience and key, with a `kind: push` claim.
         const mintToken = (
             hogFlowId: string,
             claims: Record<string, string> = { kind: 'push' },
