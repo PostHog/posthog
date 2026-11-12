@@ -981,6 +981,19 @@ describe('Hog Inputs', () => {
             expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
         })
 
+        it('refuses the credential of a connection that cannot be decrypted when a queued fetch resumes', async () => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.inputs = { slack: { value: id } }
+            hogFunction.inputs_schema = [
+                { key: 'slack', type: 'integration', integration: 'slack', auth: { scheme: 'bearer' } },
+            ]
+
+            expect(await hogInputsService.resolveCredential(hogFunction, 'slack')).toEqual({
+                error: "The integration for input 'slack' could not be decrypted. Reconnect the integration.",
+            })
+        })
+
         it('loads an undecryptable integration on a mapping this invocation does not use', async () => {
             const id = 100000000 + team.id
             await insertUndecryptableIntegration(id)
