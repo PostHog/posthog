@@ -1,4 +1,6 @@
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Iterator
+from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -7,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.http import StreamingHttpResponse
 from django.test import override_settings
+from django.utils import timezone
 
 import aiohttp
 from asgiref.sync import async_to_sync
@@ -15,6 +18,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, SessionRecording, SharingConfiguration, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.recordings.raw_snapshot_stream import RAW_SNAPSHOT_STREAM_BATCH_SIZE
@@ -113,12 +117,22 @@ class TestSessionRecordingRawSnapshotsAPI(APIBaseTest):
             assert response.headers["content-type"] == "application/jsonl"
             assert b"".join(response) == b'["window",{"type":4}]\n'
 
-    def test_project_without_the_flag_cannot_stream(self) -> None:
-        self.flag.return_value = False
+    @parameterized.expand(
+        [
+            ("flag_off", {"return_value": False}, {}),
+            ("flag_evaluation_fails", {"side_effect": Exception("flags are unreachable")}, {}),
+            ("flag_off_for_a_client_asking_for_jsonl", {"return_value": False}, {"accept": "application/jsonl"}),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_project_without_the_flag_cannot_stream(self, _name: str, flag: dict, headers: dict) -> None:
+        self.flag.configure_mock(**flag)
 
-        response = self.client.get(self.url)
+        response = self.client.get(self.url, headers=headers)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert json.loads(response.content)["code"] == "permission_denied"
+        assert self.flag.call_args.kwargs["person_properties"] == {"team_id": self.team.pk, "cloud_deployment": "DEV"}
         self.storage.fetch_block.assert_not_awaited()
 
     def test_plan_without_file_export_cannot_stream(self) -> None:
@@ -153,23 +167,32 @@ class TestSessionRecordingRawSnapshotsAPI(APIBaseTest):
 
         assert response.status_code == expected_status
 
-    def test_later_batches_are_read_only_as_the_client_consumes_the_stream(self) -> None:
+    @parameterized.expand([("ASGI",), ("WSGI",)])
+    def test_later_batches_are_read_only_as_the_client_consumes_the_stream(self, gateway: str) -> None:
         self.list_blocks.return_value = [_block(i) for i in range(RAW_SNAPSHOT_STREAM_BATCH_SIZE * 2)]
         self.async_client.force_login(self.user)
 
-        async def read() -> tuple[int, int]:
+        async def read_asgi() -> tuple[int, bytes]:
             response = await self.async_client.get(self.url)
             chunks = cast(AsyncIterator[bytes], cast(StreamingHttpResponse, response).streaming_content)
             body = await anext(chunks)
             fetched_after_the_first_chunk = self.storage.fetch_block.await_count
             async for chunk in chunks:
                 body += chunk
-            return fetched_after_the_first_chunk, body.count(b"\n")
+            return fetched_after_the_first_chunk, body
 
-        fetched_after_the_first_chunk, lines = async_to_sync(read)()
+        def read_wsgi() -> tuple[int, bytes]:
+            response = self.client.get(self.url)
+            chunks = cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content)
+            body = next(chunks)
+            fetched_after_the_first_chunk = self.storage.fetch_block.await_count
+            return fetched_after_the_first_chunk, body + b"".join(chunks)
+
+        with override_settings(SERVER_GATEWAY_INTERFACE=gateway):
+            fetched_after_the_first_chunk, body = async_to_sync(read_asgi)() if gateway == "ASGI" else read_wsgi()
 
         assert fetched_after_the_first_chunk == RAW_SNAPSHOT_STREAM_BATCH_SIZE
-        assert lines == RAW_SNAPSHOT_STREAM_BATCH_SIZE * 2
+        assert body.count(b"\n") == RAW_SNAPSHOT_STREAM_BATCH_SIZE * 2
 
     @override_settings(RAW_SNAPSHOT_STREAM_RATE_PAID_BURST="1/minute")
     @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
@@ -184,3 +207,34 @@ class TestSessionRecordingRawSnapshotsAPI(APIBaseTest):
         self.client.force_login(other_user)
 
         assert self.client.get(self.url).status_code == status.HTTP_200_OK
+
+    @override_settings(RAW_SNAPSHOT_STREAM_RATE_PAID_BURST="1/minute")
+    @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_caller_cannot_pick_a_new_rate_limit_bucket_with_an_unvalidated_key(
+        self, _mock_rate_limit_enabled: MagicMock, _mock_tier: MagicMock
+    ) -> None:
+        application = OAuthApplication.objects.create(
+            name="Test OAuth app",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_test_raw_snapshots_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="session_recording:read",
+        )
+        self.client.logout()
+        headers = {"authorization": f"Bearer {token.token}"}
+
+        first = self.client.get(f"{self.url}?personal_api_key=first", headers=headers)
+        second = self.client.get(f"{self.url}?personal_api_key=second", headers=headers)
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS

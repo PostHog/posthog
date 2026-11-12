@@ -96,7 +96,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
-    hashed_personal_api_key_for_throttling,
     is_rate_limit_enabled,
     team_is_allowed_to_bypass_throttle,
 )
@@ -951,8 +950,10 @@ class _RawSnapshotStreamRateThrottle(_TierAwareReplayThrottle):
         return self._allow_request_internal(request, view, personal_api_key_only=False)
 
     def get_cache_key(self, request: Request, view: APIView) -> str:
-        # The inherited key gives all callers without a personal API key one shared bucket per project.
-        ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
+        # Only a validated personal API key gets its own bucket. The inherited key also trusts a key or token that
+        # the request carries but that did not authenticate it, which lets a caller choose a new bucket at will.
+        key_hash = getattr(request.successful_authenticator, "personal_api_key_hash", None)
+        ident = key_hash if isinstance(key_hash, str) else request.user.pk
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
@@ -1873,7 +1874,12 @@ class SessionRecordingViewSet(
         except (BlockFetchError, aiohttp.ClientError):
             raise exceptions.APIException("Couldn't load the recording from storage. Try again in a few minutes.")
 
-        return streaming_response(stream.chunks_after(first_chunk), content_type="application/jsonl")
+        chunks = (
+            stream.chunks_after(first_chunk)
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+            else stream.chunks_after_sync(first_chunk)
+        )
+        return streaming_response(chunks, content_type="application/jsonl")
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """

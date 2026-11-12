@@ -1,12 +1,13 @@
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 
 from django.conf import settings
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
 
 from posthog.exceptions_capture import capture_exception
-from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 RAW_SNAPSHOT_STREAM_FLAG = "replay-raw-snapshot-stream"
@@ -50,17 +51,22 @@ class RawSnapshotStream:
 
     async def first_chunk(self) -> bytes:
         """Fetch the first batch on its own, so that a caller can report a failure before it sends any headers."""
-        async with recording_api_client() as client:
-            return await self._fetch_batch(client, 0)
+        return await self._chunk(0)
 
     async def chunks_after(self, first_chunk: bytes) -> AsyncIterator[bytes]:
         yield first_chunk
-        if len(self._batches) < 2:
-            return
+        for index in range(1, len(self._batches)):
+            yield await self._later_chunk(index)
+
+    def chunks_after_sync(self, first_chunk: bytes) -> Iterator[bytes]:
+        """The same stream for a WSGI server, which reads an async iterator to its end before it sends any of it."""
+        yield first_chunk
+        for index in range(1, len(self._batches)):
+            yield async_to_sync(self._later_chunk)(index)
+
+    async def _later_chunk(self, index: int) -> bytes:
         try:
-            async with recording_api_client() as client:
-                for index in range(1, len(self._batches)):
-                    yield await self._fetch_batch(client, index)
+            return await self._chunk(index)
         except Exception as e:
             # The status is already sent, so re-raise: a stream that ends normally looks like a complete recording.
             capture_exception(
@@ -68,15 +74,17 @@ class RawSnapshotStream:
             )
             raise
 
-    async def _fetch_batch(self, client: RecordingApiClient, index: int) -> bytes:
-        contents = await asyncio.gather(
-            *(
-                client.fetch_block(
-                    block.key, block.start_byte, block.end_byte, self._session_id, self._team_id, decompress=True
+    async def _chunk(self, index: int) -> bytes:
+        # One client for each batch, because the WSGI stream runs every batch on its own event loop.
+        async with recording_api_client() as client:
+            contents = await asyncio.gather(
+                *(
+                    client.fetch_block(
+                        block.key, block.start_byte, block.end_byte, self._session_id, self._team_id, decompress=True
+                    )
+                    for block in self._batches[index]
                 )
-                for block in self._batches[index]
             )
-        )
         return b"".join(_newline_terminated(content) for content in contents)
 
 
