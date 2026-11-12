@@ -166,6 +166,7 @@ describe('buildToolDomainsBlock', () => {
             'unarchive',
             'unfreeze',
             'upload',
+            'validate',
         ]
         const tools = trailingActions.map((action, index) => ({
             name: `resource${index}-${action}`,
