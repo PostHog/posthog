@@ -242,25 +242,28 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
     issue.code === 'invalid_format' &&
     (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
-export type TransactionalEmailOutcome =
-    | 'queued'
-    | 'replayed'
+export type TransactionalSendRefusal =
     | 'idempotency_key_in_flight'
     | 'idempotency_key_reused'
     | 'idempotency_unavailable'
-    | 'not_configured'
-    | 'unauthorized'
-    | 'invalid_request'
-    | 'not_found'
     | 'not_sendable'
-    | 'workflow_can_wait'
-    | 'workflow_shape_not_supported'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_unreachable'
+
+export type TransactionalEmailOutcome =
+    | 'queued'
+    | 'replayed'
+    | TransactionalSendRefusal
+    | 'not_configured'
+    | 'unauthorized'
+    | 'invalid_request'
+    | 'not_found'
     | 'field_not_accepted'
+    | 'workflow_can_wait'
+    | 'workflow_shape_not_supported'
     | 'attachment_not_uploaded'
     | 'message_too_large'
     | 'email_render_limit_exceeded'
