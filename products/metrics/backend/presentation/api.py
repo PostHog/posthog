@@ -36,7 +36,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_val
 from posthog.event_usage import report_user_action
 from posthog.exceptions import InsufficientScope
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.scopes import APIScopeObject
@@ -58,6 +58,7 @@ from products.metrics.backend.facade.api import (
     list_metric_picker_names,
     list_metric_query_counts,
     list_metric_variable_options,
+    metric_instant_window,
     run_metric_instant_query,
     run_metric_query,
     run_promql_instant_query,
@@ -216,6 +217,8 @@ _RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[Mhdwmy]$")
 # PostHog-wide, lowercase m is months and capital M is minutes, so "-30m" reads 30 months back.
 _LOWERCASE_MONTHS_RE = re.compile(r"^-([0-9]{1,6})m$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+# More than the furthest an instant builder query reads back: three week-wide buckets after aligning to a week.
+_INSTANT_LOOKBACK_LIMIT = dt.timedelta(weeks=5)
 
 
 class _PromQLBackendUnavailable(APIException):
@@ -379,6 +382,11 @@ class _MetricQueryBodySerializer(serializers.Serializer):
                     "'interval' does not apply to an instant PromQL query: put the window in the expression, e.g. rate(x[5m])."
                 )
             attrs["time"] = _resolve_query_bound(attrs.get("time"), now=now, field="time") or now
+            try:
+                # Instant queries read a few buckets back from 'time', up to weeks for 'interval': 'week'.
+                attrs["time"] - _INSTANT_LOOKBACK_LIMIT
+            except OverflowError:
+                raise serializers.ValidationError({"time": "Too early for an instant query."})
         date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
         date_from = _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom")
         if date_from is None:
@@ -607,21 +615,23 @@ def _shape_series(series: MetricSeries, shape: str) -> dict:
     }
 
 
-def _response_options(request: Request, query_data: dict) -> dict:
+def _response_options(request: Request, query_data: dict, team: Team) -> dict:
     drop_empty_series = query_data.get("dropEmptySeries")
     return {
         "drop_empty_series": is_mcp_request(request) if drop_empty_series is None else drop_empty_series,
         "limit": query_data.get("limit"),
         "shape": "instant" if query_data.get("instant") else query_data.get("output") or "points",
-        "url_params": _viewer_url_params(request, query_data),
+        "url_params": _viewer_url_params(request, query_data, team),
     }
 
 
 # The metrics viewer's URL contract lives in products/metrics/frontend/metricsSceneLogic.tsx and metricsLinks.ts.
 _VIEWER_FILTER_OPERATORS = {"eq": "exact", "neq": "is_not", "regex": "regex", "not_regex": "not_regex"}
 _VIEWER_HISTOGRAM_AGGREGATIONS = {0.5: "histogram_p50", 0.95: "histogram_p95", 0.99: "histogram_p99"}
-# An instant query opens in the viewer over the hour before its time.
+# An instant query opens in the viewer over at least the hour before its time.
 _VIEWER_INSTANT_WINDOW = dt.timedelta(hours=1)
+# The viewer's clause names, from CLAUSE_NAME_PATTERN in metricsSceneLogic.tsx.
+_VIEWER_CLAUSE_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
 
 def _viewer_clause(clause: dict, name: str) -> dict | None:
@@ -638,6 +648,9 @@ def _viewer_clause(clause: dict, name: str) -> dict | None:
     group_by = clause.get("groupBy") or []
     # The viewer reads attributes with scope 'auto' only.
     if any(item.get("scope", "auto") != "auto" for item in [*filters, *group_by]):
+        return None
+    # The viewer drops a filter whose value is empty, so its link would match more series.
+    if any(f.get("value", "") == "" for f in filters):
         return None
     item: dict = {"name": name, "metricName": clause["metricName"]}
     if range_function:
@@ -670,7 +683,7 @@ def _viewer_clause(clause: dict, name: str) -> dict | None:
     return item
 
 
-def _viewer_url_params(request: Request, query_data: dict) -> str:
+def _viewer_url_params(request: Request, query_data: dict, team: Team) -> str:
     """Search params that open the query in the metrics viewer, or just the viewer when it cannot show the query."""
     params: dict[str, str] = {"activeTab": "viewer"}
     promql = (query_data.get("promql") or "").strip()
@@ -678,6 +691,9 @@ def _viewer_url_params(request: Request, query_data: dict) -> str:
         params |= {"language": "promql", "query": query_data["promql"]}
     else:
         if query_data.get("clauses"):
+            # A formula refers to clauses by name, so a name the viewer rejects cannot be renamed alone.
+            if not all(_VIEWER_CLAUSE_NAME.fullmatch(c["name"]) for c in query_data["clauses"]):
+                return urlencode(params)
             clauses = [_viewer_clause(c, c["name"]) for c in query_data["clauses"]]
         else:
             clauses = [_viewer_clause(query_data, "a")]
@@ -688,7 +704,13 @@ def _viewer_url_params(request: Request, query_data: dict) -> str:
             params["formula"] = query_data["formula"]
     if query_data.get("instant"):
         time: dt.datetime = query_data["time"]
-        params |= {"dateFrom": (time - _VIEWER_INSTANT_WINDOW).isoformat(), "dateTo": time.isoformat()}
+        if promql:
+            date_from, date_to = time - _VIEWER_INSTANT_WINDOW, time
+        else:
+            # The builder value is the last bucket of this window, which can end well before 'time'.
+            date_from, date_to = metric_instant_window(team=team, time=time, interval=query_data.get("interval"))
+            date_from = min(date_from, date_to - _VIEWER_INSTANT_WINDOW)
+        params |= {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}
     else:
         # Keep a relative range relative, so the link shows the latest data when it is opened.
         raw = request.data.get("query") if isinstance(request.data, dict) else None
@@ -1705,7 +1727,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return _series_response(series, **_response_options(request, query_data))
+        return _series_response(series, **_response_options(request, query_data, self.team))
 
     def _can_read_derived_source(self, request: Request, resource: APIScopeObject) -> bool:
         return not scopes_caller_lacks(
@@ -1768,7 +1790,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team,
             request=request,
         )
-        return _series_response(series, **_response_options(request, query_data))
+        return _series_response(series, **_response_options(request, query_data, self.team))
 
     @extend_schema(request=_MetricSamplesRequestSerializer, responses={200: _MetricSamplesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])

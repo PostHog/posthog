@@ -613,6 +613,7 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
             ("with_date_to", {"time": "-1h", "dateTo": "-5m"}, "dateTo"),
             ("with_summary", {"instant": True, "output": "summary"}, "summary"),
             ("promql_with_interval", {"instant": True, "interval": "minute"}, "interval"),
+            ("time_too_early", {"time": "0001-01-01T00:00:00Z"}, "Too early"),
         ]
     )
     def test_instant_query_rejects_range_options(self, _name: str, options: dict[str, Any], message: str) -> None:

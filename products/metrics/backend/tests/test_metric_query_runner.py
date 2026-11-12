@@ -1337,15 +1337,28 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         return response.json()
 
-    def test_instant_builder_query_returns_the_last_complete_bucket(self) -> None:
-        # The bucket at anchor-4m is still filling at that time, so the last complete one is anchor-5m.
+    @parameterized.expand(
+        [
+            # The bucket at anchor-4m is still filling at that time, so the last complete one is anchor-5m.
+            ("last_bucket_has_samples", 4, {"prod": 2.0, "dev": 10.0}, 5),
+            # The last complete bucket, anchor-4m, has no samples: an older bucket must not stand in for it.
+            ("last_bucket_is_empty", 3, {"prod": None, "dev": None}, None),
+        ]
+    )
+    def test_instant_builder_query_returns_the_last_complete_bucket(
+        self, _name: str, minutes_before: int, expected: dict[str, float | None], bucket_minutes_before: int | None
+    ) -> None:
         body = self._query_via_api(
-            instant=True, interval="minute", time=(self.anchor - dt.timedelta(minutes=4)).isoformat()
+            instant=True, interval="minute", time=(self.anchor - dt.timedelta(minutes=minutes_before)).isoformat()
         )
 
         by_env = {s["labels"]["env"]: s for s in body["results"]}
-        self.assertEqual({env: s["value"] for env, s in by_env.items()}, {"prod": 2.0, "dev": 10.0})
-        self.assertEqual(dt.datetime.fromisoformat(by_env["prod"]["time"]), self.anchor - dt.timedelta(minutes=5))
+        self.assertEqual({env: s["value"] for env, s in by_env.items()}, expected)
+        expected_time = (
+            None if bucket_minutes_before is None else self.anchor - dt.timedelta(minutes=bucket_minutes_before)
+        )
+        time = by_env["prod"]["time"]
+        self.assertEqual(time and dt.datetime.fromisoformat(time), expected_time)
         self.assertNotIn("points", by_env["prod"])
 
     def test_summary_builder_query_reduces_each_series(self) -> None:
@@ -1401,10 +1414,22 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_builder_query_the_viewer_cannot_show_links_to_the_viewer(self) -> None:
-        body = self._query_via_api(groupBy=[{"key": "env", "scope": "resource"}])
+    @parameterized.expand(
+        [
+            ("non_auto_scope", {"metricName": "req", "groupBy": [{"key": "env", "scope": "resource"}]}),
+            # The viewer drops an empty filter value, so the link would match series the query excluded.
+            ("empty_filter_value", {"metricName": "req", "filters": [{"key": "env", "op": "neq", "value": ""}]}),
+            # The viewer rejects clause names outside [a-z][a-z0-9_]*, and the formula refers to them.
+            ("uppercase_clause_name", {"clauses": [{"name": "A", "metricName": "req"}], "formula": "A * 2"}),
+        ]
+    )
+    def test_builder_query_the_viewer_cannot_show_links_to_the_viewer(self, _name: str, query: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query", data={"query": query}, content_type="application/json"
+        )
 
-        self.assertEqual(body["url_params"], "activeTab=viewer")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["url_params"], "activeTab=viewer")
 
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):

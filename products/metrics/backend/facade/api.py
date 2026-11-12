@@ -577,15 +577,23 @@ def run_metric_instant_query(
     so the value is the one the chart shows for that bucket.
     """
     resolved = interval or DEFAULT_INSTANT_INTERVAL
+    date_from, end = metric_instant_window(team=team, time=time, interval=resolved)
+    request = MetricQueryRequest(clauses=clauses, date_from=date_from, date_to=end, interval=resolved, formula=formula)
+    # A bucket with no samples is missing from the series, so pick the last bucket by its start. Day and week
+    # buckets follow the project timezone and can be an hour off a whole step across a DST change.
+    step = _interval_step(resolved)
+    last_bucket_after = end - step - step / 2
+    return [
+        replace(s, points=tuple(p for p in s.points[-1:] if dt.datetime.fromisoformat(p.time) > last_bucket_after))
+        for s in run_metric_query(team=team, request=request)
+    ]
+
+
+def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None) -> tuple[dt.datetime, dt.datetime]:
+    """The range an instant builder query at `time` reads: its value is the bucket that ends at the range's end."""
+    resolved = interval or DEFAULT_INSTANT_INTERVAL
     end = _align_to_interval(time, resolved, tzinfo=team.timezone_info)
-    request = MetricQueryRequest(
-        clauses=clauses,
-        date_from=end - _INSTANT_BUCKETS * _interval_step(resolved),
-        date_to=end,
-        interval=resolved,
-        formula=formula,
-    )
-    return [replace(s, points=s.points[-1:]) for s in run_metric_query(team=team, request=request)]
+    return end - _INSTANT_BUCKETS * _interval_step(resolved), end
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
