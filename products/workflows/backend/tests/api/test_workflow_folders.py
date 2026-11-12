@@ -6,7 +6,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import DatabaseError, close_old_connections, connection, transaction
+from django.db import DatabaseError, OperationalError, close_old_connections, connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -674,9 +674,10 @@ class TestWorkflowFolders(APIBaseTest):
             ("recents", "file_system/", {"order_by": "-last_viewed_at"}),
             ("frequent", "file_system/frequent/", {}),
             ("one_item_listing", "file_system/", {"type": "message_template", "limit": 1}),
+            ("one_item_listing_by_an_admin_of_shared_files", "file_system/", {"type": "message_template", "limit": 1}),
         ]
     )
-    def test_file_reads_resolve_access_without_reading_every_template_file(self, _name, path, params) -> None:
+    def test_file_reads_resolve_access_without_reading_every_template_file(self, name, path, params) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -688,6 +689,13 @@ class TestWorkflowFolders(APIBaseTest):
             ]
             for i in range(11)
         ]
+        if name.endswith("admin_of_shared_files"):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            for template_id in unviewed:
+                create_access_control(
+                    team_id=self.team.id, resource="hog_flow", resource_id=template_id, access_level="viewer"
+                )
         self.client.post(
             f"/api/projects/{self.team.id}/file_system/log_view/",
             {"type": "message_template", "ref": viewed},
@@ -941,6 +949,27 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         deleted = self.client.delete(f"{files_url}{file_id}/")
         self.assertEqual(deleted.status_code, 200, deleted.content)
         self.assertEqual(self.client.get(object_url).status_code, 404)
+
+    def test_a_template_tree_delete_reports_a_database_failure_as_an_error_not_a_busy_template(self) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        ).json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
+            "id"
+        ]
+
+        def lose_the_connection_on_the_lock(
+            execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]
+        ) -> Any:
+            if 'FROM "posthog_messagetemplate"' in sql and "FOR UPDATE NOWAIT" in sql:
+                raise OperationalError("server closed the connection unexpectedly")
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(lose_the_connection_on_the_lock):
+            deleted = self.client.delete(f"{files_url}{file_id}/")
+
+        self.assertEqual(deleted.status_code, 500, deleted.content)
 
     def test_template_tree_delete_keeps_a_save_that_commits_after_the_delete_read_the_template(self) -> None:
         created = self.client.post(

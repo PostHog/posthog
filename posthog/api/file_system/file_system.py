@@ -1237,61 +1237,71 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
         prepare_file_system_objects(self.request, refs_by_type)
         any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {key[0] for key in refs_by_type}}
-        spellings_by_type = {
-            key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
-            for key, refs in sorted(refs_by_type.items())
-        }
+        # A row filed on a surface the team never used before is missed by the sampled surface
+        # list. Sample again after the locks and repeat them until the list stays the same, so
+        # every sibling committed before the last lock is counted.
+        while True:
+            spellings_by_type = {
+                key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
+                for key, refs in sorted(refs_by_type.items())
+            }
 
-        objects_to_delete: builtins.list[tuple[str, str, int]] = []
-        reaches_backing_object: dict[CheckedRow, bool] = {}
+            objects_to_delete: builtins.list[tuple[str, str, int]] = []
+            reaches_backing_object: dict[CheckedRow, bool] = {}
 
-        # Sorted so concurrent requests whose cascades overlap on more than one object always
-        # acquire the per-object locks in the same order - locking in traversal order (DFS over
-        # an unordered queryset) could have two such requests lock the same two objects in
-        # opposite order and deadlock, same failure mode `.order_by("id")` below prevents within
-        # one object's sibling set.
-        for (team_id, file_type, ref, _row_key), group in sorted(
-            entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
-        ):
-            if not ref:
-                # No ref means no shared backing object, so there is no sibling set to count and
-                # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
-                # would instead row-lock every ref-less row of this type in the team for the rest
-                # of the transaction, serializing unrelated deletes behind this one.
-                remaining = 0
-            else:
-                # Lock every row referencing this object (not just the ones outside ids_to_remove)
-                # so a concurrent request deleting a sibling row locks the same row set in the
-                # same order and blocks on it, rather than each request locking a different subset
-                # and deadlocking against the other.
-                spellings = spellings_by_type[(team_id, file_type)][ref] | {row.ref for row in group if row.ref}
-                sibling_ids = {
-                    row.id
-                    for row in FileSystem.objects.select_for_update()
-                    .filter(any_surface_by_team[team_id], team_id=team_id, type=file_type, shortcut=False)
-                    .filter(ref__in=spellings)
-                    .order_by("id")
-                }
-                remaining = len(sibling_ids - ids_to_remove)
-            # When several rows in this batch reference the same object, only one of them may
-            # actually carry the deletion through - otherwise every row in the group would call
-            # delete_file_system_object independently, running its hooks and activity logging
-            # once per row instead of once for the object.
-            for current in group:
-                reaches_backing_object[_checked_row(current)] = False
-            reaches_backing_object[_checked_row(group[0])] = remaining == 0
+            # Sorted so concurrent requests whose cascades overlap on more than one object always
+            # acquire the per-object locks in the same order - locking in traversal order (DFS over
+            # an unordered queryset) could have two such requests lock the same two objects in
+            # opposite order and deadlock, same failure mode `.order_by("id")` below prevents within
+            # one object's sibling set.
+            for (team_id, file_type, ref, _row_key), group in sorted(
+                entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
+            ):
+                if not ref:
+                    # No ref means no shared backing object, so there is no sibling set to count and
+                    # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
+                    # would instead row-lock every ref-less row of this type in the team for the rest
+                    # of the transaction, serializing unrelated deletes behind this one.
+                    remaining = 0
+                else:
+                    # Lock every row referencing this object (not just the ones outside ids_to_remove)
+                    # so a concurrent request deleting a sibling row locks the same row set in the
+                    # same order and blocks on it, rather than each request locking a different subset
+                    # and deadlocking against the other.
+                    spellings = spellings_by_type[(team_id, file_type)][ref] | {row.ref for row in group if row.ref}
+                    sibling_ids = {
+                        row.id
+                        for row in FileSystem.objects.select_for_update()
+                        .filter(any_surface_by_team[team_id], team_id=team_id, type=file_type, shortcut=False)
+                        .filter(ref__in=spellings)
+                        .order_by("id")
+                    }
+                    remaining = len(sibling_ids - ids_to_remove)
+                # When several rows in this batch reference the same object, only one of them may
+                # actually carry the deletion through - otherwise every row in the group would call
+                # delete_file_system_object independently, running its hooks and activity logging
+                # once per row instead of once for the object.
+                for current in group:
+                    reaches_backing_object[_checked_row(current)] = False
+                reaches_backing_object[_checked_row(group[0])] = remaining == 0
 
-            if not is_file_system_type_registered(file_type):
-                continue
+                if not is_file_system_type_registered(file_type):
+                    continue
 
-            if remaining == 0 and not ref:
-                # A registered-type row with no ref is a data-integrity error we refuse to delete.
-                raise serializers.ValidationError({"detail": f"Cannot delete type '{file_type}' without a reference."})
+                if remaining == 0 and not ref:
+                    # A registered-type row with no ref is a data-integrity error we refuse to delete.
+                    raise serializers.ValidationError(
+                        {"detail": f"Cannot delete type '{file_type}' without a reference."}
+                    )
 
-            # Only the last row referencing an object carries the deletion through to the object
-            # itself; removing one of several rows leaves it untouched.
-            if remaining == 0 and ref:
-                objects_to_delete.append((file_type, ref, team_id))
+                # Only the last row referencing an object carries the deletion through to the object
+                # itself; removing one of several rows leaves it untouched.
+                if remaining == 0 and ref:
+                    objects_to_delete.append((file_type, ref, team_id))
+            resampled_surfaces = {team_id: _any_surface_q(team_id) for team_id in any_surface_by_team}
+            if resampled_surfaces == any_surface_by_team:
+                break
+            any_surface_by_team = resampled_surfaces
 
         self._ensure_token_can_write_workflow_objects([file_type for file_type, _ref, _team_id in objects_to_delete])
         self._ensure_can_delete_objects(objects_to_delete)

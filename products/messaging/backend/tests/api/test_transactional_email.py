@@ -1942,9 +1942,15 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    @parameterized.expand([("linked_workflows_present", False), ("linked_workflows_deleted", True)])
+    @parameterized.expand(
+        [
+            ("linked_workflows_present", False, False),
+            ("linked_workflows_deleted", True, False),
+            ("beside_a_malformed_template_ref", False, True),
+        ]
+    )
     def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(
-        self, mock_post, _flag, _name, linked_workflows_deleted
+        self, mock_post, _flag, _name, linked_workflows_deleted, malformed_sibling
     ):
         self._login_member("editor@example.com", {None: "editor"})
 
@@ -1964,6 +1970,10 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
                     path=f"{folder}/{template.name}", depth=2
                 )
             entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
+            if malformed_sibling:
+                FileSystem.objects.create(
+                    team=self.team, path=f"{folder}/Broken", depth=2, type="message_template", ref="not-a-template-id"
+                )
             if linked_workflows_deleted:
                 HogFlow.objects.filter(
                     pk__in=MessageTemplate.objects.filter(team=self.team, name__startswith=folder).values(

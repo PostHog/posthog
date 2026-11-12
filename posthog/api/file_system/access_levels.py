@@ -417,6 +417,9 @@ def filter_workflow_files_by_access_level(
     the creator and non-creator cases of every other object. The listing then pages in SQL and
     never reads the team's whole set of workflow files.
     """
+    # Staff and organization admins bypass object rules, so their grants need no resolution.
+    if user_access_control.user.is_staff or user_access_control.is_organization_admin:
+        return queryset
     resource = file_system_resource("hog_flow")
     registration = get_file_system_registration("hog_flow")
     team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))

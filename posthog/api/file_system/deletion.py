@@ -168,12 +168,20 @@ def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple
         registration = _MODEL_REGISTRY.get(type_string)
         if hook is None or registration is None:
             continue
-        try:
-            objects = _get_queryset(registration).filter(
-                **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": sorted(refs)}
-            )
-        except (ValueError, DjangoValidationError):
+        lookup_field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(
+            registration.lookup_field
+        )
+        lookup_values = []
+        for ref in sorted(refs):
+            try:
+                lookup_values.append(lookup_field.to_python(ref))
+            except (ValueError, TypeError, DjangoValidationError):
+                continue
+        if not lookup_values:
             continue
+        objects = _get_queryset(registration).filter(
+            **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": lookup_values}
+        )
         hook(request, team_id, objects)
 
 

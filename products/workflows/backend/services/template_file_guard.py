@@ -5,6 +5,7 @@ from weakref import WeakKeyDictionary
 from django.db import OperationalError, transaction
 from django.db.models import Model
 
+from psycopg.errors import LockNotAvailable
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.exceptions import Conflict
@@ -82,5 +83,7 @@ def lock_template_for_delete(template: Model) -> None:
     try:
         with transaction.atomic():
             template.refresh_from_db(from_queryset=type(template)._base_manager.select_for_update(nowait=True))
-    except OperationalError:
+    except OperationalError as error:
+        if not isinstance(error.__cause__, LockNotAvailable):
+            raise
         raise Conflict("This template is being saved. Try again in a moment.", code="template_busy")

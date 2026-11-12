@@ -473,31 +473,46 @@ class TestFileSystemAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("signed", "+{pk}", None),
-            ("leading_zeros", "00{pk}", None),
-            ("on_another_surface", "+{pk}", "desktop"),
+            ("signed", "+{pk}", None, False),
+            ("leading_zeros", "00{pk}", None, False),
+            ("on_another_surface", "+{pk}", "desktop", False),
+            ("on_a_new_surface_during_the_delete", "{pk}", "desktop", True),
         ]
     )
     def test_deleting_the_canonical_dashboard_file_keeps_the_dashboard_for_another_spelling(
-        self, _name: str, spelling: str, surface: str | None
+        self, _name: str, spelling: str, surface: str | None, arrives_during_the_delete: bool
     ) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Spelled twice", created_by=self.user)
         canonical = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard.pk))
-        alias = FileSystem.objects.create(
-            team=self.team,
-            path="Docs/Spelled twice copy",
-            depth=2,
-            type="dashboard",
-            ref=spelling.format(pk=dashboard.pk),
-            shortcut=False,
-            surface=surface,
-        )
+        aliases: list[FileSystem] = []
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
+        def file_the_alias() -> None:
+            aliases.append(
+                FileSystem.objects.create(
+                    team=self.team,
+                    path="Docs/Spelled twice copy",
+                    depth=2,
+                    type="dashboard",
+                    ref=spelling.format(pk=dashboard.pk),
+                    shortcut=False,
+                    surface=surface,
+                )
+            )
+
+        def file_after_the_surfaces_are_read(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+            result = execute(sql, params, many, context)
+            if not aliases and sql.startswith('SELECT "posthog_filesystem"."surface" AS "surface" FROM'):
+                file_the_alias()
+            return result
+
+        if not arrives_during_the_delete:
+            file_the_alias()
+        with connection.execute_wrapper(file_after_the_surfaces_are_read):
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertFalse(Dashboard.objects_including_soft_deleted.get(pk=dashboard.pk).deleted)
-        self.assertTrue(FileSystem.objects.filter(pk=alias.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=aliases[0].pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
