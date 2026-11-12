@@ -45,8 +45,7 @@ class _MonitoringReferences:
     incomplete: bool
 
 
-# All signals queries share one ClickHouse user with a concurrent-query limit. ClickHouse refuses a query
-# while that user is at the limit, so back off and retry instead of failing auto-start or repo selection.
+# All signals queries share one ClickHouse user, so its concurrent-query limit refuses queries in routine bursts.
 @retry(
     retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
     stop=stop_after_attempt(4),
