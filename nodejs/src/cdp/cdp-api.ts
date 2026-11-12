@@ -1186,9 +1186,23 @@ export class CdpApi {
                 this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                 throw error
             }
-            // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
-            // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
-            await this.invocationResultsService.invocationResultsRowsService.flush()
+            this.invocationResultsService.monitoringService.queueAppMetric(
+                {
+                    team_id: team.id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                },
+                'hog_flow'
+            )
+            // Only the lifecycle and monitoring sinks, which swallow their own produce failures. Flushing
+            // every sink would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
+            await Promise.all([
+                this.invocationResultsService.invocationResultsRowsService.flush(),
+                this.invocationResultsService.monitoringService.flush(),
+            ])
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {

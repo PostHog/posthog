@@ -180,6 +180,19 @@ describe('CDP API', () => {
         return item
     }
 
+    const observeKafka = (): (() => Record<string, any>[]) => {
+        const outputs = api['emailStatusService']['outputs']['outputs'] as unknown as Record<
+            string,
+            { producer: KafkaProducerWrapper }
+        >
+        const observers = [...new Set(Object.values(outputs).map((output) => output.producer))].map(
+            (producer) => new KafkaProducerObserver(producer)
+        )
+        observers.forEach((observer) => observer.resetKafkaProducer())
+        return () =>
+            observers.flatMap((observer) => observer.getProducedKafkaMessages().map((message) => message.value))
+    }
+
     beforeAll(async () => {
         // Reset before caching the team: without this, getFirstTeam picks up
         // whatever team the previous suite left with the lowest id, and every
@@ -1816,6 +1829,40 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('queued')
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['once when the run is queued', false, 200],
+            ['not at all when the run cannot be queued', true, 500],
+        ])('counts the run as triggered %s', async (_desc, queueFails, expectedStatus) => {
+            const producedToKafka = observeKafka()
+            if (queueFails) {
+                mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(expectedStatus)
+            if (queueFails) {
+                // A failed request flushes nothing, so flush here to expose a metric left in the buffer.
+                await api['invocationResultsService'].monitoringService.flush()
+            }
+            const versioned = versionedAppSourceId(scheduleHogFlow.id, scheduleHogFlow.version)
+            expect(
+                producedToKafka()
+                    .filter((row) => row.metric_name === 'triggered')
+                    .map((row) => [row.app_source, row.app_source_id, row.count])
+                    .sort()
+            ).toEqual(
+                queueFails
+                    ? []
+                    : [
+                          ['hog_flow', scheduleHogFlow.id, 1],
+                          [HOG_FLOW_VERSION_APP_SOURCE, versioned, 1],
+                      ].sort()
+            )
         })
 
         it('stamps the run start into the state before the invocation is queued', async () => {
@@ -4431,19 +4478,6 @@ describe('CDP API', () => {
             }
             const scheduledTime = async (id: string): Promise<string> =>
                 new Date((await storedJob(id)).scheduled).toISOString()
-
-            const observeKafka = (): (() => Record<string, any>[]) => {
-                const outputs = api['emailStatusService']['outputs']['outputs'] as unknown as Record<
-                    string,
-                    { producer: KafkaProducerWrapper }
-                >
-                const observers = [...new Set(Object.values(outputs).map((output) => output.producer))].map(
-                    (producer) => new KafkaProducerObserver(producer)
-                )
-                observers.forEach((observer) => observer.resetKafkaProducer())
-                return () =>
-                    observers.flatMap((observer) => observer.getProducedKafkaMessages().map((message) => message.value))
-            }
 
             beforeEach(async () => {
                 await useRealQueue()
