@@ -1,7 +1,9 @@
 import json
+import threading
 from datetime import UTC
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 import httpx
@@ -21,6 +23,7 @@ from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.common.worker import DEFAULT_MAX_CONCURRENT_TASKS
 
 from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
@@ -77,6 +80,11 @@ ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
     "error_tracking_issue_created_severity_inference_total",
     "Issue-created severity inference attempts by outcome and by the severity stored afterwards",
     labelnames=("outcome", "severity"),
+)
+# A tag run holds an activity slot for its whole model call, and this worker also delivers alerts.
+# Tags get an eighth of the slots, beside the quarter that summaries get.
+ISSUE_TAG_WORKER_SLOTS = threading.BoundedSemaphore(
+    max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 8)
 )
 ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES = Counter(
     "error_tracking_issue_created_tagger_total",
@@ -319,6 +327,18 @@ def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> Iss
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no tags.
+    if not ISSUE_TAG_WORKER_SLOTS.acquire(blocking=False):
+        logger.warning("error_tracking_issue_tags_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=IssueTaggerOutcome.WORKER_BUSY).inc()
+        return
+    try:
+        _tag_issue_created(inputs)
+    finally:
+        ISSUE_TAG_WORKER_SLOTS.release()
+
+
+def _tag_issue_created(inputs: IssueCreatedWorkflowInputs) -> None:
     # The runner imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_tags.runner import (  # noqa: PLC0415
         IssueTaggingSkipReason,

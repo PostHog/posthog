@@ -41,6 +41,7 @@ class IssueTaggerOutcome(StrEnum):
     GATEWAY_REJECTED = "gateway_rejected"
     FAILED = "failed"
     EVENT_MISSING = "event_missing"
+    WORKER_BUSY = "worker_busy"
 
 
 @dataclasses.dataclass(frozen=True)

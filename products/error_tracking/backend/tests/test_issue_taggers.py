@@ -1,4 +1,5 @@
 import uuid
+import threading
 from collections.abc import Sequence
 from typing import ClassVar, cast
 
@@ -247,8 +248,10 @@ class TestTagIssueCreatedActivity(BaseTest):
         self, _name: str, decide_error: Exception, raises: type[Exception] | None, outcome: str
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
+        slots = threading.BoundedSemaphore(1)
 
         with (
+            patch(f"{ACTIVITIES}.ISSUE_TAG_WORKER_SLOTS", slots),
             patch(f"{ACTIVITIES}.fetch_event_properties", return_value=EVENT_PROPERTIES),
             patch(DECIDE, side_effect=decide_error),
             patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
@@ -266,6 +269,24 @@ class TestTagIssueCreatedActivity(BaseTest):
         outcomes.labels.assert_called_once_with(tagger="jev", outcome=outcome)
         outcomes.labels.return_value.inc.assert_called_once_with()
         assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
+        assert slots.acquire(blocking=False)
+
+    def test_skips_without_reading_the_event_when_every_tag_slot_is_in_use(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        slots = threading.BoundedSemaphore(1)
+        slots.acquire()
+
+        with (
+            patch(f"{ACTIVITIES}.ISSUE_TAG_WORKER_SLOTS", slots),
+            patch(f"{ACTIVITIES}.fetch_event_properties") as fetch_event_properties,
+            patch(DECIDE) as decide,
+            patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
+        ):
+            tag_issue_created_activity(self._inputs(issue))
+
+        outcomes.labels.assert_called_once_with(tagger="none", outcome="worker_busy")
+        fetch_event_properties.assert_not_called()
+        decide.assert_not_called()
 
     def test_skips_without_a_retry_when_the_exception_event_is_missing(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
