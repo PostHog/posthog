@@ -49,13 +49,7 @@ from products.aeo.backend import (
     rankings,
     suggestions,
 )
-from products.aeo.backend.brand import (
-    brand_names,
-    brand_pattern,
-    branded_filter,
-    mention_filter,
-    segment_filter,
-)
+from products.aeo.backend.brand import brand_names, brand_pattern, branded_filter, mention_filter, segment_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
