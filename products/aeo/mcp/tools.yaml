@@ -429,8 +429,8 @@ tools:
         description: >
             Get the domains the project may be about, the most likely first, each with its `source` (`own_brand`,
             `app_urls`, `recording_domains` or `pageviews`), plus how many active prompts, keywords and checks the
-            project has, whether AI data processing is approved and whether the first run can be queued. Call it
-            before `aeo-setup-start`, and confirm the domain with the user when there is more than one candidate.
+            project has, whether AI data processing is approved and whether the first run can be queued. Call it before
+            `aeo-setup-start`, and confirm the domain with the user when there is more than one candidate.
         feature_flag: aeo-citation-tracking
     aeo-setup-get:
         operation: aeo_setup_retrieve
@@ -438,9 +438,9 @@ tools:
         disabled_reason: Enable together with aeo-setup-start, after the aeo_setup route is deployed.
         title: Get an AI visibility setup job
         description: >
-            Get a setup job started with `aeo-setup-start`, by its `id`. `status` is `pending` while PostHog works,
-            then `completed` or `failed` with an `error`. `steps` lists `brand`, `prompts`, `keywords` and `first_run`,
-            each with a `status` (`pending`, `running`, `done`, `skipped` or `failed`), how many items it `added` and a
+            Get a setup job started with `aeo-setup-start`, by its `id`. `status` is `pending` while PostHog works, then
+            `completed` or `failed` with an `error`. `steps` lists `brand`, `prompts`, `keywords` and `first_run`, each
+            with a `status` (`pending`, `running`, `done`, `skipped` or `failed`), how many items it `added` and a
             `detail`. A failed `keywords` step does not fail the job. Jobs expire an hour after their last update.
         param_overrides:
             id:
