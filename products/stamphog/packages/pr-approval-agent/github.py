@@ -495,6 +495,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                 comments.append(
                     {
                         "user": comment_author.get("login", "ghost"),
+                        "is_bot": comment_author.get("__typename") == "Bot",
                         "body": c.get("body", ""),
                         "path": thread.get("path", ""),
                         "line": thread.get("line"),

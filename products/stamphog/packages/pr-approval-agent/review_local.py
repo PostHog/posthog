@@ -242,6 +242,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
             review_comments.append(
                 {
                     "user": comment.get("author") or "ghost",
+                    "is_bot": bool(comment.get("author_is_bot")),
                     "body": comment.get("body", ""),
                     "path": thread.get("path", ""),
                     "line": thread.get("line"),

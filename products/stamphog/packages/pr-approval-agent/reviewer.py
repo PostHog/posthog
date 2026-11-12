@@ -21,7 +21,7 @@ from gates import manifest_basenames
 from gateway import CLAUDE_REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
 from github import PRData, describe_review_evidence, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
-from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, derive_verdict
+from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, bot_handle, derive_verdict
 from version import STAMPHOG_VERSION
 
 # Traced wrapper, bound only with a PostHog key and no gateway route (gateway
@@ -143,6 +143,19 @@ def has_current_head_review(pr: PRData) -> bool:
     )
 
 
+def reviewing_bots(pr: PRData) -> frozenset[str]:
+    """The logins that GitHub reports as a bot on every inline review comment they left, never the PR author's.
+
+    A rejected finding resolves only when one of these raised it, so a person's concern never does.
+    A login seen with any comment that GitHub does not mark as a bot's is left out.
+    """
+    flags: dict[str, set[bool]] = {}
+    for comment in pr.review_comments:
+        flags.setdefault(bot_handle(comment.get("user") or ""), set()).add(bool(comment.get("is_bot")))
+    author = bot_handle(pr.author)
+    return frozenset(login for login, seen in flags.items() if login and login != author and seen == {True})
+
+
 def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed: bool) -> ReviewFacts:
     """Keep an assurance fact only when the pipeline's own data backs it, read the way the prompt renders it.
 
@@ -175,20 +188,25 @@ def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed
     )
 
 
-def _verdict_from_facts(output: dict, classification: dict, *, head_reviewed: bool) -> dict:
+def _verdict_from_facts(
+    output: dict, classification: dict, *, head_reviewed: bool, bots: frozenset[str] = frozenset()
+) -> dict:
     """Turn the reviewer's structured facts into the verdict dict the pipeline consumes.
 
     The keys verdict, reasoning, risk, issues and change_summary keep the shape every
     consumer reads; `facts` keeps the model's raw answers for the evidence bundle.
     Facts that do not parse escalate, because a run we cannot read is never an approval.
+    `bots` is reviewing_bots(pr): a rejected finding from any other login stays open.
     """
     result = {
         "reasoning": str(output.get("reasoning", "")),
         "change_summary": str(output.get("change_summary", "")),
         "facts": {name: output.get(name) for name in FACT_FIELDS},
+        "upheld_rejections": [],
     }
     try:
-        ruled = derive_verdict(_cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed))
+        facts = _cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed)
+        ruled = derive_verdict(facts, bots)
     except InvalidFactsError as exc:
         return {
             **result,
@@ -196,7 +214,13 @@ def _verdict_from_facts(output: dict, classification: dict, *, head_reviewed: bo
             "risk": "high",
             "issues": [f"Invalid reviewer facts ({exc}), escalating"],
         }
-    return {**result, "verdict": ruled.verdict, "risk": ruled.risk, "issues": list(ruled.issues)}
+    return {
+        **result,
+        "verdict": ruled.verdict,
+        "risk": ruled.risk,
+        "issues": list(ruled.issues),
+        "upheld_rejections": list(ruled.upheld_rejections),
+    }
 
     # Path validator hook removed — the PreToolUse hook crashes the CLI
     # subprocess (Stream closed) on every invocation, wasting retries.
@@ -290,10 +314,32 @@ _AUDIT_HEAD = textwrap.dedent(
       is an inline comment). Check every such comment against the current
       code, including comments on older commits: a concern is resolved only
       when the current code fixes it, or when someone other than the author
-      accepted it in the thread. A finding of your own goes here only when it is a
+      accepted it in the thread. A reviewer bot's finding that the author
+      rejected in its thread goes under rejected_bot_concerns instead, not
+      here. A finding of your own goes here only when it is a
       showstopper the policy names: the change could break production (crash,
       data loss, silent corruption) or it is a security issue (injection, auth
       bypass, data exposure). Name the file and the evidence.
+    - rejected_bot_concerns: every open finding from a reviewer bot (an inline
+      comment marked "(bot)") whose thread holds a reply from the PR author
+      that rejects it instead of changing the code. You are the independent
+      judge of that rejection, so read the code at the current head yourself.
+      For each one report the bot's login, the finding in one sentence with
+      its file, its category, whether the rejection holds, and the evidence.
+      - The rejection holds only when the code shows it is right: the finding's
+        premise is false, its path cannot happen, or an existing guard already
+        handles it. Name the file and the line or symbol that shows it.
+      - "Out of scope", "a follow-up will fix it", "unlikely", "tests pass",
+        or a bare disagreement never holds. Neither does a reply that only
+        restates the change.
+      - category: security for injection, data exposure or secrets; auth for
+        authentication, authorization or permissions; data_loss for lost,
+        corrupted or wrongly deleted data; migration for schema or data
+        migrations; other for everything else. When a finding fits more than
+        one, or you are unsure, pick the first that applies in that order.
+        Only an "other" finding can be resolved by a rejection.
+      - A finding the author answered by changing the code is not a
+        rejection. Check it as an unresolved concern instead.
     - other_refusal_grounds: anything else the policy or the trusted context
       names as a reason to refuse, each with the rule it matches: a maintainer
       hold, an in-flight review, a guard suppression from the steering section,
@@ -405,7 +451,7 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     - "The cohort query builder no longer 500s on an empty cohort; it returns an empty result."
     - Two teams own files in one merge: "Uploads pause when a workspace spends its daily quota instead of failing. @PostHog/team-storage: the upload path asks a shared limiter before it writes, and answers with a retry-after. @PostHog/team-billing: the quota counters move into that limiter, so the invoice job reads them from one place."
 
-    Your output is constrained to a JSON schema with the six fact fields,
+    Your output is constrained to a JSON schema with the seven fact fields,
     reasoning, and change_summary. Fill them according to the rules above.
     """
 )
@@ -586,7 +632,10 @@ class Reviewer:
                         raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
                     if message.structured_output:
                         result = _verdict_from_facts(
-                            message.structured_output, classification, head_reviewed=has_current_head_review(pr)
+                            message.structured_output,
+                            classification,
+                            head_reviewed=has_current_head_review(pr),
+                            bots=reviewing_bots(pr),
                         )
                         props["stamphog_llm_verdict"] = result["verdict"]
                 elif isinstance(message, AssistantMessage):
@@ -683,7 +732,8 @@ class Reviewer:
                     status = " [outdated]"
                 safe_path = _sanitize_untrusted(c["path"], max_len=200)
                 reactions = self._format_reactions(c.get("reactions"))
-                lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}{reactions}")
+                bot = " (bot)" if c.get("is_bot") else ""
+                lines.append(f"  - @{safe_user}{bot}{reply}{status} on {safe_path}: {safe_body}{reactions}")
             review_comments = "\n".join(lines)
 
         discussion_text = ""

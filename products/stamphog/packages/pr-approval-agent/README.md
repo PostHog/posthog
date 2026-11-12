@@ -26,10 +26,14 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
 The nested LLM reviewer does not choose a verdict.
-It reports facts in a fixed schema: the risky territory the diff enters, the reviews on the current head, whether the author is on the owning team or has STRONG familiarity, the unresolved substantive concerns, and any other refusal ground the policy names.
+It reports facts in a fixed schema: the risky territory the diff enters, the reviews on the current head, whether the author is on the owning team or has STRONG familiarity, the unresolved substantive concerns, the reviewer-bot findings the author rejected with the reviewer's judgment of each rejection, and any other refusal ground the policy names.
 `verdict_rule.py` derives `APPROVE`, `REFUSE` or `ESCALATE` from those facts, and the pipeline maps that onto the names above:
 
 - any refusal ground or unresolved concern: `REFUSE`
+  - A reviewer-bot finding that the author rejected in its thread counts as resolved when the reviewer, reading the current head, finds the rejection sound.
+    This holds only for a login that GitHub marks as a bot on every inline comment it left, and never for a security, auth, data-loss or migration finding.
+    Each such finding is named in the posted review.
+    Every other rejected finding stays an unresolved concern, as does a person's comment.
 - risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`
 - everything else: `APPROVE`
 
