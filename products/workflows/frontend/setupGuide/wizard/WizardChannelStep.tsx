@@ -4,10 +4,10 @@ import { IconLetter } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
+import { EmailIntegrationsList } from '../../Channels/EmailIntegrationsList'
 
 export function WizardChannelStep(): JSX.Element {
     const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)

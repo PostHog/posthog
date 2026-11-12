@@ -244,12 +244,14 @@ async fn born_partition_write_parks(retired_first: bool) {
             .insert(owned, "leader-0".to_string());
     }
     let changelog = LiveChangelog::new(ChangelogConfig {
+        cluster: None,
         topic: "personhog_updates_v2".to_string(),
         partitions: NUM_PARTITIONS,
         epoch: 2,
         writer_group: String::new(),
         retire_groups: vec![],
         draining: vec![Generation {
+            cluster: None,
             topic: "personhog_updates_v1".to_string(),
             partitions: old_count,
             epoch: 1,

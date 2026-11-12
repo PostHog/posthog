@@ -238,6 +238,28 @@ class TestSESProvider(TestCase):
             ],
         }
 
+    @patch("products.workflows.backend.providers.ses.is_cloud", return_value=True)
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verify_email_domain_looks_up_no_records_for_an_out_of_band_domain(self, mock_resolver_cls, _mock_is_cloud):
+        listed = "abc.oast.live"
+        provider = SESProvider()
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
+        ):
+            mock_verif_attrs.return_value = {"VerificationAttributes": {listed: {"VerificationStatus": "Success"}}}
+            mock_dkim_attrs.return_value = {"DkimAttributes": {listed: {"DkimVerificationStatus": "Pending"}}}
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {listed: {"MailFromDomainStatus": "Success"}}
+            }
+
+            result = provider.verify_email_domain(listed, mail_from_subdomain="mail", team_id=1)
+
+        mock_resolver_cls.assert_not_called()
+        assert result["status"] == "pending"
+
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_success(self, mock_resolver_cls):
         mock_rdata = MagicMock()
@@ -334,6 +356,21 @@ class TestSESProvider(TestCase):
             assert dmarc_records[0]["status"] == expected_dmarc_status
             assert dmarc_records[0]["recordValue"] == expected_record_value
             assert result["status"] == "pending"  # SES statuses are Pending, so overall stays pending
+
+    @parameterized.expand(
+        [
+            ("set", {TEST_DOMAIN: {"MailFromDomain": f"bounces.{TEST_DOMAIN}"}}, "bounces"),
+            ("nested", {TEST_DOMAIN: {"MailFromDomain": f"mail.out.{TEST_DOMAIN}"}}, "mail.out"),
+            ("identity_without_mail_from", {TEST_DOMAIN: {}}, None),
+            ("unknown_identity", {}, None),
+            ("outside_domain", {TEST_DOMAIN: {"MailFromDomain": "bounces.other.example.com"}}, None),
+        ]
+    )
+    def test_get_mail_from_subdomain(self, _name, attributes, expected):
+        provider = SESProvider()
+        with patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs:
+            mock_mail_from_attrs.return_value = {"MailFromDomainAttributes": attributes}
+            assert provider.get_mail_from_subdomain(TEST_DOMAIN) == expected
 
     @parameterized.expand(
         [

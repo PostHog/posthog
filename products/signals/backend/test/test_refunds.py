@@ -15,7 +15,7 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund, SignalTeamConfig
 from products.signals.backend.quota import SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG
 from products.signals.backend.tasks import (
     _OUT_OF_PERIOD_SYNC_ERROR,
@@ -24,6 +24,7 @@ from products.signals.backend.tasks import (
     sync_signals_refund_credit,
 )
 from products.signals.backend.test.test_billing import _make_pr_run, _make_report
+from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT
 
 _PERIOD = ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"]
 _NOW = "2026-06-15T12:00:00Z"
@@ -53,7 +54,7 @@ def _make_refund(
     )
 
 
-@patch("posthoganalytics.feature_enabled", return_value=True)
+@patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key != "self-driving-ubp")
 class TestSignalReportRefundAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -532,6 +533,48 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("usage_based", True, status.HTTP_403_FORBIDDEN),
+            ("legacy", False, status.HTTP_200_OK),
+            ("unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    @patch("posthoganalytics.feature_enabled")
+    def test_refund_requires_legacy_pricing(self, _name, usage_based_pricing, expected_status, flag_mock):
+        flag_mock.side_effect = lambda key, *args, **kwargs: usage_based_pricing if key == "self-driving-ubp" else True
+        self.organization.usage = {"period": _PERIOD}
+        self.organization.save()
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"onboarding": {"completed_at": (PRICING_LAUNCHED_AT - timedelta(days=1)).isoformat()}},
+        )
+        report = _make_report(self.team)
+        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 15, 8, tzinfo=UTC))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/refund/", {"reason": "other"}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert SignalReportRefund.objects.filter(report=report).exists() is (usage_based_pricing is False)
+        if usage_based_pricing is True:
+            assert response.json()["detail"] == "PR refunds are not available with usage-based pricing."
+        if usage_based_pricing is None:
+            assert response.json()["detail"] == "Unable to determine pricing. Please try again."
+        if usage_based_pricing is not False:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.READY
+        org_id = str(self.organization.id)
+        flag_mock.assert_any_call(
+            "self-driving-ubp",
+            self.user.distinct_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            send_feature_flag_events=False,
+        )
+
     @patch("posthoganalytics.feature_enabled")
     def test_refund_summary_available_with_only_enforcement_flag(self, flag_mock):
         # The two flags roll out independently; an enforcement-only org still needs quota_limited

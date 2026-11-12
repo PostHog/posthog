@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
 
+import { NAV_PANEL_PLACEMENT } from './navPanelAdShared'
 import { navPanelProductPushAdLogic } from './navPanelProductPushAdLogic'
 import { navPanelProductPushWelcomeLogic } from './navPanelProductPushWelcomeLogic'
 
@@ -42,7 +43,10 @@ describe('navPanelProductPushAdLogic', () => {
         ['a click that leaves the app queues nothing', ProductKey.POSTHOG_DESKTOP, 'PostHog Desktop', false],
         ['a click on a surface with no product scene queues nothing', ProductKey.SELF_DRIVING, null, false],
     ])('%s', (_description, productKey, productPath, queued) => {
-        logic = navPanelProductPushAdLogic({ campaign: campaignFor(productKey, productPath) })
+        logic = navPanelProductPushAdLogic({
+            campaign: campaignFor(productKey, productPath),
+            placement: NAV_PANEL_PLACEMENT.SIDEBAR,
+        })
         logic.mount()
 
         logic.actions.reportAdClicked()

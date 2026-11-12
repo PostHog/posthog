@@ -63,6 +63,21 @@ export const StackedArea: Story = {
     },
 }
 
+/** A non-finite value is a gap in its own series, and the series above it keep their place. */
+export const StackedAreaWithGap: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series = STACK.map((s, seriesIndex) =>
+            seriesIndex === 1 ? { ...s, data: s.data.map((value, i) => (i === 3 ? NaN : value)) } : s
+        )
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 /** `stroke.width` sets each line's width; `0` drops the stroke so only the fill or points draw. */
 export const StrokeWidth: Story = {
     render: () => {
@@ -327,6 +342,19 @@ export const LogScale: Story = {
     render: () => {
         const theme = useReactiveTheme()
         const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 1000, 100, 10, 1] }]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** A log axis cannot place zero or a negative value, so the line breaks there. */
+export const LogScaleWithZero: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 0, 100, 10, 1] }]
         return (
             <Stage>
                 <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />

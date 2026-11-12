@@ -71,20 +71,7 @@ pub(crate) fn fields<const N: usize>(
     object: Span,
     keys: [&[u8]; N],
 ) -> [Option<Span>; N] {
-    let mut found = [None; N];
-    if !scan::is_object(bytes, object) {
-        return found;
-    }
-    let Ok(entries) = scan::object_entries(bytes, object) else {
-        return found;
-    };
-    for entry in entries.filter_map(Result::ok).filter(|e| !e.key_escaped) {
-        let key = &bytes[entry.key.0..entry.key.1];
-        if let Some(index) = keys.iter().position(|&k| k == key) {
-            found[index] = Some(entry.value);
-        }
-    }
-    found
+    scan::object_fields(bytes, object, keys)
 }
 
 pub(crate) fn number(bytes: &[u8], span: Option<Span>) -> Option<f64> {

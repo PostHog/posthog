@@ -12,7 +12,7 @@ from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
-from django_filters import BooleanFilter, FilterSet
+from django_filters import BooleanFilter, CharFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
@@ -29,6 +29,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListQuery,
     WorkflowNotFound,
     WorkflowRef,
+    WorkflowSummary,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
@@ -206,6 +207,7 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
     "origin_product",
     "source_record",
     "optimization_enabled",
+    "name",
 )
 
 
@@ -226,6 +228,23 @@ def list_workflows(
         user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
     template_cache: TemplateCache = {}
     return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
+
+
+def list_workflow_summaries(
+    *,
+    team_id: int,
+    query: WorkflowListQuery,
+    user_access_control: "UserAccessControl | None",
+    limit: int,
+    name_contains: str = "",
+) -> list[WorkflowSummary]:
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False)
+    if name_contains:
+        queryset = queryset.filter(name__icontains=name_contains)
+    return [
+        WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+        for row in queryset.values("id", "name", "status")[:limit]
+    ]
 
 
 def _list_queryset(
@@ -488,6 +507,11 @@ class _WorkflowFilterSet(FilterSet):
     optimization_enabled = BooleanFilter(
         method="filter_optimization_enabled",
         label="Only workflows someone turned suggestions on for.",
+    )
+    name = CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+        label="Only workflows whose name contains this text, ignoring case.",
     )
 
     class Meta:

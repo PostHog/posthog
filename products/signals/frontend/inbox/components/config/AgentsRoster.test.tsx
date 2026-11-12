@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SourcesTab } from '../tabs/SourcesTab'
 import { AgentsRoster } from './AgentsRoster'
@@ -58,6 +59,12 @@ describe('AgentsRoster', () => {
                 '/api/environments/:team_id/external_data_sources/': () => [200, EMPTY_LIST],
                 '/api/environments/:team_id/integrations/': () => [200, EMPTY_LIST],
                 '/api/projects/:team_id/external_data_sources/wizard/': () => [200, { GitLab: GITLAB_WIZARD_CONFIG }],
+            },
+            post: {
+                '/api/projects/:team_id/signals/source_configs/alert_pattern_preview/': () => [
+                    200,
+                    { alert_allow_patterns_error: null, alert_block_patterns_error: null, alerts: [], has_more: false },
+                ],
             },
         })
         // The roster only loads its sources behind this flag, so without it every list stays empty.
@@ -121,7 +128,7 @@ describe('AgentsRoster', () => {
         const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
         expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
         if (enabled && armed) {
-            expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
+            expect(await within(errorTracking).findByText('150 credits')).toBeInTheDocument()
             const support = document.querySelector('[data-source="conversations"]') as HTMLElement
             expect(within(support).queryByText('Not tracked')).not.toBeInTheDocument()
             expect(usageRequests).toHaveBeenCalledTimes(1)
@@ -195,6 +202,103 @@ describe('AgentsRoster', () => {
 
     // The cap keeps a long user-created list from burying the sources below it, but a filter that
     // could not reach past it would make a scanner unfindable by name.
+    it.each([
+        {
+            allFiringFlag: false,
+            stored: 'all_firing_alerts',
+            checked: 'Investigated alerts only',
+            allFiringShown: false,
+        },
+        { allFiringFlag: true, stored: 'all_firing_alerts', checked: 'All firing alerts', allFiringShown: true },
+        { allFiringFlag: false, stored: 'off', checked: 'Off', allFiringShown: false },
+    ])(
+        'shows alert scope $checked for stored $stored when the all alerts flag is $allFiringFlag',
+        async ({ allFiringFlag, stored, checked, allFiringShown }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+                [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+                [FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]: allFiringFlag,
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/source_configs/': {
+                        results: [
+                            {
+                                id: 'analytics',
+                                source_product: 'analytics',
+                                source_type: 'anomaly_investigation',
+                                enabled: true,
+                                config: { alert_scope: stored },
+                            },
+                        ],
+                    },
+                },
+            })
+            render(<AgentsRoster />)
+
+            const [expandButton] = await screen.findAllByLabelText('Expand Product analytics')
+            await userEvent.click(expandButton)
+
+            expect(await screen.findByLabelText(/^Off/)).toBeInTheDocument()
+            expect(screen.getByLabelText(new RegExp(`^${checked}`))).toBeChecked()
+            expect(screen.queryAllByLabelText(/^All firing alerts/)).toHaveLength(allFiringShown ? 1 : 0)
+        }
+    )
+
+    // `anomaly_scoring_available` ignores the source state, so the roster has to gate the switch on it.
+    it.each([
+        { armed: true, available: true, shown: true },
+        { armed: false, available: true, shown: false },
+        { armed: true, available: false, shown: false },
+    ])(
+        'shows the anomaly scoring switch=$shown when the source is armed=$armed and scoring is available=$available',
+        async ({ armed, available, shown }) => {
+            const patches: Record<string, unknown>[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/source_configs/': {
+                        results: [
+                            {
+                                id: 'analytics',
+                                source_product: 'analytics',
+                                source_type: 'anomaly_investigation',
+                                enabled: armed,
+                                config: {},
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/signals/config/': () => [
+                        200,
+                        { anomaly_scoring_enabled: true, anomaly_scoring_available: available },
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/signals/config/': async ({ request }) => {
+                        const patch = (await request.json()) as Record<string, unknown>
+                        patches.push(patch)
+                        return [200, { anomaly_scoring_available: available, ...patch }]
+                    },
+                },
+            })
+            render(<AgentsRoster />)
+            await waitFor(() => expect(signalTeamConfigLogic.values.teamConfig).not.toBeNull())
+
+            const [expandButton] = await screen.findAllByLabelText('Expand Product analytics')
+            await userEvent.click(expandButton)
+            expect(await screen.findByText('Alerts that become signals')).toBeInTheDocument()
+
+            const scoringSwitch = (): HTMLElement | null =>
+                screen.queryByLabelText('Score active trends insights for anomalies')
+            if (!shown) {
+                expect(scoringSwitch()).not.toBeInTheDocument()
+                return
+            }
+            await waitFor(() => expect(scoringSwitch()).toBeChecked())
+            await userEvent.click(scoringSwitch()!)
+            await waitFor(() => expect(patches).toEqual([{ anomaly_scoring_enabled: false }]))
+            await waitFor(() => expect(scoringSwitch()).not.toBeChecked())
+        }
+    )
+
     it('caps the scanner list, and lets both the filter and Show more reach past the cap', async () => {
         render(<AgentsRoster />)
         await userEvent.click(await screen.findByText('Replay vision'))

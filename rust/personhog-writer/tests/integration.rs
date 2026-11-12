@@ -1221,12 +1221,14 @@ async fn the_draining_flag_follows_the_subscribed_topic_not_the_move() {
     let member = plain_member_config(&mock_cluster.bootstrap_servers(), "test-follow");
     let consumer = PersonConsumer::new(&member, TOPIC.to_string()).unwrap();
     let flipped = ChangelogConfig {
+        cluster: None,
         topic: NEXT_TOPIC.to_string(),
         partitions: 1,
         epoch: 2,
         writer_group: "test-follow".to_string(),
         retire_groups: vec![],
         draining: vec![Generation {
+            cluster: None,
             topic: TOPIC.to_string(),
             partitions: 1,
             epoch: 1,

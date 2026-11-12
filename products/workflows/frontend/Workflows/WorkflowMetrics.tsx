@@ -57,7 +57,15 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
     },
 }
 
-function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
+export interface WorkflowMetricsProps extends WorkflowLogicProps {
+    /**
+     * Set on a page outside the workflow editor. An email metric then drills into the sends here instead of the
+     * workflow's Invocations tab, and the step picker is hidden because it opens the workflow.
+     */
+    onShowInvocations?: (searchParams: Record<string, string>) => void
+}
+
+function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
     const logicKey = `hog-flow-metrics-${props.id}`
     const { searchParams } = useValues(router)
     const { workflow, originalWorkflow, hogFunctionTemplatesById } = useValues(workflowLogic)
@@ -149,7 +157,12 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             dateFrom.toISOString(),
             dateTo.toISOString()
         )
-        if (invocationSearchParams) {
+        if (!invocationSearchParams) {
+            return
+        }
+        if (props.onShowInvocations) {
+            props.onShowInvocations(invocationSearchParams)
+        } else {
             router.actions.push(urls.workflow(props.id, 'invocations'), invocationSearchParams)
         }
     }
@@ -171,14 +184,20 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-end items-center">
                 <div className="flex flex-row gap-2 items-center flex-wrap">
-                    <span className="text-muted text-xs whitespace-nowrap">Metrics for</span>
-                    <LemonSelect
-                        size="small"
-                        options={workflowStepOptions}
-                        value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
-                        onChange={(value) => selectMetricsAction(value === OVERVIEW_OPTION_VALUE ? undefined : value)}
-                    />
-                    {selectedAction?.type === 'function_email' && props.id ? (
+                    {!props.onShowInvocations && (
+                        <>
+                            <span className="text-muted text-xs whitespace-nowrap">Metrics for</span>
+                            <LemonSelect
+                                size="small"
+                                options={workflowStepOptions}
+                                value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
+                                onChange={(value) =>
+                                    selectMetricsAction(value === OVERVIEW_OPTION_VALUE ? undefined : value)
+                                }
+                            />
+                        </>
+                    )}
+                    {selectedAction?.type === 'function_email' && props.id && !props.onShowInvocations ? (
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -197,7 +216,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     logicKey={logicKey}
                     id={props.id ?? ''}
                     defaultRange={{ dateFrom: params.dateFrom, dateTo: params.dateTo, interval: params.interval }}
-                    onSelectAction={(actionId) => selectMetricsAction(actionId)}
+                    onSelectAction={props.onShowInvocations ? undefined : (actionId) => selectMetricsAction(actionId)}
                     onMetricClick={onEmailMetricClick}
                 />
             ) : selectedAction?.type === 'function_email' ? (
@@ -431,7 +450,7 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     )
 }
 
-export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
+export function WorkflowMetrics(props: WorkflowMetricsProps): JSX.Element {
     const { workflow, workflowLoading } = useValues(workflowLogic(props))
 
     if (workflowLoading) {

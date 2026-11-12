@@ -1,4 +1,5 @@
 import os
+import re
 import csv
 import json
 import datetime
@@ -10,8 +11,9 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, NoReturn, Optional, Protocol
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
+from django.conf import settings
 from django.http import QueryDict
 
 import requests
@@ -570,10 +572,21 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         datetime.timedelta(minutes=15),
         token_audience,
     )
+    team_id = exported_asset.team_id
+    project_id = exported_asset.team.project_id
     total = 0
     while total < CSV_EXPORT_LIMIT:
         try:
-            response = make_api_call(access_token, body, limit, method, next_url, path)
+            response = make_api_call(
+                access_token,
+                body,
+                limit,
+                method,
+                next_url,
+                path,
+                team_id=team_id,
+                project_id=project_id,
+            )
         except HTTPError as e:
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
@@ -829,6 +842,37 @@ def get_limit_param_key(path: str) -> str:
     return "breakdown_limit" if breakdown is not None else "limit"
 
 
+# Route prefixes the product sends for path-based exports, and the pagination links they return.
+# A prefix match: any GET under the export's own team is allowed, not a fixed set of endpoints.
+_TEAM_SCOPED_EXPORT_PATH = re.compile(r"^/api/(?P<kind>projects|environments)/(?P<id>[0-9]+)/")
+# The legacy cohort route carries no team id; the endpoint resolves the team itself.
+_UNSCOPED_EXPORT_PATHS = (re.compile(r"^/api/cohort/[0-9]+/persons/?$"),)
+
+
+def is_allowed_export_url(request_url: str, team_id: int, project_id: int) -> bool:
+    parsed = urlparse(request_url)
+    site_url = urlparse(settings.SITE_URL)
+    # Compared the way absolute_uri compares them, so host casing in a pagination link doesn't matter.
+    if (parsed.scheme, parsed.hostname, parsed.port) != (site_url.scheme, site_url.hostname, site_url.port):
+        return False
+
+    path = parsed.path
+    if any(segment in (".", "..") for segment in unquote(path).split("/")):
+        return False
+
+    site_path = site_url.path.rstrip("/")
+    if site_path:
+        if not path.startswith(f"{site_path}/"):
+            return False
+        path = path.removeprefix(site_path)
+
+    team_scoped = _TEAM_SCOPED_EXPORT_PATH.match(path)
+    if team_scoped:
+        allowed_ids = (team_id,) if team_scoped["kind"] == "environments" else (team_id, project_id)
+        return int(team_scoped["id"]) in allowed_ids
+    return any(pattern.match(path) for pattern in _UNSCOPED_EXPORT_PATHS)
+
+
 def make_api_call(
     access_token: str,
     body: Any,
@@ -836,8 +880,18 @@ def make_api_call(
     method: str,
     next_url: Optional[str],
     path: str,
+    team_id: int,
+    project_id: int,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
+    if not is_allowed_export_url(request_url, team_id, project_id):
+        logger.warning(
+            "csv_exporter.path_not_allowlisted",
+            team_id=team_id,
+            request_path=urlparse(request_url).path,
+            is_next_url=next_url is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     url = add_query_params(
         request_url,
         {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
@@ -848,7 +902,17 @@ def make_api_call(
         json=body,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=60,
+        # The allowlist checked only this URL, and a redirect would take the request elsewhere.
+        allow_redirects=False,
     )
+    if 300 <= response.status_code < 400:
+        logger.warning(
+            "csv_exporter.redirect_refused",
+            team_id=team_id,
+            request_path=urlparse(request_url).path,
+            status_code=response.status_code,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     response.raise_for_status()
     return response
 

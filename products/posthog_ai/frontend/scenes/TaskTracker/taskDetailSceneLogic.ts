@@ -92,7 +92,7 @@ export interface taskDetailSceneLogicActions {
     continueWithRun: (handoff: RunContinuationHandoff) => {
         handoff: RunContinuationHandoff
     }
-    loadSelectedTaskRun: () => any
+    loadSelectedTaskRun: (_?: any) => any
     loadSelectedTaskRunFailure: (
         error: string,
         errorObject?: any
@@ -107,7 +107,7 @@ export interface taskDetailSceneLogicActions {
         selectedRunData: TaskRun | null
         payload?: any
     }
-    loadTaskRuns: () => any
+    loadTaskRuns: (_?: any) => any
     loadTaskRunsFailure: (
         error: string,
         errorObject?: any
@@ -243,11 +243,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         runs: [
             [] as TaskRun[],
             {
-                loadTaskRuns: async () => {
+                loadTaskRuns: async (_ = undefined, breakpoint) => {
                     try {
                         const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
+                        breakpoint()
                         return response.results
                     } catch (errorObject) {
+                        breakpoint()
                         actions.loadTaskRunsFailure(loadErrorMessage('', errorObject), errorObject)
                         return values.runs
                     }
@@ -257,14 +259,16 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         selectedRunData: [
             null as TaskRun | null,
             {
-                loadSelectedTaskRun: async () => {
+                loadSelectedTaskRun: async (_ = undefined, breakpoint) => {
                     if (!values.selectedRunId) {
                         return null
                     }
                     try {
                         const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
+                        breakpoint()
                         return run ?? null
                     } catch (errorObject) {
+                        breakpoint()
                         actions.loadSelectedTaskRunFailure(loadErrorMessage('', errorObject), errorObject)
                         return values.selectedRunData
                     }

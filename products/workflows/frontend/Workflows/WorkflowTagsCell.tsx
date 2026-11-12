@@ -3,33 +3,23 @@ import { useState } from 'react'
 import { IconPencil, IconPlus } from '@posthog/icons'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 interface WorkflowTagsCellProps {
     tags: string[]
-    tagsAvailable: string[]
     canEdit: boolean
     onChange: (tags: string[]) => void
     onTagClick: (tag: string) => void
 }
 
-export function WorkflowTagsCell({
-    tags,
-    tagsAvailable,
-    canEdit,
-    onChange,
-    onTagClick,
-}: WorkflowTagsCellProps): JSX.Element | null {
+export function WorkflowTagsCell({ tags, canEdit, onChange, onTagClick }: WorkflowTagsCellProps): JSX.Element | null {
     const [editing, setEditing] = useState(false)
 
     if (editing) {
         return (
-            <LemonInputSelect
-                mode="multiple"
-                allowCustomValues
+            <TagsInputSelect
                 value={tags}
-                options={tagsAvailable.map((tag) => ({ key: tag, label: tag }))}
                 onChange={onChange}
                 onBlur={() => setEditing(false)}
                 autoFocus

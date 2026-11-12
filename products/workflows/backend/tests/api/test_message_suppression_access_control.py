@@ -104,3 +104,10 @@ class TestMessageSuppressionAccessControl(APIBaseTest):
             ).status_code
             == remove_status
         )
+        bulk_remove_status = status.HTTP_200_OK if remove_status == status.HTTP_204_NO_CONTENT else remove_status
+        assert (
+            self.client.post(
+                self._url("bulk_remove_suppressions"), {"identifiers": [f"{grant_type}@example.com"]}, format="json"
+            ).status_code
+            == bulk_remove_status
+        )

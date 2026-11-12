@@ -19,6 +19,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "The date and time the product was last updated.",
         },
     },
+    "bundles": {
+        "description": "A SendOwl bundle: a set of products sold together at one price. The API calls bundles packages.",
+        "docs_url": "https://dashboard.sendowl.com/developers/api/bundles",
+        "columns": {
+            "id": "The unique ID of the bundle.",
+            "name": "The display name of the bundle.",
+            "price": "The price the bundle is sold at.",
+            "currency_code": "The ISO 4217 currency code the bundle is sold in.",
+            "components": "The components of the bundle, with the IDs of the products it contains.",
+            "price_is_minimum": "Whether the bundle uses pay-what-you-want pricing, with the price as the minimum.",
+            "instant_buy_url": "The instant buy URL for the bundle.",
+            "add_to_cart_url": "The add-to-cart URL for the bundle.",
+            "sales_page_url": "The sales page URL for the bundle.",
+            "created_at": "The date and time the bundle was created (UTC).",
+            "updated_at": "The date and time the bundle was last updated (UTC).",
+        },
+    },
     "orders": {
         "description": "A SendOwl order — a completed purchase, including buyer, line items, and payment details.",
         "docs_url": "https://dashboard.sendowl.com/developers/api/orders",
@@ -63,6 +80,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "expiry_date": "The date the discount code expires.",
             "created_at": "The date and time the discount code was created.",
             "updated_at": "The date and time the discount code was last updated.",
+        },
+    },
+    "licenses": {
+        "description": "A SendOwl license: a unique key for a software product, issued to a buyer when an order completes.",
+        "docs_url": "https://dashboard.sendowl.com/developers/api/licenses",
+        "columns": {
+            "id": "The unique ID of the license.",
+            "key": "The license key.",
+            "product_id": "The ID of the product the license belongs to.",
+            "order_id": "The ID of the order the license was issued to, if any.",
+            "order_refunded": "Whether the order the license was issued to has been refunded.",
         },
     },
 }

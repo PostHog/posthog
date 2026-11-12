@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { QuillLaunchSurveyButton } from 'scenes/surveys/components/QuillLaunchSurveyButton'
 import { openResumeSurveyDialog, openStopSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyStatus } from 'scenes/surveys/surveysLogic'
@@ -15,11 +14,8 @@ export function QuillSurveyStatusAction(): JSX.Element | null {
     const { stopSurvey, resumeSurvey } = useActions(surveyLogic)
     const status = getSurveyStatus(survey)
 
-    if (status === ProgressStatus.Draft) {
-        return <QuillLaunchSurveyButton />
-    }
-
-    if (survey.archived) {
+    // Drafts launch from the review's launch bar, so the header keeps one primary action.
+    if (status === ProgressStatus.Draft || survey.archived) {
         return null
     }
 

@@ -690,6 +690,8 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         mock_screenshot_asset: Any,
     ) -> None:
         data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -715,6 +717,33 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         assert params["pageURL"] == ["https://example.com/page?tab=home"]
         assert params["dataURL"] == [data_url]
         assert set(params.keys()) == {"token", "pageURL", "dataURL"}
+
+    def test_heatmap_export_rejects_url_outside_authorized_urls(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.org/page",
+                "heatmap_data_url": "https://example.org/page",
+                "heatmap_type": "click",
+            },
+        )
+
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            mock_anti_ssrf_dns_lookup(),
+            self.assertRaisesRegex(InvalidExportContext, "authorized URLs"),
+        ):
+            image_exporter.export_image(exported_asset)
+
+        mock_screenshot_asset.assert_not_called()
 
     def test_without_encoding_inner_ampersands_corrupt_query_string(
         self,

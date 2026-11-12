@@ -24,8 +24,10 @@ The service is configured using environment variables:
 | MANAGEMENT_BIND_PORT | 8080 | Port for the health check and metrics server |
 | MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
+| MAX_EXPANDED_REQUEST_BYTES | 268435456 | Rejects a logs, traces, metrics or Firehose request with 413 when the rows it builds would pass this estimated size. Each row copies its resource, scope or common attributes, so the body cap does not bound this |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
+| VERCEL_DRAIN_ENABLED_TOKENS | (none) | Comma-separated tokens that may use the Vercel drain route, or `*` for all. Other tokens get 404 |
 
 ## Authentication
 
@@ -48,7 +50,7 @@ The token is your PostHog project token.
 ## Backdated logs
 
 A log record whose timestamp is more than 24 hours behind the ingest time is normally replaced
-with the ingest time, and the original is kept on the `$originalTimestamp` attribute. That guard
+with the ingest time, and the original is kept on the `posthog.original_timestamp` attribute. That guard
 protects every query range on the team from one client with a broken clock.
 
 A historical import needs the original timestamps. Widen the past bound for one request with the
@@ -187,6 +189,34 @@ A customer creates a Firehose stream with this URL as its HTTP endpoint and the 
 Metrics: `capture_logs_firehose_records_total{kind}` (`data`, `control`, `raw`, `invalid`) and `capture_logs_firehose_events_total`.
 Request outcomes are on the shared `http_requests_total{path,status}` and rejected tokens on `capture_logs_requests_rejected_total`.
 
+## Vercel log drains
+
+`POST /i/v1/logs/vercel[/<token>]` accepts a [Vercel log drain](https://vercel.com/docs/drains/reference/logs) with a custom endpoint.
+A customer creates a log drain with this URL and the project API key, in either drain format.
+
+- Auth: the project API key in an `Authorization: Bearer <token>` custom header on the drain.
+  The path and `?token=` forms also work, but they put the key in proxy access logs, so prefer the header.
+  The same shape check as every other route applies.
+  The drain's `x-vercel-signature` is not verified, so, as on the other routes, anyone with the project key can write rows.
+- Rollout: the route is closed until the project's token is in `VERCEL_DRAIN_ENABLED_TOKENS` (or the list is `*`); other tokens get 404. The local dev stack sets `*`.
+- Body: a JSON array, one object, or NDJSON, gzip or plain. The drain sends at most 1 MB per request, inside the shared `MAX_REQUEST_BODY_SIZE_BYTES` cap.
+  Every valid line becomes a log row.
+  A line that is not a JSON object, or an object with no `id`, `message` or `proxy`, is skipped and counted, so one bad line does not make the drain retry the batch.
+  A delivery with more than 10,000 lines gets 413.
+  A delivery with lines but no valid line gets 400, so the drain does not treat a malformed batch as stored.
+  A field with an unexpected type is left out of the row instead of failing the line.
+  An empty body is acknowledged with 200, which covers the test request the drain sends when it is created.
+- Row mapping: `body` = `message`, or `<method> <path> <status>` for a request line that has no message; `timestamp` = the line's `timestamp` in milliseconds; `service.name` = the project name, else the project ID.
+  Severity comes from `level` (`fatal`, `error`, `warning`, else `info`).
+  Request fields use OpenTelemetry semantic conventions (`http.request.method`, `server.address`, `url.path`, `url.query`, `http.response.status_code` (only real HTTP statuses; Vercel's `-1` sentinels stay in `vercel.proxy.status_code` and `vercel.status_code`), `client.address`, `user_agent.original`, `tls.client.ja3`); other drain fields keep a `vercel.*` name (`vercel.source`, `vercel.cache`, `vercel.path_type`, `vercel.waf.action`, and so on).
+  Resource attributes are `service.name`, `vercel.project.id`, `vercel.project.name`, `vercel.deployment.id`, `deployment.environment.name` and `vcs.ref.head.name`.
+  `traceId`/`spanId` (hex) become the row's trace and span IDs.
+- Delivery is at-least-once: a Kafka failure returns 500 and the drain sends the request again.
+  The logs table keeps every copy of a redelivered line. A line's row `uuid` derives from the project key and the drain's log `id`, so queries can find the copies by `uuid`.
+
+Metrics: `capture_logs_vercel_records_total{kind}` (`valid` after the Kafka write; `invalid` per attempt, so a retried bad batch counts again; `no_timestamp` for lines stored at ingest time) and `capture_logs_vercel_requests_rejected_total{reason}` (`gate_closed`).
+Request outcomes are on the shared `http_requests_total{path,status}`.
+
 ## Endpoints
 
 ### Log Ingestion
@@ -195,6 +225,7 @@ Request outcomes are on the shared `http_requests_total{path,status}` and reject
 - `POST /i/v1/logs` - Alternative endpoint for OTLP logs
 - `POST /i/v1/logs/datadog[/<token>]` - Datadog agent intake
 - `POST /i/v1/logs/aws/firehose` - Amazon Data Firehose HTTP endpoint destination
+- `POST /i/v1/logs/vercel[/<token>]` - Vercel log drain (JSON or NDJSON)
 - `OPTIONS /v1/logs` - CORS preflight support
 - `OPTIONS /i/v1/logs` - CORS preflight support
 

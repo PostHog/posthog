@@ -94,7 +94,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
     flag_history: {
         checked: true,
         not_checked_reason: null,
-        launched_at: '2025-01-06T10:00:00Z',
+        start_date: '2025-01-06T10:00:00Z',
         team_timezone: 'UTC',
         changes: [
             {

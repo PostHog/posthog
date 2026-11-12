@@ -72,6 +72,8 @@ export interface organizationMemberNoticeLogicActions {
                       | 'default_role_id'
                       | 'enforce_2fa'
                       | 'enforce_verified_domains'
+                      | 'ip_restrictions'
+                      | 'ip_restrictions_enabled'
                       | 'is_ai_data_processing_approved'
                       | 'is_ai_training_opted_in'
                       | 'logo_media_id'

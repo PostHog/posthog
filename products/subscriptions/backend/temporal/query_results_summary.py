@@ -4,15 +4,12 @@ import json
 import asyncio
 from collections import Counter
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from django.conf import settings
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
-import posthoganalytics
-from openai import APIConnectionError, APIStatusError
-from posthoganalytics.ai.openai import AsyncOpenAI
-
-from posthog.event_usage import groups
+from posthog.llm.gateway_client import GatewayNotConfiguredError, build_async_openai_client, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 from posthog.utils import get_instance_region
 
@@ -85,8 +82,21 @@ def _event_statistics(query_kind: str, query_results: dict[str, Any]) -> dict[st
     return statistics
 
 
-def _get_async_openai_client() -> AsyncOpenAI:
-    return AsyncOpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=0)
+def _get_async_openai_client(*, team: Team | None, delivery_id: str | None, user_tag: str) -> AsyncOpenAI:
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    properties = {"summary_stage": "query_condensation"}
+    if delivery_id:
+        properties["delivery_id"] = delivery_id
+    headers = {"X-PostHog-Privacy-Mode": "true"}
+    if team is not None:
+        properties["team_id"] = str(team.id)
+    else:
+        headers["X-PostHog-Billable"] = "false"
+    client = build_async_openai_client(
+        "subscriptions", ai_product="subscriptions", properties=properties, distinct_id=user_tag
+    )
+    return client.with_options(max_retries=0, default_headers=headers)
 
 
 async def condense_query_results(
@@ -126,28 +136,17 @@ async def condense_query_results(
     ]
     team_id = team.id if team else 0
     user_tag = f"{get_instance_region() or 'HOBBY'}/subscription-summary-team-{team_id}"
-    properties: dict[str, object] = {"ai_product": "subscriptions", "summary_stage": "query_condensation"}
-    if delivery_id:
-        properties["delivery_id"] = delivery_id
-    capture_kwargs: dict[str, object] = {}
-    if team:
-        properties.update({"$ai_billable": True, "team_id": team.id})
-        capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    async with _get_async_openai_client() as client:
+    async with _get_async_openai_client(team=team, delivery_id=delivery_id, user_tag=user_tag) as client:
         for attempt in range(2):
             try:
                 result = await client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    temperature=0,
-                    max_tokens=1_200,
-                    timeout=20,
-                    messages=messages,
+                    model="gpt-6-luna",
+                    reasoning_effort="low",
+                    max_completion_tokens=4_096,
+                    timeout=30,
+                    messages=cast(list[ChatCompletionMessageParam], messages),
                     user=user_tag,
-                    posthog_distinct_id=user_tag,
-                    posthog_properties=properties,
-                    posthog_privacy_mode=True,
-                    **capture_kwargs,
                 )
             except (APIConnectionError, APIStatusError) as error:
                 if (

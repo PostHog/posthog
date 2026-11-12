@@ -13,8 +13,8 @@ export function DashboardCompareFilter({ fullWidth }: { fullWidth?: boolean }): 
     const isAllTime = effectiveEditBarFilters.date_from === 'all'
 
     const updateCompareFilter = (compareFilter: CompareFilterType | null): void => {
-        if (!dashboardEditing?.filters) {
-            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+        if (!dashboardEditing) {
+            setDashboardEditing(true, DashboardEventSource.DashboardFilters)
         }
         setCompareFilter(compareFilter)
     }

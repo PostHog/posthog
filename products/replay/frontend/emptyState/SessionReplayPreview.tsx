@@ -2,7 +2,7 @@ import './SessionReplayPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the session replay empty state: a recordings list and
@@ -15,7 +15,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * `__swap` grids, so nothing shifts.
  */
 export function SessionReplayPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('ReplayPreview', isStatic && 'ReplayPreview--static')}>

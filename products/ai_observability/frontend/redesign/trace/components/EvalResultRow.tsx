@@ -1,30 +1,36 @@
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
-import { EvalResult } from '../types'
+import { urls } from 'scenes/urls'
+
+import type { TraceEvaluationResultApi } from '../../../generated/api.schemas'
 import { EvalOutcomeTag } from './EvalOutcomeTag'
 import { ShortTimestamp } from './ShortTimestamp'
 
 export interface EvalResultRowProps {
-    result: EvalResult
+    result: TraceEvaluationResultApi
+    viewedNodeId: string
+    stepLabels: ReadonlyMap<string, string>
     onSelectNode: (nodeId: string) => void
 }
 
-export function EvalResultRow({ result, onSelectNode }: EvalResultRowProps): JSX.Element {
-    const { target } = result
+export function EvalResultRow({ result, viewedNodeId, stepLabels, onSelectNode }: EvalResultRowProps): JSX.Element {
+    const { targetNodeId } = result
+    const targetLabel =
+        targetNodeId === viewedNodeId ? null : (stepLabels.get(targetNodeId) ?? `${targetNodeId.slice(0, 12)}...`)
     return (
         <li className="flex flex-col gap-1 px-3 py-2">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                {result.href ? (
+                {result.evaluationId ? (
                     <Link
-                        to={result.href}
+                        to={urls.aiObservabilityEvaluation(result.evaluationId)}
                         className="font-semibold text-sm"
                         data-attr="trace-view-eval-link"
                         targetBlankIcon={false}
                     >
-                        {result.name}
+                        {result.evaluationName}
                     </Link>
                 ) : (
-                    <span className="font-semibold text-sm">{result.name}</span>
+                    <span className="font-semibold text-sm">{result.evaluationName}</span>
                 )}
                 <EvalOutcomeTag outcome={result.outcome} label={result.label} />
                 {result.isBackfill ? (
@@ -33,14 +39,14 @@ export function EvalResultRow({ result, onSelectNode }: EvalResultRowProps): JSX
                     </LemonTag>
                 ) : null}
                 <span className="ml-auto flex items-center gap-2 text-xs text-secondary">
-                    {target ? (
+                    {targetLabel !== null ? (
                         <Link
-                            onClick={() => onSelectNode(target.nodeId)}
+                            onClick={() => onSelectNode(targetNodeId)}
                             className="max-w-60 truncate font-mono"
-                            title={`Show ${target.label}`}
+                            title={`Show ${targetLabel}`}
                             data-attr="trace-view-eval-target"
                         >
-                            {target.label}
+                            {targetLabel}
                         </Link>
                     ) : null}
                     <ShortTimestamp time={result.timestamp} />

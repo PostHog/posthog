@@ -60,29 +60,15 @@ Delete an expired test instead of marking it skipped. Keep the migration file. F
 
 Do not apply this rule to migration tooling, migration safety checks, reusable backfill systems, or backfills that people can still run.
 
-## Growing enums need callable choices
+## Python-only field attributes make no migration
 
-A `choices=` list that grows over time generates an `AlterField` on every addition, on every model that uses the enum. Those migrations emit **no SQL** — `choices` is in Django's `Field.non_db_attrs`, so the schema editor skips them — but they still land in migration state, in CI's per-shard migration replay, and in `max_migration.txt`, where they collide with every other migration waiting in the merge queue.
+`makemigrations` uses `PostHogAutodetector` (`posthog/management/migration_autodetector.py`), which leaves `choices`, `help_text`, `verbose_name`, `validators`, `error_messages`, `editable`, `blank` and `limit_choices_to` out of the field comparison. None of them reach the database, so a change to only those attributes writes no migration. Add the enum member or edit the help text and stop there.
 
-Pass a callable instead. Django resolves it lazily, so the migration records the function reference once and never changes again:
-
-```python
-def external_data_source_type_choices() -> list[tuple[str, str]]:
-    return ExternalDataSourceType.choices
-
-
-source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
-```
-
-Runtime behavior is unchanged: DRF still builds a `ChoiceField`, so the OpenAPI enum and the generated frontend types are intact; `full_clean()` still rejects unknown values; admin still renders a dropdown; `get_FOO_display()` still resolves the label. A real schema change (`max_length`, `null`, a new field) still generates a migration.
-
-Reach for a callable when the enum is a **registry** that grows as the org adds things — sources, integrations, products, providers, model ids. Keep a plain list for a **closed vocabulary** intrinsic to the domain, like a status or a priority, where a new member is a genuine domain change worth recording.
-
-Two things a callable does not do for you:
-
-- Migrations reference it by import path forever, so renaming or moving it needs its own migration. Keep it next to the enum it wraps.
-- It has to be a module-level named function. A lambda or a closure returned by a shared factory has no importable path, so Django cannot serialize it — one small function per enum is the intended shape, not duplication to factor out.
-- It hides choice growth from migration state, not from the column. A new member longer than the field's `max_length` is still a real schema change, so check the headroom when the registry grows.
+- Do not write the `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState` to get past the hot-table check. `NonDbAlterFieldPolicy` in the migration risk analyzer points out both.
+- `default` is still compared, because `AlterField` and `RunPython` read it from migration state.
+- A real column change (`max_length`, `null`, a new field) still writes a migration, and that migration carries the current choices.
+- Django's `fields.E009` check still fails a choice value longer than the field's `max_length`.
+- Existing callable `choices=` functions stay importable, because old migrations reference them by path. Do not add new ones: a plain `choices=Enum.choices` no longer generates migrations.
 
 ## Workflow
 

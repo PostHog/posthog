@@ -14,6 +14,7 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
+from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api_keys_for_user
@@ -26,6 +27,17 @@ from posthog.user_permissions import UserPermissions
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
 SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
+
+
+def _is_grantable_scope(scope: str) -> bool:
+    scope_object, _, action = scope.partition(":")
+    return scope_object in GRANTABLE_API_SCOPE_OBJECTS and action in API_SCOPE_ACTIONS
+
+
+def _drop_retired_scopes(scopes: list[str], existing_scopes: list[str] | None) -> list[str]:
+    """Drop the scopes a key already held that are no longer grantable, so retiring a scope never blocks saving a key."""
+    held = set(existing_scopes or [])
+    return [scope for scope in scopes if scope == "*" or scope not in held or _is_grantable_scope(scope)]
 
 
 def validate_personal_api_key_scopes(
@@ -41,19 +53,14 @@ def validate_personal_api_key_scopes(
                 continue
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
-        scope_parts = scope.split(":")
-        if (
-            len(scope_parts) != 2
-            or scope_parts[0] not in GRANTABLE_API_SCOPE_OBJECTS
-            or scope_parts[1] not in API_SCOPE_ACTIONS
-        ):
+        if not _is_grantable_scope(scope):
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         if allowed_scopes is not None and scope not in allowed_scopes:
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         # Check feature flag for llm_gateway scope - block if newly adding this scope
-        if scope_parts[0] == "llm_gateway":
+        if scope.startswith("llm_gateway:"):
             existing_has_llm_gateway = existing_scopes is not None and any(
                 s.startswith("llm_gateway:") for s in existing_scopes
             )
@@ -186,6 +193,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
         existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
+        scopes = _drop_retired_scopes(scopes, existing_scopes)
         validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes
@@ -226,6 +234,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 f"You can only have {limit} personal API keys. Remove an existing key before creating a new one."
             )
         try:
+            enforce_credential_ip_restrictions(
+                request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
+            )
             minted = mint_personal_api_key(
                 user,
                 label=validated_data["label"],
@@ -261,6 +272,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
+
+    def update(self, instance: PersonalAPIKey, validated_data: dict) -> PersonalAPIKey:
+        if {"scopes", "scoped_teams", "scoped_organizations", "expires_at"}.intersection(validated_data):
+            enforce_credential_ip_restrictions(
+                self.context["request"],
+                validated_data.get("scoped_organizations", instance.scoped_organizations),
+                validated_data.get("scoped_teams", instance.scoped_teams),
+            )
+        return super().update(instance, validated_data)
 
     def roll(
         self,
@@ -327,6 +347,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
 
 @extend_schema(extensions={"x-product": "core"})
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
+    _ip_restrictions_use_view_scope = frozenset({"create", "update", "partial_update", "roll"})
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
     permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
@@ -353,6 +374,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True, url_path="roll")
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
+        enforce_credential_ip_restrictions(request, instance.scoped_organizations, instance.scoped_teams)
         roll_serializer = PersonalAPIKeyRollSerializer(data=request.data)
         roll_serializer.is_valid(raise_exception=True)
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))

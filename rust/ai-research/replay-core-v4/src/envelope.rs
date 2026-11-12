@@ -4,7 +4,7 @@
 //! the AES-256-GCM ciphertext followed by its 16-byte tag. The authenticated data is the canonical JSON of
 //! `{"v": <version>, "context": <context>}`, so the context binds the owner, the kind and the codec of the body.
 
-use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
+use aes_gcm::aead::{Aead, AeadCore, AeadInPlace, KeyInit, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -141,6 +141,53 @@ fn write_canonical(value: &Value, out: &mut String) {
     }
 }
 
+/// A frame whose body is not encrypted yet. Sealing encrypts it in place, so this is the only copy a seal makes.
+pub struct UnsealedFrame {
+    frame: Vec<u8>,
+    aad_end: usize,
+}
+
+impl UnsealedFrame {
+    pub fn new(version: Version, context: &Context, body: &[u8]) -> Result<Self, EnvelopeError> {
+        let aad = context.authenticated_data(version);
+        let aad_length = u16::try_from(aad.len()).map_err(|_| EnvelopeError::ContextTooLong)?;
+        let mut frame =
+            Vec::with_capacity(HEADER_BYTES + aad.len() + NONCE_BYTES + body.len() + TAG_BYTES);
+        frame.extend_from_slice(MAGIC);
+        frame.extend_from_slice(&aad_length.to_be_bytes());
+        frame.extend_from_slice(aad.as_bytes());
+        let aad_end = frame.len();
+        frame.extend_from_slice(&[0; NONCE_BYTES]);
+        frame.extend_from_slice(body);
+        Ok(Self { frame, aad_end })
+    }
+
+    pub fn seal(self, key: &[u8; 32]) -> Result<Vec<u8>, EnvelopeError> {
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        self.seal_with_nonce(key, nonce.into())
+    }
+
+    /// Only the test vectors may fix a nonce: reusing one under a key breaks AES-GCM.
+    pub fn seal_with_nonce(
+        self,
+        key: &[u8; 32],
+        nonce: [u8; NONCE_BYTES],
+    ) -> Result<Vec<u8>, EnvelopeError> {
+        let Self { mut frame, aad_end } = self;
+        let (head, body) = frame.split_at_mut(aad_end + NONCE_BYTES);
+        head[aad_end..].copy_from_slice(&nonce);
+        let tag = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key))
+            .encrypt_in_place_detached(
+                Nonce::from_slice(&nonce),
+                &head[HEADER_BYTES..aad_end],
+                body,
+            )
+            .map_err(|_| EnvelopeError::Authentication)?;
+        frame.extend_from_slice(&tag);
+        Ok(frame)
+    }
+}
+
 /// Seals `body` under `key` with a random nonce.
 pub fn seal_frame(
     key: &[u8; 32],
@@ -148,8 +195,7 @@ pub fn seal_frame(
     context: &Context,
     body: &[u8],
 ) -> Result<Vec<u8>, EnvelopeError> {
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    seal_frame_with_nonce(key, version, context, body, nonce.into())
+    UnsealedFrame::new(version, context, body)?.seal(key)
 }
 
 /// Seals with a caller-chosen nonce. Only the test vectors may fix a nonce: reusing one under a key breaks AES-GCM.
@@ -160,25 +206,7 @@ pub fn seal_frame_with_nonce(
     body: &[u8],
     nonce: [u8; NONCE_BYTES],
 ) -> Result<Vec<u8>, EnvelopeError> {
-    let aad = context.authenticated_data(version);
-    let aad_length = u16::try_from(aad.len()).map_err(|_| EnvelopeError::ContextTooLong)?;
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let sealed = cipher
-        .encrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: body,
-                aad: aad.as_bytes(),
-            },
-        )
-        .map_err(|_| EnvelopeError::Authentication)?;
-    let mut frame = Vec::with_capacity(HEADER_BYTES + aad.len() + NONCE_BYTES + sealed.len());
-    frame.extend_from_slice(MAGIC);
-    frame.extend_from_slice(&aad_length.to_be_bytes());
-    frame.extend_from_slice(aad.as_bytes());
-    frame.extend_from_slice(&nonce);
-    frame.extend_from_slice(&sealed);
-    Ok(frame)
+    UnsealedFrame::new(version, context, body)?.seal_with_nonce(key, nonce)
 }
 
 /// Opens a frame and checks it belongs to `context`.

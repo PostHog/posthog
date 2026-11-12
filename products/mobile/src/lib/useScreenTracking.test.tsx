@@ -20,14 +20,14 @@ describe('useScreenTracking', () => {
         setAnalyticsClient(null)
     })
 
-    test('sends one $screen per route, named by pattern, with a new report id counting as a new screen', () => {
+    test('sends one $screen per route, named by pattern, with a new report id counting as a new screen', async () => {
         const screen = jest.fn()
         setAnalyticsClient({ capture: jest.fn(), screen, identify: jest.fn(), reset: jest.fn() })
-        renderRouter(
+        await renderRouter(
             {
                 _layout: TrackedLayout,
                 index: Stub,
-                '(tabs)/inbox': Stub,
+                '(tabs)/inbox/index': Stub,
                 'report/[id]/index': Stub,
                 'report/[id]/details': Stub,
             },

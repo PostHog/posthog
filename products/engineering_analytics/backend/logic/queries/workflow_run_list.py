@@ -1,10 +1,4 @@
-"""HogQL assembly of a single workflow's recent runs, for the workflow detail (runs list) page.
-
-Embeds the curated ``github_workflow_runs`` builder as a subquery (via ``_curated``) and lists runs of
-one ``workflow_name`` within a repo, newest first. Run-level only — per-job/step data isn't in the
-warehouse yet. Re-runs share a run id; each attempt is its own row here (the detail page collapses to
-the latest attempt), so the list mirrors what GitHub Actions shows.
-"""
+"""One workflow's runs in a window, newest first, capped at ``_LIMIT`` with no truncation flag."""
 
 from datetime import datetime
 
@@ -19,7 +13,6 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_scope_filter_clause,
 )
 
-# Safety bound on the runs list (mirrors the PR table's cap philosophy).
 _LIMIT = 200
 
 _SELECT = f"""
@@ -53,7 +46,7 @@ def query_workflow_run_list(
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BRANCH__", branch_clause)
         .replace("__RUN_SCOPE__", run_scope_filter_clause(run_scope)),

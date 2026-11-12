@@ -4,7 +4,7 @@ import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
@@ -17,6 +17,7 @@ import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
+import type { ValueMatcher } from '~/types'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
@@ -24,27 +25,46 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import {
+    AttachmentMissingError,
+    AttachmentStore,
+    AttachmentStoreUnavailableError,
+    LoadedAttachment,
+    settleBeforeAbortEvenWhileCredentialsStall,
+} from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
-import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
+import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailSendingVersion,
+    resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
+import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    parseAddressList as parseMailboxList,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
+import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
+import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
     PreferencesTokenSource,
     RecipientTokensService,
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
+
+const emailEngagementSettingReadFailuresTotal = new Counter({
+    name: 'cdp_email_engagement_setting_read_failures_total',
+    help: 'Email sends whose engagement setting read failed after the send attempt. The send keeps its outcome.',
+})
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -65,6 +85,7 @@ const sesThrottleResponsesTotal = new Counter({
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
+const SES_HEADER_VALUE_MAX_LENGTH = 870
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -121,20 +142,25 @@ const sesSendDurationMs = new Histogram({
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
     labelNames: ['source', 'priority_class', 'team_capped'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
 type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
-// A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
-// workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
-// Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
+function transactionalWaitStart(invocation: CyclotronJobInvocationHogFunction): DateTime | undefined {
+    const scheduledAt = invocation.state.scheduledAt ? DateTime.fromISO(invocation.state.scheduledAt) : undefined
+    if (!invocation.queueCreatedAt || !scheduledAt?.isValid) {
+        return invocation.queueCreatedAt
+    }
+    return DateTime.max(invocation.queueCreatedAt, scheduledAt)
+}
+
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
-    const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
+    const startedAt = source === 'transactional_api' ? transactionalWaitStart(invocation) : invocation.queueDueAt
     return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
 }
 
@@ -156,6 +182,86 @@ export class SESThrottleError extends Error {
     }
 }
 
+const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
+const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
+const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
+const MAX_ATTACHMENT_LOAD_RETRIES = 10
+export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
+
+class EmailSendDeadlineError extends Error {
+    constructor(cause: unknown) {
+        super('SES did not take the email before the send deadline', { cause })
+        this.name = 'EmailSendDeadlineError'
+    }
+}
+
+class MessageTooLargeError extends Error {
+    constructor() {
+        super('This email and its attachment files are larger than one email can carry')
+        this.name = 'MessageTooLargeError'
+    }
+}
+
+const FIRST_STEP_AFTER_SIGNING = 'deserialize'
+
+const BENEATH_THE_DESERIALIZER = 'low'
+
+const sesRefused = (response: unknown): boolean => {
+    const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
+    return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
+}
+
+function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+    let attemptsSesMayHaveAccepted = 0
+    command.middlewareStack.add(
+        (next) => async (args) => {
+            attemptsSesMayHaveAccepted++
+            const httpAnswer = await next(args)
+            if (sesRefused(httpAnswer.response)) {
+                attemptsSesMayHaveAccepted--
+            }
+            return httpAnswer
+        },
+        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
+    )
+    return () => attemptsSesMayHaveAccepted > 0
+}
+
+const isAttachmentLoadFailure = (error: unknown): boolean =>
+    error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
+
+const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
+    invocation.queueMetadata?.attachmentLoadRetries ?? 0
+
+function pickAttachmentLoadRetryDelayMs(retries: number): number {
+    return Math.min(1_000 * retries + Math.floor(Math.random() * 1_000), 60_000)
+}
+
+function describeAttachmentFailure(
+    error: unknown,
+    tries: number
+): { reason: EmailStatusReason; message: string } | null {
+    if (error instanceof AttachmentMissingError) {
+        return {
+            reason: EMAIL_ATTACHMENTS_MISSING,
+            message: `${EMAIL_ATTACHMENTS_MISSING}: the attachment files of this email are no longer stored, so it was not sent without them.`,
+        }
+    }
+    if (error instanceof MessageTooLargeError) {
+        return {
+            reason: EMAIL_MESSAGE_TOO_LARGE,
+            message: `${EMAIL_MESSAGE_TOO_LARGE}: this email and its attachment files are larger than one email can carry, so it was not sent.`,
+        }
+    }
+    if (isAttachmentLoadFailure(error)) {
+        return {
+            reason: EMAIL_ATTACHMENT_UNAVAILABLE,
+            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
+        }
+    }
+    return null
+}
+
 class UnverifiedEmailDomainError extends Error {
     constructor() {
         super('The selected email integration domain is not verified')
@@ -166,12 +272,30 @@ class UnverifiedEmailDomainError extends Error {
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
 
+const deliveredRecipients = (params: CyclotronInvocationQueueParametersEmailType): string[] => [
+    unquoteMailbox(params.to.email),
+    ...[...parseMailboxList(params.cc), ...parseMailboxList(params.bcc)].map(({ email }) => email),
+]
+
 function pickThrottleRetryDelayMs(): number {
     // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
     // gates re-dequeue at the configured refill rate, so a quick retry will
     // simply re-claim a token if SES capacity has refreshed. Exponential
     // backoff isn't needed at this layer.
     return 500 + Math.floor(Math.random() * 500)
+}
+
+function sendingProviderOf(integration: IntegrationType): 'ses' | 'maildev' {
+    const provider = integration.config.provider ?? 'ses'
+    if (provider === 'unsupported') {
+        throw new Error('Email delivery mode not supported')
+    }
+    if (provider !== 'ses' && provider !== 'maildev') {
+        throw new Error(
+            "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+        )
+    }
+    return provider
 }
 
 const workflowEmailRateLimitedTotal = new Counter({
@@ -232,6 +356,12 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
+const SUPPRESSION_RETRY_MS = 30_000
+
+function suppressionRetryDelayMs(attempt: number): number {
+    return Math.min(Math.floor(SUPPRESSION_RETRY_MS * 2 ** (attempt - 1) * (1 + Math.random())), CAP_RETRY_MAX_MS)
+}
+
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
 // A sustained rate up there means a team queues more email than its limit can send.
@@ -284,33 +414,31 @@ export function parseTeamEmailCapMode(value: string | undefined): TeamEmailCapMo
     return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
 }
 
-/** Parses a comma-separated cap table. Any unusable entry drops the whole table, which turns the
- * cap off rather than applying a wrong number to a paying customer. */
+/** Parses a comma-separated cap table. Any unusable entry drops the whole table, and the send path
+ * then applies DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS. A non-integer cap is unusable because the
+ * all-or-nothing claim needs a whole-number request. */
 export function parseTierCaps(value: string | undefined): number[] {
     const parts = (value ?? '')
         .split(',')
         .map((part) => part.trim())
         .filter((part) => part.length > 0)
     const caps = parts.map((part) => Number(part))
-    if (caps.length === 0 || caps.some((cap) => !Number.isFinite(cap) || cap <= 0)) {
+    if (caps.length === 0 || caps.some((cap) => !Number.isInteger(cap) || cap <= 0)) {
         return []
     }
     return caps
 }
 
-// Mirrors WORKFLOWS_EMAIL_TIER_HOURLY_CAPS / _DAILY_CAPS in posthog/settings/web.py. Both sides
-// read the same tier index, so the two tables must stay in step.
-const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [50, 200, 600, 2000, 6000, 20000, 60000, 200000]
+// Mirrors WORKFLOWS_EMAIL_TIER_DAILY_CAPS in posthog/settings/web.py. Both sides read the same
+// tier index, so the two tables must stay in step.
 const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
-// Comfortably longer than the window each bucket paces, so an idle bucket is never reset to full
+// Comfortably longer than the window the bucket paces, so an idle bucket is never reset to full
 // by expiry before it would have refilled on its own. Without that, a team that pauses for a day
 // would get a fresh daily allowance instead of waiting for the refill.
-const TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS = 6 * 60 * 60
 const TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS = 3 * 24 * 60 * 60
 
 type TeamEmailCapBucket = {
-    name: 'hour' | 'day'
     key: string
     capacity: number
     refillPerSecond: number
@@ -319,28 +447,14 @@ type TeamEmailCapBucket = {
     label: string
 }
 
-// The `{teamId}` hash tag puts both bucket keys in the same cluster slot. Enforce mode claims
-// both keys in one Lua call (claimAllOrNothingPair), and clustered Valkey rejects a multi-key
-// call whose keys hash to different slots with a CROSSSLOT error.
-export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
-    return [
-        {
-            name: 'hour',
-            key: `@posthog/team-email-rate-hour/{${teamId}}`,
-            capacity: hourlyCap,
-            refillPerSecond: hourlyCap / 3600,
-            ttlSeconds: TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS,
-            label: `${hourlyCap.toLocaleString('en-US')} emails per hour`,
-        },
-        {
-            name: 'day',
-            key: `@posthog/team-email-rate-day/{${teamId}}`,
-            capacity: dailyCap,
-            refillPerSecond: dailyCap / 86400,
-            ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
-            label: `${dailyCap.toLocaleString('en-US')} emails per day`,
-        },
-    ]
+export function teamEmailCapBucket(teamId: number, dailyCap: number): TeamEmailCapBucket {
+    return {
+        key: `@posthog/team-email-rate-day/{${teamId}}`,
+        capacity: dailyCap,
+        refillPerSecond: dailyCap / 86400,
+        ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
+        label: `${dailyCap.toLocaleString('en-US')} emails per day`,
+    }
 }
 
 export interface EmailServiceConfig {
@@ -348,17 +462,16 @@ export interface EmailServiceConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
-    // Configuration set with ESP-level open/click tracking enabled.
     sesTrackedConfigurationSet: string
-    // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
-    // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
     // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
     // builds an EmailService without them keeps its pre-cap behavior.
     teamEmailCapMode?: TeamEmailCapMode
-    teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
+    workflowRunLinkTagTeams?: string
+    templateTagsTeams?: string
+    attachmentSendDeadlineMs?: number
 }
 
 /**
@@ -432,11 +545,17 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+type TeamSendingBudget = {
+    charged: boolean
+    delay: { retryDelayMs: number; label: string | null } | null
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
-    private untrackedConfigSetWarningLogged = false
+    private workflowRunLinkTagTeams: ValueMatcher<number>
+    private templateTagsTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -450,10 +569,11 @@ export class EmailService {
         // Required, so that a caller which builds the service without it fails to compile. Pass null
         // only where no email status is recorded.
         private emailStatusService: EmailStatusService | null,
-        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report' | 'reportEmailSent'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private attachmentStore: AttachmentStore | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -462,6 +582,33 @@ export class EmailService {
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
+        this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+        this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+    }
+
+    private utmTaggingFor(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): UtmTagging | null {
+        const tags = utmTagsFor(invocation, (key, message) =>
+            addLog('warn', `Used the default ${key} because its value has an error: ${message}`)
+        )
+        return tags
+            ? {
+                  tags,
+                  siteUrl: this.siteUrl,
+                  fixedScanner: buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId),
+              }
+            : null
+    }
+
+    private tagsLinksWithWorkflowRun(
+        invocation: CyclotronJobInvocationHogFunction,
+        trackingEnabled: boolean,
+        isTest: boolean
+    ): boolean {
+        const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -495,9 +642,13 @@ export class EmailService {
         const integration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
-        let throttled: boolean = false
+        let rescheduled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let sendingDomain = ''
+        let failureReason: EmailStatusReason = 'provider_error'
+        let messageId: string | undefined
+        let teamBudgetCharged = false
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -583,6 +734,7 @@ export class EmailService {
             }
 
             const from = this.resolveFromSender(integration, params.from, addLog)
+            sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
 
             // An empty `to` comes from the customer's data (a person without an email property, or no
             // person at all), not from a fault in the send path. SES rejects it as an invalid address,
@@ -670,6 +822,8 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
+            const provider = sendingProviderOf(integration)
+
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
@@ -723,7 +877,9 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            teamBudgetCharged = teamBudget.charged
+            const capDelay = teamBudget.delay
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -749,43 +905,37 @@ export class EmailService {
                     : { ...deliverableParams, replyTo: integration.config.reply_to }
 
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
-            const metadata = invocation.hogFunction.metadata
-            const sendParams =
-                metadata?.utm_tags_enabled === true && params.html
-                    ? {
-                          ...paramsWithReplyTo,
-                          html: addUtmTagsToEmail(
-                              params.html,
-                              resolveUtmTags(
-                                  {
-                                      utm_source: 'posthog',
-                                      utm_medium: 'email',
-                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
-                                      utm_content: metadata.hog_flow_action_name ?? '',
-                                  },
-                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
-                                      addLog(
-                                          'warn',
-                                          `Used the default ${key} because its value has an error: ${message}`
-                                      )
-                                  )
-                              ),
-                              this.siteUrl,
-                              buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId)
-                          ),
-                      }
-                    : paramsWithReplyTo
+            const sendParams = paramsWithReplyTo.html
+                ? {
+                      ...paramsWithReplyTo,
+                      html: tagEmailLinks(
+                          paramsWithReplyTo.html,
+                          this.utmTaggingFor(invocation, addLog),
+                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
+                              ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
+                              : null
+                      ),
+                  }
+                : paramsWithReplyTo
 
-            switch (integration.config.provider ?? 'ses') {
-                case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
-                    break
-                case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
-                    break
+            const deadline = params.attachments?.length
+                ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
+                : undefined
+            const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
 
-                case 'unsupported':
-                    throw new Error('Email delivery mode not supported')
+            if (provider === 'maildev') {
+                await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
+            } else {
+                messageId = await this.sendEmailWithSES(
+                    result,
+                    sendParams,
+                    from,
+                    trackingEnabled,
+                    isTest,
+                    queueWait,
+                    files,
+                    deadline
+                )
             }
 
             // Emit the `[Email:…]` token in the success log only when an asset row
@@ -799,21 +949,66 @@ export class EmailService {
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
             result.emailSendResult = { status: 'accepted' }
+            if (isRealWorkflowSend(invocation, isTest)) {
+                void this.workflowsActivationReporter.reportEmailSent(
+                    invocation.teamId,
+                    invocation.functionId,
+                    deliveredRecipients(sendParams)
+                )
+            }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.
-                throttled = true
+                rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else if (
+                isAttachmentLoadFailure(error) &&
+                !isTest &&
+                attachmentLoadRetries(invocation) < MAX_ATTACHMENT_LOAD_RETRIES
+            ) {
+                const retries = attachmentLoadRetries(invocation) + 1
+                const retryDelayMs = pickAttachmentLoadRetryDelayMs(retries)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    attachmentLoadRetries: retries,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
+                addLog(
+                    'warn',
+                    `${error.message}; retry ${retries} of ${MAX_ATTACHMENT_LOAD_RETRIES} in ${Math.round(retryDelayMs / 1000)}s`
+                )
+            } else if (error instanceof SuppressionLookupError && !isTest) {
+                // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
+                const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
+                const retryAfterMs = suppressionRetryDelayMs(attempt)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, suppressionLookupAttempts: attempt }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
+                addLog(
+                    'warn',
+                    `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                )
             } else {
-                addLog('error', error.message)
-                result.error = error.message
-                result.emailSendResult = { status: 'failed', reason: error.message }
+                const attachmentFailure = describeAttachmentFailure(error, attachmentLoadRetries(invocation) + 1)
+                if (attachmentFailure) {
+                    failureReason = attachmentFailure.reason
+                }
+                const message = attachmentFailure?.message ?? error.message
+                addLog('error', message)
+                result.error = message
+                result.emailSendResult = { status: 'failed', reason: message }
                 result.finished = true
                 if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
                     void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
@@ -825,7 +1020,7 @@ export class EmailService {
             }
         }
 
-        if (throttled) {
+        if (rescheduled) {
             // On throttle, skip both the VM-state push and the business-metric
             // emit. The eventual successful retry will produce `email_sent` and
             // push the success bit to the VM stack — pushing them now would
@@ -841,6 +1036,8 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
+            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
             result.metrics.push({
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
@@ -848,6 +1045,7 @@ export class EmailService {
                 metric_kind: 'email',
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
+                ...sendVersion,
             })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
@@ -860,6 +1058,7 @@ export class EmailService {
                     metric_kind: 'email',
                     metric_name: 'email_untracked',
                     count: 1,
+                    ...sendVersion,
                 })
             }
 
@@ -874,17 +1073,15 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? undefined : 'provider_error',
+                    reason: success ? undefined : failureReason,
+                    sendingDomain,
                 })
             }
         }
 
         const distinctId = resolveEmailTrackingDistinctId(invocation)
-        if (
-            distinctId &&
-            !isTest &&
-            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
-        ) {
+        const workflowVersion = invocation.state.renderedWorkflowVersion
+        if (distinctId && !isTest && (await this.readEngagementCaptureOrWarn(invocation, addLog))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -893,6 +1090,15 @@ export class EmailService {
                 properties: {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
+                    $workflow_invocation_id: invocation.id,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                    ...(messageId ? { $email_message_id: messageId } : {}),
+                    ...(isTransactionalEmailSend(invocation)
+                        ? {
+                              $email_transactional: true,
+                              ...transactionalEmailIdentity(params.template ?? invocation.hogFunction?.metadata),
+                          }
+                        : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -901,6 +1107,15 @@ export class EmailService {
                     // dimension on the send there is no way to build an open rate in an insight that
                     // isn't deflated by however much of the audience declined tracking.
                     $email_tracking_enabled: trackingEnabled,
+                    ...(params.attachments?.length
+                        ? {
+                              $email_attachment_count: params.attachments.length,
+                              $email_attachment_bytes: params.attachments.reduce(
+                                  (sum, file) => sum + file.sizeBytes,
+                                  0
+                              ),
+                          }
+                        : {}),
                 },
             })
         }
@@ -908,115 +1123,100 @@ export class EmailService {
         return result
     }
 
+    private async readEngagementCaptureOrWarn(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<boolean> {
+        try {
+            return await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)
+        } catch (error) {
+            emailEngagementSettingReadFailuresTotal.inc()
+            logger.error('Failed to read the email engagement capture setting', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                actionId: invocation.state.actionId,
+                invocationId: invocation.id,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            addLog('warn', 'Could not read the engagement setting, so no engagement event was recorded for this email.')
+            return false
+        }
+    }
+
     /**
      * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
-     * trust-tier buckets.
+     * trust-tier daily bucket.
      *
-     * Returns the delay to reschedule with when a cap is reached, or null when the send may go out.
-     * Two buckets, not one: the daily cap bounds how much damage a team can do to the shared SES
-     * account's reputation, and the hourly cap forces that volume to spread out so complaint
-     * feedback (which lags by hours) arrives while the team's total volume is still small.
+     * The cap bounds how much damage a team can do to the shared SES account's reputation
+     * in a day. It does not spread that volume out: a full bucket lets the team send its whole
+     * daily cap as one burst, and only volume past that waits for the refill.
      *
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
-     * config blip must never throttle a legitimate customer. A failed bucket claim returns 0 from
-     * the limiter, which delays the send, because we must not send when we cannot account for it.
-     * That second case returns a null `label`: the send waits, but no cap was reached, so the
-     * caller must not tell the customer it hit one.
+     * config blip must never throttle a legitimate customer. A failed bucket claim delays the
+     * send, because we must not send when we cannot account for it. That second case returns a
+     * null `label`: the send waits, but no cap was reached, so the caller must not tell the
+     * customer it hit one.
      *
      * Transactional sends are charged but never delayed, because a password reset that arrives
      * two hours late has already failed the person waiting on it. The charge does not bound the
-     * exemption: claimUpTo records no debt, so once a bucket empties further transactional sends
-     * cost nothing. No other control bounds that volume per team either. The SES limiter paces
-     * the whole account, so what is left is suspension and the daily tier job, which demotes a
-     * team on its complaint and bounce rates after the fact.
+     * exemption: claimUpTo records no debt, so once the bucket empties further transactional
+     * sends cost nothing. No other control bounds that volume per team either. The SES limiter
+     * paces the whole account, so what is left is suspension and the daily tier job, which
+     * demotes a team on its complaint and bounce rates after the fact.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
         isTest: boolean,
         recipients: number = 1
-    ): Promise<{ retryDelayMs: number; label: string | null } | null> {
+    ): Promise<TeamSendingBudget> {
+        if (invocation.queueMetadata?.teamBudgetClaimed === true) {
+            return { charged: true, delay: null }
+        }
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
-            return null
+            return { charged: false, delay: null }
         }
 
         const teamTier = await this.teamWorkflowsConfigService.getEmailSendingTier(invocation.teamId)
         if (teamTier === null) {
-            return null
+            return { charged: false, delay: null }
         }
 
-        const hourlyCaps = this.sesConfig.teamEmailTierHourlyCaps?.length
-            ? this.sesConfig.teamEmailTierHourlyCaps
-            : DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS
         const dailyCaps = this.sesConfig.teamEmailTierDailyCaps?.length
             ? this.sesConfig.teamEmailTierDailyCaps
             : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
-        const topTier = Math.min(hourlyCaps.length, dailyCaps.length) - 1
-        if (topTier < 0) {
-            return null
-        }
-        const tier = Math.min(Math.max(teamTier, 0), topTier)
+        const tier = Math.min(Math.max(teamTier, 0), dailyCaps.length - 1)
 
-        const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
-        // Clamped to the smaller capacity: a send with more copies than a whole allowance could
-        // never be granted and would reschedule forever. It charges the entire bucket instead, so
-        // it still waits for full capacity and pays everything there is.
-        const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
+        const bucket = teamEmailCapBucket(invocation.teamId, dailyCaps[tier])
+        // Clamped to the capacity: a send with more copies than a whole allowance could never be
+        // granted and would reschedule forever. It charges the entire bucket instead, so it still
+        // waits for full capacity and pays everything there is.
+        const requested = Math.min(Math.max(1, recipients), bucket.capacity)
 
         const isTransactional = invocation.hogFunction?.metadata?.message_category_type === 'transactional'
 
         if (mode === 'enforce' && !isTransactional) {
-            // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
-            // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
-            // every retry and starve the team's other emails while never sending itself.
-            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
-                [buckets[0], buckets[1]],
-                requested,
-                CAP_RETRY_MAX_MS
-            )
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothing({ ...bucket, requested }, CAP_RETRY_MAX_MS)
             if (claim.granted) {
-                return null
+                return { charged: true, delay: null }
             }
-            // `deniedIndex` is null when the limiter itself failed, not when a bucket was full. The
-            // send still waits, because we must not send what we cannot account for, but no cap was
-            // reached, so a null label tells the caller it has no cap to name to the customer.
-            const denied = claim.deniedIndex === null ? null : buckets[claim.deniedIndex]
-            // The daily bucket paces a limiter failure because it is the slower of the two, so the
-            // retry backs off at the safer rate while the limiter is unreachable.
-            const pacing = denied ?? buckets[1]
+            const capReached = claim.retryAfterMs !== null
             teamEmailCapDelayedTotal.inc({
                 tier: String(tier),
-                bucket: denied?.name ?? 'limiter_unavailable',
+                bucket: capReached ? 'day' : 'limiter_unavailable',
                 mode,
             })
-            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, pacing.refillPerSecond, claim.reserved)
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, bucket.refillPerSecond, claim.reserved)
             emailReservedParkMs.labels('team-email').observe(retryDelayMs)
-            return {
-                retryDelayMs,
-                label: denied?.label ?? null,
-            }
+            return { charged: false, delay: { retryDelayMs, label: capReached ? bucket.label : null } }
         }
 
         // Shadow mode, and transactional sends in any mode: the send goes out regardless, so
-        // drain each bucket and log the cap. Separate labels keep shadow a forecast of enforce.
+        // drain the bucket and log the cap. Separate labels keep shadow a forecast of enforce.
         const observedMode = isTransactional ? 'transactional' : mode
-        let firstDenial: TeamEmailCapBucket | null = null
-        for (const bucket of buckets) {
-            const granted = await this.teamEmailRateLimiter.claimUpTo({
-                key: bucket.key,
-                requested,
-                capacity: bucket.capacity,
-                refillPerSecond: bucket.refillPerSecond,
-                ttlSeconds: bucket.ttlSeconds,
-            })
-            if (granted >= requested) {
-                continue
-            }
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode: observedMode })
-            firstDenial = firstDenial ?? bucket
-        }
-
-        if (firstDenial) {
+        const granted = await this.teamEmailRateLimiter.claimUpTo({ ...bucket, requested })
+        if (granted < requested) {
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'day', mode: observedMode })
             logger.info(
                 '📧',
                 isTransactional
@@ -1025,12 +1225,12 @@ export class EmailService {
                 {
                     teamId: invocation.teamId,
                     tier,
-                    bucket: firstDenial.name,
-                    cap: firstDenial.label,
+                    bucket: 'day',
+                    cap: bucket.label,
                 }
             )
         }
-        return null
+        return { charged: true, delay: null }
     }
 
     // Per-send tracking decision, combining two independent controls:
@@ -1088,30 +1288,6 @@ export class EmailService {
             })
             return false
         }
-    }
-
-    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
-    // destination (suppression and the Metrics tab depend on those events); they differ only in
-    // ESP-level open/click tracking.
-    private resolveConfigurationSetName(
-        trackingEnabled: boolean,
-        invocation: CyclotronJobInvocationHogFunction
-    ): string {
-        if (trackingEnabled) {
-            return this.sesConfig.sesTrackedConfigurationSet
-        }
-        if (this.sesConfig.sesUntrackedConfigurationSet) {
-            return this.sesConfig.sesUntrackedConfigurationSet
-        }
-        // The missing set is static per process - one warning is signal, one per send is noise.
-        if (!this.untrackedConfigSetWarningLogged) {
-            this.untrackedConfigSetWarningLogged = true
-            logger.warn(
-                'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
-                { teamId: invocation.teamId, functionId: invocation.functionId }
-            )
-        }
-        return this.sesConfig.sesTrackedConfigurationSet
     }
 
     private resolveFromSender(
@@ -1186,13 +1362,37 @@ export class EmailService {
         return overrideEmail
     }
 
+    private async loadAttachments(
+        teamId: number,
+        files: EmailAttachmentMetadata[],
+        deadline: AbortSignal
+    ): Promise<LoadedAttachment[]> {
+        if (exceedsLargestSend(declaredFileBytes(files))) {
+            throw new MessageTooLargeError()
+        }
+        if (!this.attachmentStore) {
+            throw new AttachmentStoreUnavailableError(new Error('No attachment store is configured on this pod'))
+        }
+        await callsSettledBefore(deadline).catch((reason) => {
+            throw new AttachmentStoreUnavailableError(reason)
+        })
+        const loadFailed = new AbortController()
+        try {
+            return await this.attachmentStore.load(teamId, files, AbortSignal.any([deadline, loadFailed.signal]))
+        } catch (error) {
+            loadFailed.abort(error)
+            throw error
+        }
+    }
+
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
-        isTest = false
+        isTest = false,
+        files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
@@ -1223,6 +1423,15 @@ export class EmailService {
         if (replyToAddresses) {
             mailOptions.replyTo = replyToAddresses
         }
+        if (files.length) {
+            mailOptions.attachments = files.map(({ file, bytes }) => ({
+                filename: file.filename,
+                content: Buffer.from(bytes),
+                contentType: file.contentType,
+                cid: file.contentId,
+                contentDisposition: file.contentId ? 'inline' : 'attachment',
+            }))
+        }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
 
@@ -1239,41 +1448,47 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false,
-        queueWait?: EmailQueueWait
-    ): Promise<void> {
+        queueWait?: EmailQueueWait,
+        files: LoadedAttachment[] = [],
+        deadline?: AbortSignal
+    ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
+        }
+        if (!trackingEnabled && !this.sesConfig.sesUntrackedConfigurationSet) {
+            throw new Error(
+                'Email not sent: tracking is off, but SES_UNTRACKED_CONFIGURATION_SET is empty. Set it to the SES configuration set without open and click tracking.'
+            )
         }
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const workflowVersion = resolveEmailSendingVersion(result.invocation)
+        const workflowVersion = result.invocation.state.renderedWorkflowVersion
         const trackingCode = this.trackingCodeSigner.generate(
             { ...result.invocation, distinctId, workflowVersion },
             isTest
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
-        const htmlBody = params.html
-            ? {
-                  Html: {
-                      Data: maybeAddPreheaderToEmail(
-                          trackingEnabled
-                              ? addTrackingToEmail(
-                                    params.html,
-                                    result.invocation,
-                                    this.trackingCodeSigner,
-                                    isTest,
-                                    'ses'
-                                )
-                              : params.html,
-                          params.preheader
-                      ),
-                      Charset: 'UTF-8',
-                  },
-              }
-            : {}
+        const html = params.html
+            ? htmlForSes(
+                  params.html,
+                  trackingEnabled ? { invocation: result.invocation, signer: this.trackingCodeSigner, isTest } : null,
+                  params.preheader
+              )
+            : null
+        if (
+            files.length > 0 &&
+            estimateMessageBytes(
+                files.map(({ bytes }) => bytes.byteLength),
+                [html ?? '', params.text ?? ''],
+                sanitizeEmailSubject(params.subject)
+            ) > MESSAGE_MAX_BYTES
+        ) {
+            throw new MessageTooLargeError()
+        }
+        const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: formatMailbox(from.name, from.email),
@@ -1292,7 +1507,9 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: trackingEnabled
+                ? this.sesConfig.sesTrackedConfigurationSet
+                : this.sesConfig.sesUntrackedConfigurationSet,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
@@ -1301,7 +1518,14 @@ export class EmailService {
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
-                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    ? [
+                          { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
+                          ...(this.templateTagsTeams(result.invocation.teamId)
+                              ? transactionalEmailIdentityTags(
+                                    params.template ?? result.invocation.hogFunction?.metadata
+                                )
+                              : []),
+                      ]
                     : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
@@ -1334,6 +1558,16 @@ export class EmailService {
                   )
                 : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            if (files.length) {
+                sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({
+                    RawContent: bytes,
+                    FileName: file.filename,
+                    ContentType: file.contentType,
+                    ContentId: file.contentId,
+                    ContentDisposition: file.contentId ? 'INLINE' : 'ATTACHMENT',
+                    ContentTransferEncoding: 'BASE64',
+                }))
+            }
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)
@@ -1360,17 +1594,33 @@ export class EmailService {
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
 
+        const command = new SendEmailCommand(sendEmailParams)
+        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
         const sendStartedAt = performance.now()
         try {
-            const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
+            const response = deadline
+                ? await settleBeforeAbortEvenWhileCredentialsStall(
+                      deadline,
+                      this.sesV2Client.send(command, { abortSignal: deadline })
+                  )
+                : await this.sesV2Client.send(command)
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
             sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
+            return response.MessageId
         } catch (error: unknown) {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
+            if (deadline?.aborted) {
+                if (!anAttemptSesMayHaveAccepted()) {
+                    throw new EmailSendDeadlineError(error)
+                }
+                throw new Error(
+                    'Failed to send email via SES: SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
+                )
+            }
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
@@ -1384,10 +1634,16 @@ export class EmailService {
         recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>,
         source: PreferencesTokenSource | undefined
     ): MessageHeader[] {
+        const listUnsubscribe = (tokenSource: PreferencesTokenSource | undefined): string =>
+            `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, tokenSource)}>`
+        let listUnsubscribeValue = listUnsubscribe(source)
+        if (source && listUnsubscribeValue.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            listUnsubscribeValue = listUnsubscribe({ appSourceId: source.appSourceId, instanceId: source.instanceId })
+        }
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}>`,
+                Value: listUnsubscribeValue,
             },
             {
                 Name: 'List-Unsubscribe-Post',

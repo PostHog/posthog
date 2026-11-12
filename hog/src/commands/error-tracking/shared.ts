@@ -2,11 +2,13 @@ import type { OptionSpec } from '@/core/command'
 import { ARTIFACT_KINDS, type ArtifactKind } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import type { Output } from '@/core/output'
+import type { Output, Report } from '@/core/output'
 import { plural } from '@/core/text'
 import type { ErrorTrackingOptions, InjectedReport, UploadReport } from '@/error-tracking/run'
 
 // The options `inject`, `upload` and `process` share, and how their results look.
+
+export const UPLOAD_SCOPES = ['error_tracking:write']
 
 export const PATHS = {
     paths: {
@@ -169,19 +171,12 @@ export async function readOptions(options: RawOptions, ctx: Context): Promise<Er
     }
 }
 
-export function renderRelease(out: Output, release: UploadReport['release']): void {
-    if (release) {
-        out.line(`Release ${out.style(`${release.name}@${release.version}`, 'bold')}`)
-    }
+export function releaseLines(out: Output, release: UploadReport['release']): string[] {
+    return release ? [`Release ${out.style(`${release.name}@${release.version}`, 'bold')}`] : []
 }
 
-export function renderNotes(out: Output, report: Pick<UploadReport, 'skipped' | 'warnings'>): void {
-    for (const skip of report.skipped) {
-        out.line(out.style(`Skipped ${skip.path}: ${skip.reason}`, 'yellow'))
-    }
-    for (const warning of report.warnings) {
-        out.line(out.style(warning, 'yellow'))
-    }
+export function warningLines(report: Pick<UploadReport, 'skipped' | 'warnings'>): string[] {
+    return [...report.skipped.map((skip) => `Skipped ${skip.path}: ${skip.reason}`), ...report.warnings]
 }
 
 export function renderInjected(out: Output, injected: InjectedReport[]): void {
@@ -191,7 +186,34 @@ export function renderInjected(out: Output, injected: InjectedReport[]): void {
     )
 }
 
-export function renderUpload(out: Output, report: UploadReport): void {
+function uploadResult(report: UploadReport): Pick<Report, 'status' | 'result'> {
+    if (report.dryRun) {
+        return {
+            status: 'unchanged',
+            result: `Dry run: ${plural(report.symbolSets.length, 'symbol set')} would be uploaded. Nothing was sent`,
+        }
+    }
+
+    const uploaded = report.symbolSets.filter((set) => set.status === 'uploaded').length
+    const present = report.symbolSets.filter((set) => set.status === 'already_present').length
+    const tooLarge = report.symbolSets.filter((set) => set.status === 'too_large').length
+    const unusable = report.skipped.filter((skip) => !skip.intended).length
+    return {
+        status: tooLarge > 0 || unusable > 0 ? 'partial' : uploaded === 0 ? 'unchanged' : 'done',
+        result: `Uploaded ${plural(uploaded, 'symbol set')}, ${present} already present${tooLarge ? `, ${tooLarge} too large` : ''}${unusable ? `, ${unusable} skipped` : ''}`,
+    }
+}
+
+// `effects` holds what the command did before the upload, such as injecting chunk IDs.
+export function renderUpload(out: Output, report: UploadReport, effects: readonly string[] = []): void {
+    out.report({
+        ...uploadResult(report),
+        effects: [
+            ...releaseLines(out, report.release),
+            ...effects,
+            ...report.deletedMaps.map((path) => `Deleted ${path}`),
+        ],
+    })
     if (report.symbolSets.length > 0) {
         out.table(
             [
@@ -204,19 +226,5 @@ export function renderUpload(out: Output, report: UploadReport): void {
             report.symbolSets.map((set) => [set.path, set.kind, set.chunkId, set.size, set.status.replace('_', ' ')])
         )
     }
-    for (const path of report.deletedMaps) {
-        out.line(out.style(`Deleted ${path}`, 'dim'))
-    }
-    renderNotes(out, report)
-    const uploaded = report.symbolSets.filter((set) => set.status === 'uploaded').length
-    const present = report.symbolSets.filter((set) => set.status === 'already_present').length
-    const tooLarge = report.symbolSets.filter((set) => set.status === 'too_large').length
-    out.line(
-        out.style(
-            report.dryRun
-                ? `Dry run: ${plural(report.symbolSets.length, 'symbol set')} would be uploaded. Nothing was sent.`
-                : `${plural(uploaded, 'symbol set')} uploaded, ${present} already present${tooLarge ? `, ${tooLarge} too large` : ''}.`,
-            'dim'
-        )
-    )
+    out.notes({ warnings: warningLines(report) })
 }

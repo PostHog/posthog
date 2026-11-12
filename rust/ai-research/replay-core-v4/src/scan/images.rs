@@ -122,10 +122,11 @@ impl<'k> ImageSink<'k> {
         if bytes.len() > self.limits.max_image_bytes {
             return Err(ImageDecline::OverLimit);
         }
-        if is_avif_header(&bytes) {
-            return Err(ImageDecline::Avif);
-        }
-        let mime = raster_type(&bytes).ok_or(ImageDecline::Unsupported)?;
+        let mime = match avif_header(&bytes) {
+            Some(AvifHeader::Still) => "image/avif",
+            Some(AvifHeader::NotStill) => return Err(ImageDecline::Avif),
+            None => raster_type(&bytes).ok_or(ImageDecline::Unsupported)?,
+        };
         let reference = image_ref(
             self.team_id,
             self.key_month,
@@ -151,7 +152,7 @@ impl<'k> ImageSink<'k> {
     }
 }
 
-/// The raster format of the bytes, by its signature: PNG, JPEG, GIF or WebP, the formats the image fetcher also stores.
+/// The raster format of the bytes, by its signature: PNG, JPEG, GIF or WebP.
 fn raster_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("image/png")
@@ -265,22 +266,35 @@ enum DataUri {
     Replaced { replacement: String, end: usize },
 }
 
-/// The longest `ftyp` box the scan reads for its brands. Real files list a handful of brands in far fewer bytes.
+/// The longest `ftyp` box the scan reads for its brands. A longer AVIF box is not still, so that no brand past the limit can hide an animation.
 const MAX_FTYP_BYTES: usize = 256;
 
-/// Whether the bytes start with an ISO-BMFF `ftyp` box that names an AVIF brand, as its major brand or as one of its
-/// compatible brands.
-fn is_avif_header(bytes: &[u8]) -> bool {
+enum AvifHeader {
+    /// The only AVIF the image scrub decodes.
+    Still,
+    NotStill,
+}
+
+fn avif_header(bytes: &[u8]) -> Option<AvifHeader> {
     if bytes.get(4..8) != Some(b"ftyp") {
-        return false;
+        return None;
     }
     let size = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
     let ftyp = &bytes[..size.clamp(8, MAX_FTYP_BYTES).min(bytes.len())];
-    let is_avif = |brand: &[u8]| matches!(brand, b"avif" | b"avis");
-    ftyp.get(8..12).is_some_and(is_avif)
-        || ftyp
-            .get(16..)
-            .is_some_and(|brands| brands.chunks_exact(4).any(is_avif))
+    let major = ftyp.get(8..12)?;
+    let compatible = ftyp.get(16..).unwrap_or_default().chunks_exact(4);
+    let mut brands = std::iter::once(major).chain(compatible);
+    if !brands
+        .clone()
+        .any(|brand| matches!(brand, b"avif" | b"avis"))
+    {
+        return None;
+    }
+    if major == b"avif" && size <= MAX_FTYP_BYTES && !brands.any(|brand| brand == b"avis") {
+        Some(AvifHeader::Still)
+    } else {
+        Some(AvifHeader::NotStill)
+    }
 }
 
 /// Where a base64 payload that `continues_past` its first break really ends: after the line breaks, whitespace and
@@ -539,7 +553,6 @@ fn read_data_uri(
             memchr::memchr(b'#', &bytes[payload_start..end]).map_or(end, |at| payload_start + at);
         let replacement = match &bytes[payload_start..payload_end] {
             [] => return DataUri::NotImage,
-            _ if subtype.starts_with("avif") => sink.decline(ImageDecline::Avif),
             raw => match percent_decoded(raw) {
                 Some(image) => sink.take(image),
                 None => sink.decline(ImageDecline::Undecodable),
@@ -556,10 +569,7 @@ fn read_data_uri(
     if payload_end == payload_start {
         return DataUri::NotImage;
     }
-    // The label or the bytes can name AVIF, so both count.
-    let replacement = if subtype.starts_with("avif") {
-        sink.decline(ImageDecline::Avif)
-    } else if !readable {
+    let replacement = if !readable {
         sink.decline(ImageDecline::Undecodable)
     } else if payload_end == run_end {
         sink.take_base64(&bytes[payload_start..payload_end])
@@ -1169,43 +1179,107 @@ mod tests {
     }
 
     #[test]
-    fn replaces_every_avif_data_uri_with_the_marker() {
-        let marker = ImageDecline::Avif.marker();
-        let avif = STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf");
-        // AVIF as a compatible brand only, under the major brand `mif1`.
-        let compatible = STANDARD.encode(b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00miafavif");
-        for uri in [
-            format!("data:image/png;base64,{compatible}"),
-            // A break inside the header under another label.
-            format!("data:image/png;base64,{}\\n{}", &avif[..8], &avif[8..]),
-            format!("data:image/avif;base64,{avif}"),
-            // The bytes name AVIF under another label.
-            format!("data:image/png;base64,{avif}"),
-            // A line-wrapped payload is cut out whole.
-            format!("data:image/avif;base64,{}\\n{}", &avif[..16], &avif[16..]),
-        ] {
-            let event = format!(r#"{{"src":"{uri}","alt":"x"}}"#);
-            let mut images = sink(ImageLimits::default());
-            let out = extract_images(event.as_bytes(), &mut images);
-            assert_eq!(
-                String::from_utf8_lossy(&out),
-                format!(r#"{{"src":"{marker}","alt":"x"}}"#),
-                "{uri}"
-            );
-            assert_eq!(
-                (images.images.len(), images.declined),
-                (0, declined(ImageDecline::Avif)),
-                "{uri}"
-            );
+    fn stores_a_still_avif_and_declines_every_other_avif() {
+        let brands_past_the_scan = [
+            b"\x00\x00\x01\x04ftypavif\x00\x00\x00\x00".as_slice(),
+            &b"mif1".repeat(60),
+            b"avis",
+        ]
+        .concat();
+        let cases: [(&str, &[u8], bool); 6] = [
+            (
+                "animation brand past the scan",
+                &brands_past_the_scan,
+                false,
+            ),
+            (
+                "still",
+                b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
+                true,
+            ),
+            (
+                "still without compatible brands",
+                b"\x00\x00\x00\x10ftypavif\x00\x00\x00\x00",
+                true,
+            ),
+            (
+                "animation",
+                b"\x00\x00\x00\x20ftypavis\x00\x00\x00\x00avisavifmif1msf1",
+                false,
+            ),
+            (
+                "compatible brand only",
+                b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00miafavif",
+                false,
+            ),
+            (
+                "still brand beside an animation brand",
+                b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifavis",
+                false,
+            ),
+        ];
+        for (case, header, stored) in cases {
+            let payload = STANDARD.encode(header);
+            for (event, expected) in [
+                (
+                    format!(r#"{{"src":"data:image/avif;base64,{payload}"}}"#),
+                    r#"{"src":"@"}"#,
+                ),
+                (
+                    format!(r#"{{"src":"data:image/png;base64,{payload}"}}"#),
+                    r#"{"src":"@"}"#,
+                ),
+                // A line-wrapped payload is cut out whole, with the break in the `ftyp` box or after it.
+                (
+                    format!(
+                        r#"{{"src":"data:image/png;base64,{}\n{}"}}"#,
+                        &payload[..8],
+                        &payload[8..]
+                    ),
+                    r#"{"src":"@"}"#,
+                ),
+                (
+                    format!(
+                        r#"{{"src":"data:image/avif;base64,{}\n{}"}}"#,
+                        &payload[..16],
+                        &payload[16..]
+                    ),
+                    r#"{"src":"@"}"#,
+                ),
+                // A short, padded payload before a srcset descriptor.
+                (
+                    format!(r#"{{"srcset":"data:image/png;base64,{payload} 100w"}}"#),
+                    r#"{"srcset":"@ 100w"}"#,
+                ),
+            ] {
+                let mut images = sink(ImageLimits::default());
+                let out = extract_images(event.as_bytes(), &mut images);
+                let replacement = match images.images.as_slice() {
+                    [image] if stored => {
+                        assert_eq!(
+                            (image.mime.as_str(), image.bytes.as_slice()),
+                            ("image/avif", header),
+                            "{case}: {event}"
+                        );
+                        image.reference.clone()
+                    }
+                    [] if !stored => {
+                        assert_eq!(
+                            images.declined,
+                            declined(ImageDecline::Avif),
+                            "{case}: {event}"
+                        );
+                        ImageDecline::Avif.marker().to_owned()
+                    }
+                    other => panic!("{case}: {event} stored {} images", other.len()),
+                };
+                assert_eq!(
+                    String::from_utf8_lossy(&out),
+                    expected.replace('@', &replacement),
+                    "{case}: {event}"
+                );
+            }
         }
-        // A short, padded payload before a srcset descriptor, under another label.
-        let event = format!(r#"{{"srcset":"data:image/png;base64,{avif} 100w"}}"#);
-        let mut images = sink(ImageLimits::default());
-        let out = extract_images(event.as_bytes(), &mut images);
-        assert_eq!(
-            String::from_utf8_lossy(&out),
-            format!(r#"{{"srcset":"{marker} 100w"}}"#)
-        );
     }
 
     #[test]

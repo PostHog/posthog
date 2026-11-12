@@ -1149,8 +1149,8 @@ tools:
         title: Create shared experiment metric
         description: >
             Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query
-            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention'). Optional: description,
-            tags.
+            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention', 'quantile'). Optional:
+            description, tags.
 
 
             Load the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to

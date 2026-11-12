@@ -11,7 +11,7 @@ from posthog.schema import ActionsNode, EventsNode
 
 from posthog.models import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.metric_events import (
     MetricHit,
     MetricSourceRole,
@@ -174,9 +174,9 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         assert sources[0].metric_name == expected_title
 
     def test_resolves_action_source(self) -> None:
-        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
         experiment = self._experiment(
-            metrics=[_metric("mean", source={"kind": "ActionsNode", "id": action.pk})],
+            metrics=[_metric("mean", source={"kind": "ActionsNode", "id": action.id})],
         )
 
         sources = resolve_metric_events(experiment)
@@ -185,7 +185,7 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         assert len(sources[0].sources) == 1
         node = sources[0].sources[0].node
         assert isinstance(node, ActionsNode)
-        assert int(node.id) == action.pk
+        assert int(node.id) == action.id
         assert sources[0].session_linkable is True
 
     def test_data_warehouse_only_metric_is_not_session_linkable(self) -> None:

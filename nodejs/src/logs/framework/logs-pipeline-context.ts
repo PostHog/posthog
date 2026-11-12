@@ -18,6 +18,7 @@ import { LOGS_DLQ_OUTPUT } from '../outputs/outputs'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { RETENTION_MONTH_DAYS } from '../retention/evaluate-retention'
 import type { LogsSamplingService } from '../sampling/logs-sampling.service'
+import type { SamplingRuleSource } from '../sampling/sampling-rules-cache'
 import type { LogsRateLimiterService } from '../services/logs-rate-limiter.service'
 import type { LogsIngestionMessage } from '../types'
 
@@ -30,6 +31,7 @@ export type LogsConsumerIdentity = {
     quotaResource: QuotaResource
     metricRuleSource: MetricRuleSource
     retentionRuleSource: RetentionRuleSource
+    samplingRuleSource: SamplingRuleSource
 }
 
 export type LogsFeatureGates = {
@@ -117,11 +119,11 @@ export type LogsPipelineContext = {
 
 /** Transformations write hog_function logs, which could come back here as internal logs and loop. */
 export function appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-    return message.internalLogs?.teamRules ?? true
+    return message.verifiedAsInternalLogs?.teamRules ?? true
 }
 
 export function isUnbilledInternal(message: LogsIngestionMessage): boolean {
-    return message.internalLogs !== undefined && !message.internalLogs.billed
+    return message.verifiedAsInternalLogs !== undefined && !message.verifiedAsInternalLogs.billed
 }
 
 /** A failed batch replays in full and the logs table has no dedupe, so each retry here avoids duplicates. */

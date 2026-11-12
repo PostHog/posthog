@@ -9,8 +9,14 @@
                 "backend/hogql_queries/**",
                 "backend/tasks/**",
                 "backend/temporal/**",
+                "backend/dashboard_import/receivers.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/alerts/registration.py",
+                "backend/alerts/wording.py",
+                "backend/apps.py",
+                "backend/task_profiles.py"
             ],
             "outputs": [],
             "cache": true

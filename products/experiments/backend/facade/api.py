@@ -25,14 +25,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
-from products.experiments.backend.health.loader import load_experiment_health_context, load_experiment_health_inputs
-from products.experiments.backend.health.registry import (
-    EXPERIMENT_HEALTH_CHECKS,
-    evaluate as evaluate_health,
-)
+from products.experiments.backend.health.loader import evaluate_experiment_health, load_experiment_health_inputs
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
@@ -187,12 +184,11 @@ def get_experiment_health(
     *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
-    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows. The
-    metric queries compile with `user`'s warehouse access."""
-    context = load_experiment_health_context(
+    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows, and the
+    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access."""
+    return evaluate_experiment_health(
         team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
     )
-    return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 
 
 def get_experiment_health_inputs(
@@ -323,6 +319,37 @@ def list_running_experiments(
         for id, name, started_at, flag_key, exposure_criteria in rows
         if _exposes_on_flag_calls(id, exposure_criteria)
     ]
+
+
+def list_own_running_experiments(*, team_id: int, user_id: int, limit: int) -> list[RunningExperiment]:
+    rows = (
+        ExperimentModel.objects.filter(
+            team_id=team_id, created_by_id=user_id, start_date__isnull=False, end_date__isnull=True, archived=False
+        )
+        .exclude(deleted=True)
+        .order_by("-start_date")
+        .values_list("id", "name", "start_date", "feature_flag__key")[:limit]
+    )
+    return [
+        RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
+        for id, name, started_at, flag_key in rows
+    ]
+
+
+def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collection[int]) -> dict[int, str]:
+    rows = list(
+        ExperimentModel.objects.filter(team_id=team.id, id__in=experiment_ids)
+        .exclude(deleted=True)
+        .values_list("id", "name", "team_id", "created_by_id")
+    )
+    denied = set(
+        UserAccessControl(user=user, team=team, organization_id=str(team.organization_id)).denied_object_ids(
+            "experiment",
+            ((str(id), team_id, created_by_id) for id, _name, team_id, created_by_id in rows),
+            "viewer",
+        )
+    )
+    return {id: name for id, name, _team_id, _created_by_id in rows if str(id) not in denied}
 
 
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:
@@ -514,13 +541,7 @@ def _connected_cleanup_repository(team: Team, repository: str | None) -> str | N
     repository = repository.lower()
     # Reject repos outside the team's GitHub installation now rather than storing a
     # default the cleanup resolution would silently ignore.
-    github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
-    cached = {
-        full_name.lower()
-        for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
-        if (full_name := repo.get("full_name"))
-    }
-    if repository not in cached:
+    if repository not in (tasks_repo_selection.team_repository_names(team.id, team=team) or {}):
         raise ExperimentValidationError(
             "This repository is not connected to the project's GitHub integration.", field="flag_cleanup_repository"
         )

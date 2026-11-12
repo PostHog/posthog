@@ -78,7 +78,7 @@ async function buildRecordsTransform(
     if (!(await transformer.teamHasTransformations(message.teamId))) {
         return undefined
     }
-    return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+    return (records) => transformer.transformRecords(message.teamId, records, batchBudget, message.sentAsInternalLogs)
 }
 
 export async function resolveLogBuffer(
@@ -94,7 +94,7 @@ export async function resolveLogBuffer(
     const samplingEvalEnabled = isSamplingEvalEnabledForTeam(context, message.teamId)
     let ruleSet: CompiledRuleSet | null = null
     if (samplingCache && samplingEvalEnabled && appliesTeamLogRules(message)) {
-        ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+        ruleSet = await samplingCache.getCompiledRuleSet(message.teamId, context.identity.samplingRuleSource)
     }
     const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
     const recordsTransform = await buildRecordsTransform(context, message, batchBudget)
@@ -117,7 +117,7 @@ export async function resolveLogBuffer(
         stages.push(makeTransformStage(recordsTransform))
     }
     let shortestRetentionDays =
-        message.internalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+        message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
     if (useRetention && retentionRuleSet) {
         stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         shortestRetentionDays = Math.min(

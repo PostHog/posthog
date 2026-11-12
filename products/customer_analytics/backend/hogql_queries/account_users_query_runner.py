@@ -1,3 +1,5 @@
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import cast
 
 from django.conf import settings
@@ -7,6 +9,7 @@ from posthog.schema import AccountUsersQuery, ActorsQuery, HogQLQueryResponse
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import LazyTableToAdd
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import QueryError
@@ -24,6 +27,7 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.customer_analytics.backend.hogql_queries.account_persons_catalog import AccountPersonsCatalog
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 
 
@@ -35,6 +39,14 @@ class AccountUsersStrategy(PersonStrategy):
             paginator=self.paginator,
             query=self.query.model_copy(update={"search": None}),
         ).filter_conditions()
+        # Live ingestion admits any profile-backed event, so anonymous persons are dropped here.
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["persons", "is_identified"]),
+                right=ast.Constant(value=True),
+            )
+        )
         if self.query.search and self.query.search.strip():
             source = self.query.source
             assert isinstance(source, AccountUsersQuery)
@@ -78,6 +90,40 @@ class AccountUsersMembershipReferences(TraversingVisitor):
 
 class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: AccountUsersQuery
+    _catalog: AccountPersonsCatalog | None = None
+
+    @contextmanager
+    def catalog_context(self, query: ActorsQuery, *, track_catalog: bool = True) -> Iterator[None]:
+        self._catalog = None
+        try:
+            self.validate_actors_query(query)
+            if not isinstance(self.user, User):
+                yield
+                return
+            self._catalog = AccountPersonsCatalog(self.team, self.user)
+            with self._catalog.run(track=track_catalog):
+                yield
+        finally:
+            self._catalog = None
+
+    def set_catalog_result(self, response: object) -> None:
+        if self._catalog is not None:
+            self._catalog.cache_hit = bool(getattr(response, "is_cached", False))
+            self._catalog.failed = bool(getattr(response, "error", None))
+
+    def get_catalog_database(self, build_full_database: Callable[[], Database]) -> Database:
+        if self._catalog is None:
+            return build_full_database()
+        return self._catalog.get_database(
+            build_full_database,
+            modifiers=self.modifiers,
+            timings=self.timings,
+            user_access_control=self.user_access_control,
+        )
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self._catalog = None
 
     def validate_execution_mode(self, execution_mode: ExecutionMode) -> None:
         if execution_mode not in {
@@ -105,7 +151,10 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             reader = self.get_reader()
         except UserAccessControlError:
             return "denied"
-        return reader.get_access_key()
+        access_key = reader.get_access_key()
+        if self._catalog is not None and self._catalog.variant is not None:
+            return f"{access_key}:catalog-{self._catalog.variant}"
+        return access_key
 
     def to_query(self) -> ast.SelectQuery:
         self.modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
@@ -163,10 +212,11 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return AccountUsersStrategy(team=self.team, query=query, paginator=paginator, user=self.user)
 
     def validate_actors_query(self, query: ActorsQuery) -> None:
-        if not query.select or any(
-            column.strip() in {"person", "group", "actor", "session"} for column in query.select
-        ):
-            raise QueryError("Select explicit person columns for account users.")
+        if not AccountPersonsCatalog.supports_query(query, self.team):
+            raise QueryError(
+                "Select person properties or supported person and membership columns. "
+                "Use person-property filters and remove unsupported query modifiers."
+            )
 
     def get_person_display_name_column(self) -> ast.Expr:
         reader = self.get_reader()

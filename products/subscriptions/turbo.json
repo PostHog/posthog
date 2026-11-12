@@ -6,11 +6,14 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/integration_hooks.py",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/temporal/**",
                 "!backend/temporal/**/test_*.py",
-                "!backend/temporal/**/test/**"
+                "!backend/temporal/**/test/**",
+                "backend/scopes.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

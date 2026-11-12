@@ -24,6 +24,10 @@ const METADATA_KEY_RE = /^metadata:\s*(#.*)?$/;
 const SOURCE_VALUE_RE = new RegExp(
   `^source:\\s*['"]?${STORE_SKILL_SOURCE}['"]?\\s*(#.*)?$`,
 );
+// The bridge also carries the store marker, so pruning and replacement treat it as a stub.
+const BRIDGE_ROLE_VALUE_RE = /^role:\s*['"]?bridge['"]?\s*(#.*)?$/;
+
+export const STORE_BRIDGE_SKILL_NAME = "phs";
 
 // The shape half of the store's skill-name contract (skill_name_is_well_formed
 // in products/skills/backend/api/skill_services.py). A name is also a directory
@@ -34,6 +38,8 @@ const MAX_SKILL_NAME_LENGTH = 64;
 export interface StoreSkillsInstallResult {
   /** Skill names written to at least one skill root. */
   installed: string[];
+  /** True when the bridge was written to at least one skill root. */
+  bridge: boolean;
   /** Skill names left alone because a non-store skill of that name is already on disk. */
   collisions: string[];
   /** Stubs from an earlier install that are not in this list, removed from at least one root. */
@@ -49,6 +55,17 @@ export interface StoreSkillsInstallError {
   skillName: string | null;
   message: string;
 }
+
+export interface StoreSkillsListing {
+  /** Stubs for the user's own store skills. The bridge is not one of them. */
+  installedCount: number;
+  bridge: boolean;
+}
+
+export const NO_STORE_SKILLS: StoreSkillsListing = {
+  installedCount: 0,
+  bridge: false,
+};
 
 export interface StoreSkillRootsOptions {
   home?: string;
@@ -103,6 +120,43 @@ export function renderStoreSkillStub(stub: StoreSkillStub): string {
   ].join("\n");
 }
 
+/** Reads and runs skills only, because a `read_only` run cannot write to the store. */
+export function renderStoreBridgeSkill(): string {
+  const name = STORE_BRIDGE_SKILL_NAME;
+  const description =
+    "Run any skill from the PostHog skills store by name, including a teammate's skill that is not installed here. " +
+    `Use when the user types /${name} <skill-name> [arguments], asks to run a store skill that is not installed, or asks which store skills exist.`;
+  return [
+    "---",
+    `name: ${name}`,
+    `description: ${JSON.stringify(description)}`,
+    "metadata:",
+    `  source: ${STORE_SKILL_SOURCE}`,
+    "  role: bridge",
+    "---",
+    "",
+    "This skill runs skills from the PostHog skills store. It only reads and runs them. To create, edit or publish a skill, follow the `skills-store` guidance instead.",
+    "",
+    `Read the text the user gave after \`${name}\`. The first word selects what to do, and the rest is the arguments. Run every call below with the PostHog MCP \`exec\` tool.`,
+    "",
+    "## List skills",
+    "",
+    'When there is no text, or the first word is `list`, run `call skill-list {}`. When a keyword follows `list`, run `call skill-list {"search": "<keyword>"}` instead. Show each skill\'s name and description, then stop.',
+    "",
+    "## Run a skill",
+    "",
+    "Otherwise the first word is the name of the skill to run.",
+    "",
+    '1. Run `call skill-get {"skill_name": "<name>"}`. Note the `version` in the response and pass it to every later call for this skill, so a publish in the meantime cannot mix two versions.',
+    '2. If the response has a non-null `body_next_offset`, call `skill-get` again with `"version"` set to that version and `"body_offset"` set to `body_next_offset`, and append the returned `body`. Repeat until `body_next_offset` is null.',
+    "3. Follow the complete `body` as the instructions for this task, with the rest of the user's text as its arguments.",
+    '4. When the body references a bundled file, fetch it with `call skill-file-get {"skill_name": "<name>", "file_path": "<path>", "version": <version>}` only when you need it.',
+    "",
+    'If `skill-get` finds no skill with that name, run `call skill-list {"search": "<name>"}` and show the closest matches. Never improvise a skill you could not fetch.',
+    "",
+  ].join("\n");
+}
+
 export interface StoreSkillsLogger {
   info(message: string, data?: unknown): void;
   warn(message: string, data?: unknown): void;
@@ -114,34 +168,36 @@ export interface StoreSkillsSyncContext {
 }
 
 /**
- * Bring the skill roots in line with a run's `store_skills` and return how
- * many stubs the harness will list. Shared by every agent server so a runtime
- * cannot drift from the others. Never throws: a run without store skills is
- * the normal case, and a broken root must not stop the session.
+ * Bring the skill roots in line with a run's `store_skills` and
+ * `store_skills_bridge`, and return what the harness will list. Shared by
+ * every agent server so a runtime cannot drift from the others. Never throws:
+ * a run without store skills is the normal case, and a broken root must not
+ * stop the session.
  *
- * A null run state says nothing about access, so stubs from an earlier
- * session stay and still count: the harness lists them, so the pointer
- * instructions must stay in the prompt too.
+ * A null run state says nothing about access, so stubs and the bridge from an
+ * earlier session stay and still count: the harness lists them, so the
+ * pointer instructions must stay in the prompt too.
  */
 export async function syncStoreSkills(
   runState: TaskRunState | null | undefined,
   context: StoreSkillsSyncContext,
   logger: StoreSkillsLogger,
   roots: string[] = getStoreSkillRoots(),
-): Promise<number> {
+): Promise<StoreSkillsListing> {
   try {
     if (runState === null || runState === undefined) {
-      const retained = await listStoreSkillStubs(roots);
-      if (retained.length > 0) {
+      const retained = await readStoreListing(roots);
+      if (retained.names.length > 0 || retained.bridge) {
         logger.warn(
           "Run context unavailable, keeping earlier skills store stubs",
-          { ...context, retained },
+          { ...context, retained: retained.names, bridge: retained.bridge },
         );
       }
-      return retained.length;
+      return { installedCount: retained.names.length, bridge: retained.bridge };
     }
     const stubs = runState.store_skills ?? [];
-    if (stubs.length === 0) {
+    const bridge = runState.store_skills_bridge === true;
+    if (stubs.length === 0 && !bridge) {
       const cleanup = await removeStoreSkillStubs(roots);
       if (cleanup.removed.length > 0 || cleanup.errors.length > 0) {
         logger.info("Removed stale skills store stubs", {
@@ -150,23 +206,31 @@ export async function syncStoreSkills(
           errors: cleanup.errors,
         });
       }
-      return 0;
+      return NO_STORE_SKILLS;
     }
-    const install = await installStoreSkillStubs(stubs, roots);
+    const install = await installStoreSkillStubs(stubs, roots, { bridge });
     logger.info("Installed skills store stubs", {
       ...context,
       listed: stubs.length,
       installed: install.installed,
+      bridge: install.bridge,
       collisions: install.collisions,
       removed: install.removed,
       rejected: install.rejected,
       errors: install.errors,
     });
-    return install.installed.length;
+    return {
+      installedCount: install.installed.length,
+      bridge: install.bridge,
+    };
   } catch (error) {
     logger.warn("Skills store install failed", { ...context, error });
-    return 0;
+    return NO_STORE_SKILLS;
   }
+}
+
+export interface InstallStoreSkillStubsOptions {
+  bridge?: boolean;
 }
 
 /**
@@ -179,16 +243,27 @@ export async function syncStoreSkills(
  *
  * Each root is handled on its own: a read-only or missing root is reported in
  * `errors` and the other roots still get their stubs.
+ *
+ * The bridge follows the same rules, so it never replaces a non-store skill
+ * named `phs`, and a team skill of that name in `stubs` replaces it.
  */
 export async function installStoreSkillStubs(
   stubs: readonly StoreSkillStub[],
   skillRoots: string[],
+  options: InstallStoreSkillStubsOptions = {},
 ): Promise<StoreSkillsInstallResult> {
   const { skills, rejected } = selectInstallable(stubs);
+  const wantBridge =
+    options.bridge === true && !skills.has(STORE_BRIDGE_SKILL_NAME);
+  const keep = new Set<string>(skills.keys());
+  if (wantBridge) {
+    keep.add(STORE_BRIDGE_SKILL_NAME);
+  }
   const written = new Set<string>();
   const collided = new Set<string>();
   const removed = new Set<string>();
   const errors: StoreSkillsInstallError[] = [];
+  let bridgeWritten = false;
 
   for (const root of skillRoots) {
     for (const [skillName, stub] of skills) {
@@ -198,13 +273,24 @@ export async function installStoreSkillStubs(
           collided.add(skillName);
           continue;
         }
-        await replaceStub(root, skillName, stub);
+        await replaceStub(root, skillName, renderStoreSkillStub(stub));
         written.add(skillName);
       } catch (error) {
         errors.push({ root, skillName, message: errorMessage(error) });
       }
     }
-    const pruned = await pruneStaleStubs(root, skills);
+    if (wantBridge) {
+      const skillName = STORE_BRIDGE_SKILL_NAME;
+      try {
+        if (await isReplaceable(join(root, skillName))) {
+          await replaceStub(root, skillName, renderStoreBridgeSkill());
+          bridgeWritten = true;
+        }
+      } catch (error) {
+        errors.push({ root, skillName, message: errorMessage(error) });
+      }
+    }
+    const pruned = await pruneStaleStubs(root, keep);
     for (const name of pruned.removed) {
       removed.add(name);
     }
@@ -213,6 +299,7 @@ export async function installStoreSkillStubs(
 
   return {
     installed: [...skills.keys()].filter((name) => written.has(name)),
+    bridge: bridgeWritten,
     collisions: [...skills.keys()].filter((name) => collided.has(name)),
     removed: [...removed].sort(),
     rejected,
@@ -221,8 +308,8 @@ export async function installStoreSkillStubs(
 }
 
 /**
- * Remove every stub the store wrote earlier. Used when the run lists no store
- * skills, so stale discovery does not outlive access.
+ * Remove every stub the store wrote earlier, the bridge included. Used when
+ * the run lists no store skills, so stale discovery does not outlive access.
  */
 export async function removeStoreSkillStubs(
   skillRoots: string[],
@@ -230,7 +317,7 @@ export async function removeStoreSkillStubs(
   const removed = new Set<string>();
   const errors: StoreSkillsInstallError[] = [];
   for (const root of skillRoots) {
-    const pruned = await pruneStaleStubs(root, new Map());
+    const pruned = await pruneStaleStubs(root, new Set());
     for (const name of pruned.removed) {
       removed.add(name);
     }
@@ -239,30 +326,54 @@ export async function removeStoreSkillStubs(
   return { removed: [...removed].sort(), errors };
 }
 
-/** Names of the store stubs on disk across the roots, for a session that keeps the previous install. */
+/** Names of the store stubs on disk across the roots, the bridge excluded, for a session that keeps the previous install. */
 export async function listStoreSkillStubs(
   skillRoots: string[],
 ): Promise<string[]> {
+  return (await readStoreListing(skillRoots)).names;
+}
+
+async function readStoreListing(
+  skillRoots: string[],
+): Promise<{ names: string[]; bridge: boolean }> {
   const names = new Set<string>();
+  let bridge = false;
   for (const root of skillRoots) {
     try {
-      for (const name of await listStoreStubs(root)) {
-        names.add(name);
+      for (const stub of await listStoreStubs(root)) {
+        if (stub.bridge) {
+          bridge = true;
+        } else {
+          names.add(stub.name);
+        }
       }
     } catch {
       // A root that cannot be read has no stubs to report.
     }
   }
-  return [...names].sort();
+  return { names: [...names].sort(), bridge };
 }
 
-export function buildStoreSkillsInstructions(installedCount: number): string {
-  if (installedCount === 0) {
+export function buildStoreSkillsInstructions(
+  listing: StoreSkillsListing,
+): string {
+  const sections: string[] = [];
+  if (listing.installedCount > 0) {
+    sections.push(
+      `${listing.installedCount} of the user's skills from the PostHog skills store are installed as local skills. Each one's SKILL.md is a pointer, not the skill: when you invoke one, follow the pointer and fetch the skill body with the PostHog MCP \`skill-get\` tool before you act. Never improvise the skill from the pointer text.`,
+    );
+  }
+  if (listing.bridge) {
+    sections.push(
+      `To run a store skill that is not installed here, such as a teammate's, use the \`${STORE_BRIDGE_SKILL_NAME}\` skill: \`/${STORE_BRIDGE_SKILL_NAME} <skill-name> [arguments]\` runs it, and \`/${STORE_BRIDGE_SKILL_NAME} list [keyword]\` lists the store.`,
+    );
+  }
+  if (sections.length === 0) {
     return "";
   }
   return `
 ## Skills from the PostHog skills store
-${installedCount} of the user's skills from the PostHog skills store are installed as local skills. Each one's SKILL.md is a pointer, not the skill: when you invoke one, follow the pointer and fetch the skill body with the PostHog MCP \`skill-get\` tool before you act. Never improvise the skill from the pointer text.`;
+${sections.join("\n")}`;
 }
 
 function selectInstallable(stubs: readonly StoreSkillStub[]): {
@@ -304,7 +415,7 @@ function isWellFormedSkillName(name: string): boolean {
 async function replaceStub(
   root: string,
   skillName: string,
-  stub: StoreSkillStub,
+  skillMd: string,
 ): Promise<void> {
   const skillDir = join(root, skillName);
   // Dot-prefixed, so a harness that scans the root for skills skips it while it is being written.
@@ -312,7 +423,7 @@ async function replaceStub(
   try {
     await rm(stagingDir, { recursive: true, force: true });
     await mkdir(stagingDir, { recursive: true });
-    await writeFile(join(stagingDir, "SKILL.md"), renderStoreSkillStub(stub));
+    await writeFile(join(stagingDir, "SKILL.md"), skillMd);
     await rm(skillDir, { recursive: true, force: true });
     await rename(stagingDir, skillDir);
   } catch (error) {
@@ -328,13 +439,15 @@ async function replaceStub(
  */
 async function pruneStaleStubs(
   root: string,
-  keep: ReadonlyMap<string, unknown>,
+  keep: ReadonlySet<string>,
 ): Promise<Pick<StoreSkillsInstallResult, "removed" | "errors">> {
   const removed: string[] = [];
   const errors: StoreSkillsInstallError[] = [];
   let stale: string[];
   try {
-    stale = (await listStoreStubs(root)).filter((name) => !keep.has(name));
+    stale = (await listStoreStubs(root))
+      .map((stub) => stub.name)
+      .filter((name) => !keep.has(name));
   } catch (error) {
     return {
       removed,
@@ -352,8 +465,10 @@ async function pruneStaleStubs(
   return { removed, errors };
 }
 
-/** Names of the directories under `root` whose SKILL.md carries the store marker. */
-async function listStoreStubs(root: string): Promise<string[]> {
+/** The directories under `root` whose SKILL.md carries the store marker. */
+async function listStoreStubs(
+  root: string,
+): Promise<{ name: string; bridge: boolean }[]> {
   const entries = await readdir(root, { withFileTypes: true }).catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
@@ -362,13 +477,20 @@ async function listStoreStubs(root: string): Promise<string[]> {
       throw error;
     },
   );
-  const names: string[] = [];
+  const stubs: { name: string; bridge: boolean }[] = [];
   for (const entry of entries) {
-    if (entry.isDirectory() && (await isStoreStub(join(root, entry.name)))) {
-      names.push(entry.name);
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const skillMd = await readSkillMd(join(root, entry.name));
+    if (skillMd !== null && hasStoreMarker(skillMd)) {
+      stubs.push({
+        name: entry.name,
+        bridge: hasMetadataEntry(skillMd, BRIDGE_ROLE_VALUE_RE),
+      });
     }
   }
-  return names;
+  return stubs;
 }
 
 /**
@@ -403,6 +525,10 @@ function readSkillMd(skillDir: string): Promise<string | null> {
  * would be a dependency just for this check.
  */
 export function hasStoreMarker(skillMd: string): boolean {
+  return hasMetadataEntry(skillMd, SOURCE_VALUE_RE);
+}
+
+function hasMetadataEntry(skillMd: string, entryRe: RegExp): boolean {
   const frontmatter = FRONTMATTER_RE.exec(skillMd)?.[1];
   if (frontmatter === undefined) {
     return false;
@@ -422,7 +548,7 @@ export function hasStoreMarker(skillMd: string): boolean {
       return false;
     }
     blockIndent ??= indent;
-    if (indent === blockIndent && SOURCE_VALUE_RE.test(line.trim())) {
+    if (indent === blockIndent && entryRe.test(line.trim())) {
       return true;
     }
   }

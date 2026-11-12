@@ -132,3 +132,47 @@ class MetricsDashboardDiscovery(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team"], name="metrics_dash_discovery_unique_team")]
+
+
+class MetricDailyQueryCount(TeamScopedRootMixin, UUIDModel):
+    """How many queries read a metric of a team on one UTC day."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    metric_name = models.CharField(max_length=400)
+    date = models.DateField()
+    query_count = models.BigIntegerField(default=0)
+    last_queried_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "metric_name", "date"], name="metrics_daily_query_count_unique")
+        ]
+        indexes = [models.Index(fields=["team", "date"], name="metrics_dqc_team_date_idx")]
+
+
+class MetricRecordingRule(TeamScopedRootMixin, UUIDModel):
+    """A PromQL query evaluated every minute, whose result is written back into the team's metrics
+    under `metric_name`, like a Prometheus recording rule."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    # Immutable after create, because a new name starts a new series and orphans the old one.
+    metric_name = models.CharField(max_length=200)
+    query = models.TextField()
+    description = models.TextField(blank=True, default="")
+    enabled = models.BooleanField(default=True)
+    last_evaluated_at = models.DateTimeField(null=True, blank=True)
+    # When an evaluation last ran, whether or not it wrote. Scheduling goes by this, so a rule that keeps failing
+    # does not hold the front of the queue.
+    last_attempted_at = models.DateTimeField(null=True, blank=True)
+    last_series_count = models.IntegerField(null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "metric_name"], name="metrics_recording_rule_unique_name")
+        ]

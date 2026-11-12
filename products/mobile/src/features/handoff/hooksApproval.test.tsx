@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { getMyTaskConfig, type TaskUserConfigApi } from '@/api/tasks'
 import { fetchOrganization } from '@/api/users'
 import { useAuthStore } from '@/auth/authStore'
+import { ProjectScopeOverride } from '@/auth/projectScope'
 import { useDemoMode } from '@/demo/demoMode'
 import { cancelAiApproval, checkAiApproval, useAiApprovalStore } from '@/features/ai/aiApproval'
 import { aiConsentKey, useAiConsentStore, waitForAiConsent } from '@/features/chat/aiConsentStore'
@@ -45,14 +46,17 @@ function setRun(runId = 'run-1', requestId = 'request-1'): void {
     })
 }
 
-function setup(): {
+function setup(linkedProjectId?: number): {
     result: ReturnType<typeof renderHook<ReturnType<typeof useHandoffActions>, unknown>>['result']
     unmount: () => void
     clear: () => void
 } {
     const client = new QueryClient()
+    const override = linkedProjectId === undefined ? null : { host: HOST, projectId: linkedProjectId }
     const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        <QueryClientProvider client={client}>
+            <ProjectScopeOverride.Provider value={override}>{children}</ProjectScopeOverride.Provider>
+        </QueryClientProvider>
     )
     const hook = renderHook(() => useHandoffActions(REPORT), { wrapper })
     return { result: hook.result, unmount: hook.unmount, clear: () => client.clear() }
@@ -116,10 +120,50 @@ test.each(['run', 'question', 'project'] as const)(
     }
 )
 
+test('a report in another organization is handed off only when that organization approves AI', async () => {
+    useAiConsentStore.getState().accept(aiConsentKey(HOST, 'person-1'))
+    useAuthStore.setState({
+        organizations: [
+            { id: 'org-1', name: 'Example', aiDataProcessingApproved: true, membershipLevel: 1 },
+            { id: 'org-2', name: 'Other', aiDataProcessingApproved: false, membershipLevel: 1 },
+        ],
+        projects: [
+            { id: 7, name: 'Project', organizationId: 'org-1', organizationName: 'Example' },
+            { id: 9, name: 'Linked', organizationId: 'org-2', organizationName: 'Other' },
+        ],
+    })
+    jest.mocked(fetchOrganization).mockResolvedValue({
+        id: 'org-2',
+        name: 'Other',
+        teams: [{ id: 9, name: 'Linked' }],
+        is_ai_data_processing_approved: false,
+        membership_level: 1,
+    })
+    jest.mocked(kickOffReportTask).mockClear()
+    const hook = setup(9)
+    let pending!: Promise<void>
+    act(() => {
+        pending = hook.result.current.handOff.run()
+    })
+    await waitFor(() =>
+        expect(useAiApprovalStore.getState().request?.access).toMatchObject({
+            kind: 'org_blocked',
+            organizationName: 'Other',
+        })
+    )
+    await act(async () => {
+        cancelAiApproval()
+        await pending
+    })
+    expect(kickOffReportTask).not.toHaveBeenCalled()
+    hook.unmount()
+    hook.clear()
+})
+
 test('leaving the screen aborts an approved decision delivery', async () => {
     useAiConsentStore.getState().accept(aiConsentKey(HOST, 'person-1'))
     let signal: AbortSignal | undefined
-    jest.mocked(deliverPermissionResponse).mockImplementation((_run, _params, options) => {
+    jest.mocked(deliverPermissionResponse).mockImplementation((_scope, _run, _params, options) => {
         signal = options?.signal
         return new Promise((_resolve, reject) => {
             signal?.addEventListener('abort', () => reject(new Error('Aborted')))

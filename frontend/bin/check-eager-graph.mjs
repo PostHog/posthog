@@ -87,12 +87,16 @@ const ROOTS = [
         root: LOGGED_OUT_BOOT,
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
-        // `js`), so this is the whole JS cost of /login. 2026-10-12: 2.86 MiB eager output = 2.06 MiB
-        // JS (615 files) + 0.80 MiB stable CSS.
-        // ~6% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 3_180_000,
+        // `js`), so this is the whole JS cost of /login. 2026-11-11: 2.85 MiB eager output = 1.99 MiB
+        // JS (537 files) + 0.86 MiB stable CSS. ~1.5% headroom.
+        budgetBytes: 3_033_000,
         forbidden: [
             'node_modules/monaco-editor/',
+            // No logged-out page renders a table or a sortable multi-select. A hit means a module on the
+            // App path imports from the `@posthog/lemon-ui` barrel, which ships every Lemon component.
+            // Import the component from its own folder, for example `lib/lemon-ui/LemonButton`.
+            'src/lib/lemon-ui/LemonTable/LemonTable.tsx',
+            'node_modules/@dnd-kit/',
             // Authenticated-only code. Either of these on the App path means a component that
             // logged-out pages render has grown a static import into the logged-in app.
             'src/layout/navigation-3000/navigationLogic.tsx',
@@ -120,8 +124,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-11-02: 4.00 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 4_203_000,
+        // 2026-11-10: 3.85 MiB, stable CSS included. ~1.5% headroom.
+        budgetBytes: 4_098_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -162,6 +166,10 @@ const ROOTS = [
             // The login scene's logics. Shell code reads the login redirect from lib/utils/loginRedirect.
             'src/scenes/authentication/auth/loginLogic.ts',
             'src/scenes/authentication/shared/passkeyLogic.ts',
+            // The cohort criteria normalizer belongs to the cohort scenes. It pulls in the cohort row editor.
+            'src/scenes/cohorts/CohortFilters/constants.tsx',
+            // The persons scene loads its own logic. The shared cohorts model has no reason to import it.
+            'products/persons/frontend/logics/personsLogic.tsx',
             // The surveys scene constants hold the question type tables. lib/api reads its page size from lib/constants.
             'src/scenes/surveys/constants.tsx',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
@@ -198,8 +206,8 @@ const ROOTS = [
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
-        // 2026-11-02: 9.49 MiB (3729 files), stable CSS included. ~3.6% headroom.
-        budgetBytes: 10_314_000,
+        // 2026-11-10: 7.76 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 8_300_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
@@ -229,8 +237,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-11-02: 4.92 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_170_000,
+        // 2026-11-10: 4.81 MiB, stable CSS included. ~1.5% headroom.
+        budgetBytes: 5_119_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
@@ -248,8 +256,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-11-02: 6.22 MiB, stable CSS included. ~1% headroom.
-        budgetBytes: 6_576_000,
+        // 2026-11-10: 6.04 MiB, stable CSS included. ~1.5% headroom.
+        budgetBytes: 6_428_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
@@ -264,8 +272,8 @@ const ROOTS = [
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
-        // 2026-11-02: 8.92 MiB (3499 files), stable CSS included. ~5.5% headroom.
-        budgetBytes: 9_869_000,
+        // 2026-11-10: 6.77 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 7_241_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
@@ -294,8 +302,8 @@ const ROOTS = [
     {
         root: 'src/scenes/web-analytics/WebAnalyticsScene.tsx',
         label: 'web analytics scene',
-        // 2026-11-02: 9.72 MiB (3766 files), stable CSS included. ~7.9% headroom.
-        budgetBytes: 10_999_000,
+        // 2026-11-10: 7.80 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 8_342_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
@@ -318,8 +326,8 @@ const ROOTS = [
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
-        // 2026-11-02: 7.39 MiB (2690 files), stable CSS included. ~10% headroom.
-        budgetBytes: 8_520_000,
+        // 2026-11-10: 6.95 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 7_433_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,

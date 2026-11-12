@@ -162,6 +162,7 @@ async def enrich_signup_organization_activity(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_RECHECK_EVENT,
                     properties={
+                        "$update_person_last_seen_at": False,
                         "upgraded": matched and not first_attempt_matched,
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
@@ -177,6 +178,7 @@ async def enrich_signup_organization_activity(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_SIGNAL_EVENT,
                     properties={
+                        "$update_person_last_seen_at": False,
                         "success": True,
                         "matched": matched,
                         "fields_filled": sorted(filled.keys()),
@@ -196,7 +198,7 @@ async def enrich_signup_organization_activity(
             pha_client.capture(
                 distinct_id=inputs.distinct_id,
                 event=ENRICHMENT_SIGNAL_EVENT,
-                properties={"success": False, "error": type(e).__name__},
+                properties={"$update_person_last_seen_at": False, "success": False, "error": type(e).__name__},
                 groups={"organization": inputs.organization_id},
             )
         raise

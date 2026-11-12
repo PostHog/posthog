@@ -12,6 +12,7 @@ from dns.rdtypes.ANY.NS import NS
 from dns.rdtypes.ANY.TXT import TXT
 from dns.rdtypes.IN.A import A
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.security.oob_domains import matched_oob_domain
 
@@ -49,8 +50,11 @@ class PublishedRecords:
 # resolver then checks what they could not confirm, because they cannot follow a CNAME to another
 # zone, such as a DMARC record hosted by a DMARC reporting service.
 def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:
-    if (oob_domain := matched_oob_domain(domain)) is not None:
+    if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
         logger.info("security.oob_domain_seen domain=%s guard=email_domain_dns", oob_domain)
+        # The lookup alone confirms the path to whoever runs the collaborator, so the name is
+        # refused rather than resolved. No record is published for it, so the domain never verifies.
+        return PublishedRecords(records=frozenset())
     authoritative = _authoritative_resolver(domain)
     from_zone = _published_with(authoritative, records) if authoritative else PublishedRecords(records=frozenset())
     from_public = _published_with(_system_resolver(), [record for record in records if record not in from_zone.records])
