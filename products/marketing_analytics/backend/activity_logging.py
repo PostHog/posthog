@@ -35,7 +35,11 @@ def handle_recommendation_resolution_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=Truncator(
-                resolution.subject or resolution.campaign_id or resolution.customer_id or resolution.rule
+                resolution.name
+                or resolution.subject
+                or resolution.campaign_id
+                or resolution.customer_id
+                or resolution.rule
             ).chars(MAX_NAME_LENGTH),
         ),
     )

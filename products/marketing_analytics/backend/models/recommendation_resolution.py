@@ -53,6 +53,8 @@ class RecommendationResolution(ModelActivityMixin, TeamScopedRootMixin, UUIDMode
     subject = models.TextField(blank=True, default="")
     # A btree entry holds about 2.7 KB, so the unique constraint keys on this hash instead of a search term.
     subject_hash = models.CharField(max_length=64, editable=False)
+    # A display label, such as the campaign name. It is not part of the identity, because names change.
+    name = models.CharField(max_length=400, blank=True, default="")
     resolution = models.CharField(max_length=16, choices=RecommendationResolutionState.choices)
     resolved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, db_constraint=False, related_name="+"
