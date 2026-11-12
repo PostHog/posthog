@@ -1,8 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
-
+import { parseJSON } from '../../common/utils/json-parse'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 import { LiquidRenderBudget, LiquidRenderer } from './liquid'
 
@@ -15,7 +14,7 @@ type PostmarkRenderCase = {
     posthog_renders?: string
 }
 
-// Written by the Python importer and checked there against its Mustachio input, so both engines read one list.
+// Expected outputs come from Mustachio 2.1, and test_postmark_import.py pins the converter's `liquid` to this file.
 const POSTMARK_RENDER_CASES: PostmarkRenderCase[] = parseJSON(
     fs.readFileSync(
         path.join(__dirname, '../../../../products/messaging/backend/tests/fixtures/postmark_render_cases.json'),
@@ -23,9 +22,26 @@ const POSTMARK_RENDER_CASES: PostmarkRenderCase[] = parseJSON(
     )
 )
 
-// .NET and LiquidJS write the same character with different HTML entities.
+// .NET and LiquidJS write the same character with different HTML entities. Escaped characters stay escaped, so an
+// escaped quote or tag never equals a raw one.
+const ESCAPED_CHARACTERS: Record<string, string> = {
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+    "'": '&#39;',
+}
+const NAMED_ENTITIES: Record<string, string> = { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }
 const decodeEntityForms = (html: string): string =>
-    html.replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code))).replace(/&quot;/g, '"')
+    html.replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (_, entity: string) => {
+        const lower = entity.toLowerCase()
+        const character = lower.startsWith('#x')
+            ? String.fromCodePoint(parseInt(lower.slice(2), 16))
+            : lower.startsWith('#')
+              ? String.fromCodePoint(Number(lower.slice(1)))
+              : NAMED_ENTITIES[lower]
+        return ESCAPED_CHARACTERS[character] ?? character
+    })
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
