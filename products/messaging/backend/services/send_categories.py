@@ -34,7 +34,8 @@ def code_send_category(team_id: int, requested: RequestedCategory) -> SendCatego
             f"The category `{requested.key}` is a {category.category_type} category, so it can't take a "
             f'{requested.type} email. Send `"type": "{category.category_type}"`, or use another key.'
         )
-    _restore(category)
+    if category.deleted:
+        _restore(team_id, category)
     return SendCategory(id=category.id, type=requested.type)
 
 
@@ -74,10 +75,14 @@ def _category_with_key(team_id: int, key: str) -> MessageCategory | None:
     return MessageCategory.objects.filter(team_id=team_id, key=key).first()
 
 
+def _lock_categories(team_id: int) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{SEND_CATEGORY_LOCK}:{team_id}"])
+
+
 def _create(team_id: int, requested: SendCategoryDefinition) -> MessageCategory:
     with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{SEND_CATEGORY_LOCK}:{team_id}"])
+        _lock_categories(team_id)
         if (category := _category_with_key(team_id, requested.key)) is not None:
             return category
         _require_room_for(team_id, requested.key)
@@ -102,8 +107,8 @@ def _require_room_for(team_id: int, key: str) -> None:
         )
 
 
-def _restore(category: MessageCategory) -> None:
-    if category.deleted:
-        MessageCategory.objects.filter(team_id=category.team_id, pk=category.pk).update(
-            deleted=False, updated_at=timezone.now()
-        )
+def _restore(team_id: int, category: MessageCategory) -> None:
+    with transaction.atomic():
+        _lock_categories(team_id)
+        _require_room_for(team_id, category.key)
+        MessageCategory.objects.filter(team_id=team_id, pk=category.pk).update(deleted=False, updated_at=timezone.now())

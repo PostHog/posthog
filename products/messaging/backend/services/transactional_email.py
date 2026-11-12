@@ -628,11 +628,9 @@ def send_transactional_email(
             else template
         )
         send = _template_send(team.id, loaded)
-        send_category = template_send_category(send.category, category)
+        send_category = _send_category(team.id, send, category)
         if send.marketing:
             _require_marketing_template_step(team.id, send.hog_flow_id)
-        elif send_category is not None and not code_send_categories_enabled(team.id):
-            send_category = None
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     if send_category is not None:
         payload["message_category"] = {"id": str(send_category.id), "type": send_category.type}
@@ -655,8 +653,7 @@ def send_code_email(
         if template is not None:
             send = _template_send(team.id, template)
             hog_flow_id = send.hog_flow_id
-            if send.marketing or (send.category is not None and code_send_categories_enabled(team.id)):
-                category = template_send_category(send.category, email.category)
+            category = _send_category(team.id, send, email.category)
             kind = _kind_of(category)
         else:
             kind = requested_kind(email.category)
@@ -699,6 +696,13 @@ def _send_payload(
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
     return payload
+
+
+def _send_category(team_id: int, send: TemplateSend, requested: RequestedCategory) -> SendCategory | None:
+    category = template_send_category(send.category, requested)
+    if send.marketing or category is None or code_send_categories_enabled(team_id):
+        return category
+    return None
 
 
 def _kind_of(category: SendCategory | None) -> MessageCategoryKind:
