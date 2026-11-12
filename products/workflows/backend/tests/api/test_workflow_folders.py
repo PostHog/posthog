@@ -573,14 +573,18 @@ class TestWorkflowFolders(APIBaseTest):
         )
         self.assertEqual(moved.status_code, 200, moved.content)
 
+        filed_later = HogFlow.objects.create(team=self.team, name="Private launch", created_by=self.user)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", resource_id=str(filed_later.id), access_level="none"
+        )
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(filed_later.id)).delete()
         visible = filter_workflow_files_by_access_level(
             FileSystem.objects.filter(team=self.team),
             UserAccessControl(user=member, team=self.team),
             self.team.project_id,
         )
-        filed_later = HogFlow.objects.create(team=self.team, name="Private launch", created_by=self.user)
-        create_access_control(
-            team_id=self.team.id, resource="hog_flow", resource_id=str(filed_later.id), access_level="none"
+        FileSystem.objects.create(
+            team=self.team, path="Private launch", depth=1, type="hog_flow", ref=str(filed_later.id)
         )
         self.assertEqual(list(visible.filter(type="hog_flow").values_list("ref", flat=True)), [str(workflow.id)])
 
