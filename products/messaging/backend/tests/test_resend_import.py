@@ -34,7 +34,6 @@ from products.messaging.backend.provider_imports.base import ImportCredentialsIn
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.workflows.backend.facade.workflows import get_workflow
-from products.workflows.backend.services.resend_import import drafts
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
 ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
@@ -460,7 +459,7 @@ class TestResendImport(BaseTest):
     def test_access_rules_load_once_for_a_page_of_automations(self) -> None:
         second = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000003", "name": "Copy"}
         self.resend.data = {**self.resend.data, "automations": [*self.resend.data["automations"], second]}
-        with patch.object(drafts, "UserAccessControl", wraps=drafts.UserAccessControl) as access:
+        with patch("products.workflows.backend.services.resend_import.drafts.UserAccessControl") as access:
             run = self._run(["automations"])
 
         assert run.progress["automations"]["counts"]["created"] == len(self.resend.data["automations"])
