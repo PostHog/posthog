@@ -1,4 +1,5 @@
 import json
+import uuid
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -6,6 +7,7 @@ from pathlib import Path
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.management import call_command
 
 from parameterized import parameterized
@@ -13,6 +15,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries import replay
 from posthog.hogql_queries.replay import CompiledQuery, LoggedQuery, RunResult, Verdict
+from posthog.storage import object_storage
 
 STARTED_AT = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 ROWS = RunResult(row_count=1, fingerprint=11)
@@ -197,6 +200,25 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
 
         assert compiled.sql is None
         assert compiled.error == "Runner issued 1 statements"
+
+    def test_report_folder_round_trips_through_object_storage(self):
+        key = f"test_hogql_replay/{uuid.uuid4()}"
+        with self.settings(OBJECT_STORAGE_ENABLED=True), tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            (tmp / "report" / "sql").mkdir(parents=True)
+            (tmp / "report" / "index.html").write_text("<p>report</p>")
+            (tmp / "report" / "sql" / "q1.head.sql").write_text("SELECT 1")
+
+            replay.upload(tmp / "report", key)
+            replay.download(f"{key}/sql/q1.head.sql", tmp / "copy.sql")
+            copied = (tmp / "copy.sql").read_text()
+            page = object_storage.object_storage_client().head_object(
+                settings.OBJECT_STORAGE_BUCKET, f"{key}/index.html"
+            )
+
+        assert copied == "SELECT 1"
+        assert page is not None
+        assert page["ContentType"] == "text/html"
 
     def test_sample_query_matches_the_archive_schema(self):
         assert len(replay.load_logged_queries(sample_size=5)) <= 5

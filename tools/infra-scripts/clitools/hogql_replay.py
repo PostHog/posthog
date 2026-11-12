@@ -7,11 +7,8 @@ import os
 import sys
 import json
 import time
-import shutil
 import argparse
-import tempfile
 import subprocess
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,6 +26,7 @@ PR_IMAGE_REPOSITORY = "posthog-cloud-prs"
 CLAIM_SECONDS = 2 * 60 * 60
 WORK_DIR = "/tmp/hogql-replay"
 CONTAINER = "posthog-hogql-replay"
+VIEWER_NAMESPACE = "posthog-hogql-replay-viewer"
 MAX_CLAIM_RETRIES = 3
 
 
@@ -105,43 +103,44 @@ def manage(context: str, pod: str, *args: str) -> None:
     print(kubectl(context, "exec", "-n", NAMESPACE, pod, "--", "python", "manage.py", "hogql_replay", *args))  # noqa: T201
 
 
-def copy(context: str, source: str, target: str) -> None:
-    kubectl(context, "cp", source, target)
-
-
-def replay(context: str, base_pod: str, head_pod: str, args: argparse.Namespace, local: Path) -> None:
-    base_remote, head_remote = f"{NAMESPACE}/{base_pod}:{WORK_DIR}", f"{NAMESPACE}/{head_pod}:{WORK_DIR}"
+def replay(context: str, base_pod: str, head_pod: str, args: argparse.Namespace, run_key: str) -> None:
     selection = [arg for query_id in args.query_id for arg in ("--query-id", query_id)]
     selection = selection or ["--sample", str(args.sample)]
+    sample, base, head = f"{WORK_DIR}/sample.jsonl", f"{WORK_DIR}/base.jsonl", f"{WORK_DIR}/head.jsonl"
 
     for pod in (base_pod, head_pod):
         kubectl(context, "exec", "-n", NAMESPACE, pod, "--", "mkdir", "-p", WORK_DIR)
-    manage(context, base_pod, "sample", "--out", f"{WORK_DIR}/sample.jsonl", *selection)
-    copy(context, f"{base_remote}/sample.jsonl", str(local / "sample.jsonl"))
-    copy(context, str(local / "sample.jsonl"), f"{head_remote}/sample.jsonl")
-    manage(context, base_pod, "compile", "--sample-file", f"{WORK_DIR}/sample.jsonl", "--out", f"{WORK_DIR}/base.jsonl")
-    manage(context, head_pod, "compile", "--sample-file", f"{WORK_DIR}/sample.jsonl", "--out", f"{WORK_DIR}/head.jsonl")
-    copy(context, f"{head_remote}/head.jsonl", str(local / "head.jsonl"))
-    copy(context, str(local / "head.jsonl"), f"{base_remote}/head.jsonl")
+    manage(context, base_pod, "sample", "--out", sample, *selection)
+    manage(context, base_pod, "upload", "--path", sample, "--key", f"{run_key}/sample.jsonl")
+    manage(context, base_pod, "compile", "--sample-file", sample, "--out", base)
+    manage(context, head_pod, "download", "--key", f"{run_key}/sample.jsonl", "--path", sample)
+    manage(context, head_pod, "compile", "--sample-file", sample, "--out", head)
+    manage(context, head_pod, "upload", "--path", head, "--key", f"{run_key}/head.jsonl")
+    manage(context, base_pod, "download", "--key", f"{run_key}/head.jsonl", "--path", head)
     manage(
         context,
         base_pod,
         "run",
-        *("--sample-file", f"{WORK_DIR}/sample.jsonl"),
-        *("--base", f"{WORK_DIR}/base.jsonl"),
-        *("--head", f"{WORK_DIR}/head.jsonl"),
+        *("--sample-file", sample),
+        *("--base", base),
+        *("--head", head),
         *("--out-dir", f"{WORK_DIR}/report"),
         *("--base-label", container_field(context, base_pod, "imageID")),
         *("--head-label", container_field(context, head_pod, "imageID")),
     )
-    copy(context, f"{base_remote}/report", str(args.out_dir))
+    manage(context, base_pod, "upload", "--path", f"{WORK_DIR}/report", "--key", f"{run_key}/report")
 
 
-def publish(out_dir: Path, pr_number: int) -> None:
-    if not shutil.which("hosthog"):
-        print("The hosthog CLI is not installed, so the report was not published.")  # noqa: T201
-        return
-    subprocess.run(["hosthog", "publish", str(out_dir), "--slug", f"hogql-replay-{pr_number}"], check=True)
+def report_location(context: str, run_key: str) -> str:
+    try:
+        host = kubectl(
+            context,
+            *("get", "ingress", "-n", VIEWER_NAMESPACE),
+            *("-o", "jsonpath={.items[0].status.loadBalancer.ingress[0].hostname}"),
+        )
+    except subprocess.CalledProcessError:
+        host = ""
+    return f"https://{host}/{run_key}/report" if host else f"{run_key}/report in the replay reports bucket"
 
 
 def run(args: argparse.Namespace) -> None:
@@ -151,6 +150,7 @@ def run(args: argparse.Namespace) -> None:
         sys.exit(1)
     pr = pull_request(args.pr)
     user_labels = get_current_user(claimed_label_key=CLAIMED_LABEL_KEY, context=context)
+    run_key = f"runs/pr-{pr['number']}/{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
     pods: list[str] = []
     try:
         base_pod = claim(context, user_labels, pods)
@@ -158,8 +158,7 @@ def run(args: argparse.Namespace) -> None:
         set_image(context, head_pod, args.head_image or pr_image(context, head_pod, pr["number"]))
         if args.base_image:
             set_image(context, base_pod, args.base_image)
-        with tempfile.TemporaryDirectory() as local:
-            replay(context, base_pod, head_pod, args, Path(local))
+        replay(context, base_pod, head_pod, args, run_key)
     finally:
         for pod in pods:
             delete_pod(
@@ -170,11 +169,9 @@ def run(args: argparse.Namespace) -> None:
                 expected_label_key=CLAIMED_LABEL_KEY,
                 expected_label_value=user_labels[CLAIMED_LABEL_KEY],
             )
-    if args.publish:
-        publish(args.out_dir, pr["number"])
-    summary = json.loads((args.out_dir / "result.json").read_text())
-    print(json.dumps({"counts": summary["counts"], "regressions": summary["regressions"]}))  # noqa: T201
-    print(f"Full result: {args.out_dir / 'result.json'}")  # noqa: T201
+    location = report_location(context, run_key)
+    print(f"Report: {location}/index.html")  # noqa: T201
+    print(f"Result: {location}/result.json")  # noqa: T201
 
 
 def main() -> None:
@@ -186,8 +183,6 @@ def main() -> None:
     )
     parser.add_argument("--head-image", help="Image for the pull request's code. Defaults to the pull request image.")
     parser.add_argument("--base-image", help="Image for the base code. Defaults to the image the pool runs.")
-    parser.add_argument("--out-dir", type=Path, default=Path("hogql-replay-report"))
-    parser.add_argument("--no-publish", dest="publish", action="store_false", help="Keep the report local.")
     run(parser.parse_args())
 
 

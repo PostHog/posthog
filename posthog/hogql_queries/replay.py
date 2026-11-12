@@ -26,6 +26,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.storage import object_storage
 
 SAMPLE_DAYS = 7
 SAMPLE_ONE_IN = 100
@@ -43,6 +44,7 @@ _LEADING_COMMENTS = re.compile(r"^(\s*/\*.*?\*/)+", re.DOTALL)
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?")
 _MAX_EXECUTION_TIME = re.compile(r"max_execution_time=\d+")
 _UNSAFE_IN_FILE_NAME = re.compile(r"[^A-Za-z0-9_.-]")
+_CONTENT_TYPES = {".html": "text/html", ".json": "application/json"}
 _TAG = re.compile(r"replay-[0-9a-f]+-\d+-[a-z0-9]+")
 
 
@@ -494,3 +496,19 @@ def _render_rows(title: str, columns: Sequence[tuple[str, str]], rows: Sequence[
     header = "".join(f"<th>{html.escape(name)}</th>" for name, _ in columns)
     body = "".join("<tr>" + "".join(f"<td>{html.escape(str(value))}</td>" for value in row) + "</tr>" for row in rows)
     return f"<h4>{html.escape(title)} (first {DIFFERENCES_SHOWN})</h4><table><tr>{header}</tr>{body}</table>"
+
+
+def upload(path: Path, key: str) -> None:
+    files = [path] if path.is_file() else sorted(file for file in path.rglob("*") if file.is_file())
+    for file in files:
+        file_key = key if path.is_file() else f"{key}/{file.relative_to(path).as_posix()}"
+        content_type = _CONTENT_TYPES.get(file.suffix, "text/plain")
+        object_storage.write(file_key, file.read_bytes(), extras={"ContentType": content_type})
+
+
+def download(key: str, path: Path) -> None:
+    content = object_storage.read_bytes(key)
+    if content is None:
+        raise FileNotFoundError(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)

@@ -21,9 +21,10 @@ The command claims two pods from the `posthog-hogql-replay` pool, puts the pull 
 The pool only has read access to Postgres and ClickHouse.
 Both images must contain the `hogql_replay` command, so rebase a pull request that branched before the command existed.
 
-The command writes `result.json` and `index.html` to `hogql-replay-report/`.
-With the `hosthog` CLI installed it also publishes the HTML report for employees.
-Pass `--no-publish` to keep it local.
+The pods write the report to a private bucket, under `runs/pr-<number>/<time>/report/`.
+Nothing is copied to your machine.
+The command prints two links that only work on Tailscale: `index.html` for people and `result.json` for agents.
+Reports are deleted after 14 days.
 
 For every query whose SQL changed, the report keeps both versions as files: `sql/<query ID>.base.sql` and `sql/<query ID>.head.sql`.
 `result.json` names them in `base_sql_file` and `head_sql_file`.
@@ -33,7 +34,7 @@ For a `different_results` query the report shows the first 20 rows that are only
 The same rows are in `sql/<query ID>.differences.json`, not in `result.json`.
 
 The report contains customer query text and result rows.
-Do not paste it into a pull request, an issue, or any public place.
+Do not download it, and do not paste any of it into a pull request, an issue, or any public place.
 
 ## Verdicts
 
@@ -62,10 +63,11 @@ The pull request image tag moves with every push, so check that the head image i
 
 ## How it works
 
-The management command `hogql_replay` has three actions, and `hogli replay:hogql` runs them in the pods.
+The management command `hogql_replay` has five actions, and `hogli replay:hogql` runs them in the pods.
 
 1. `sample` reads query IDs or a sample from `query_log_archive`.
 2. `compile` runs in both pods. It builds each query through its query runner at the time the query originally ran, and records the SQL without sending it to ClickHouse.
-3. `run` runs in the base pod. It runs the base SQL twice and the head SQL once, compares the columns and the rows, and reads the bytes each run read from the query log.
+3. `upload` and `download` pass the sample and the compiled SQL between the two pods through the bucket.
+4. `run` runs in the base pod. It runs the base SQL twice and the head SQL once, compares the columns and the rows, and reads the bytes each run read from the query log.
    Floats match to 9 significant digits.
    A result over 10,000 rows is compared by row count and a hash of the rows.

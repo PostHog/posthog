@@ -34,6 +34,14 @@ class Command(BaseCommand):
         run.add_argument("--max-executed", type=int, default=replay.MAX_EXECUTED)
         run.add_argument("--query-log-wait-seconds", type=int, default=15)
 
+        upload = actions.add_parser("upload", help="Copy a file or folder to object storage")
+        upload.add_argument("--path", type=Path, required=True)
+        upload.add_argument("--key", required=True)
+
+        download = actions.add_parser("download", help="Copy one object from object storage to a file")
+        download.add_argument("--key", required=True)
+        download.add_argument("--path", type=Path, required=True)
+
     def handle(self, *args: Any, **options: Any) -> None:
         getattr(self, f"_{options['action']}")(options)
 
@@ -65,3 +73,9 @@ class Command(BaseCommand):
         )
         replay.write_report(summary, outcomes, options["out_dir"])
         self.stdout.write(f"{summary['counts']} regressions={summary['regressions']}")
+
+    def _upload(self, options: dict[str, Any]) -> None:
+        replay.upload(options["path"], options["key"])
+
+    def _download(self, options: dict[str, Any]) -> None:
+        replay.download(options["key"], options["path"])
