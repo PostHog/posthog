@@ -26,7 +26,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProviderUnavailable,
     ImportStepSpec,
 )
-from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider, get_provider
+from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider
 
 IMPORT_PROVIDER_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportProviderKey.choices]
 PROVIDER_IMPORT_STATUS_CHOICES: list[tuple[str, str]] = [
@@ -180,7 +180,9 @@ def _rejection_message(error: Exception) -> str:
 
 
 def _to_state(run: ProviderImportRun) -> ProviderImportRunState:
-    specs = {spec.key: spec for spec in get_provider(run.provider).steps}
+    # After a rollback a run can name a provider this deploy lacks; its steps then show only their keys.
+    provider = PROVIDERS.get(run.provider)
+    specs = {spec.key: spec for spec in provider.steps} if provider else {}
     return ProviderImportRunState(
         id=run.id,
         provider=run.provider,

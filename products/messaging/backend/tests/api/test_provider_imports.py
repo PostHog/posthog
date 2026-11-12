@@ -6,6 +6,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
+from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
 
 
@@ -42,6 +43,18 @@ class TestProviderImportsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "already running" in response.json()["detail"]
+
+    def test_lists_a_run_whose_provider_this_deploy_does_not_know(
+        self, _mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        ProviderImportRun.objects.for_team(self.team.id).create(
+            team=self.team, provider="retired", steps=["contacts"], status="completed"
+        )
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [step["key"] for step in response.json()["results"][0]["steps"]] == ["contacts"]
 
     @parameterized.expand(
         [
