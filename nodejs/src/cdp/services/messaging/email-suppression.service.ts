@@ -375,7 +375,8 @@ export class EmailSuppressionService {
         bounceTimestamp?: string,
         { throwOnFailure = false }: SuppressionWriteOptions = {}
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        // Sorted so the upsert locks rows in the order `recordDeliveries` does, and the two cannot deadlock.
+        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean))).sort()
         if (identifiers.length === 0) {
             return
         }
@@ -567,7 +568,8 @@ export class EmailSuppressionService {
                      SELECT email, last_bounced_at, last_delivered_at
                      FROM posthog_emailhardbounce
                      WHERE email = ANY($1)
-                     ORDER BY email
+                     -- Byte order, the same as the sorted identifiers in recordGlobalHardBounces.
+                     ORDER BY email COLLATE "C"
                      FOR UPDATE
                  ) AS previous
                  WHERE previous.email = entry.email
