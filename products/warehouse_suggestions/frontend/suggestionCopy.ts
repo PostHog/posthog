@@ -476,6 +476,10 @@ export function unusedViewsNote(unusedViews: number): string {
     return unusedViews > 0 ? `. ${countOf(unusedViews, 'unused view', 'unused views')} to mark deprecated` : ''
 }
 
+export function certifyNote(toCertify: number): string {
+    return toCertify > 0 ? `. ${countOf(toCertify, 'table or view', 'tables and views')} to certify` : ''
+}
+
 export function countOf(count: number, singular: string, plural: string): string {
     return `${count} ${count === 1 ? singular : plural}`
 }
