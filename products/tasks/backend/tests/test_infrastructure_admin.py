@@ -423,12 +423,20 @@ class TestInfrastructureInventory(BaseTest):
 
 @override_settings(ADMIN_PORTAL_ENABLED=True, JS_URL="https://assets.example.com", DEBUG=False)
 class TestInfrastructureAdminCSP(SimpleTestCase):
-    @parameterized.expand([(True,), (False,)])
-    def test_bundle_origin_is_limited_to_pages_that_admit_it(self, admitted: bool) -> None:
-        request = RequestFactory().get(RELEASE_PIPELINE_URL)
+    @parameterized.expand(
+        [
+            ("listed and marked", RELEASE_PIPELINE_URL, True, True),
+            ("listed, not marked", RELEASE_PIPELINE_URL, False, False),
+            ("marked, not listed", "/admin/console/tools/redis/", True, False),
+        ]
+    )
+    def test_bundle_origin_is_limited_to_listed_pages_that_admit_it(
+        self, _name: str, path: str, marked: bool, expected: bool
+    ) -> None:
+        request = RequestFactory().get(path)
         page = HttpResponse("page")
-        response = CSPMiddleware(lambda _: admit_admin_bundle(page) if admitted else page)(request)
+        response = CSPMiddleware(lambda _: admit_admin_bundle(page) if marked else page)(request)
         directives = dict(part.split(" ", 1) for part in response["Content-Security-Policy"].split("; "))
-        self.assertEqual("https://assets.example.com" in directives["script-src"], admitted)
-        self.assertEqual("https://assets.example.com" in directives["style-src"], admitted)
+        self.assertEqual("https://assets.example.com" in directives["script-src"], expected)
+        self.assertEqual("https://assets.example.com" in directives["style-src"], expected)
         self.assertEqual(directives["frame-ancestors"], "'none'")
