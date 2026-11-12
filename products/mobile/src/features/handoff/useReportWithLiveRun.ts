@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { reportKeys } from '@/api/reports'
 import type { TaskApi } from '@/api/tasks'
 import { useProjectScope } from '@/auth/useProjectScope'
-
 import { useDataMode } from '@/demo/demoMode'
+import { useDelayedReconnecting } from '@/lib/useDelayedReconnecting'
 import type { QueryState, ReportView } from '@/model/types'
 
 import { useReport } from '../report/hooks'
@@ -96,5 +96,16 @@ export function useReportWithLiveRun(reportId: string): QueryState<ReportView> {
     )
     useTaskRun(reportId, target, live && report !== undefined && active, refresh, cacheTaskSnapshot)
     const data = useMemo(() => (live && report ? mergeLiveRun(report, entry) : report), [live, report, entry])
-    return data === report ? query : { ...query, data }
+    const reconnecting = useDelayedReconnecting(
+        active && data?.task?.connection === 'reconnecting',
+        `${reportId}:${data?.task?.taskId}:${data?.task?.runId}`
+    )
+    const visibleData = useMemo(
+        () =>
+            data?.task?.connection === 'reconnecting' && !reconnecting
+                ? { ...data, task: { ...data.task, connection: undefined } }
+                : data,
+        [data, reconnecting]
+    )
+    return visibleData === report ? query : { ...query, data: visibleData }
 }

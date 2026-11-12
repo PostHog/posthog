@@ -55,7 +55,7 @@ Two more reads, outside the query budget:
 
 Users online comes from the HogQL `usersOnline` job instead when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
 
-The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above. If a read fails, the chip shows “Reconnecting…” until a fresh count is available. The chip and Live screen pause their pulses and clocks when their screens are hidden or the app leaves the foreground.
+The Live chip on the Web analytics screen reads users online alone: the stats read every 30 seconds, or the `usersOnline` query alone every 30 seconds on the `live` budget when the stats read is off. It reads only while the Web analytics screen is focused and the app is in the foreground, and never runs the jobs above. After a failed read, the chip keeps its last count for 10 seconds. If recovery still has not completed, it shows “Reconnecting…” until a fresh count is available. The chip and Live screen pause their pulses and clocks when their screens are hidden or the app leaves the foreground.
 
 ## Polling
 
@@ -67,7 +67,7 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 - **Slower after 10 minutes.** After 10 minutes of polling with no user action, the read comes every 60 seconds instead of 30. Pull to refresh, Try again, Resume, reopening the screen, and coming back to the foreground after reads stopped set it back to 30 seconds and start the 10 minutes again. Scrolling does not count. The status line still says when the last update came. The stats read keeps its 10-second interval.
 - **Pause** stops every timer and aborts the read in flight. Resume reads at once, then polls again.
 - **Pull to refresh** reads now. While paused it reads once and stays paused.
-- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value, and the status line says "Reconnecting…" until a read completes. The first failed read after data shows the toast "Couldn't update live data. Retrying…" once per failure streak. A read where every job fails waits one read interval (30 or 60 seconds), then doubles up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
+- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value. After a failed read, the status line keeps its previous state for 10 seconds. If recovery still has not completed, it shows "Reconnecting…" and the toast "Couldn't update live data. Retrying…" once per failure streak. A read where every job fails waits one read interval (30 or 60 seconds), then doubles up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 ## Budget

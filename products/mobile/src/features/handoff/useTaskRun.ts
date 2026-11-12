@@ -333,10 +333,10 @@ export async function followRun(args: FollowArgs): Promise<FollowOutcome> {
         if (signal.aborted || !isCurrent()) {
             return 'aborted'
         }
-        setConnection('reconnecting')
         if (control?.type === 'rotated' || control?.type === 'resync') {
             continue
         }
+        setConnection('reconnecting')
         try {
             const latest = await getTaskRun(args.scope, taskId, runId, signal)
             if (signal.aborted || !isCurrent()) {

@@ -19,6 +19,7 @@ import { LIVE_DEMO_READ_MS, liveDemo } from '@/demo/live'
 import { useAppActive } from '@/features/handoff/useTaskRun'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { sleep } from '@/lib/sleep'
+import { useDelayedReconnecting } from '@/lib/useDelayedReconnecting'
 import { liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
 import { EMPTY_LIVE_SNAPSHOT, type LiveSnapshot } from '@/model/live'
 
@@ -256,11 +257,21 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
         read: readCount,
         intervalMs: CHIP_INTERVAL_MS,
     })
-    const reconnecting = stats.active
-        ? stats.failed
-        : counted.state.failures > 0 || (counted.state.data === null && stats.failed)
+    const reconnecting = useDelayedReconnecting(
+        counted.screenActive &&
+            (stats.active ? stats.failed : counted.state.failures > 0 || (counted.state.data === null && stats.failed)),
+        source
+    )
     const count = stats.active ? stats.count : counted.state.data
-    return { count: reconnecting ? null : count, reconnecting, screenActive: counted.screenActive }
+    const [lastCount, setLastCount] = useState<{ source: LiveSource | null; count: number } | null>(null)
+    useEffect(() => {
+        if (count !== null) setLastCount({ source, count })
+    }, [source, count])
+    return {
+        count: reconnecting ? null : (count ?? (lastCount?.source === source ? lastCount.count : null)),
+        reconnecting,
+        screenActive: counted.screenActive,
+    }
 }
 
 export interface LiveFeed {
@@ -332,18 +343,23 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         }
     }, [paused, stats.controller])
 
-    // One message per failure streak: when the first failed read follows data on screen, or the first load fails.
+    // Keep one message per failure streak, including when polling pauses and resumes.
     const failing = main.state.failures > 0
     const hasData = main.state.data !== null
-    const errorKind: LiveErrorKind | null = failing ? (hasData ? 'refresh_failed' : 'load_failed') : null
+    const reconnecting = useDelayedReconnecting(failing && !paused && main.screenActive, source)
+    const errorKind: LiveErrorKind | null = !hasData && failing ? 'load_failed' : reconnecting ? 'refresh_failed' : null
     const onErrorRef = useRef(onError)
     onErrorRef.current = onError
+    const shownError = useRef<{ source: LiveSource | null; kind: LiveErrorKind } | null>(null)
     useEffect(() => {
-        if (errorKind) {
+        if (!failing) {
+            shownError.current = null
+        } else if (errorKind && (shownError.current?.source !== source || shownError.current.kind !== errorKind)) {
+            shownError.current = { source, kind: errorKind }
             trackLiveErrorShown({ kind: errorKind })
             onErrorRef.current(errorKind)
         }
-    }, [errorKind])
+    }, [errorKind, failing, source])
 
     const [pulling, setPulling] = useState(false)
     const pull = useCallback(() => {
@@ -365,10 +381,12 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     }, [main.controller])
 
     const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
+    let status: LiveStatus = source ? liveStatus(main.state) : 'loading'
+    if (status === 'reconnecting' && !reconnecting) status = hasData ? 'live' : 'loading'
     return {
         screenActive: main.screenActive,
         snapshot,
-        status: source ? liveStatus(main.state) : 'loading',
+        status,
         updatedAt: main.state.updatedAt,
         usersOnline: stats.count ?? snapshot.usersOnline,
         paused,
