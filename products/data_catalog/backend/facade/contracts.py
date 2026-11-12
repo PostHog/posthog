@@ -45,7 +45,7 @@ class MetricBulkOwnerChange:
 
 @dataclass(frozen=True)
 class MetricRunCounts:
-    """Runs of one catalog metric in the scan window, from the run event and the query log."""
+    """Runs of one catalog metric in the scan window, counted from the run event."""
 
     metric_id: UUID
     # Keyed by the run event's `source` (web, mcp, slack, ...), so a new surface needs no contract
