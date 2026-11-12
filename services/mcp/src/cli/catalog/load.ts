@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { catalogTool, hasCapability, hasUiApp } from './executor'
+import { hasCapability, hasUiApp } from './executor'
 import { CATALOG_SCHEMA_VERSION, type CatalogEntry, CatalogDocumentSchema, CatalogEntrySchema } from './schema'
 
 export interface DroppedCatalogTool {
@@ -59,6 +59,13 @@ export function loadCatalog(raw: unknown, reserved: ReadonlySet<string> = new Se
             dropped.push({ name: entry.name, reason: `needs ${missing.join(', ')}, which this hog doesn't have` })
             continue
         }
+        if (
+            entry.hooks !== null &&
+            !entry.requires.some((capability) => capability.startsWith(`hook:${entry.hooks}@`))
+        ) {
+            dropped.push({ name: entry.name, reason: `uses hooks ${entry.hooks} without requiring a version of them` })
+            continue
+        }
         if (entry.uiApp !== null && !hasUiApp(entry.uiApp)) {
             dropped.push({ name: entry.name, reason: `needs the UI app ${entry.uiApp}, which this hog doesn't have` })
             continue
@@ -67,13 +74,6 @@ export function loadCatalog(raw: unknown, reserved: ReadonlySet<string> = new Se
             dropped.push({ name: entry.name, reason: 'another tool already has this name' })
             continue
         }
-        try {
-            catalogTool(entry)
-        } catch {
-            dropped.push({ name: entry.name, reason: "its input schema can't be read by this hog" })
-            continue
-        }
-
         seen.add(entry.name)
         entries.push(entry)
     }

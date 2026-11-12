@@ -23,6 +23,11 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Serves hog the API tool catalog at /api/cli/catalog.json (posthog/api/cli_catalog.py). Built in the
+# background from this checkout's MCP tool code, so the backend starts without waiting for it.
+(cd "$REPO_ROOT/services/mcp" && pnpm run --silent build:cli:catalog >/dev/null 2>&1 ||
+    echo "Couldn't build the CLI tool catalog. Run: pnpm --filter=@posthog/mcp run build:cli:catalog" >&2) &
+
 # --workers-kill-timeout bounds the reload. Granian defaults it to disabled, which means it joins
 # the old worker with no timeout and only escalates to a hard kill when the flag is set. An open SSE
 # stream (an agent run log held by a browser tab) never finishes on its own, so without this the

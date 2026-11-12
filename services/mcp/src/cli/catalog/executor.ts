@@ -8,6 +8,7 @@ import {
     castObjectToJsonString,
     castStringToInt,
     normalizeParamAliases,
+    registerAliasPreprocess,
 } from '@/tools/cast-helpers'
 import { GENERATED_TOOL_HOOKS } from '@/tools/generated/hooks'
 import { type ToolHooks, transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
@@ -22,6 +23,7 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { hookVersion } from './hook-versions'
 import type { CatalogEntry, CatalogHttpTool } from './schema'
 
 const CASTS: Record<CatalogHttpTool['input']['casts'][string], (value: unknown) => unknown> = {
@@ -45,7 +47,8 @@ function validatorNamed(name: string): Validator | undefined {
 
 export function hasCapability(capability: string): boolean {
     if (capability.startsWith('hook:')) {
-        return hasKey(GENERATED_TOOL_HOOKS, capability.slice('hook:'.length))
+        const [name = '', version] = capability.slice('hook:'.length).split('@')
+        return hasKey(GENERATED_TOOL_HOOKS, name) && version === String(hookVersion(name))
     }
     if (capability.startsWith('validator:')) {
         return validatorNamed(capability.slice('validator:'.length)) !== undefined
@@ -85,11 +88,30 @@ function branchSchema(node: JsonSchemaNode, root: JsonSchemaNode): z.ZodType {
     return schema
 }
 
-// z.fromJSONSchema drops a `default` on an `enum` or `const` field, so a field the compiled tool
-// fills in would go out missing. Defaults are filled here instead, wherever the schema gives one.
-// In a union, the branch is the first one that validates once its own defaults are filled, which
-// is the branch the compiled zod union picks.
-function withDefaults(node: JsonSchemaNode, value: unknown, root: JsonSchemaNode, depth = 0): unknown {
+// z.toJSONSchema writes each string check zod runs as an exact `pattern`, but z.fromJSONSchema reads
+// `format: date-time` back as a UTC-only check, so a format next to a pattern is dropped.
+function withoutShadowedFormats(node: unknown): unknown {
+    if (Array.isArray(node)) {
+        return node.map(withoutShadowedFormats)
+    }
+    if (node === null || typeof node !== 'object') {
+        return node
+    }
+    const copy: JsonSchemaNode = {}
+    for (const [key, value] of Object.entries(node)) {
+        if (key === 'format' && hasKey(node, 'pattern')) {
+            continue
+        }
+        copy[key] = withoutShadowedFormats(value)
+    }
+    return copy
+}
+
+// z.fromJSONSchema drops a `default` on an `enum` or `const` field and keeps keys an object doesn't
+// declare, where the compiled tool fills the default and strips the key. Both happen here instead.
+// In a union, the branch is the first one that validates once its own input is conformed, which is
+// the branch the compiled zod union picks.
+function conformInput(node: JsonSchemaNode, value: unknown, root: JsonSchemaNode, depth = 0): unknown {
     const schema = resolveRef(node, root)
     if (depth > 16 || value === null || value === undefined) {
         return value
@@ -98,9 +120,9 @@ function withDefaults(node: JsonSchemaNode, value: unknown, root: JsonSchemaNode
     const branches = (schema['anyOf'] ?? schema['oneOf']) as JsonSchemaNode[] | undefined
     if (branches) {
         for (const branch of branches) {
-            const filled = withDefaults(branch, value, root, depth + 1)
-            if (branchSchema(resolveRef(branch, root), root).safeParse(filled).success) {
-                return filled
+            const conformed = conformInput(branch, value, root, depth + 1)
+            if (branchSchema(resolveRef(branch, root), root).safeParse(conformed).success) {
+                return conformed
             }
         }
         return value
@@ -111,7 +133,7 @@ function withDefaults(node: JsonSchemaNode, value: unknown, root: JsonSchemaNode
     if (Array.isArray(value)) {
         const items = schema['items']
         return items && typeof items === 'object'
-            ? value.map((item) => withDefaults(items as JsonSchemaNode, item, root, depth + 1))
+            ? value.map((item) => conformInput(items as JsonSchemaNode, item, root, depth + 1))
             : value
     }
 
@@ -119,14 +141,20 @@ function withDefaults(node: JsonSchemaNode, value: unknown, root: JsonSchemaNode
     if (!properties) {
         return value
     }
-    const copy: Params = { ...(value as Params) }
+    const strips = !hasKey(schema, 'additionalProperties')
+    const copy: Params = {}
+    for (const [key, item] of Object.entries(value as Params)) {
+        if (!strips || hasKey(properties, key)) {
+            copy[key] = item
+        }
+    }
     for (const [key, property] of Object.entries(properties)) {
         const resolved = resolveRef(property, root)
         if (copy[key] === undefined && hasKey(resolved, 'default')) {
             copy[key] = structuredClone(resolved['default'])
         }
         if (copy[key] !== undefined) {
-            copy[key] = withDefaults(resolved, copy[key], root, depth + 1)
+            copy[key] = conformInput(resolved, copy[key], root, depth + 1)
         }
     }
     return copy
@@ -135,7 +163,8 @@ function withDefaults(node: JsonSchemaNode, value: unknown, root: JsonSchemaNode
 // Casts and aliases run before validation, as the generated z.preprocess wrappers do: aliases on the
 // whole input first, then each cast on its own field.
 function buildSchema(entry: CatalogEntry): ZodObjectAny {
-    let schema: z.ZodType = z.fromJSONSchema(entry.inputSchema as Parameters<typeof z.fromJSONSchema>[0])
+    const root = withoutShadowedFormats(entry.inputSchema) as JsonSchemaNode
+    let schema: z.ZodType = z.fromJSONSchema(root as Parameters<typeof z.fromJSONSchema>[0])
     for (const name of entry.input.validators) {
         const validator = validatorNamed(name)
         if (validator) {
@@ -145,9 +174,8 @@ function buildSchema(entry: CatalogEntry): ZodObjectAny {
 
     const aliases = Object.keys(entry.input.aliases).length > 0 ? normalizeParamAliases(entry.input.aliases) : null
     const casts = Object.entries(entry.input.casts)
-    const root = entry.inputSchema
 
-    return z.preprocess((input) => {
+    const preprocess = (input: unknown): unknown => {
         const normalized = aliases ? aliases(input) : input
         if (normalized === null || typeof normalized !== 'object' || Array.isArray(normalized)) {
             return normalized
@@ -158,8 +186,10 @@ function buildSchema(entry: CatalogEntry): ZodObjectAny {
                 copy[param] = CASTS[cast](copy[param])
             }
         }
-        return withDefaults(root, copy, root)
-    }, schema)
+        return conformInput(root, copy, root)
+    }
+    registerAliasPreprocess(preprocess, entry.input.aliases)
+    return z.preprocess(preprocess, schema)
 }
 
 function buildRequest(
