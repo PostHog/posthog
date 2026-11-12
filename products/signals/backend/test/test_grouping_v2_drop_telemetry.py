@@ -54,6 +54,7 @@ BATCHES = {
     "pending_keys,failed_rounds_by_batch_key,failed_consent_attempts",
     [
         (["batch-a"], {}, 0),
+        (["batch-a", "batch-a"], {}, 0),
         (["batch-a", "batch-b"], {"batch-a": 2}, 3),
     ],
 )

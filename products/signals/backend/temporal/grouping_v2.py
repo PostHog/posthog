@@ -278,7 +278,12 @@ class TeamSignalGroupingV2Workflow:
                 batch_size=len(collected.signals),
                 batch_keys=collected.object_keys,
             )
-            for key in collected.object_keys:
+            failed_keys = (
+                list(dict.fromkeys(collected.object_keys))
+                if workflow.patched("grouping-v2-deduplicate-failed-batch-keys-v1")
+                else collected.object_keys
+            )
+            for key in failed_keys:
                 self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
             retry_keys = collected.object_keys
             if workflow.patched(_PATCH_BATCH_RETRY_LIMIT):
@@ -325,7 +330,7 @@ class TeamSignalGroupingV2Workflow:
         await _complete_signal_batch([signal for signal, _ in dropped], {})
         if self._signals_dropped_counter is not None:
             self._signals_dropped_counter.add(len(dropped))
-        for key in exhausted_keys:
+        for key in dict.fromkeys(exhausted_keys):
             del self._failed_rounds_by_batch_key[key]
         return [key for key in collected.object_keys if key not in exhausted_keys]
 
