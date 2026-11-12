@@ -7,7 +7,24 @@ only ever runs with code that someone who knows it saved.
 
 import json
 from enum import StrEnum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+import posthoganalytics
+from prometheus_client import Counter
+
+from products.cdp.backend.validation import MASKED_SECRET_VALUE
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+SECRET_REENTRY_FLAG = "cdp-secret-host-binding"
+SECRET_REENTRY_CODE = "secret_reentry_required"
+SECRET_REENTRY_MESSAGE = "Enter this secret again to save changes to the code, inputs or mappings."
+SECRET_REENTRY_COUNTER = Counter(
+    "posthog_cdp_secret_reentry_total",
+    "Saves that change the code, inputs or mappings of a function with a stored secret input, by outcome and by the API surface that saved them.",
+    labelnames=["outcome", "surface"],
+)
 
 
 class SecretReentry(StrEnum):
@@ -15,6 +32,52 @@ class SecretReentry(StrEnum):
     REFUSED = "refused"
     WOULD_REFUSE = "would_refuse"
     STAGED = "staged"
+
+
+def secret_reentry_enforced(team: "Team") -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            SECRET_REENTRY_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id), "created_at": team.organization.created_at}
+            },
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def supplied_input_keys(raw_inputs: Any) -> set[str]:
+    """Unlike `entered_secret_input_keys`, a dictionary counts when it still holds some masked entries."""
+    if not isinstance(raw_inputs, dict):
+        return set()
+    return {
+        key
+        for key, item in raw_inputs.items()
+        if isinstance(item, dict) and "value" in item and not (item.get("secret") and _only_masked(item["value"]))
+    }
+
+
+def _only_masked(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value) and all(entry == MASKED_SECRET_VALUE for entry in value.values())
+    return value == MASKED_SECRET_VALUE
+
+
+def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
+    """Input keys whose request value replaces the stored secret. A dictionary secret sent with some
+    entries still masked keeps those stored entries, so it does not count as entered."""
+    if not isinstance(raw_inputs, dict):
+        return set()
+    return {
+        key
+        for key, item in raw_inputs.items()
+        if isinstance(item, dict)
+        and "value" in item
+        and item["value"] != MASKED_SECRET_VALUE
+        and not (isinstance(item["value"], dict) and MASKED_SECRET_VALUE in item["value"].values())
+    }
 
 
 def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encrypted_inputs: Optional[dict]) -> dict:
