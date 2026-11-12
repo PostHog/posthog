@@ -1,4 +1,6 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import http from 'http'
+import { AddressInfo } from 'net'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -343,6 +345,65 @@ describe('valves', () => {
             }
         )
     })
+
+    it.each<[string, 'held' | 'none applied', number, object]>([
+        [
+            'its observation request is still open when its hold ends',
+            'held',
+            204,
+            { error: 'applied but not observed', releasedAt: expect.any(String) },
+        ],
+        [
+            'the edge then refuses to remove it',
+            'none applied',
+            500,
+            {
+                error: 'applied but not observed; The edge did not remove the ses.throttle fault: it answered 500',
+                releasedAt: undefined,
+            },
+        ],
+    ])(
+        'records an edge fault never observed once %s, with every reason',
+        async (_story, observation, removed, expected) => {
+            const heldAnswers: (() => void)[] = []
+            const requests: string[] = []
+            const server = http.createServer((req, res) => {
+                requests.push(`${req.method} ${req.url}`)
+                if (req.method === 'POST') {
+                    res.writeHead(201).end(JSON.stringify({ id: 'fault-1' }))
+                } else if (req.method === 'DELETE') {
+                    res.writeHead(removed).end()
+                } else if (observation === 'held') {
+                    heldAnswers.push(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })))
+                } else {
+                    res.writeHead(200).end(JSON.stringify({ applied: 0 }))
+                }
+            })
+            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const edgeUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+            const valves = createValves({ pollMs: 5 })
+            try {
+                await valves.start(
+                    [{ valve: 'ses.throttle', target: 'ses', dose: { rate: 1 }, at: '0ms', for: '50ms' }],
+                    { ...stackOf().context, edgeUrl }
+                )
+                await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+                heldAnswers.forEach((answer) => answer())
+                await valves.releaseAll()
+
+                const { error, releasedAt, observedAt } = valves.timeline()[0]
+                expect({
+                    error,
+                    releasedAt,
+                    observedAt,
+                    removals: requests.filter((request) => request.startsWith('DELETE')),
+                }).toEqual({ ...expected, observedAt: undefined, removals: ['DELETE /_faults/fault-1'] })
+            } finally {
+                server.closeAllConnections()
+                await new Promise((closed) => server.close(closed))
+            }
+        }
+    )
 
     it('records a release that failed, and still ends the drive', async () => {
         const valves = createValves({ pollMs: 5 })

@@ -120,6 +120,12 @@ function doseTakes(fault: ActiveFault, now: number): boolean {
     return crossings(matched) > crossings(matched - 1)
 }
 
+function countSentAgainst(throttles: ActiveFault[], now: number): void {
+    for (const throttle of throttles) {
+        throttle.passedAt.push(now)
+    }
+}
+
 export class FaultList {
     private faults: ActiveFault[] = []
 
@@ -157,7 +163,7 @@ export class FaultList {
     private take(request: FaultedRequest): FaultRule | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
-        const passed: ActiveFault[] = []
+        const throttles: ActiveFault[] = []
         for (const fault of this.faults) {
             if (!matches(fault.rule, request)) {
                 continue
@@ -167,12 +173,11 @@ export class FaultList {
                 fault.applied += 1
                 return fault.rule
             }
-            passed.push(fault)
+            if ('perSecond' in fault.rule.dose) {
+                throttles.push(fault)
+            }
         }
-        // A throttle counts a send against its rate only once no fault answered it, because only then does it go out.
-        for (const fault of passed) {
-            fault.passedAt.push(now)
-        }
+        countSentAgainst(throttles, now)
         return undefined
     }
 }
