@@ -124,6 +124,14 @@ class SignalSourceTableConfig(BaseModel):
             )
         return self
 
+    @property
+    def partition_expression(self) -> str:
+        """HogQL for the record time that bounds a fetch window."""
+        # toString() keeps the parse valid when the warehouse stored the column as a native timestamp.
+        if self.partition_field_is_datetime_string:
+            return f"parseDateTimeBestEffort(toString({self.partition_field}))"
+        return self.partition_field
+
 
 # Registry mapping (source_type, schema_name) -> config
 _SIGNAL_TABLE_CONFIGS: dict[tuple[str, str], SignalSourceTableConfig] = {}
@@ -151,6 +159,15 @@ def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableCo
 
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
     return _registry_key(source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
+
+
+def warehouse_source_types_for(source_product: str, source_type: str) -> set[str]:
+    """The warehouse source types whose schemas emit records for this signal source."""
+    return {
+        warehouse_source_type
+        for (warehouse_source_type, _), config in _SIGNAL_TABLE_CONFIGS.items()
+        if (config.source_product, config.source_type) == (source_product, source_type)
+    }
 
 
 def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str, str] | None:
