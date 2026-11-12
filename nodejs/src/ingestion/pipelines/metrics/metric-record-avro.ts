@@ -79,7 +79,6 @@ export function decodeMetricRecords(
             const records: MetricRecord[] = []
             let header: { type: avro.Type; meta: Record<string, Buffer>; codec: string } | undefined
             let decodedBytes = 0
-            // Stops before the next block decodes into records, so memory stays near the limit.
             const countBlock = (block: Buffer, cb: (err: Error | null, inflated?: Buffer) => void): void => {
                 decodedBytes += block.length
                 if (decodedBytes > maxDecodedBytes) {
@@ -88,17 +87,29 @@ export function decodeMetricRecords(
                 }
                 cb(null, block)
             }
+            // avsc asks for every block of the buffer at once, so the chain inflates one block at a time and
+            // starts none after the limit. The promise settles only after the chain drains.
+            let inflating: Promise<void> = Promise.resolve()
+            const inflate = (buf: Buffer, cb: (err: Error | null, inflated?: Buffer) => void): void => {
+                inflating = inflating.then(async () => {
+                    if (decodedBytes > maxDecodedBytes) {
+                        cb(new DecodedBytesLimitError(`decoded more than ${maxDecodedBytes} bytes`))
+                        return
+                    }
+                    try {
+                        countBlock(await decompress(buf), cb)
+                    } catch (err) {
+                        cb(err as Error)
+                    }
+                })
+            }
 
             // Custom codecs replace the avsc defaults, so `null` must be listed too.
             const decoder = new avro.streams.BlockDecoder({
                 parseHook: parseWriterSchema,
                 codecs: {
                     null: countBlock,
-                    zstandard: (buf: Buffer, cb: (err: Error | null, inflated?: Buffer) => void) => {
-                        decompress(buf)
-                            .then((inflated) => countBlock(inflated, cb))
-                            .catch(cb)
-                    },
+                    zstandard: inflate,
                 },
             })
             decoder.on(
@@ -115,9 +126,10 @@ export function decodeMetricRecords(
                     reject(new Error('No metadata found'))
                     return
                 }
-                resolve({ ...header, records, decodedBytes })
+                const decoded = { ...header, records, decodedBytes }
+                void inflating.then(() => resolve(decoded))
             })
-            decoder.on('error', reject)
+            decoder.on('error', (err) => void inflating.then(() => reject(err)))
             decoder.end(buffer)
         } catch (err) {
             reject(err)

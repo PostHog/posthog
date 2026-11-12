@@ -82,15 +82,16 @@ function aggregateDelta(records: MetricRecord[]): MetricRecord[] {
 }
 
 // A value only rises within one start time, so each slice's first and last points keep the increase.
+// The second point stays too, because the counter query uses it to decide whether a series' first
+// point counts from zero.
 function aggregateCumulative(records: MetricRecord[]): MetricRecord[] {
     const sorted = sortByTimestamp(records)
-    const first = sorted[0]
-    const last = sorted[sorted.length - 1]
-    if (sorted.length === 1) {
-        return [first]
+    if (sorted.length <= 3) {
+        return sorted
     }
-    const restCount = sorted.slice(1).reduce((total, record) => total + countOf(record), 0n)
-    return [first, withValueAndCount(last, valueOf(last), restCount)]
+    const last = sorted[sorted.length - 1]
+    const restCount = sorted.slice(2).reduce((total, record) => total + countOf(record), 0n)
+    return [sorted[0], sorted[1], withValueAndCount(last, valueOf(last), restCount)]
 }
 
 export function aggregateMetricRecords(records: MetricRecord[]): MetricRecord[] {
