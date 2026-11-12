@@ -15,6 +15,7 @@ EXPERIMENT_PAUSED = "experiment_paused"
 FLAG_NOT_CALLED = "flag_not_called"
 CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
+BILLING_LIMIT = "billing_limit"
 # pinned: the finding's `reason`.
 TEST_ACCOUNT_FILTER = "test_account_filter"
 
@@ -71,6 +72,22 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             detail=(
                 "The experiment is paused, so its feature flag serves no variants and nobody is counted as exposed. "
                 f"Resume the experiment to expose {unit}s."
+            ),
+            evidence=evidence,
+            actions=(),
+        )
+    # A flag call recorded during the run means that capture took events after launch, so the limit began later and
+    # doesn't explain why none of those calls counted.
+    if ctx.events_billing_limited and ctx.flag_called_during_run is not True:
+        return _finding(
+            subcode=BILLING_LIMIT,
+            severity=ExperimentHealthFindingSeverity.WARNING,
+            title=f"No {unit}s exposed: the product analytics limit is reached",
+            detail=(
+                "Your organization reached its billing limit or free tier limit for product analytics, so PostHog "
+                f"drops the events this project sends, including the events that count {unit}s as exposed. Nobody is "
+                "counted until you raise the limit or subscribe on the billing page, or until the next billing period "
+                "starts. Events sent before then can't be recovered."
             ),
             evidence=evidence,
             actions=(),

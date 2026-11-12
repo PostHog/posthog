@@ -18,6 +18,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.zero_exposures import (
+    BILLING_LIMIT,
     CALLS_NOT_COUNTED,
     CUSTOM_EXPOSURE_NOT_MATCHED,
     EXPERIMENT_PAUSED,
@@ -37,6 +38,8 @@ from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 Action = ExperimentHealthFindingActionKind
 WARNING = ExperimentHealthFindingSeverity.WARNING
@@ -137,6 +140,27 @@ class TestZeroExposures(TestCase):
                 {"flag": replace(FLAG, deleted=True), "flag_called_during_run": False},
                 None,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
+            ),
+            (
+                "billing_limit",
+                {"events_billing_limited": True, "flag_called_during_run": False},
+                BILLING_LIMIT,
+                (),
+                WARNING,
+            ),
+            (
+                "billing_limit_custom_event",
+                {"events_billing_limited": True, "exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
+                BILLING_LIMIT,
+                (),
+                WARNING,
+            ),
+            (
+                "billing_limit_after_calls_during_the_run",
+                {"events_billing_limited": True, "flag_called_during_run": True},
+                CALLS_NOT_COUNTED,
+                (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
                 WARNING,
             ),
             ("ended_flag_not_called", {**ENDED, "flag_called_during_run": False}, FLAG_NOT_CALLED, (), INFO),
@@ -459,3 +483,30 @@ class TestFlagCalledDuringRun(BaseTest):
             ctx = load_health_context(experiment)
 
         self.assertEqual((ctx.flag_called_during_run, ctx.flag_called_after_end), (during_run, after_end))
+
+
+class TestEventsBillingLimited(BaseTest):
+    @parameterized.expand(
+        [
+            ("limited_while_running", None, True, True),
+            ("not_limited", None, False, False),
+            ("limited_after_the_end", ENDED_AT, True, None),
+        ]
+    )
+    def test_reads_the_events_limit_while_the_experiment_runs(
+        self, _name: str, end_date: datetime | None, limited: bool, expected: bool | None
+    ) -> None:
+        if limited:
+            add_limited_team_tokens(
+                QuotaResource.EVENTS,
+                {self.team.api_token: int((datetime.now(UTC) + timedelta(days=1)).timestamp())},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team, name="exp", feature_flag=flag, start_date=LAUNCHED_AT, end_date=end_date
+        )
+
+        ctx = load_health_context(experiment, NO_EXPOSURES)
+
+        self.assertEqual(ctx.events_billing_limited, expected)

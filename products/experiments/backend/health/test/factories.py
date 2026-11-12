@@ -31,6 +31,7 @@ RUNNING_CONTEXT = HealthContext(
     flag_last_called_at=None,
     other_experiments_on_flag=(),
     team_has_active_flag=None,
+    events_billing_limited=None,
     baseline_variant_key=None,
     primary_metric_count=1,
     secondary_metric_count=0,
