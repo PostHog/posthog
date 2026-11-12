@@ -22,7 +22,8 @@ export function ToolLatencyChart({ theme, ...props }: Omit<RankedToolBarChartPro
             theme={theme}
             metric={{
                 label: 'p95',
-                color: theme.colors[0],
+                // Amber, a warning hue beside the error card's red. Blue on this dashboard means call volume.
+                color: theme.colors[12],
                 value: p95,
                 formatValue: formatMsAsSeconds,
                 valueDomain: latencyDomain,
