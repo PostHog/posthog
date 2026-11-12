@@ -7,18 +7,25 @@ import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { createRedisFromConfig } from '~/common/utils/db/redis'
+import { createRedisFromConfig, createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { PubSub } from '~/common/utils/pubsub'
 import { UUIDT } from '~/common/utils/utils'
 import { createOrganizationMembership, createTestTeamFixture, createUser } from '~/tests/helpers/sql'
-import { Team } from '~/types'
+import { RedisPool, Team } from '~/types'
 
 import { RecipientsManagerService } from '../../../managers/recipients-manager.service'
 import { RateLimiterService } from '../../../rate-limiter/rate-limiter.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../email-suppression.service'
 import { readSandboxAuthorization } from '../sandbox-authorization'
 import { SandboxCaps, claimSandboxCaps } from '../sandbox-caps'
-import { SANDBOX_INTEGRATION_ID, SandboxEmailService, hasSandboxSenderRow } from '../sandbox-email.service'
+import {
+    SANDBOX_INTEGRATION_ID,
+    SandboxEmailService,
+    hasSandboxSenderRow,
+    sandboxTeamWorkflowsConfig,
+} from '../sandbox-email.service'
 import { checkSandboxRecipient, sandboxRecipientReads } from '../sandbox-recipient-checks'
+import { SandboxSesBucket } from '../sandbox-ses-bucket'
 import { SandboxSesClient, createSandboxSesV2Client } from '../sandbox-ses-client'
 import { FakeSesEndpoint } from './fake-ses-endpoint'
 
@@ -83,6 +90,7 @@ export type SandboxFaults = {
     authorizationDb?: PostgresRouter
     recipientsDb?: PostgresRouter
     recipientReadTimeoutMs?: number
+    teamConfigReadTimeoutMs?: number
     capsLimiter?: RateLimiterService
 }
 
@@ -101,16 +109,22 @@ export type SandboxWorld = {
     provision: () => Promise<void>
     setTenant: (sendingStatus: string, syncedAt: Date) => Promise<void>
     blockOrganization: () => Promise<void>
+    suspendProjectEmail: () => Promise<void>
     deadPostgres: () => Promise<PostgresRouter>
     lockTable: (table: string) => Promise<() => Promise<void>>
     unreachableLimiter: () => RateLimiterService
     limiter: (name: string) => RateLimiterService
+    sesBucket: (capacity: number) => SandboxSesBucket
+    takeSlotsLeft: (bucket: SandboxSesBucket) => Promise<number>
+    allowanceLeft: (caps: SandboxCaps, storedAddress: string) => Promise<boolean>
     service: (options?: { caps?: SandboxCaps; enabled?: boolean; faults?: SandboxFaults }) => SandboxEmailService
 }
 
 export function useSandboxWorld(): SandboxWorld {
     const world = {} as SandboxWorld
     let client: Redis
+    let pubSubPool: RedisPool
+    let pubSub: PubSub
     let dropCreatedTables: () => Promise<void>
 
     const write = (sql: string, values: unknown[]) =>
@@ -119,6 +133,13 @@ export function useSandboxWorld(): SandboxWorld {
     beforeAll(async () => {
         world.postgres = new PostgresRouter(defaultConfig)
         dropCreatedTables = await createMissingSandboxSenderTables(world.postgres)
+        pubSubPool = createRedisPoolFromConfig({
+            connection: { url: defaultConfig.REDIS_URL },
+            poolMinSize: 1,
+            poolMaxSize: 2,
+        })
+        pubSub = new PubSub(pubSubPool)
+        await pubSub.start()
         client = await createRedisFromConfig(
             defaultConfig.CDP_REDIS_HOST
                 ? {
@@ -139,6 +160,9 @@ export function useSandboxWorld(): SandboxWorld {
 
     afterAll(async () => {
         await dropCreatedTables()
+        await pubSub.stop()
+        await pubSubPool.drain()
+        await pubSubPool.clear()
         await world.postgres.end()
         await client.quit()
     })
@@ -165,7 +189,10 @@ export function useSandboxWorld(): SandboxWorld {
     afterEach(async () => {
         await world.ses.stop()
         await deleteKeysWithPrefix(world.valkey, `@posthog/sandbox-email/{${world.organizationId}}/`)
+        await deleteKeysWithPrefix(world.valkey, sesBucketKey())
     })
+
+    const sesBucketKey = () => `@posthog/ses/test-${world.team.id}`
 
     world.addMember = async (email, { verified = true, organizationId } = {}) => {
         const userId = await createUser(world.postgres, new UUIDT().toString())
@@ -198,6 +225,17 @@ export function useSandboxWorld(): SandboxWorld {
         await write(
             'INSERT INTO workflows_sandboxsenderorganizationblock (organization_id, reason, created_at) VALUES ($1, $2, NOW())',
             [world.organizationId, 'abuse']
+        )
+    }
+
+    world.suspendProjectEmail = async () => {
+        await write(
+            `INSERT INTO workflows_teamworkflowsconfig
+                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                 email_sending_suspended_at, email_sending_suspension_reason)
+             VALUES ($1, false, 'off', now(), 'sandbox suspension test')
+             ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+            [world.team.id]
         )
     }
 
@@ -235,6 +273,26 @@ export function useSandboxWorld(): SandboxWorld {
 
     world.limiter = (name) => new RateLimiterService(world.valkey, { name })
 
+    world.sesBucket = (capacity) => ({
+        limiter: world.limiter('ses'),
+        key: sesBucketKey(),
+        capacity,
+        refillPerSecond: 0.0001,
+    })
+
+    world.takeSlotsLeft = ({ limiter, key, capacity, refillPerSecond }) =>
+        limiter.claimUpTo({ key, requested: capacity, capacity, refillPerSecond })
+
+    world.allowanceLeft = async (caps, storedAddress) => {
+        const probe = await claimSandboxCaps(world.limiter('sandbox-email-caps'), caps, {
+            organizationId: world.organizationId,
+            teamId: world.team.id,
+            storedAddress,
+            claimId: 'allowance probe',
+        })
+        return probe.ok
+    }
+
     world.service = ({ caps = { team: 5, recipient: 5 }, enabled = true, faults = {} } = {}) => {
         const recipientReads = sandboxRecipientReads(
             faults.recipientsDb ?? world.postgres,
@@ -250,6 +308,7 @@ export function useSandboxWorld(): SandboxWorld {
             authorize: (request) => readSandboxAuthorization(faults.authorizationDb ?? world.postgres, request),
             checkRecipient: (request) => checkSandboxRecipient(recipientReads, request),
             claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
+            teamWorkflowsConfig: sandboxTeamWorkflowsConfig(world.postgres, pubSub, faults.teamConfigReadTimeoutMs),
             ses: world.sesClient,
         })
     }

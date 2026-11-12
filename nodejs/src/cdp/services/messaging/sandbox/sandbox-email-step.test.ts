@@ -1,4 +1,6 @@
+import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
+import { AddressInfo, Server, Socket, createServer } from 'net'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
@@ -6,7 +8,8 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PubSub } from '~/common/utils/pubsub'
@@ -21,10 +24,13 @@ import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
-import { useSandboxWorld } from './_tests/sandbox-world'
+import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
+import { DeliveredAddressReader, deliveredAddressReader } from './sandbox-render'
+import { SandboxSesBucket, sandboxWorkerSesBucket } from './sandbox-ses-bucket'
+import { SandboxSesClient } from './sandbox-ses-client'
 
 describe('SandboxEmailSendStep', () => {
     const world = useSandboxWorld()
@@ -34,6 +40,7 @@ describe('SandboxEmailSendStep', () => {
     let events: SandboxEmailEvents
     let pubSubPool: RedisPool
     let pubSub: PubSub
+    let sesBucket: SandboxSesBucket
 
     const member = () => `Member-${world.team.id}@Example.com`
     const frequencyCapKeys = () => `@posthog/workflows-frequency-cap/${world.team.id}/`
@@ -62,6 +69,7 @@ describe('SandboxEmailSendStep', () => {
     beforeEach(async () => {
         await world.addMember(member())
         capturedAnalytics.length = 0
+        sesBucket = world.sesBucket(100)
         hogFlow = new FixtureHogFlowBuilder()
             .withExitCondition('exit_only_at_end')
             .withWorkflow({
@@ -100,20 +108,29 @@ describe('SandboxEmailSendStep', () => {
         hogFlow.version = 3
     })
 
-    const buildExecutor = (dailyCaps = caps): HogFlowExecutorService => {
+    const recipientPreferences = (): RecipientPreferencesService =>
+        new RecipientPreferencesService(world.recipients, world.suppression, {
+            teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
+            valkey: world.valkey,
+            persons: {
+                getCyclotronPerson: () => Promise.reject(new Error('a sandbox email caps the run person')),
+            },
+        })
+
+    const buildExecutor = (
+        dailyCaps = caps,
+        deliveredAddress: DeliveredAddressReader = deliveredAddressReader(world.postgres),
+        faults?: SandboxFaults
+    ): HogFlowExecutorService => {
         const step = new SandboxEmailSendStep({
-            service: world.service({ caps: dailyCaps }),
+            service: world.service({ caps: dailyCaps, faults }),
             hogInputsService: new HogInputsService({} as any, tokens, {} as any),
+            deliveredAddress,
             siteUrl: 'http://localhost:8000',
-            recipientPreferences: new RecipientPreferencesService(world.recipients, world.suppression, {
-                teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
-                valkey: world.valkey,
-                persons: {
-                    getCyclotronPerson: () => Promise.reject(new Error('a sandbox email caps the run person')),
-                },
-            }),
+            recipientPreferences: recipientPreferences(),
             events,
             teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
+            sesBucket,
         })
         return new HogFlowExecutorService(
             {} as any,
@@ -307,11 +324,157 @@ describe('SandboxEmailSendStep', () => {
 
             expect(world.ses.attempts).toBe(sesAttempts)
             expect(world.ses.delivered).toHaveLength(delivered)
+            expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity - sesAttempts)
             expect(metricNames(segments)).toEqual([[metric, 'email']])
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
         }
     )
+
+    it.each<[string, string, () => Promise<void>]>([
+        ["staff suspended the project's email", 'sending_suspended', () => world.suspendProjectEmail()],
+        [
+            "the workflow's email is paused",
+            'sending_paused',
+            () => {
+                hogFlow.email_sending_paused_at = new Date().toISOString()
+                return Promise.resolve()
+            },
+        ],
+    ])(
+        'skips a step while %s, without spending a daily allowance, an SES slot or an SES attempt',
+        async (_name, reason, arrange) => {
+            const dailyCaps = { team: 1, recipient: 1 }
+            await arrange()
+
+            const { segments, finished } = await runToNextAction(member(), { dailyCaps })
+
+            expect(world.ses.attempts).toBe(0)
+            expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity)
+            expect(await world.allowanceLeft(dailyCaps, member())).toBe(true)
+            expect(metricNames(segments)).toEqual([['email_sandbox_blocked', 'email']])
+            expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason })
+        }
+    )
+
+    it('retries a step while the shared SES send rate is spent, and charges the daily allowance only for the send that goes out', async () => {
+        await world.takeSlotsLeft(sesBucket)
+
+        const { segments, finished } = await runToNextAction(member(), {
+            beforeAttempt: async (attempt) => {
+                if (attempt === 1) {
+                    await deleteKeysWithPrefix(world.valkey, sesBucket.key)
+                }
+            },
+        })
+
+        expect(segments).toHaveLength(2)
+        expect(world.ses.attempts).toBe(1)
+        expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-1' })
+    })
+
+    it('retries a step without an SES attempt while the SES send rate store stops answering, and sends it once the store answers', async () => {
+        const store = new StallingValkeyProxy({
+            host: defaultConfig.CDP_REDIS_HOST,
+            port: defaultConfig.CDP_REDIS_PORT,
+        })
+        try {
+            const workerBucket = sandboxWorkerSesBucket({
+                ...defaultConfig,
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: await store.start(),
+                SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
+                SES_RATE_LIMITER_VALKEY_TLS: false,
+            })
+            sesBucket = { ...workerBucket, key: sesBucket.key }
+            const executor = buildExecutor()
+            const routed = await executor.execute(runFor(member()))
+            store.stopAnswering()
+
+            const stalled = await executor.execute(nextDequeue(routed.invocation))
+
+            expect(world.ses.attempts).toBe(0)
+            expect(stalled.invocation.queue).toBe('emailsandbox')
+
+            store.answerNewConnections()
+            await runSandboxQueue(executor, stalled.invocation)
+            expect(world.ses.delivered).toHaveLength(1)
+        } finally {
+            store.stopLeavingClientsSilent()
+        }
+    })
+
+    it("retries a step without an SES attempt while the team's email settings wait behind a lock, and sends it once they are read", async () => {
+        const executor = buildExecutor(caps, undefined, { teamConfigReadTimeoutMs: 200 })
+        const routed = await executor.execute(runFor(member()))
+        const release = await world.lockTable('workflows_teamworkflowsconfig')
+        let stalled: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+        try {
+            stalled = await executor.execute(nextDequeue(routed.invocation))
+        } finally {
+            await release()
+        }
+
+        expect(world.ses.attempts).toBe(0)
+        expect(stalled.invocation.queue).toBe('emailsandbox')
+
+        await runSandboxQueue(executor, stalled.invocation)
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity - 1)
+    })
+
+    it('refuses a job redelivered from before its send once SES took the email, reset the connection, and spent the caps', async () => {
+        const executor = buildExecutor()
+        const routed = await executor.execute(runFor(member()))
+        world.ses.replyNext({ kind: 'deliver-then-reset' })
+
+        const lostReply = await executor.execute(nextDequeue(routed.invocation))
+        const redelivered = await executor.execute(nextDequeue(routed.invocation))
+
+        expect(lostReply.invocation.queue).toBe('emailsandbox')
+        expect(world.ses.attempts).toBe(1)
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(redelivered.invocation.queue).toBe('hogflow')
+        expect(metricNames([redelivered])).toEqual([['email_sandbox_blocked', 'email']])
+        const finished = await executor.execute(nextDequeue(redelivered.invocation))
+        expect(finished.invocation.state.variables?.email_result).toEqual({
+            status: 'skipped',
+            reason: 'daily_cap_reached',
+        })
+    })
+
+    it('settles a batch at the SES deadline when one send never gets its credentials, and sends it on a retry', async () => {
+        const roomy = { team: 100, recipient: 100 }
+        const workingSes = world.sesClient
+        world.sesClient = new SandboxSesClient(
+            new SESv2Client({
+                region: 'us-east-1',
+                endpoint: 'http://127.0.0.1:1',
+                maxAttempts: 1,
+                credentials: () => new Promise<never>(() => {}),
+            }),
+            { configurationSet: 'sandbox-config-set', tenantName: 'sandbox-tenant', sendTimeoutMs: 500 }
+        )
+        const stalledExecutor = buildExecutor(roomy)
+        const [toMember, toOutsider] = await Promise.all(
+            [member(), `outsider-${world.team.id}@example.com`].map((email) => stalledExecutor.execute(runFor(email)))
+        )
+
+        const [stalled, outsider] = await Promise.all(
+            [toMember, toOutsider].map((routed) => stalledExecutor.execute(nextDequeue(routed.invocation)))
+        )
+
+        expect(world.ses.attempts).toBe(0)
+        expect(stalled.invocation.queue).toBe('emailsandbox')
+        expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+        expect(outsider.invocation.queue).toBe('hogflow')
+        expect(metricNames([outsider])).toEqual([['email_sandbox_blocked', 'email']])
+
+        world.sesClient = workingSes
+        const [retried] = await runSandboxQueue(buildExecutor(roomy), stalled.invocation)
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(metricNames([retried])).toEqual([['email_sandbox_sent', 'email']])
+    }, 5_000)
 
     it('keeps the daily allowance it spent before an SES throttle through a later pause-state outage', async () => {
         world.ses.replyNext(SES_THROTTLE)
@@ -331,19 +494,97 @@ describe('SandboxEmailSendStep', () => {
         expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'accepted', message_id: 'ses-1' })
     })
 
+    const unsubscribedIdentifier = (email: { text?: string }): string => {
+        const token = new URL(email.text!.match(/https?:\/\/\S+/)![0]).pathname.split('/').filter(Boolean).at(-1)!
+        const unsubscribed = tokens.validatePreferencesToken(token)
+        expect(unsubscribed.valid).toBe(true)
+        return (unsubscribed as { identifier: string }).identifier
+    }
+
     it('honours an unsubscribe from a sandbox email when later emails spell the address differently', async () => {
         const roomy = { dailyCaps: { team: 100, recipient: 100 } }
         await runToNextAction(member().toUpperCase(), roomy)
-        const [first] = world.ses.delivered
-        const token = new URL(first.text!.match(/https?:\/\/\S+/)![0]).pathname.split('/').filter(Boolean).at(-1)!
-        const unsubscribed = tokens.validatePreferencesToken(token)
-        expect(unsubscribed.valid).toBe(true)
-        await world.recipients.optOut(world.team.id, [(unsubscribed as { identifier: string }).identifier])
+        await world.recipients.optOut(world.team.id, [unsubscribedIdentifier(world.ses.delivered[0])])
 
         const { finished } = await runToNextAction(member().toLowerCase(), roomy)
 
         expect(world.ses.delivered).toHaveLength(1)
         expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason: 'opted_out' })
+    })
+
+    const unsubscribeThroughLink = (email: { text?: string }): Promise<void> =>
+        world.recipients.optOut(world.team.id, [unsubscribedIdentifier(email)])
+
+    const ordinaryEmailSkipReason = (address: string): Promise<string | null> => {
+        const ordinaryEmail = { id: 'ordinary', type: 'function_email', config: { message_category_type: 'marketing' } }
+        const ordinaryRun = {
+            teamId: world.team.id,
+            state: { globals: { inputs: { email: { to: { email: address } } } } },
+        }
+        return recipientPreferences().shouldSkipAction(ordinaryRun as any, ordinaryEmail as any)
+    }
+
+    it('skips a later ordinary email to the delivered address once the member unsubscribes from a sandbox email', async () => {
+        await runToNextAction(member().toLowerCase())
+        const [delivered] = world.ses.delivered
+        expect(delivered.to).toEqual([{ name: '', address: member() }])
+
+        await unsubscribeThroughLink(delivered)
+
+        expect(await ordinaryEmailSkipReason(member())).toBe('opted_out')
+    })
+
+    it.each<[string, (writtenAs: string) => string]>([
+        ['as the step wrote it', (writtenAs) => writtenAs],
+        ['trimmed', (writtenAs) => writtenAs.trim()],
+        ['as the member stored it', () => member()],
+        ['lowercased', (writtenAs) => writtenAs.trim().toLowerCase()],
+    ])('skips a sandbox email to someone who unsubscribed with the address %s', async (_spelling, spell) => {
+        const writtenAs = `  ${member().toUpperCase()} `
+        await world.recipients.optOut(world.team.id, [spell(writtenAs)])
+
+        const { finished } = await runToNextAction(writtenAs)
+
+        expect(world.ses.attempts).toBe(0)
+        expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason: 'opted_out' })
+    })
+
+    describe('when the delivered address cannot be read', () => {
+        let blackhole: Server
+        let stalledPostgres: PostgresRouter
+        const heldSockets = new Set<Socket>()
+
+        beforeAll(async () => {
+            blackhole = createServer((socket) => heldSockets.add(socket))
+            await new Promise<void>((resolve) => blackhole.listen(0, '127.0.0.1', resolve))
+            const { port } = blackhole.address() as AddressInfo
+            stalledPostgres = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_URL: `postgres://posthog:posthog@127.0.0.1:${port}/posthog`,
+            })
+        })
+
+        afterAll(async () => {
+            heldSockets.forEach((socket) => socket.destroy())
+            await new Promise((resolve) => blackhole.close(resolve))
+            await stalledPostgres.end()
+        })
+
+        it('retries the step without an SES attempt and sends it with an unsubscribe link once the read answers', async () => {
+            const stalledExecutor = buildExecutor(caps, deliveredAddressReader(stalledPostgres, 100))
+            const routed = await stalledExecutor.execute(runFor(member().toLowerCase()))
+
+            const stalled = await stalledExecutor.execute(nextDequeue(routed.invocation))
+
+            expect(world.ses.attempts).toBe(0)
+            expect(stalled.invocation.queue).toBe('emailsandbox')
+            expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+
+            await runSandboxQueue(buildExecutor(), stalled.invocation)
+            expect(world.ses.delivered).toHaveLength(1)
+            await unsubscribeThroughLink(world.ses.delivered[0])
+            expect(await ordinaryEmailSkipReason(member())).toBe('opted_out')
+        })
     })
 
     it("delivers a marketing email until the person reaches the team's frequency cap, then skips the next one", async () => {

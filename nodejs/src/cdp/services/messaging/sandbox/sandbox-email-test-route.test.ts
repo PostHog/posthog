@@ -20,20 +20,18 @@ import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { createInvocationResult } from '../../../utils/invocation-utils'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
-import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
-import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
+import { SandboxEmailAction, SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { SES_REJECTED, SES_SERVER_ERROR, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
+import { SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
-import {
-    SANDBOX_TEST_SEND_PATH,
-    SandboxEmailTestRouteDeps,
-    sandboxEmailTestRouter,
-    sandboxTestSendBucket,
-} from './sandbox-email-test-route'
+import { SANDBOX_TEST_SEND_PATH, SandboxEmailTestRouteDeps, sandboxEmailTestRouter } from './sandbox-email-test-route'
 import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
+import { deliveredAddressReader } from './sandbox-render'
+import { SandboxSesBucket, sandboxTestSendBucket } from './sandbox-ses-bucket'
 
 describe('sandbox email test sends', () => {
     const world = useSandboxWorld()
@@ -43,29 +41,26 @@ describe('sandbox email test sends', () => {
     let events: SandboxEmailEvents
     let app: express.Application
     let server: Server
-    let sesBucketKey: string
 
     const member = () => `member-${world.team.id}@example.com`
-
-    const sesBucket = (capacity: number): RateLimitedQueueOptions => ({
-        limiter: world.limiter('ses'),
-        key: sesBucketKey,
-        capacity,
-        refillPerSecond: 0.0001,
-        throttledPollDelayMs: 1000,
-    })
 
     const serveWorker = ({
         sendingOn = true,
         faults,
+        caps,
         bucket = null,
-    }: { sendingOn?: boolean; faults?: SandboxFaults; bucket?: SandboxEmailTestRouteDeps['sesBucket'] } = {}): void => {
+    }: {
+        sendingOn?: boolean
+        faults?: SandboxFaults
+        caps?: SandboxCaps
+        bucket?: SandboxEmailTestRouteDeps['sesBucket']
+    } = {}): void => {
         server?.close()
         app = setupExpressApp({ internalApiSecret: 'shared-internal-secret' })
         app.use(
             sandboxEmailTestRouter({
                 jwt: workerJwt,
-                service: sendingOn ? world.service({ faults }) : null,
+                service: sendingOn ? world.service({ faults, caps }) : null,
                 events,
                 sesBucket: bucket,
             })
@@ -80,7 +75,6 @@ describe('sandbox email test sends', () => {
     beforeEach(async () => {
         await world.addMember(member())
         capturedAnalytics.length = 0
-        sesBucketKey = `@posthog/ses/test-${world.team.id}`
         serveWorker()
         hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
@@ -106,9 +100,8 @@ describe('sandbox email test sends', () => {
         hogFlow.team_id = world.team.id
     })
 
-    afterEach(async () => {
+    afterEach(() => {
         server.close()
-        await deleteKeysWithPrefix(world.valkey, sesBucketKey)
     })
 
     const fetchThroughWorker = async (url: string, options: any): Promise<FetchResponse> => {
@@ -132,6 +125,7 @@ describe('sandbox email test sends', () => {
                 new RecipientTokensService('00beef0000beef0000beef0000beef00', 'http://localhost:8000'),
                 {} as any
             ),
+            deliveredAddress: deliveredAddressReader(world.postgres),
             siteUrl: 'http://localhost:8000',
             endpoint: 'http://sandbox-worker.internal',
             jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST, secret),
@@ -230,23 +224,127 @@ describe('sandbox email test sends', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
-    it('holds test sends to the SES send rate that queued sends share', async () => {
-        const bucket = sesBucket(2)
-        serveWorker({ bucket })
-        await bucket.limiter.claimUpTo({
-            key: bucket.key,
-            requested: 1,
-            capacity: bucket.capacity,
-            refillPerSecond: bucket.refillPerSecond,
-        })
+    it('takes one slot of the SES send rate that queued sends share for each test it sends, and sends nothing once it is spent', async () => {
+        serveWorker({ bucket: world.sesBucket(2) })
 
-        await expect(tester().send(testRun())).resolves.toMatchObject({ status: 'accepted' })
-        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
-        expect(world.ses.delivered).toHaveLength(1)
+        const answers = []
+        for (let send = 0; send < 3; send++) {
+            answers.push(await tester().send(testRun()))
+        }
+
+        expect(answers).toEqual([
+            expect.objectContaining({ status: 'accepted' }),
+            expect.objectContaining({ status: 'accepted' }),
+            { status: 'failed', reason: 'send_rate_limited' },
+        ])
+        expect(world.ses.attempts).toBe(2)
     })
 
+    it.each<[string, (bucket: SandboxSesBucket) => Promise<unknown>, SandboxEmailStepResult, SandboxEmailStepResult]>([
+        [
+            'the SES send rate refused it',
+            (bucket) => world.takeSlotsLeft(bucket),
+            { status: 'failed', reason: 'send_rate_limited' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            'SES throttled it',
+            () => Promise.resolve(world.ses.replyNext(SES_THROTTLE)),
+            { status: 'pending', reason: 'ses_throttled' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            'SES rejected it',
+            () => Promise.resolve(world.ses.replyNext(SES_REJECTED)),
+            { status: 'failed', reason: 'ses_rejected' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            'SES failed in a way that may have sent it',
+            () => Promise.resolve(world.ses.replyNext(SES_SERVER_ERROR)),
+            { status: 'pending', reason: 'ses_transient' },
+            { status: 'skipped', reason: 'daily_cap_reached' },
+        ],
+    ])(
+        'charges the daily allowances of a test only when SES may have taken it, after %s',
+        async (_case, arrange, first, next) => {
+            const bucket = world.sesBucket(1)
+            serveWorker({ bucket, caps: { team: 1, recipient: 1 } })
+            await arrange(bucket)
+
+            await expect(tester().send(testRun())).resolves.toEqual(first)
+            await deleteKeysWithPrefix(world.valkey, bucket.key)
+
+            await expect(tester().send(testRun())).resolves.toEqual(next)
+        }
+    )
+
+    it.each<[string, () => Promise<string>]>([
+        [
+            'its organization is blocked',
+            async () => {
+                await world.blockOrganization()
+                return member()
+            },
+        ],
+        ['its recipient is not a member', () => Promise.resolve(`stranger-${world.team.id}@example.com`)],
+        [
+            "the member's daily allowance is spent",
+            async () => {
+                await claimSandboxCaps(
+                    world.limiter('sandbox-email-caps'),
+                    { team: 5, recipient: 1 },
+                    {
+                        organizationId: world.organizationId,
+                        teamId: world.team.id,
+                        storedAddress: member(),
+                        claimId: 'an earlier send today',
+                    }
+                )
+                return member()
+            },
+        ],
+    ])('leaves the shared SES send rate untouched by tests it refuses because %s', async (_reason, arrange) => {
+        const bucket = world.sesBucket(2)
+        serveWorker({ bucket, caps: { team: 5, recipient: 1 } })
+        const recipient = await arrange()
+
+        for (let send = 0; send < 3; send++) {
+            await expect(tester().send(testRun({}, recipient))).resolves.toMatchObject({ status: 'skipped' })
+        }
+
+        expect(await world.takeSlotsLeft(bucket)).toBe(2)
+        expect(world.ses.attempts).toBe(0)
+    })
+
+    it.each<[string, string, () => Promise<void>]>([
+        ["staff suspended the project's email", 'sending_suspended', () => world.suspendProjectEmail()],
+        [
+            "the workflow's email is paused",
+            'sending_paused',
+            () => {
+                hogFlow.email_sending_paused_at = new Date().toISOString()
+                return Promise.resolve()
+            },
+        ],
+    ])(
+        'refuses a test send while %s, without spending a daily allowance, an SES slot or an SES attempt',
+        async (_name, reason, arrange) => {
+            const bucket = world.sesBucket(2)
+            const caps = { team: 1, recipient: 1 }
+            serveWorker({ bucket, caps })
+            await arrange()
+
+            await expect(tester().send(testRun())).resolves.toEqual({ status: 'skipped', reason })
+
+            expect(world.ses.attempts).toBe(0)
+            expect(await world.takeSlotsLeft(bucket)).toBe(2)
+            expect(await world.allowanceLeft(caps, member())).toBe(true)
+        }
+    )
+
     it('refuses a test send while the SES send rate cannot be read', async () => {
-        serveWorker({ bucket: { ...sesBucket(5), limiter: world.unreachableLimiter() } })
+        serveWorker({ bucket: { ...world.sesBucket(5), limiter: world.unreachableLimiter() } })
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
         expect(world.ses.delivered).toEqual([])
@@ -266,7 +364,7 @@ describe('sandbox email test sends', () => {
                 SES_RATE_LIMITER_VALKEY_TLS: false,
             })!
             serveWorker({ bucket })
-            const answering = { key: sesBucketKey, requested: 1, capacity: 5, refillPerSecond: 1 }
+            const answering = { key: world.sesBucket(5).key, requested: 1, capacity: 5, refillPerSecond: 1 }
             expect(await bucket.limiter.claimUpTo(answering)).toBe(1)
             store.stopAnswering()
 

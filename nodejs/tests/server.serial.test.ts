@@ -79,12 +79,12 @@ describe('server', () => {
         }
     })
 
-    it('keeps the sandbox email worker process up while its Valkeys refuse connections, and healthy once they answer', async () => {
-        const cdpRedis = { host: defaultConfig.CDP_REDIS_HOST, port: defaultConfig.CDP_REDIS_PORT }
-        const sesValkey = new StallingValkeyProxy(cdpRedis)
-        const frequencyCapValkey = new StallingValkeyProxy(cdpRedis)
-        const [sesPort, frequencyCapPort] = [await sesValkey.start(), await frequencyCapValkey.start()]
-        sesValkey.refuseNewConnections()
+    it('keeps the sandbox email worker process up while its frequency-cap Valkey refuses connections, and healthy once it answers', async () => {
+        const frequencyCapValkey = new StallingValkeyProxy({
+            host: defaultConfig.CDP_REDIS_HOST,
+            port: defaultConfig.CDP_REDIS_PORT,
+        })
+        const frequencyCapPort = await frequencyCapValkey.start()
         frequencyCapValkey.refuseNewConnections()
 
         const httpPort = await getFreePort()
@@ -108,27 +108,21 @@ describe('server', () => {
                 PERSONHOG_ENABLED: 'true',
                 PERSONHOG_ADDR: 'localhost:50052',
                 OTEL_SDK_DISABLED: 'true',
-                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
-                SES_RATE_LIMITER_VALKEY_PORT: String(sesPort),
-                SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
                 CDP_FREQUENCY_CAP_VALKEY_HOST: '127.0.0.1',
                 CDP_FREQUENCY_CAP_VALKEY_PORT: String(frequencyCapPort),
             },
         })
         try {
             await waitForExpect(() => {
-                expect(sesValkey.refusedConnections).toBeGreaterThan(0)
                 expect(frequencyCapValkey.refusedConnections).toBeGreaterThan(10)
             }, 120_000)
             expect(worker.exitInfo()).toBeNull()
 
-            sesValkey.answerNewConnections()
             frequencyCapValkey.answerNewConnections()
             await worker.waitForHttpOk(health, 60_000)
             expect(worker.exitInfo()).toBeNull()
         } finally {
             await worker.stop()
-            sesValkey.stop()
             frequencyCapValkey.stop()
         }
     }, 180_000)

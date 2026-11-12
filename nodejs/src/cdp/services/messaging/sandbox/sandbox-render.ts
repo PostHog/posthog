@@ -1,20 +1,44 @@
 import { DateTime } from 'luxon'
 
+import { PostgresRouter } from '~/common/utils/db/postgres'
+
 import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType } from '../../../types'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
 import { actionIdForLogging } from '../../hogflows/hogflow-utils'
+import { AUTHORIZATION_TIMEOUT_MS, readSandboxAuthorization } from './sandbox-authorization'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
 import { canonicalRecipient } from './sandbox-recipient-checks'
 
 export class SandboxRenderError extends Error {}
 
+export class SandboxRecipientUnavailableError extends Error {}
+
+export type DeliveredAddressReader = (teamId: number, recipient: string) => Promise<string>
+
+export function deliveredAddressReader(
+    db: PostgresRouter,
+    timeoutMs: number = AUTHORIZATION_TIMEOUT_MS
+): DeliveredAddressReader {
+    return async (teamId, recipient) => {
+        const authorization = await readSandboxAuthorization(db, { teamId, recipient, tenantName: '', timeoutMs })
+        if (authorization.ok) {
+            return authorization.storedAddress
+        }
+        if (authorization.reason === 'authorization_unavailable') {
+            throw new SandboxRecipientUnavailableError('Could not read the address the sandbox email is delivered to')
+        }
+        return canonicalRecipient(recipient)
+    }
+}
+
 export async function renderSandboxEmail(
     hogInputsService: Pick<HogInputsService, 'buildInputsWithGlobals'>,
     invocation: CyclotronJobInvocationHogFlow,
     action: SandboxEmailAction,
-    siteUrl: string
+    siteUrl: string,
+    deliveredAddress: DeliveredAddressReader
 ): Promise<SandboxRenderedEmail> {
     const { hogFlow } = invocation
     const globals = await hogInputsService.buildInputsWithGlobals(
@@ -28,7 +52,8 @@ export async function renderSandboxEmail(
             invocationId: invocation.id,
             workflowVersion: hogFlow.version,
         },
-        { recipientIdentifier: canonicalRecipient }
+        undefined,
+        { recipientIdentifier: (email) => deliveredAddress(invocation.teamId, email) }
     )
     const parsed = SandboxRenderedEmailSchema.safeParse(globals.inputs.email)
     if (!parsed.success) {

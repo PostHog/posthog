@@ -547,16 +547,20 @@ export function InsightVizDisplay({
                         </div>
                     )}
 
-                    <InsightsTable
-                        // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
-                        isLegend={display !== ChartDisplayType.WorldMap}
-                        embedded={embedded}
-                        editMode={editMode}
-                        filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!hasFormula && editMode}
-                        seriesNameTooltip={hasFormula && editMode ? 'Formula series names are not editable' : undefined}
-                        canCheckUncheckSeries={canEditInsight}
-                    />
+                    <QuillSurfaceContext.Provider value={quillSurface}>
+                        <InsightsTable
+                            // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
+                            isLegend={display !== ChartDisplayType.WorldMap}
+                            embedded={embedded}
+                            editMode={editMode}
+                            filterKey={keyForInsightLogicProps('new')(insightProps)}
+                            canEditSeriesNameInline={!hasFormula && editMode}
+                            seriesNameTooltip={
+                                hasFormula && editMode ? 'Formula series names are not editable' : undefined
+                            }
+                            canCheckUncheckSeries={canEditInsight}
+                        />
+                    </QuillSurfaceContext.Provider>
                 </>
             )
         }

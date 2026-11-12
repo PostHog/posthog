@@ -328,9 +328,9 @@ export type StamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: strin
  * installation and simply won't resolve webhooks until synced.
  */
 export interface StamphogRepoConfigWriteApi {
-    /** SCM provider this config talks to. Defaults to 'github'. */
+    /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
     provider?: string
-    /** Repository full name, e.g. 'PostHog/posthog'. */
+    /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
     repository: string
     /** Whether stamphog actively reviews pull requests for this repo. */
     enabled?: boolean
@@ -373,9 +373,9 @@ export type PatchedStamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]
  * installation and simply won't resolve webhooks until synced.
  */
 export interface PatchedStamphogRepoConfigWriteApi {
-    /** SCM provider this config talks to. Defaults to 'github'. */
+    /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
     provider?: string
-    /** Repository full name, e.g. 'PostHog/posthog'. */
+    /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
     repository?: string
     /** Whether stamphog actively reviews pull requests for this repo. */
     enabled?: boolean

@@ -1,8 +1,10 @@
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PubSub } from '~/common/utils/pubsub'
 
 import { MessageOptOutRecord } from '../../../types'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
 import {
@@ -10,6 +12,7 @@ import {
     SandboxAuthorization,
     queryPrimaryBeforeDeadline,
     readSandboxAuthorization,
+    readerBeforeDeadline,
 } from './sandbox-authorization'
 import { SandboxCapClaim, SandboxCapClaimRequest, SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 import { SandboxRenderedEmailSchema, buildSandboxMessage } from './sandbox-message'
@@ -24,6 +27,7 @@ import { SES_TAG_ID, SandboxSesClient } from './sandbox-ses-client'
 import { admitTenant } from './sandbox-tenant-admission'
 
 export const SANDBOX_INTEGRATION_ID = 'posthog-managed-sandbox'
+export const SEND_RATE_LIMITED = 'send_rate_limited'
 
 export type SandboxSendOutcome =
     | { status: 'accepted'; messageId: string }
@@ -37,6 +41,7 @@ export type SandboxSendRequest = {
     actionId: string
     flowVersion: number
     isTest: boolean
+    workflowEmailPaused: boolean
     parentRunId?: string
     email: unknown
     categoryId?: string
@@ -44,6 +49,7 @@ export type SandboxSendRequest = {
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
     capClaimId: string
+    claimSesSlot: () => Promise<boolean>
 }
 
 export type SandboxEmailServiceDeps = {
@@ -54,11 +60,17 @@ export type SandboxEmailServiceDeps = {
     authorize: (request: { teamId: number; recipient: string; tenantName: string }) => Promise<SandboxAuthorization>
     checkRecipient: (request: SandboxRecipientCheckRequest) => Promise<SandboxRecipientCheck>
     claimCaps: (claim: SandboxCapClaimRequest) => Promise<SandboxCapClaim>
+    teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'get'>
     ses: Pick<SandboxSesClient, 'send'>
     now?: () => Date
 }
 
-const RETRYABLE_REFUSALS = new Set(['authorization_unavailable', 'pause_state_unavailable', 'cap_storage_unavailable'])
+const RETRYABLE_REFUSALS = new Set([
+    'authorization_unavailable',
+    'suspension_state_unavailable',
+    'pause_state_unavailable',
+    'cap_storage_unavailable',
+])
 const MAX_ADDRESS_LENGTH = 254
 const SINGLE_ADDRESS = /^[^\s@"<>,;:()[\]\\]+@[^\s@"<>,;:()[\]\\]+\.[^\s@"<>,;:()[\]\\]+$/
 const LINE_BREAK = /[\r\n]/
@@ -89,6 +101,16 @@ export class SandboxEmailService {
     private async decide(request: SandboxSendRequest): Promise<SandboxSendOutcome> {
         if (!this.deps.enabled) {
             return { status: 'skipped', reason: 'sending_disabled' }
+        }
+        const teamConfig = await this.deps.teamWorkflowsConfig.get(request.teamId).catch(() => null)
+        if (!teamConfig) {
+            return refusal('suspension_state_unavailable')
+        }
+        if (teamConfig.email_sending_suspended) {
+            return { status: 'skipped', reason: 'sending_suspended' }
+        }
+        if (request.workflowEmailPaused) {
+            return { status: 'skipped', reason: 'sending_paused' }
         }
         const email = SandboxRenderedEmailSchema.safeParse(request.email)
         if (!email.success) {
@@ -141,6 +163,10 @@ export class SandboxEmailService {
         if (!(await caps.markSending())) {
             return refusal('cap_storage_unavailable')
         }
+        if (!(await request.claimSesSlot())) {
+            await caps.refundUnsent()
+            return { status: 'retry', reason: SEND_RATE_LIMITED }
+        }
         const message = buildSandboxMessage({
             email: email.data,
             organizationId: authorization.organizationId,
@@ -159,7 +185,7 @@ export class SandboxEmailService {
             ...(parentRunId ? { parentRunId } : {}),
         })
         if (sent.status === 'failed' || (sent.status === 'retry' && sent.reason === 'ses_throttled')) {
-            await caps.releaseUnsent()
+            await (request.isTest ? caps.refundUnsent() : caps.releaseUnsent())
         }
         return sent
     }
@@ -213,6 +239,7 @@ export function createSandboxEmailService({
     recipientChecks,
     limiter,
     caps,
+    pubSub,
     ses,
     fromAddress,
     tenantName,
@@ -222,6 +249,7 @@ export function createSandboxEmailService({
     recipientChecks: SandboxRecipientCheckDependencies
     limiter: RateLimiterService
     caps: SandboxCaps
+    pubSub: PubSub
     ses: Pick<SandboxSesClient, 'send'>
     fromAddress: string
     tenantName: string
@@ -234,8 +262,17 @@ export function createSandboxEmailService({
         authorize: (request) => readSandboxAuthorization(db, request),
         checkRecipient: (request) => checkSandboxRecipient(recipientChecks, request),
         claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
+        teamWorkflowsConfig: sandboxTeamWorkflowsConfig(db, pubSub),
         ses,
     })
+}
+
+export function sandboxTeamWorkflowsConfig(
+    db: PostgresRouter,
+    pubSub: PubSub,
+    timeoutMs: number = AUTHORIZATION_TIMEOUT_MS
+): TeamWorkflowsConfigService {
+    return new TeamWorkflowsConfigService(readerBeforeDeadline(db, timeoutMs, 'sandbox-email-team-config'), pubSub)
 }
 
 export async function hasSandboxSenderRow(db: PostgresRouter, teamId: number): Promise<boolean> {

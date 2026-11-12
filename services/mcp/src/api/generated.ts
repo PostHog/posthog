@@ -22015,6 +22015,15 @@ export namespace Schemas {
       readonly results: readonly BroadcastConversionCandidate[];
     }
 
+    export interface BroadcastOption {
+      /** ID of the broadcast. */
+      id: string;
+      /** Name of the broadcast. */
+      name: string;
+      /** Status of the broadcast, such as draft or active. */
+      status: string;
+    }
+
     /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
@@ -39428,7 +39437,7 @@ export namespace Schemas {
       /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
-         * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+         * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: omit the field when you can't tell, and the report records no repository unless its text links exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
          * @nullable
          */
       repository?: string | null;
@@ -50861,6 +50870,49 @@ export namespace Schemas {
       results: FeatureFlagRequestUsageItem[];
     }
 
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
+
+
+    export const RollbackReasonEnum = {
+      Errors: 'errors',
+      Metrics: 'metrics',
+      Planned: 'planned',
+      WrongConfiguration: 'wrong_configuration',
+      Other: 'other',
+    } as const;
+
+    export interface FeatureFlagRestoreVersionRequest {
+      /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+      ask_rollback_reason?: boolean;
+      /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+       *
+       * * `errors` - Errors or bugs
+       * * `metrics` - Metrics got worse
+       * * `planned` - It was planned
+       * * `wrong_configuration` - Wrong configuration
+       * * `other` - Other */
+      rollback_reason?: RollbackReasonEnum | null;
+      /**
+         * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+         * @maxLength 1000
+         * @nullable
+         */
+      rollback_reason_note?: string | null;
+      /**
+         * The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0.
+         * @minimum 0
+         * @nullable
+         */
+      version: number | null;
+    }
+
     export interface FeatureFlagRollOutToEveryoneRequest {
       /**
          * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
@@ -50993,6 +51045,7 @@ export namespace Schemas {
       readonly filters: FeatureFlagVersionResponseFilters;
       active?: boolean;
       deleted?: boolean;
+      archived?: boolean;
       /**
          * @minimum -2147483648
          * @maximum 2147483647
@@ -64694,6 +64747,20 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface LinkedSendDTO {
+      id: string;
+      status: string;
+      created_at: string;
+    }
+
+    export interface LinkedBroadcastDTO {
+      /** The broadcast's most recent sends, newest first, at most 20. */
+      readonly recent_sends: readonly LinkedSendDTO[];
+      id: string;
+      name: string;
+      status: string;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -75726,6 +75793,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
+      readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -75733,6 +75802,7 @@ export namespace Schemas {
       description: string;
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
+      broadcast_ids: string[];
       created_at: string;
     }
 
@@ -86108,24 +86178,6 @@ export namespace Schemas {
       readonly connection_warning?: string | null;
     }
 
-    /**
-     * * `errors` - Errors or bugs
-     * * `metrics` - Metrics got worse
-     * * `planned` - It was planned
-     * * `wrong_configuration` - Wrong configuration
-     * * `other` - Other
-     */
-    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
-
-
-    export const RollbackReasonEnum = {
-      Errors: 'errors',
-      Metrics: 'metrics',
-      Planned: 'planned',
-      WrongConfiguration: 'wrong_configuration',
-      Other: 'other',
-    } as const;
-
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
       /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
       ask_rollback_reason?: boolean;
@@ -91006,9 +91058,9 @@ export namespace Schemas {
      * installation and simply won't resolve webhooks until synced.
      */
     export interface PatchedStamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. */
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
       provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
       repository?: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
@@ -92858,6 +92910,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     /**
@@ -113271,9 +113325,9 @@ export namespace Schemas {
      * installation and simply won't resolve webhooks until synced.
      */
     export interface StamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. */
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
       provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
       repository: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
@@ -122440,6 +122494,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     export interface ZendeskImportError {
@@ -134620,6 +134676,11 @@ export namespace Schemas {
      */
     end: string;
     /**
+     * Comma-separated workflow IDs, at most 200. Only these workflows are returned.
+     * @minLength 1
+     */
+    ids?: string;
+    /**
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string;
@@ -138013,6 +138074,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ReleasesBroadcastSearchRetrieveParams = {
+    /**
+     * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type ReviewHogRepositoryOverviewRetrieveParams = {

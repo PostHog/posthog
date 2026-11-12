@@ -169,10 +169,21 @@ The accessors hold the scope rules: the kinds, the auth types, the warehouse sou
 They send the storage work to one `StorageBackend` (`backend/protocol.py`), which `current_backend()` returns.
 The primitives take and return plain data (`RowScope`, `RowFilter`, `CrossTeamFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
 
-| Backend                       | Rows                                                        |
-| ----------------------------- | ----------------------------------------------------------- |
-| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it. |
-| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.       |
+| Backend                       | Rows                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it.             |
+| `ServiceBackend`              | The credentials service, over HTTP. Returns `FrozenIntegrationRecord`s. |
+| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.                   |
+
+`INTEGRATIONS_STORAGE_BACKEND` (`django` or `service`) chooses the backend of a deployment. No deployment uses `service` yet.
+
+`ServiceBackend` notes:
+
+- It signs a token for each request (`_ops_for` names the operations), with EdDSA (Ed25519). The private key comes from the file at `CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH`, read once per process. `CREDENTIALS_SERVICE_URL` is the service address. A single-ref call names exactly that ref, and each token has one owner. A cross-team token has none.
+- A plain read of the service returns no secrets. A team read gets the secrets of its rows from `POST /resolve`, and keeps them in memory for at most 60 seconds, never past the expiry of the access token. A write in the same process clears the entry. A write in another process can stay hidden for up to 60 seconds.
+- `list_across_teams` returns rows without secrets. A read of their secrets raises `IntegrationServiceError`. Read the row with `get`.
+- `change_external_id` and `refresh_access_token` raise `NotImplementedError` until the service has routes for them.
+- It maps each service error code to an SDK exception. A code with no SDK exception raises `IntegrationServiceError`. A transport failure or a key service failure raises `IntegrationServiceUnavailable`.
 
 To use the fake in a test:
 
@@ -189,7 +200,7 @@ with fake_integrations_backend() as backend:
 To add an operation:
 
 - When existing primitives can do it, add only the accessor method in `accessors.py`.
-- When it needs a new storage step, also add the primitive to `StorageBackend` in `backend/protocol.py`, implement it in `backend/django_backend.py` and `backend/fake_backend.py`, and add a case to `test/test_backends.py`, which runs against both backends.
+- When it needs a new storage step, also add the primitive to `StorageBackend` in `backend/protocol.py`, implement it in `backend/django_backend.py` and `backend/fake_backend.py`, and add a case to `test/test_backends.py`, which runs against every backend. When the service has a route for the step, add it to `backend/service_backend.py` and to the stub in `test/credentials_service_stub.py`. Otherwise skip the case for the service backend.
 
 ## Pick an auth type
 

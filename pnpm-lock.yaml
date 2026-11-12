@@ -6153,6 +6153,9 @@ importers:
 
   services/credentials-service:
     dependencies:
+      '@aws-sdk/client-kms':
+        specifier: ^3.975.0
+        version: 3.975.0
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.14)

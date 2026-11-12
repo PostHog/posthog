@@ -9,7 +9,14 @@ import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { SandboxEmailEvents, sandboxAppMetric } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
-import { acceptedSandboxEmail, logRenderFailure, renderSandboxEmail } from './sandbox-render'
+import {
+    DeliveredAddressReader,
+    SandboxRecipientUnavailableError,
+    acceptedSandboxEmail,
+    logRenderFailure,
+    renderSandboxEmail,
+} from './sandbox-render'
+import { SandboxSesBucket, claimSesSlot } from './sandbox-ses-bucket'
 
 export const MAX_SANDBOX_RETRIES = 8
 const FIRST_RETRY_DELAY_MS = 30_000
@@ -24,10 +31,12 @@ export function sandboxRetryDelayMs(retry: number, random: () => number = Math.r
 export type SandboxEmailSendStepDeps = {
     service: Pick<SandboxEmailService, 'send'>
     hogInputsService: Pick<HogInputsService, 'buildInputsWithGlobals'>
+    deliveredAddress: DeliveredAddressReader
     siteUrl: string
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     events: Pick<SandboxEmailEvents, 'capture'>
     teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
+    sesBucket: SandboxSesBucket
 }
 
 export class SandboxEmailSendStep implements SandboxEmailStep {
@@ -66,9 +75,18 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
         try {
             email =
                 action.type === 'email_sandbox'
-                    ? await renderSandboxEmail(this.deps.hogInputsService, invocation, action, this.deps.siteUrl)
+                    ? await renderSandboxEmail(
+                          this.deps.hogInputsService,
+                          invocation,
+                          action,
+                          this.deps.siteUrl,
+                          this.deps.deliveredAddress
+                      )
                     : acceptedSandboxEmail(invocation)
         } catch (error) {
+            if (error instanceof SandboxRecipientUnavailableError) {
+                return { status: 'retry', reason: 'authorization_unavailable' }
+            }
             logRenderFailure(options, error)
             return { status: 'failed', reason: 'render_failed' }
         }
@@ -79,12 +97,14 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             actionId: action.id,
             flowVersion: invocation.hogFlow.version,
             isTest: false,
+            workflowEmailPaused: Boolean(invocation.hogFlow.email_sending_paused_at),
             parentRunId: invocation.parentRunId ?? undefined,
             email,
             categoryId: action.config.message_category_id,
             categoryType: action.config.message_category_type,
             optOuts: invocation.state.messageOptOuts,
             capClaimId: `${stepVisitKey(invocation, action)}/${uncertainSends(invocation)}`,
+            claimSesSlot: () => claimSesSlot(this.deps.sesBucket),
             frequencyCap: () =>
                 this.deps.recipientPreferences.checkMarketingFrequencyCap({
                     teamId: invocation.teamId,

@@ -198,7 +198,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     ): Promise<CyclotronJobInvocationResult[]> => {
         const deps = {
             ...createCdpConsumerDeps(hub),
-            sandboxEmail: { service: world.service(), events: new SandboxEmailEvents(hub.teamManager) },
+            sandboxEmail: {
+                service: world.service(),
+                events: new SandboxEmailEvents(hub.teamManager),
+                sesBucket: world.sesBucket(100),
+            },
         }
         const workers = {
             email: new CdpCyclotronWorkerEmail(hub, deps, createMockJobQueue()),
@@ -257,6 +261,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 invocation_id: expect.any(String),
                 replayed: false,
                 sender_kind: 'email_sandbox',
+                attachment_count: 0,
+                attachment_bytes: 0,
             })
             expect(queued).toHaveLength(1)
 
@@ -607,6 +613,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             invocation_id: sent.body.invocation_id,
             replayed: true,
             sender_kind: 'email_sandbox',
+            attachment_count: 0,
+            attachment_bytes: 0,
         })
         expect(queued).toHaveLength(1)
     })

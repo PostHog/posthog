@@ -307,6 +307,8 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
         assert edits == [] and [delete["id"] for delete in deletes] == [555]
     event = routing_chain.captured.call_args.kwargs
     assert event["properties"]["stamphog_routing_cut"] == len(expected_cut)
+    # ALWAYS routes when the pull request opens, so the head never waited.
+    assert event["properties"]["stamphog_routing_wait_ms"] is None
     assert "Move the widget loader" not in str(event)
 
 
@@ -499,7 +501,9 @@ def test_fallback_approval_requests_only_pinned_owners(
     user,
     routing_chain,
     safety_net,
+    time_machine,
 ) -> None:
+    time_machine.move_to(datetime(2026, 11, 3, 10, 0, tzinfo=UTC), tick=False)
     repo_config = _open_fallback(routing_chain, team, user, with_addition=with_addition)
     _seed_routing_comment(routing_chain, repo_config)
     routing_chain.cut_model.answer = _CUT_BETA
@@ -509,7 +513,11 @@ def test_fallback_approval_requests_only_pinned_owners(
     assert safety_net.call_args.kwargs["countdown"] == ROUTING_SAFETY_NET_SECONDS
     assert _stored(team.id)["status"] == "waiting"
 
+    time_machine.move_to(datetime(2026, 11, 3, 10, 1, 30, tzinfo=UTC), tick=False)
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
+
+    # The head waited from the opening event until the verdict.
+    assert routing_chain.captured.call_args.kwargs["properties"]["stamphog_routing_wait_ms"] == 90_000
 
     assert [call["model"] for call in routing_chain.cut_model.calls] == [CUT_MODEL]
     assert _requested(routing_chain) == (set(), expected_teams)

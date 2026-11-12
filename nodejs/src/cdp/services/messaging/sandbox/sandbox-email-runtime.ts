@@ -1,5 +1,6 @@
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { PluginsServerConfig } from '~/types'
 
@@ -8,9 +9,14 @@ import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SandboxEmailService, createSandboxEmailService } from './sandbox-email.service'
 import { sandboxRecipientReads } from './sandbox-recipient-checks'
+import { SandboxSesBucket, sandboxWorkerSesBucket } from './sandbox-ses-bucket'
 import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
 
-export type SandboxEmailRuntime = { service: SandboxEmailService; events: SandboxEmailEvents }
+export type SandboxEmailRuntime = {
+    service: SandboxEmailService
+    events: SandboxEmailEvents
+    sesBucket: SandboxSesBucket
+}
 
 type SandboxRuntimeConfig = Pick<
     PluginsServerConfig,
@@ -18,6 +24,12 @@ type SandboxRuntimeConfig = Pick<
     | 'SES_REGION'
     | 'SES_ENDPOINT'
     | 'SES_RATE_LIMITER_VALKEY_HOST'
+    | 'SES_RATE_LIMITER_VALKEY_PORT'
+    | 'SES_RATE_LIMITER_VALKEY_PASSWORD'
+    | 'SES_RATE_LIMITER_VALKEY_TLS'
+    | 'CDP_SES_RATE_LIMIT_CAPACITY'
+    | 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND'
+    | 'CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS'
     | 'SES_SANDBOX_FROM_ADDRESS'
     | 'SES_SANDBOX_CONFIGURATION_SET'
     | 'SES_SANDBOX_TENANT_NAME'
@@ -53,7 +65,7 @@ export function missingSandboxSenderSettings(config: SandboxRuntimeConfig): stri
 
 export function createSandboxEmailRuntime(
     config: SandboxRuntimeConfig,
-    { postgres, teamManager }: { postgres: PostgresRouter; teamManager: TeamManager }
+    { postgres, teamManager, pubSub }: { postgres: PostgresRouter; teamManager: TeamManager; pubSub: PubSub }
 ): SandboxEmailRuntime | null {
     if (!config.WORKFLOWS_SANDBOX_SENDER_ENABLED) {
         return null
@@ -90,6 +102,7 @@ export function createSandboxEmailRuntime(
             team: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
             recipient: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
         },
+        pubSub,
         ses: new SandboxSesClient(
             createSandboxSesV2Client({ region: config.SES_REGION, endpoint: config.SES_ENDPOINT }),
             { configurationSet: config.SES_SANDBOX_CONFIGURATION_SET, tenantName: config.SES_SANDBOX_TENANT_NAME }
@@ -97,5 +110,5 @@ export function createSandboxEmailRuntime(
         fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
         tenantName: config.SES_SANDBOX_TENANT_NAME,
     })
-    return { service, events: new SandboxEmailEvents(teamManager) }
+    return { service, events: new SandboxEmailEvents(teamManager), sesBucket: sandboxWorkerSesBucket(config) }
 }

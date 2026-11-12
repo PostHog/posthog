@@ -114,12 +114,14 @@ const sortKeys = (value: unknown): unknown => {
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
-    | { status: 'replayed'; invocationId: string; senderKind?: SenderKind }
+    | { status: 'replayed'; invocationId: string; senderKind?: SenderKind; replayFields?: ReplayFields }
     // The first request with the key has not finished queueing yet.
     | { status: 'in_flight' }
     // The key was used for a different request.
     | { status: 'conflict' }
     | { status: 'unavailable' }
+
+export type ReplayFields = Record<string, number>
 
 export type SenderKind = 'email_sandbox'
 
@@ -133,6 +135,7 @@ type StoredKey = {
     invocationId: string
     queued: boolean
     senderKind?: SenderKind
+    replayFields?: ReplayFields
 }
 
 const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
@@ -229,6 +232,7 @@ export class IdempotencyKeys {
             status: 'replayed',
             invocationId: stored.invocationId,
             ...(stored.senderKind ? { senderKind: stored.senderKind } : {}),
+            ...(stored.replayFields ? { replayFields: stored.replayFields } : {}),
         }
     }
 
@@ -237,6 +241,7 @@ export class IdempotencyKeys {
         key: string,
         fingerprint: Fingerprint,
         invocationId: string,
+        replayFields?: ReplayFields,
         senderKind?: SenderKind
     ): Promise<void> {
         const completion: PendingCompletion = {
@@ -246,6 +251,7 @@ export class IdempotencyKeys {
                 invocationId,
                 queued: true,
                 ...(senderKind ? { senderKind } : {}),
+                ...(replayFields && { replayFields }),
             },
             expiresAt: Date.now() + QUEUED_TTL_SECONDS * 1000,
         }

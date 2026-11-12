@@ -3337,7 +3337,9 @@ describe('Hogflow Executor', () => {
                                         ok: true,
                                         markSending: () => Promise.resolve(true),
                                         releaseUnsent: () => Promise.resolve(true),
+                                        refundUnsent: () => Promise.resolve(true),
                                     }),
+                                teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                                 ses: sandboxSes,
                                 now: () => new Date(Date.now()),
                             }),
@@ -3346,10 +3348,17 @@ describe('Hogflow Executor', () => {
                                 new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
                                 hub.encryptedFields
                             ),
+                            deliveredAddress: () => Promise.resolve('member@example.com'),
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
                             teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                            sesBucket: {
+                                limiter: { claimUpTo: () => Promise.resolve(1) } as unknown as RateLimiterService,
+                                key: '@posthog/ses/billing-test',
+                                capacity: 1,
+                                refillPerSecond: 1,
+                            },
                         }),
                     },
                 }

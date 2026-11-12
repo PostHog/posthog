@@ -1413,7 +1413,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "The answer is grounded.",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -2541,7 +2541,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "ok",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 

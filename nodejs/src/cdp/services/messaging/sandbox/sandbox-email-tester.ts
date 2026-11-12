@@ -12,7 +12,12 @@ import {
 } from '../../hogflows/actions/email_sandbox'
 import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxRenderedEmail } from './sandbox-message'
-import { logRenderFailure, renderSandboxEmail } from './sandbox-render'
+import {
+    DeliveredAddressReader,
+    SandboxRecipientUnavailableError,
+    logRenderFailure,
+    renderSandboxEmail,
+} from './sandbox-render'
 
 export const SANDBOX_TEST_TOKEN_TTL_SECONDS = 120
 
@@ -24,6 +29,7 @@ const TestSendResponseSchema = z.object({
 
 export type SandboxEmailTesterDeps = {
     hogInputsService: Pick<HogInputsService, 'buildInputsWithGlobals'>
+    deliveredAddress: DeliveredAddressReader
     siteUrl: string
     endpoint: string
     jwt: Pick<ScopedServiceJwt, 'enabled' | 'mint'>
@@ -40,9 +46,13 @@ export class SandboxEmailTester implements SandboxEmailTestClient {
                 this.deps.hogInputsService,
                 options.invocation,
                 options.action,
-                this.deps.siteUrl
+                this.deps.siteUrl,
+                this.deps.deliveredAddress
             )
         } catch (error) {
+            if (error instanceof SandboxRecipientUnavailableError) {
+                return { status: 'pending', reason: 'authorization_unavailable' }
+            }
             logRenderFailure(options, error)
             return { status: 'failed', reason: 'render_failed' }
         }
@@ -76,6 +86,7 @@ export class SandboxEmailTester implements SandboxEmailTestClient {
                         email,
                         message_category_id: action.config.message_category_id,
                         message_category_type: action.config.message_category_type,
+                        email_sending_paused: Boolean(invocation.hogFlow.email_sending_paused_at),
                     }),
                     timeoutMs: SANDBOX_TEST_TIMEOUT_MS,
                 }

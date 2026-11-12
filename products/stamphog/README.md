@@ -50,6 +50,7 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
 The switch only makes sense in label mode, and only in a repository where PostHog Review runs automatic reviews when a PR opens or is marked ready.
 The API refuses it in `all` mode, because every PR gets a visible review there already, and a save that sets `review_mode` to `all` turns it off.
+Agents change it, and the other repo settings, with the `stamphog-repo-configs-update` MCP tool (`PATCH repo_configs/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
 Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
 Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
 A stored verdict that was not posted has an empty `verdict_posted_at`.
@@ -247,6 +248,7 @@ While another task holds a claim on any head, the event and verdict tasks retry 
 A claim older than two hours counts as abandoned, so a task that died does not block the PR.
 When GitHub lists fewer files than the PR's `changed_files`, the cut step is skipped (`files_truncated: true`, `llm_skipped: files_truncated`) and every owner found is requested.
 `model` is set only when a request reached the gateway.
+The `stamphog_reviewer_routing_completed` event carries `stamphog_routing_wait_ms`, the time from `waiting_since` to the routing, and null when the head never waited.
 
 ## How it runs
 

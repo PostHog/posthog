@@ -3731,6 +3731,11 @@ export type HogFlowsSendCalendarRetrieveParams = {
      */
     end: string
     /**
+     * Comma-separated workflow IDs, at most 200. Only these workflows are returned.
+     * @minLength 1
+     */
+    ids?: string
+    /**
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string

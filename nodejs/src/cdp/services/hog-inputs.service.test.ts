@@ -4,7 +4,9 @@ import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 import { inspect } from 'util'
 
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -12,11 +14,12 @@ import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { deadlineAfter } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
 import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '../utils/integration-input-refs'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
-import { LiquidRenderBudget } from '../utils/liquid'
+import { LIQUID_RENDER_LIMIT_MS, LiquidRenderBudget } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { serializeInvocation } from './job-queue/job-queue-kafka'
@@ -306,6 +309,484 @@ describe('Hog Inputs', () => {
             expect(inputs.hog_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
+        const passedDeadline = (): AbortController => {
+            const deadline = new AbortController()
+            deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+            return deadline
+        }
+
+        it.each([
+            ['hog', { value: 'x', templating: 'hog' as const, bytecode: ['_H', 1, 32, 'x'] }],
+            ['liquid', { value: '{{ event.event }}', templating: 'liquid' as const }],
+        ])('renders no %s input once the deadline it was given has passed', async (_templating, input) => {
+            const onlyThatInput = createHogFunction({ ...hogFunction, inputs: { only: input }, inputs_schema: [] })
+
+            await expect(
+                hogInputsService.buildInputs(onlyThatInput, globals, undefined, undefined, passedDeadline().signal)
+            ).rejects.toThrow('The verification deadline passed')
+        })
+
+        it.each([
+            [
+                'it is aborted',
+                (): { signal: AbortSignal; pass: () => void } => {
+                    const deadline = new AbortController()
+                    return {
+                        signal: deadline.signal,
+                        pass: () =>
+                            deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError')),
+                    }
+                },
+            ],
+            [
+                'the clock passes it before its timer fires',
+                (): { signal: AbortSignal; pass: () => void } => ({
+                    signal: deadlineAfter(60_000),
+                    pass: () => jest.advanceTimersByTime(60_000),
+                }),
+            ],
+        ])(
+            'fails the inputs with the deadline error when the deadline passes while a hog input waits for its turn on the event loop because %s',
+            async (_how, deadlineFor) => {
+                const busyFor = 30_000
+                const busy = await compileHog(
+                    `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+                )
+                const onlyHog = createHogFunction({
+                    ...hogFunction,
+                    inputs: { only: { value: 'x', templating: 'hog', bytecode: busy } },
+                    inputs_schema: [],
+                })
+                const mockedNow = jest.mocked(Date.now)
+                const fixedNow = mockedNow()
+                const threshold = getEventLoopYieldThresholdMs()
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                configureEventLoopYield(0)
+                jest.useFakeTimers({
+                    doNotFake: [
+                        'hrtime',
+                        'nextTick',
+                        'queueMicrotask',
+                        'setImmediate',
+                        'clearImmediate',
+                        'setInterval',
+                        'clearInterval',
+                        'Date',
+                    ],
+                })
+                const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+                try {
+                    mockedNow.mockImplementation(() => Number(process.hrtime.bigint() / 1_000_000n))
+                    const startedAt = Date.now()
+                    const deadline = deadlineFor()
+                    let outcome: unknown
+                    const busyForSeconds = {
+                        ...globals,
+                        event: {
+                            ...globals.event,
+                            properties: { ...globals.event.properties, busy_until: startedAt + busyFor },
+                        },
+                    }
+                    void hogInputsService
+                        .buildInputs(onlyHog, busyForSeconds, undefined, undefined, deadline.signal)
+                        .then(
+                            () => (outcome = 'rendered'),
+                            (error: unknown) => (outcome = error)
+                        )
+                    for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                        await nextTurn()
+                    }
+                    expect(outcome).toBeUndefined()
+
+                    deadline.pass()
+                    for (let turn = 0; outcome === undefined && turn < 1000; turn++) {
+                        jest.runOnlyPendingTimers()
+                        await nextTurn()
+                    }
+
+                    expect(outcome).toMatchObject({ name: 'TimeoutError' })
+                } finally {
+                    mockedNow.mockReturnValue(fixedNow)
+                    jest.useRealTimers()
+                    configureEventLoopYield(threshold)
+                }
+            }
+        )
+
+        it('fails the inputs with the deadline error when the deadline passes while a hog input yields the event loop after its render', async () => {
+            const onlyHog = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
+                inputs_schema: [],
+            })
+            const threshold = getEventLoopYieldThresholdMs()
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            configureEventLoopYield(0)
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'Date',
+                ],
+            })
+            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            const untilAYieldWaits = async (): Promise<void> => {
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+            }
+            try {
+                const deadline = new AbortController()
+                let outcome: unknown
+                void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
+                    () => (outcome = 'rendered'),
+                    (error: unknown) => (outcome = error)
+                )
+                await untilAYieldWaits()
+                jest.runOnlyPendingTimers()
+                await untilAYieldWaits()
+                expect(outcome).toBeUndefined()
+
+                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+                for (let turn = 0; outcome === undefined && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+
+                expect(outcome).toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                jest.useRealTimers()
+                configureEventLoopYield(threshold)
+            }
+        })
+
+        it('fails every build that shares a deadline with the deadline error when it passes while their hog inputs queue behind another render', async () => {
+            const onlyHog = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
+                inputs_schema: [],
+            })
+            const compiledUnder = (contract: string): HogFunctionType =>
+                createHogFunction({
+                    ...hogFunction,
+                    inputs: {
+                        only: {
+                            value: 'x',
+                            templating: 'hog',
+                            bytecode: ['_H', 1, 32, 'x'],
+                            bytecode_contract: contract,
+                        },
+                    },
+                    inputs_schema: [],
+                })
+            const threshold = getEventLoopYieldThresholdMs()
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            configureEventLoopYield(0)
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'Date',
+                ],
+            })
+            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            try {
+                let first: unknown
+                void hogInputsService.buildInputs(onlyHog, globals).then(
+                    () => (first = 'rendered'),
+                    (error: unknown) => (first = error)
+                )
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+                const deadline = new AbortController()
+                const contracts = ['older', 'newer']
+                const queued: unknown[] = contracts.map(() => undefined)
+                contracts.forEach((contract, index) => {
+                    void hogInputsService
+                        .buildInputs(compiledUnder(contract), globals, undefined, undefined, deadline.signal)
+                        .then(
+                            () => (queued[index] = 'rendered'),
+                            (error: unknown) => (queued[index] = error)
+                        )
+                })
+                for (let turn = 0; turn < 20; turn++) {
+                    await nextTurn()
+                }
+                expect(queued).toEqual([undefined, undefined])
+
+                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+                for (let turn = 0; queued.includes(undefined) && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+
+                expect(queued.map((outcome) => (outcome as Error).name)).toEqual(['TimeoutError', 'TimeoutError'])
+                expect(first).toBeUndefined()
+                for (let turn = 0; first === undefined && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+                expect(first).toBe('rendered')
+            } finally {
+                jest.useRealTimers()
+                configureEventLoopYield(threshold)
+            }
+        })
+
+        it('fails the inputs with the deadline error when the deadline passes while the rest of a hog input queues behind its own first leaf', async () => {
+            const leaf = ['_H', 1, 32, 'x']
+            const onlyHog = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: leaf } },
+                inputs_schema: [],
+            })
+            const manyLeaves = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: Array.from({ length: 5 }, () => leaf) } },
+                inputs_schema: [],
+            })
+            const threshold = getEventLoopYieldThresholdMs()
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            configureEventLoopYield(0)
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'Date',
+                ],
+            })
+            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            try {
+                let first: unknown
+                void hogInputsService.buildInputs(onlyHog, globals).then(
+                    () => (first = 'rendered'),
+                    (error: unknown) => (first = error)
+                )
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+                const deadline = new AbortController()
+                let queued: unknown
+                void hogInputsService.buildInputs(manyLeaves, globals, undefined, undefined, deadline.signal).then(
+                    () => (queued = 'rendered'),
+                    (error: unknown) => (queued = error)
+                )
+                for (let turn = 0; turn < 20; turn++) {
+                    await nextTurn()
+                }
+                for (let turn = 0; first === undefined && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+                expect(first).toBe('rendered')
+                expect(queued).toBeUndefined()
+
+                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+                for (let turn = 0; queued === undefined && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+
+                expect(queued).toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                for (let turn = 0; jest.getTimerCount() > 0 && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+                jest.useRealTimers()
+                configureEventLoopYield(threshold)
+            }
+        })
+
+        it.each<[string, Record<string, CyclotronInputType>]>([
+            ['an input before the last', { next: { value: '{{ event.event }}', templating: 'liquid', order: 1 } }],
+            ['the last input', {}],
+        ])('fails the inputs once %s carries the clock past the deadline in its render', async (_which, after) => {
+            const deadlineMs = 50
+            let now = performance.now()
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                const slowThenNext = createHogFunction({
+                    ...hogFunction,
+                    inputs: {
+                        slow: { value: '{{ event.properties.slow }}', templating: 'liquid', order: 0 },
+                        ...after,
+                    },
+                    inputs_schema: [],
+                })
+                const properties = { ...globals.event.properties }
+                Object.defineProperty(properties, 'slow', {
+                    enumerable: true,
+                    get: () => {
+                        now += 2 * deadlineMs
+                        return 'slow'
+                    },
+                })
+
+                await expect(
+                    hogInputsService.buildInputs(
+                        slowThenNext,
+                        { ...globals, event: { ...globals.event, properties } },
+                        undefined,
+                        undefined,
+                        deadline
+                    )
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
+        it('stops a liquid input of many leaves within one leaf of the deadline', async () => {
+            const deadlineMs = 50
+            const leafMs = 2 * deadlineMs
+            let now = performance.now()
+            const startedAt = now
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                const leaf = '{{ event.properties.slow }}'
+                const manyLeaves = createHogFunction({
+                    ...hogFunction,
+                    inputs: { leaves: { value: { first: leaf, second: leaf, third: leaf }, templating: 'liquid' } },
+                    inputs_schema: [],
+                })
+                const properties = { ...globals.event.properties }
+                Object.defineProperty(properties, 'slow', {
+                    enumerable: true,
+                    get: () => {
+                        now += leafMs
+                        return 'slow'
+                    },
+                })
+
+                await expect(
+                    hogInputsService.buildInputs(
+                        manyLeaves,
+                        { ...globals, event: { ...globals.event, properties } },
+                        undefined,
+                        undefined,
+                        deadline
+                    )
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+                expect(now - startedAt).toBeLessThan(deadlineMs + leafMs)
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
+        it.each<[string, number, () => Promise<CyclotronInputType>]>([
+            [
+                'hog',
+                3000,
+                async () => ({
+                    value: 'busy',
+                    templating: 'hog',
+                    bytecode: await compileHog(
+                        `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+                    ),
+                }),
+            ],
+            [
+                'liquid',
+                LIQUID_RENDER_LIMIT_MS,
+                () =>
+                    Promise.resolve({
+                        value: '{% for a in (1..1000) %}{% for b in (1..1000) %}{% for c in (1..1000) %}x{% endfor %}{% endfor %}{% endfor %}',
+                        templating: 'liquid',
+                    }),
+            ],
+        ])(
+            'stops a %s render at the deadline rather than at its own longer limit of %d ms',
+            async (_templating, ownLimitMs, busyInput) => {
+                const deadlineMs = 50
+                const onlyBusy = createHogFunction({
+                    ...hogFunction,
+                    inputs: { busy: await busyInput() },
+                    inputs_schema: [],
+                })
+                let now = 0
+                const clock = jest.spyOn(performance, 'now').mockImplementation(() => (now += 0.01))
+                const mockedNow = jest.mocked(Date.now)
+                const fixedNow = mockedNow()
+                mockedNow.mockImplementation(() => Math.floor((now += 0.01)))
+                try {
+                    const deadline = deadlineAfter(deadlineMs)
+                    const busyLong = {
+                        ...globals,
+                        event: {
+                            ...globals.event,
+                            properties: { ...globals.event.properties, busy_until: 2 * ownLimitMs },
+                        },
+                    }
+
+                    await expect(
+                        hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
+                    ).rejects.toMatchObject({ name: 'TimeoutError' })
+                    expect(now).toBeLessThan(ownLimitMs / 2)
+                } finally {
+                    mockedNow.mockReturnValue(fixedNow)
+                    clock.mockRestore()
+                }
+            }
+        )
+
+        it('fails a hog render that the deadline cuts short with the deadline error on a clock that reads whole milliseconds', async () => {
+            const deadlineMs = 200
+            const busy = await compileHog(
+                `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+            )
+            const onlyBusy = createHogFunction({
+                ...hogFunction,
+                inputs: { busy: { value: 'busy', templating: 'hog', bytecode: busy } },
+                inputs_schema: [],
+            })
+            let now = 0.5
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            const mockedNow = jest.mocked(Date.now)
+            const fixedNow = mockedNow()
+            mockedNow.mockImplementation(() => {
+                now += 0.001
+                return Math.floor(now)
+            })
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                now = 0.9
+                const busyLong = {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        properties: { ...globals.event.properties, busy_until: 10 * deadlineMs },
+                    },
+                }
+
+                await expect(
+                    hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                mockedNow.mockReturnValue(fixedNow)
+                clock.mockRestore()
+            }
+        })
+
         it('should template out liquid inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
@@ -511,7 +992,7 @@ describe('Hog Inputs', () => {
             ['integration_multi', null],
         ])("treats another team's warehouse row like a missing row for an %s input", async (type, message) => {
             const otherTeam = (await createTestTeamFixture(hub.postgres)).team
-            const foreignId = 100000000 + otherTeam.id
+            const foreignId = otherTeam.id
             const missingId = foreignId + 1
             await insertIntegration(hub.postgres, otherTeam.id, {
                 id: foreignId,

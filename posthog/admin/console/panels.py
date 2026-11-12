@@ -174,6 +174,11 @@ class Panel:
     title: ClassVar[str]
     owner: ClassVar[Owner]
     danger: ClassVar[bool] = False
+    # A page sorts its panels by order, then by title. Core panels set an order below the default, so they lead.
+    order: ClassVar[int] = 100
+    # Every operation key that operations() can return, in any state. An old URL can point at an operation form only
+    # on a panel that declares its keys, and the console refuses to show an operation whose key is not declared.
+    operation_keys: ClassVar[frozenset[str] | None] = None
 
     def facts(self, obj: "Model") -> list[Fact]:
         return []

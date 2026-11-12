@@ -2,17 +2,13 @@ import { randomUUID } from 'crypto'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { ScopedServiceJwt } from '../../../utils/scoped-service-jwt'
 import { SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
-import { RateLimitedQueueOptions, sesRateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
-import { OPTIONAL_VALKEY_TIMEOUT_MS, RateLimiterValkeyConfig } from '../../rate-limiter/rate-limiter-valkey-pool'
-import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { SandboxEmailEvents } from './sandbox-email-events'
-import { sesBucketPoolConfig } from './sandbox-email-queue'
-import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
+import { SEND_RATE_LIMITED, SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
+import { SandboxSesBucket, claimSesSlot } from './sandbox-ses-bucket'
 
 export const SANDBOX_TEST_SEND_PATH = '/api/projects/:team_id/sandbox_email/test_send'
 
@@ -22,26 +18,14 @@ const TestSendRequestSchema = z.object({
     email: z.unknown(),
     message_category_id: z.string().optional(),
     message_category_type: z.enum(['marketing', 'transactional']).optional(),
+    email_sending_paused: z.boolean().optional(),
 })
 
 export type SandboxEmailTestRouteDeps = {
     jwt: Pick<ScopedServiceJwt, 'enabled' | 'verify'>
     service: Pick<SandboxEmailService, 'send'> | null
     events: Pick<SandboxEmailEvents, 'capture'>
-    sesBucket: Pick<RateLimitedQueueOptions, 'limiter' | 'key' | 'capacity' | 'refillPerSecond'> | null
-}
-
-export function sandboxTestSendBucket(
-    config: RateLimiterValkeyConfig & Parameters<typeof sesRateLimitedQueueOptions>[0]
-): SandboxEmailTestRouteDeps['sesBucket'] {
-    if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
-        return null
-    }
-    const valkey = createRedisV2PoolFromConfig(sesBucketPoolConfig(config, 'sandbox-email-test-send', 0))
-    return {
-        ...sesRateLimitedQueueOptions(config, valkey),
-        limiter: new RateLimiterService(valkey, { name: 'ses', claimDeadlineMs: OPTIONAL_VALKEY_TIMEOUT_MS }),
-    }
+    sesBucket: SandboxSesBucket | null
 }
 
 export function sandboxEmailTestRouter(deps: SandboxEmailTestRouteDeps): express.Router {
@@ -78,11 +62,8 @@ async function handleTestSend(
         res.json({ status: 'skipped', reason: 'sending_disabled' } satisfies SandboxEmailStepResult)
         return
     }
-    if (sesBucket && !(await claimSendSlot(sesBucket))) {
-        res.json({ status: 'failed', reason: 'send_rate_limited' } satisfies SandboxEmailStepResult)
-        return
-    }
-    const { hog_flow_id, action_id, email, message_category_id, message_category_type } = body.data
+    const { hog_flow_id, action_id, email, message_category_id, message_category_type, email_sending_paused } =
+        body.data
     const invocationId = randomUUID()
     const outcome = await service.send({
         teamId,
@@ -92,9 +73,11 @@ async function handleTestSend(
         actionId: action_id,
         flowVersion: 0,
         isTest: true,
+        workflowEmailPaused: email_sending_paused ?? false,
         email,
         categoryId: message_category_id,
         categoryType: message_category_type,
+        claimSesSlot: () => (sesBucket ? claimSesSlot(sesBucket) : Promise.resolve(true)),
     })
     if (outcome.status !== 'retry') {
         void events.capture(teamId, outcome.status, {
@@ -105,15 +88,6 @@ async function handleTestSend(
         })
     }
     res.json(toTestResult(outcome))
-}
-
-async function claimSendSlot({
-    limiter,
-    key,
-    capacity,
-    refillPerSecond,
-}: NonNullable<SandboxEmailTestRouteDeps['sesBucket']>): Promise<boolean> {
-    return (await limiter.claimUpTo({ key, requested: 1, capacity, refillPerSecond })) >= 1
 }
 
 function isAuthorized(
@@ -139,7 +113,9 @@ function toTestResult(outcome: SandboxSendOutcome): SandboxEmailStepResult {
         case 'accepted':
             return { status: 'accepted', message_id: outcome.messageId }
         case 'retry':
-            return { status: 'pending', reason: outcome.reason }
+            return outcome.reason === SEND_RATE_LIMITED
+                ? { status: 'failed', reason: outcome.reason }
+                : { status: 'pending', reason: outcome.reason }
         default:
             return { status: outcome.status, reason: outcome.reason }
     }

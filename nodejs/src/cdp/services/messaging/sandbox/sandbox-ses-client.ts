@@ -2,6 +2,7 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 
 import { logger } from '~/common/utils/logger'
 
+import { settleBeforeAbortEvenWhileCredentialsStall } from '../attachment-store'
 import { formatMailbox } from '../email.service'
 import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
@@ -33,7 +34,7 @@ export type SandboxSesResult =
     | { status: 'retry'; reason: 'ses_throttled' | 'ses_transient' }
     | { status: 'failed'; reason: 'ses_rejected' }
 
-export type SandboxSesSettings = { configurationSet: string; tenantName: string }
+export type SandboxSesSettings = { configurationSet: string; tenantName: string; sendTimeoutMs?: number }
 
 const THROTTLE_ERROR_NAMES = new Set(['ThrottlingException', 'TooManyRequestsException'])
 
@@ -49,11 +50,12 @@ export class SandboxSesClient {
 
     async send(message: SandboxMessage, tags: SandboxSendTags): Promise<SandboxSesResult> {
         const deadline = new AbortController()
-        const timer = setTimeout(() => deadline.abort(), SES_SEND_TIMEOUT_MS)
+        const timer = setTimeout(() => deadline.abort(), this.settings.sendTimeoutMs ?? SES_SEND_TIMEOUT_MS)
         try {
-            const response = await this.client.send(this.buildCommand(message, tags), {
-                abortSignal: deadline.signal,
-            })
+            const response = await settleBeforeAbortEvenWhileCredentialsStall(
+                deadline.signal,
+                this.client.send(this.buildCommand(message, tags), { abortSignal: deadline.signal })
+            )
             return response.MessageId
                 ? { status: 'accepted', messageId: response.MessageId }
                 : { status: 'retry', reason: 'ses_transient' }

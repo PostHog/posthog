@@ -6,6 +6,12 @@ describe('createSandboxEmailRuntime', () => {
         SES_REGION: 'us-east-1',
         SES_ENDPOINT: '',
         SES_RATE_LIMITER_VALKEY_HOST: 'ses-valkey',
+        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+        SES_RATE_LIMITER_VALKEY_TLS: false,
+        CDP_SES_RATE_LIMIT_CAPACITY: 10,
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 10,
+        CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 100,
         SES_SANDBOX_FROM_ADDRESS: 'sandbox@send.example.com',
         SES_SANDBOX_CONFIGURATION_SET: 'sandbox-config-set',
         SES_SANDBOX_TENANT_NAME: 'sandbox-tenant',
@@ -20,7 +26,7 @@ describe('createSandboxEmailRuntime', () => {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
     }
-    const deps = { postgres: {} as any, teamManager: {} as any }
+    const deps = { postgres: {} as any, teamManager: {} as any, pubSub: {} as any }
 
     it('builds nothing while sending is off, whatever else is set', () => {
         expect(
