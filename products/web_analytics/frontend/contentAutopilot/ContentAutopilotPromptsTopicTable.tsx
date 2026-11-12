@@ -1,7 +1,6 @@
 import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPromptSetTopicCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -83,11 +82,6 @@ export const ContentAutopilotPromptsTopicTable = ({
             rowClassName="cursor-pointer"
             onRow={(row) => ({ onClick: () => onSelect(row.topic) })}
             emptyState="No topics yet"
-            footer={
-                <span className="px-3 py-2 text-xs text-muted">
-                    {pluralize(rows.length, 'topic')}. Pick one to see its prompts.
-                </span>
-            }
         />
     )
 }
