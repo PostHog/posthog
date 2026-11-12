@@ -229,6 +229,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "x-posthog-mcp-store": "false",
                 "x-posthog-mcp-version": "2",
                 "x-posthog-project-id": "42",
+                "x-posthog-organization-id": "other-org",
                 "x-posthog-read-only": "true",
                 "x-posthog-custom-future-header": "anything",
                 "x-not-posthog-namespace": "should-not-be-forwarded",
@@ -243,7 +244,8 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert forwarded["x-posthog-mcp-mode"] == "tools"
         assert forwarded["x-posthog-mcp-store"] == "true"
         assert forwarded["x-posthog-mcp-version"] == "2"
-        assert forwarded["x-posthog-project-id"] == "42"
+        assert forwarded["x-posthog-project-id"] == str(installation.team_id)
+        assert "x-posthog-organization-id" not in forwarded
         assert forwarded["x-posthog-read-only"] == "true"
         assert forwarded["x-posthog-custom-future-header"] == "anything"
         assert "x-not-posthog-namespace" not in forwarded

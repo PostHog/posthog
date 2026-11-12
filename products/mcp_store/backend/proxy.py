@@ -530,6 +530,16 @@ def _write_audit_events(
         logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
 
 
+_PROXY_OWNED_HEADERS = frozenset(
+    {
+        "x-posthog-mcp-mode",
+        "x-posthog-mcp-store",
+        "x-posthog-project-id",
+        "x-posthog-organization-id",
+    }
+)
+
+
 def proxy_mcp_request(
     request: Any,
     installation: MCPServerInstallation,
@@ -612,15 +622,14 @@ def proxy_mcp_request(
     }
 
     for header_name in request.headers:
-        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in {
-            "x-posthog-mcp-mode",
-            "x-posthog-mcp-store",
-        }:
+        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in _PROXY_OWNED_HEADERS:
             headers[header_name] = request.headers[header_name]
 
     # Store policy must see leaf tools, and shared credentials must not expand nested connectors.
     headers["x-posthog-mcp-mode"] = "tools"
     headers["x-posthog-mcp-store"] = "true"
+    # The credential may belong to another member, so the caller must not pick which project it acts in.
+    headers["x-posthog-project-id"] = str(installation.team_id)
 
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:
