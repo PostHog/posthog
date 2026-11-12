@@ -146,11 +146,11 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             return
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
-        const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
         let actuation: Actuation | undefined
         try {
             actuation = await definition.apply(context, entry.target, entry.dose)
             record.appliedAt = now()
+            const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
             if (!(await actuation.observed(held))) {
                 record.error = 'applied but not observed'
             } else if (

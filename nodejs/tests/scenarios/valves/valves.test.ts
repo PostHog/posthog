@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -22,6 +23,7 @@ type StackSetup = {
     probeFailsFor?: number
     runningJobs?: number
     releaseFailure?: string
+    applyTakesMs?: number
 }
 
 function stackOf({
@@ -32,6 +34,7 @@ function stackOf({
     probeFailsFor = Infinity,
     runningJobs = 0,
     releaseFailure,
+    applyTakesMs = 0,
 }: StackSetup = {}) {
     let probeReads = 0
     let nextPid = 1
@@ -110,6 +113,13 @@ function stackOf({
                 ).length
             },
         },
+    }
+
+    if (applyTakesMs > 0) {
+        const { actuate } = context.environment
+        context.environment = {
+            actuate: (action) => actuate(action).then((actuation) => sleep(applyTakesMs).then(() => actuation)),
+        }
     }
 
     const run = (count: number, queue: Queue = 'email'): void => {
@@ -460,5 +470,18 @@ describe('valves', () => {
 
         expect(stack.gone()).toEqual([1])
         expect(valves.timeline()[0].releasedAt).toEqual(expect.any(String))
+    })
+
+    it('holds an entry for its full duration after a slow apply returns', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ applyTakesMs: 100 })
+
+        await valves.start([kill({ at: '0ms' }, '50ms')], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        const { appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
+        expect({ observedAt, error }).toEqual({ observedAt: expect.any(String), error: undefined })
+        expect(Date.parse(releasedAt!) - Date.parse(appliedAt!)).toBeGreaterThanOrEqual(45)
     })
 })
