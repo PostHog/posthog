@@ -1,6 +1,14 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
-from products.signals.backend.emission.checkmarx_scan_results import checkmarx_scan_result_emitter, checkmarx_source_id
+from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
+
+from products.signals.backend.emission.checkmarx_scan_results import (
+    CHECKMARX_CONFIG,
+    checkmarx_scan_result_emitter,
+    checkmarx_source_id,
+)
 from products.signals.backend.emission.gitguardian_secret_incidents import gitguardian_secret_incident_emitter
 from products.signals.backend.emission.infisical_secret_scanning_findings import (
     infisical_secret_scanning_finding_emitter,
@@ -27,7 +35,7 @@ VERACODE = {
     "issue_id": 42,
     "scan_type": "STATIC",
     "description": "<span>This call builds a SQL query</span>  <span>from untrusted input.</span>",
-    "severity": 4,
+    "finding_severity": "4",
     "violates_policy": True,
     "cwe_name": "Improper Neutralization of Special Elements used in an SQL Command",
     "cwe_id": "89",
@@ -50,6 +58,7 @@ VERACODE_SCA = {
 SEMGREP_SCA = {
     "vulnerability_identifier": "CVE-2022-25883",
     "package_name": "semver",
+    "fallback_rule": "",
     "ecosystem": "npm",
     "rule_title": "semver ReDoS",
     "rule_text": "Versions of semver before 7.5.2 are vulnerable to ReDoS.",
@@ -246,6 +255,12 @@ def test_missing_required_column_raises(emitter, record, missing):
             {"affected_findings": 9, "first_seen": "2026-02-01T00:00:00Z"},
             {"package_name": "semver-fork"},
         ),
+        (
+            semgrep_sca_source_id,
+            {**SEMGREP_SCA, "vulnerability_identifier": "", "fallback_rule": "semver-redos"},
+            {"rule_title": "semver ReDoS", "affected_findings": 9},
+            {"fallback_rule": "semver-prototype-pollution"},
+        ),
         (jfrog_xray_source_id, JFROG_XRAY, {"violations": 9, "violation_severity": "Low"}, {"issue_id": "XRAY-124"}),
     ],
 )
@@ -266,7 +281,36 @@ def test_veracode_source_id_is_unique_per_application():
 def test_extra_values_are_strings_or_none():
     output = veracode_finding_emitter(1, {**VERACODE, "resolution_status": "", "cwe_id": "null"})
     assert output is not None
-    assert output.extra["severity"] == "4"
+    assert output.extra["finding_severity"] == "4"
     assert output.extra["violates_policy"] == "True"
     assert output.extra["resolution_status"] is None
     assert output.extra["cwe_id"] is None
+
+
+def test_checkmarx_group_filter_reads_the_latest_scan():
+    captured: dict[str, ast.SelectQuery] = {}
+
+    def fake_execute(query, **kwargs):
+        captured["query"] = query
+        return MagicMock(results=[], columns=[])
+
+    with patch(
+        "products.signals.backend.emission.fetchers.grouped_warehouse.execute_hogql_query", side_effect=fake_execute
+    ):
+        CHECKMARX_CONFIG.record_fetcher(MagicMock(), CHECKMARX_CONFIG, {"table_name": "checkmarx.scan_results"})
+    having = captured["query"].having
+    assert having is not None
+    collector = _ArgMaxCollector()
+    collector.visit(having)
+    assert sorted(collector.pairs) == [("state", "scan_created_at"), ("status", "scan_created_at")]
+
+
+class _ArgMaxCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pairs: list[tuple[str, ...]] = []
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name == "argMax":
+            self.pairs.append(tuple(str(arg.chain[0]) for arg in node.args if isinstance(arg, ast.Field)))
+        super().visit_call(node)

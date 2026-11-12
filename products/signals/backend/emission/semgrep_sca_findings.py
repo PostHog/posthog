@@ -28,10 +28,13 @@ logger = get_logger(__name__)
 MAX_DESCRIPTION_CHARS = 1500
 
 _PACKAGE = "JSONExtractString(toString(found_dependency), 'package')"
+# A finding without an advisory id groups by its rule instead, so two such rules on one package stay apart.
+_FALLBACK_RULE = "if(empty(ifNull(vulnerability_identifier, '')), ifNull(rule_name, ''), '')"
 
 SEMGREP_SCA_FIELDS = (
     "vulnerability_identifier",
     "package_name",
+    "fallback_rule",
     "ecosystem",
     "rule_title",
     "rule_text",
@@ -54,9 +57,10 @@ SEMGREP_SCA_EXTRA_FIELDS = (
 _SELECT_SQL = f"""
     vulnerability_identifier,
     {_PACKAGE} AS package_name,
+    {_FALLBACK_RULE} AS fallback_rule,
     any(JSONExtractString(toString(found_dependency), 'ecosystem')) AS ecosystem,
-    any(rule_name) AS rule_title,
-    any(rule_message) AS rule_text,
+    max(rule_name) AS rule_title,
+    max(rule_message) AS rule_text,
     any(severity) AS finding_severity,
     any(reachability) AS reachability_state,
     count() AS affected_findings,
@@ -65,7 +69,9 @@ _SELECT_SQL = f"""
 
 
 def semgrep_sca_source_id(record: dict[str, Any]) -> str:
-    return hashed_source_id("semgrep_sca", record.get("vulnerability_identifier"), record.get("package_name"))
+    return hashed_source_id(
+        "semgrep_sca", record.get("vulnerability_identifier"), record.get("package_name"), record.get("fallback_rule")
+    )
 
 
 def semgrep_sca_finding_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -107,7 +113,7 @@ SEMGREP_SCA_CONFIG = SignalSourceTableConfig(
     emitter=semgrep_sca_finding_emitter,
     record_fetcher=grouped_warehouse_record_fetcher(
         select_sql=_SELECT_SQL,
-        group_by_sql=f"vulnerability_identifier, {_PACKAGE}",
+        group_by_sql=f"vulnerability_identifier, {_PACKAGE}, {_FALLBACK_RULE}",
         order_by_sql="affected_findings DESC, first_seen DESC",
         source_id_for=semgrep_sca_source_id,
         window_days=SCANNER_GROUP_WINDOW_DAYS,
@@ -116,7 +122,9 @@ SEMGREP_SCA_CONFIG = SignalSourceTableConfig(
     partition_field=datetime_expression("created_at"),
     fields=SEMGREP_SCA_FIELDS,
     where_clause=(
-        "lower(ifNull(status, '')) NOT IN ('fixed', 'ignored') AND lower(ifNull(reachability, '')) != 'unreachable'"
+        "lower(ifNull(status, '')) NOT IN ('fixed', 'ignored', 'provisionally_ignored') "
+        "AND lower(ifNull(reachability, '')) != 'unreachable' "
+        "AND (notEmpty(ifNull(vulnerability_identifier, '')) OR notEmpty(ifNull(rule_name, '')))"
     ),
     max_records=200,
     actionability_prompt=SCANNER_ACTIONABILITY_PROMPT,

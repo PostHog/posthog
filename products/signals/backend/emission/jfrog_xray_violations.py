@@ -40,7 +40,7 @@ JFROG_XRAY_EXTRA_FIELDS = ("issue_id", "violation_severity", "violation_type", "
 
 _SELECT_SQL = """
     issue_id,
-    any(description) AS violation_description,
+    max(description) AS violation_description,
     any(severity) AS violation_severity,
     any(type) AS violation_type,
     count() AS violations,
@@ -93,6 +93,7 @@ JFROG_XRAY_CONFIG = SignalSourceTableConfig(
     record_processed_outputs=True,
     partition_field=datetime_expression("created"),
     fields=JFROG_XRAY_FIELDS,
+    where_clause="notEmpty(ifNull(issue_id, '')) AND notEmpty(ifNull(description, ''))",
     max_records=200,
     actionability_prompt=SCANNER_ACTIONABILITY_PROMPT,
     summarization_prompt=SCANNER_SUMMARIZATION_PROMPT,

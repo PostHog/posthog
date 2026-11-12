@@ -3,7 +3,7 @@
 The table holds one row per vulnerable component and CVE per application, so one CVE in a shared library repeats once per application.
 The fetcher groups rows by CVE and component file name, so each vulnerable component emits once.
 The window is on the nested `finding_status.first_found_date`, and the ledger keys on the group alone.
-The query reads only the CVE, component name and version from `finding_details`, not the component path.
+The query reads only the CVE, severity, component name and version from `finding_details`, not the component path.
 """
 
 from typing import Any
@@ -53,8 +53,8 @@ _SELECT_SQL = f"""
     {_CVE_NAME} AS cve_name,
     {_COMPONENT} AS component_filename,
     any(JSONExtractString(toString(finding_details), 'version')) AS component_version,
-    any(description) AS finding_description,
-    max(severity) AS max_severity,
+    max(description) AS finding_description,
+    max(JSONExtractInt(toString(finding_details), 'severity')) AS max_severity,
     count(DISTINCT application_guid) AS affected_applications,
     min({_FIRST_FOUND}) AS first_seen
 """
@@ -111,7 +111,10 @@ VERACODE_SCA_CONFIG = SignalSourceTableConfig(
     record_processed_outputs=True,
     partition_field=datetime_expression(_FIRST_FOUND),
     fields=VERACODE_SCA_FIELDS,
-    where_clause=f"upper(JSONExtractString(toString(finding_status), 'status')) != 'CLOSED'",
+    where_clause=(
+        f"upper(JSONExtractString(toString(finding_status), 'status')) != 'CLOSED' "
+        f"AND (notEmpty({_CVE_NAME}) OR notEmpty({_COMPONENT}))"
+    ),
     max_records=200,
     actionability_prompt=SCANNER_ACTIONABILITY_PROMPT,
     summarization_prompt=SCANNER_SUMMARIZATION_PROMPT,

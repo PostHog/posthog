@@ -1827,7 +1827,7 @@ class CheckmarxScannerFindingSignalInput(SignalInputBase):
 class VeracodeScannerFindingSignalExtra(SignalExtraBase):
     application_guid: str | None
     scan_type: str | None
-    severity: str | None
+    finding_severity: str | None
     violates_policy: str | None
     cwe_id: str | None
     finding_category: str | None

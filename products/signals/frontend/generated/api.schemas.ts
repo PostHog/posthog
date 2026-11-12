@@ -5517,7 +5517,7 @@ export interface CheckmarxScannerFindingSignalExtraApi {
 export interface VeracodeScannerFindingSignalExtraApi {
     application_guid: string | null
     scan_type: string | null
-    severity: string | null
+    finding_severity: string | null
     violates_policy: string | null
     cwe_id: string | null
     finding_category: string | null

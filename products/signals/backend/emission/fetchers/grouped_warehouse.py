@@ -87,8 +87,10 @@ class GroupedWarehouseRecordFetcher:
         order_by_sql: str,
         source_id_for: Callable[[dict[str, Any]], str],
         window_days: int,
+        having_sql: str | None = None,
     ) -> None:
         self._select_sql = select_sql
+        self._having_sql = having_sql
         self._group_by_sql = group_by_sql
         self._order_by_sql = order_by_sql
         self._source_id_for = source_id_for
@@ -103,6 +105,7 @@ class GroupedWarehouseRecordFetcher:
         where_sql = f"{window_sql} AND {config.where_clause}" if config.where_clause else window_sql
         # The group columns break ties, so the scan limit cuts the same groups on every sync.
         order_sql = f"{self._order_by_sql}, {self._group_by_sql}"
+        having_sql = f"HAVING {self._having_sql}" if self._having_sql else ""
         logger.info(
             "Querying grouped records for signal emission",
             table_name=table_name,
@@ -118,6 +121,7 @@ class GroupedWarehouseRecordFetcher:
             FROM {escape_table_name(table_name)}
             WHERE {where_sql}
             GROUP BY {self._group_by_sql}
+            {having_sql}
             ORDER BY {order_sql}
             LIMIT {GROUP_SCAN_LIMIT}
         """
@@ -157,6 +161,7 @@ def grouped_warehouse_record_fetcher(
     order_by_sql: str,
     source_id_for: Callable[[dict[str, Any]], str],
     window_days: int = GROUPED_WINDOW_DAYS,
+    having_sql: str | None = None,
 ) -> GroupedWarehouseRecordFetcher:
     """Build a fetcher that collapses the recent rows of a warehouse table into one record per group.
 
@@ -173,6 +178,9 @@ def grouped_warehouse_record_fetcher(
 
     `select_sql` aliases must match `config.fields`, because the pipeline builds records from them.
     Ordering comes from `order_by_sql`, not from `config.order_by`.
+    `having_sql` filters whole groups, for a rule that depends on the latest row of a group rather than on each row.
+    Drop unusable groups in the query rather than in the emitter: a group the emitter skips writes no ledger
+    row, so it comes back on every sync and takes one of the `max_records` places.
     The config must not set `scope_field`, because a group has no single scope value.
     """
     return GroupedWarehouseRecordFetcher(
@@ -181,4 +189,5 @@ def grouped_warehouse_record_fetcher(
         order_by_sql=order_by_sql,
         source_id_for=source_id_for,
         window_days=window_days,
+        having_sql=having_sql,
     )

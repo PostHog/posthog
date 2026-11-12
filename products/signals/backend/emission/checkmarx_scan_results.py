@@ -4,6 +4,7 @@ The table holds one row per finding per scan, so a finding repeats in every late
 The fetcher groups rows by engine `type` and `similarity_id`, the id Checkmarx keeps for a finding across scans.
 Each group emits once: the window is on `first_found_at`, and the ledger keys on the group alone.
 `status` compares a finding with the previous scan (NEW, RECURRENT, FIXED) and `state` is the triage state.
+Older scans keep their rows, so the group filter reads both from the latest scan of the finding.
 The SAST query name lives in the nested `data` JSON. The rest of `data` holds file paths and code, so it is not read.
 """
 
@@ -43,10 +44,10 @@ CHECKMARX_EXTRA_FIELDS = ("result_type", "finding_severity", "finding_state", "f
 _SELECT_SQL = """
     type AS result_type,
     similarity_id,
-    any(JSONExtractString(toString(data), 'queryName')) AS query_name,
-    any(description) AS finding_description,
-    any(severity) AS finding_severity,
-    any(state) AS finding_state,
+    max(JSONExtractString(toString(data), 'queryName')) AS query_name,
+    max(description) AS finding_description,
+    argMax(severity, scan_created_at) AS finding_severity,
+    argMax(state, scan_created_at) AS finding_state,
     min(first_found_at) AS first_seen,
     count(DISTINCT scan_id) AS scans
 """
@@ -93,11 +94,18 @@ CHECKMARX_CONFIG = SignalSourceTableConfig(
         order_by_sql="first_seen DESC",
         source_id_for=checkmarx_source_id,
         window_days=SCANNER_GROUP_WINDOW_DAYS,
+        having_sql=(
+            "upper(ifNull(argMax(status, scan_created_at), '')) != 'FIXED' "
+            "AND upper(ifNull(argMax(state, scan_created_at), '')) != 'NOT_EXPLOITABLE'"
+        ),
     ),
     record_processed_outputs=True,
     partition_field=datetime_expression("first_found_at"),
     fields=CHECKMARX_FIELDS,
-    where_clause="upper(ifNull(status, '')) != 'FIXED' AND upper(ifNull(state, '')) != 'NOT_EXPLOITABLE'",
+    where_clause=(
+        "notEmpty(ifNull(similarity_id, '')) AND "
+        "(notEmpty(ifNull(description, '')) OR notEmpty(JSONExtractString(toString(data), 'queryName')))"
+    ),
     max_records=200,
     actionability_prompt=SCANNER_ACTIONABILITY_PROMPT,
     summarization_prompt=SCANNER_SUMMARIZATION_PROMPT,

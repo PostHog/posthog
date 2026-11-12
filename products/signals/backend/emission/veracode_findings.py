@@ -2,7 +2,7 @@
 
 The table holds one row per static, dynamic or manual finding per application, keyed on `application_guid` and `issue_id`.
 The status and first-found date live in the nested `finding_status` JSON, so the query extracts them into aliased columns.
-The query reads only the CWE and category names from `finding_details`.
+The query reads only the severity and the CWE and category names from `finding_details`.
 The rest of `finding_details` holds file paths and, for dynamic scans, hostnames and URLs.
 """
 
@@ -24,8 +24,8 @@ VERACODE_FIELDS = (
     "issue_id",
     "scan_type",
     "description",
-    "severity",
     "violates_policy",
+    "JSONExtractRaw(toString(finding_details), 'severity') AS finding_severity",
     "JSONExtractString(toString(finding_details), 'cwe', 'name') AS cwe_name",
     "JSONExtractRaw(toString(finding_details), 'cwe', 'id') AS cwe_id",
     "JSONExtractString(toString(finding_details), 'finding_category', 'name') AS finding_category",
@@ -37,7 +37,7 @@ VERACODE_FIELDS = (
 VERACODE_EXTRA_FIELDS = (
     "application_guid",
     "scan_type",
-    "severity",
+    "finding_severity",
     "violates_policy",
     "cwe_id",
     "finding_category",
