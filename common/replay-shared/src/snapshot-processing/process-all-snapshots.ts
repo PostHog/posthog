@@ -1,7 +1,7 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
-import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
+import { makeScreenshotDocumentNode, SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -64,43 +64,12 @@ function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
 }
 
 function createMinimalFullSnapshot(windowId: number | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
-    const bodyChildNodes = imgNode ? [imgNode] : []
-
-    const htmlNode = {
-        type: 2,
-        tagName: 'html',
-        attributes: {
-            'data-rrweb-id': 'minimal-html',
-        },
-        childNodes: [
-            {
-                type: 2,
-                tagName: 'head',
-                attributes: {
-                    'data-rrweb-id': 'minimal-head',
-                },
-                childNodes: [],
-            },
-            {
-                type: 2,
-                tagName: 'body',
-                attributes: {
-                    'data-rrweb-id': 5,
-                },
-                childNodes: bodyChildNodes,
-            },
-        ],
-    }
-    const documentNode = {
-        type: 0,
-        childNodes: [htmlNode],
-    }
     return {
         type: EventType.FullSnapshot,
         timestamp,
         windowId,
         data: {
-            node: documentNode,
+            node: makeScreenshotDocumentNode(imgNode, timestamp),
             initialOffset: { top: 0, left: 0 },
         },
     } as unknown as RecordingSnapshot
