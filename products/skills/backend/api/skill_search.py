@@ -272,6 +272,8 @@ def _skill_search_field_query(field: SkillSearchField, phrase: str, tokens: Sequ
     return phrase_query | _skill_search_any_token_query(field, tokens)
 
 
+# as_sql builds SQL only from the compiled column of a fixed SkillSearchField, never from user input.
+# nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression
 class _StoredSearchVector(Expression):
     """The `search_vector` column that migration 0011 adds beside `source` and fills with a trigger.
 
