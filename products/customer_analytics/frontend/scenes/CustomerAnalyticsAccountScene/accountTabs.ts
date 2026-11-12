@@ -64,22 +64,17 @@ function sortAccountTabsByConfig(
 
 export function listOrderedAccountTabs(
     tabs: AccountTabDefinition[],
-    config: AccountDetailTabsConfigApi,
-    applyTabConfiguration = true
+    config: AccountDetailTabsConfigApi
 ): AccountTabDefinition[] {
-    const orderedTabs = applyTabConfiguration ? sortAccountTabsByConfig(tabs, config) : tabs
+    const orderedTabs = sortAccountTabsByConfig(tabs, config)
     return [...orderedTabs.filter((tab) => tab.kind === 'view'), ...orderedTabs.filter((tab) => tab.kind === 'system')]
 }
 
 export function isAccountTabVisible(
     tab: AccountTabDefinition,
     config: AccountDetailTabsConfigApi,
-    userId: number | undefined,
-    applyTabConfiguration = true
+    userId: number | undefined
 ): boolean {
-    if (!applyTabConfiguration) {
-        return true
-    }
     return !config.hidden_tab_ids.includes(tab.id) && !isUnselectedTeamView(tab, config, userId)
 }
 
@@ -87,11 +82,10 @@ export function listVisibleAccountTabs(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
     activeTabId: string | undefined,
-    userId: number | undefined,
-    applyTabConfiguration = true
+    userId: number | undefined
 ): AccountTabDefinition[] {
-    return listOrderedAccountTabs(tabs, config, applyTabConfiguration).filter(
-        (tab) => isAccountTabVisible(tab, config, userId, applyTabConfiguration) || tab.id === activeTabId
+    return listOrderedAccountTabs(tabs, config).filter(
+        (tab) => isAccountTabVisible(tab, config, userId) || tab.id === activeTabId
     )
 }
 
@@ -156,18 +150,16 @@ export function getAccountTabRoute(tabId: string): string {
 export function getDefaultAccountTabId(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
-    userId: number | undefined,
-    applyTabConfiguration = true
+    userId: number | undefined
 ): string {
     const defaultTab = tabs.find((tab) => tab.id === config.default_tab_id)
-    if (defaultTab && applyTabConfiguration && !config.hidden_tab_ids.includes(defaultTab.id)) {
+    if (defaultTab && !config.hidden_tab_ids.includes(defaultTab.id)) {
         return defaultTab.id
     }
-    const isVisible = (tab: AccountTabDefinition): boolean =>
-        isAccountTabVisible(tab, config, userId, applyTabConfiguration)
+    const isVisible = (tab: AccountTabDefinition): boolean => isAccountTabVisible(tab, config, userId)
     return (
         tabs.find((tab) => tab.kind === 'system' && isVisible(tab))?.id ??
-        listOrderedAccountTabs(tabs, config, applyTabConfiguration).find(isVisible)?.id ??
+        listOrderedAccountTabs(tabs, config).find(isVisible)?.id ??
         tabs.find((tab) => tab.kind === 'system')?.id ??
         'system:notes'
     )
@@ -177,10 +169,9 @@ export function getActiveAccountTabId(
     tabs: AccountTabDefinition[],
     config: AccountDetailTabsConfigApi,
     requestedTabId: string | undefined,
-    userId: number | undefined,
-    applyTabConfiguration = true
+    userId: number | undefined
 ): string {
-    const defaultTabId = getDefaultAccountTabId(tabs, config, userId, applyTabConfiguration)
+    const defaultTabId = getDefaultAccountTabId(tabs, config, userId)
     if (!requestedTabId || !requestedTabId.startsWith('system:')) {
         return requestedTabId ?? defaultTabId
     }

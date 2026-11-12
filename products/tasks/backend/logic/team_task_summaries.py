@@ -33,12 +33,6 @@ class TeamTaskSummary:
     run_status: str | None
     # None when the latest run wrote no summary, or when its summary is not readable without a viewer.
     summary: str | None
-    # True when only the creator can drive the task or write its run summary. That holds for a task
-    # filed into a channel. A null-channel task from a team-controlled origin can be driven by any
-    # member, so its summary may be someone else's text. A Slack task never qualifies: other people in
-    # its thread can send it turns, and the thread itself reaches its agent as context. A caller that
-    # returns a Slack summary anyway decides that for itself.
-    creator_controls_alone: bool
 
 
 def _readable_by_team_q(team_id: int) -> Q:
@@ -90,7 +84,7 @@ def list_team_task_summaries(
         .annotate(active_at=Coalesce(Subquery(last_run_change), F("created_at")))
         .filter(active_at__gte=active_after)
         .order_by("-active_at", "id")
-        .values("id", "created_at", "active_at", "created_by_id", "origin_product", "channel_id")[:limit]
+        .values("id", "created_at", "active_at", "created_by_id", "origin_product")[:limit]
     )
     if not tasks:
         return []
@@ -129,11 +123,6 @@ def list_team_task_summaries(
                 origin_product=task["origin_product"],
                 run_status=run["status"] if run is not None else None,
                 summary=summary,
-                creator_controls_alone=(
-                    task["channel_id"] is not None
-                    and task["created_by_id"] is not None
-                    and task["origin_product"] != Task.OriginProduct.SLACK
-                ),
             )
         )
     return summaries

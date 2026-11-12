@@ -13,22 +13,19 @@ discussions. Only tasks on the canonical team qualify, as in `discussion_notes.p
 environment's discussion stays out of the parent project's scouts. Only tasks the whole team may
 read qualify, and a summary the tasks facade keeps private comes back null.
 
-A summary is free text that reaches a scout holding privileged tools, so it has to clear the same
-bar as a scout note: whoever could have written it must be able to steer scouts. Nothing records who
-wrote a summary. The discussion agent writes it, but `set_summary` accepts any caller who controls
-the task, and a null-channel discussion task can be controlled by any member. So a summary is
-returned only when the task's creator alone controls it (`creator_controls_alone`) and that creator
-passes `user_can_steer_scouts`. Every other row keeps its report, status, and task id, with a null
-summary. An inbox question is never returned: the discussion note already carries it behind the
-full steering gate, including the credential scopes this read cannot recover.
+A summary is free text that reaches a scout holding privileged tools, so it clears the same bar as a
+scout note: the task's creator must pass `user_can_steer_scouts`. Every other row keeps its report,
+status, and task id, with a null summary. Nothing records who wrote a summary, and `set_summary`
+accepts any member on a null-channel discussion task, the usual inbox case. With default access that
+member can leave a scout note anyway, and the scout reads a summary as evidence, never as
+instructions. An inbox question is never returned: the discussion note already carries it behind
+the full steering gate, including the credential scopes this read cannot recover.
 
 A reply in a report's Slack thread starts a discussion too (`record_slack_report_discussion`), and
 no note carries its question. The tasks facade returns such a task only when its thread is in a
-public Slack channel, never a private channel or a direct message. Its creator is never the only
-author of its summary: other people in the thread can send the task turns, and the thread reaches
-its agent as context. The summary is returned anyway when the creator passes
-`user_can_steer_scouts`, as a deliberate exception to the rule above. Everyone who can shape it
-could already post in the same public thread, and a scout weighs a summary as untrusted input.
+public Slack channel, never a private channel or a direct message. Its summary follows the same
+gate. Other people in the thread can send the task turns, and the thread reaches its agent as
+context, but everyone who can shape the summary could already post in the same public thread.
 Its `question` is the creator's own message, read from the `SLACK_DISCUSSION` action row that the
 Slack flow wrote when it linked the task, never from the task description, which a `task:write`
 credential can rewrite. It is returned under the same gate. A Slack user is verified as a PostHog
@@ -149,8 +146,7 @@ def list_report_discussions(
     for task in tasks:
         discussion_report_id = report_by_task[task.task_id]
         may_steer = task.created_by_id in steering_creators
-        is_slack = task.origin_product == TaskOriginProduct.SLACK
-        summary = task.summary if may_steer and (task.creator_controls_alone or is_slack) else None
+        summary = task.summary if may_steer else None
         question = slack_questions.get((task.created_by_id, task.task_id)) if may_steer else None
         discussions.append(
             ReportDiscussion(

@@ -33,11 +33,17 @@ export interface GetBlockParams {
     sessionKey?: SessionKey
     // The public block route's role cannot list the bucket, so S3 answers a missing key with AccessDenied there.
     accessDeniedMeansMissing?: boolean
+    // Aborts the S3 request and the body read, so a stalled read cannot hold the caller's byte budget.
+    timeoutMs?: number
 }
 
 export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
 
 export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
+
+export type BlockAdmission = 'ok' | 'too_large' | 'busy'
+
+export type GetBlockByRefResult = GetBlockResult | { ok: false; error: Exclude<BlockAdmission, 'ok'> }
 
 export type ListedBlock = RecordingBlock & { ref?: string }
 
@@ -148,7 +154,9 @@ export class RecordingService {
                 range: `bytes=${startByte}-${endByte}`,
             })
 
-            const response = await this.s3Client.send(command)
+            const response = params.timeoutMs
+                ? await this.s3Client.send(command, { abortSignal: AbortSignal.timeout(params.timeoutMs) })
+                : await this.s3Client.send(command)
 
             if (!response.Body) {
                 logger.debug('[RecordingService] S3 returned no body', { key })
@@ -297,7 +305,14 @@ export class RecordingService {
         }))
     }
 
-    async getBlockByRef(teamId: number, sessionId: string, ref: string): Promise<GetBlockResult> {
+    // `admit` sees the block's size before the S3 read and can refuse it.
+    async getBlockByRef(
+        teamId: number,
+        sessionId: string,
+        ref: string,
+        admit: (bytes: number) => BlockAdmission = () => 'ok',
+        timeoutMs?: number
+    ): Promise<GetBlockByRefResult> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         const deletion = deletionOf(sessionKey)
         if (deletion) {
@@ -310,7 +325,11 @@ export class RecordingService {
         if (!location || !this.validateS3Key(location.key)) {
             return { ok: false, error: 'not_found' }
         }
-        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true })
+        const admission = admit(location.endByte - location.startByte + 1)
+        if (admission !== 'ok') {
+            return { ok: false, error: admission }
+        }
+        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true, timeoutMs })
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {

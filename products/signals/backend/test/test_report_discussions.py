@@ -99,9 +99,8 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
                 False,
                 None,
             ),
-            # Any member can drive a null-channel discussion task, so its summary may not be the creator's.
-            ("team_controlled_task", {"task_summary": "Anyone could write this."}, False, False, None),
-            ("creator_cannot_steer_scouts", {"task_summary": "From an outsider."}, True, True, None),
+            ("channel_less_task", {"task_summary": "Intended behavior."}, False, False, "Intended behavior."),
+            ("creator_cannot_steer_scouts", {"task_summary": "From an outsider."}, False, True, None),
         ]
     )
     def test_summary_is_returned_only_when_safe(
