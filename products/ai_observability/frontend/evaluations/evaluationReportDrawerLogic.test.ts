@@ -216,7 +216,8 @@ describe('evaluationReportDrawerLogic', () => {
             Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
             document.dispatchEvent(new Event('visibilitychange'))
         }
-        jest.useFakeTimers()
+        // One clock for the whole test, ticking on its own so the mocked requests resolve, so a leaked interval would fire.
+        jest.useFakeTimers({ advanceTimers: true })
         try {
             runsLogic.actions.generateReport(REPORT.id)
             await expectLogic(runsLogic).toDispatchActions(['generateReportSuccess'])
@@ -225,16 +226,34 @@ describe('evaluationReportDrawerLogic', () => {
             setHidden(false)
             jest.advanceTimersByTime(0)
             // The last fetch runs to completion before the wait ends.
-            jest.useRealTimers()
             await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
             expect(runsLogic.values.waitingForNewReportSince).toBeNull()
 
-            jest.useFakeTimers()
             jest.advanceTimersByTime(60_000)
-            jest.useRealTimers()
             await expectLogic(runsLogic).toNotHaveDispatchedActions(['loadNewestReportRuns'])
         } finally {
             setHidden(false)
+            jest.useRealTimers()
+        }
+    })
+
+    it('ends the wait once a failed delivery has had time for its retries', async () => {
+        await mountWithRuns()
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
+        runsPages['0'] = {
+            results: [{ ...run('run-4', '2026-11-11T00:01:00Z'), delivery_status: 'failed' }, ...FIRST_PAGE],
+            next: 'more',
+        }
+        jest.useFakeTimers({ advanceTimers: true })
+        try {
+            runsLogic.actions.generateReport(REPORT.id)
+            await expectLogic(runsLogic).toDispatchActions(['generateReportSuccess', 'loadNewestReportRunsSuccess'])
+            expect(runsLogic.values.waitingForNewReportSince).not.toBeNull()
+
+            jest.advanceTimersByTime(7 * 60_000 + 15_000)
+            await expectLogic(runsLogic).toDispatchActions(['stopWaitingForNewReport'])
+            expect(runsLogic.values.waitingForNewReportSince).toBeNull()
+        } finally {
             jest.useRealTimers()
         }
     })
