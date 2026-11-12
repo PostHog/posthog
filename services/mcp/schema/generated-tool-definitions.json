@@ -8196,7 +8196,7 @@
         }
     },
     "inbox-report-artefacts-list": {
-        "description": "List every artefact on an inbox report, the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers; the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.",
+        "description": "List every artefact on an inbox report, the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers; the newest row of each status type is the canonical status), work-log entries (code references, commits, task runs, notes), and follow-up check entries (`check_result` verdicts, and `check_observation` interim readings during Monitoring). Read this before re-judging a status or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's artefacts",
@@ -8240,23 +8240,8 @@
             "readOnlyHint": false
         }
     },
-    "inbox-report-checks-create": {
-        "description": "Removed. A scout run writes checks with scout-report-check-create, and the research pipeline writes its own; there is no create surface for a person or a task token. Read a report's checks with inbox-report-checks-list.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Write a follow-up check (removed)",
-        "title": "Write a follow-up check (removed)",
-        "required_scopes": ["signal_scout_report:write"],
-        "api_operations": ["POST /api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report: open checks first, then finished checks, newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report: open checks first, then finished checks, newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for the report's fix to ship before its clock starts: for Monitoring to start where the organization has it on, otherwise for the report to resolve. During Monitoring, `monitoring_timing` gives the end of the check's window, its next interim reading, and its phase once the window ends. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -8318,11 +8303,11 @@
         }
     },
     "inbox-reports-bulk-set-state": {
-        "description": "Transition up to 100 inbox reports to the same state in one call, the bulk form of `inbox-reports-set-state`. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the call returns 200 even on partial failure: read `results` (one entry per id, in request order) and the `transitioned_count`, `skipped_count`, `failed_count`, and `not_found_count` summary. An id whose current status does not allow the transition comes back as `skipped`, and the rest still go through. Before a bulk change, count the matching reports with inbox-reports-list and `count_only=true`, tell the user the count and the filters, and get their confirmation. Keep a request that names \"my inbox\" inside `view=for_you`. Do not page through the project to change more reports than the user confirmed.",
+        "description": "Transition up to 100 inbox reports to the same state in one call, the bulk form of `inbox-reports-set-state`. It takes the same states, including 'monitoring' and 'ready' where the organization has Monitoring on. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the call returns 200 even on partial failure: read `results` (one entry per id, in request order) and the `transitioned_count`, `skipped_count`, `failed_count`, and `not_found_count` summary. An id whose current status does not allow the transition comes back as `skipped`, and the rest still go through. Before a bulk change, count the matching reports with inbox-reports-list and `count_only=true`, tell the user the count and the filters, and get their confirmation. Keep a request that names \"my inbox\" inside `view=for_you`. Do not page through the project to change more reports than the user confirmed.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Resolve, dismiss, or snooze inbox reports in bulk",
-        "title": "Resolve, dismiss, or snooze inbox reports in bulk",
+        "summary": "Change the state of inbox reports in bulk",
+        "title": "Change the state of inbox reports in bulk",
         "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/bulk-state/"],
         "annotations": {
@@ -8333,7 +8318,7 @@
         }
     },
     "inbox-reports-claim": {
-        "description": "Start, resume, or release work on an inbox report. Returns `assignee.claim_id` for the work attempt; pass it on later updates. For internal task agents, claiming records the task association automatically. Another actor's active claim requires explicit takeover=true. When another person holds the claim, directly or through their agent, do not take it over on your own: tell your user who holds it and since when, and ask first. That takeover also needs takeover_claim_id, and the person is notified. Add pull_requests (GitHub PR URLs) in the same call, including when you start work. A report resolves when every linked PR is closed or merged and at least one merged, and it is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports with inbox-reports-set-state.",
+        "description": "Start, resume, or release work on an inbox report. Returns `assignee.claim_id` for the work attempt; pass it on later updates. For internal task agents, claiming records the task association automatically. Another actor's active claim requires explicit takeover=true. When another person holds the claim, directly or through their agent, do not take it over on your own: tell your user who holds it and since when, and ask first. That takeover also needs takeover_claim_id, and the person is notified. Add pull_requests (GitHub PR URLs) in the same call, including when you start work. When every linked PR is closed or merged and at least one merged, the report resolves. Where the organization has Monitoring on and the report has open follow-up checks, it enters monitoring instead, and the checks verify the fix. It is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports with inbox-reports-set-state.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update work on an inbox report",
@@ -8472,11 +8457,11 @@
         "feature_flag": "inbox-reports-search"
     },
     "inbox-reports-set-state": {
-        "description": "Transition one inbox report to a new state: 'resolved' when the work it asked for is done, 'suppressed' to dismiss it, or 'potential' to snooze it or restore it for later review. Dismissing or resolving closes the report's open implementation PR, if it has one. A resolved report never reopens: a recurrence starts a fresh report linked to it. `dismissal_reason` and `dismissal_note` are saved as a dismissal artefact, so the rationale survives later transitions. Reason codes need state 'suppressed' or 'resolved', not 'potential'. When the report only reached the wrong person, `inbox-reports-leave-reviewers` keeps it open for everyone else, while `wrong_assignee` closes it for everyone. Returns 409 when the report's current status does not allow the transition. To transition several reports, use `inbox-reports-bulk-set-state`.",
+        "description": "Transition one inbox report to a new state: 'resolved' when the work it asked for is done, 'suppressed' to dismiss it, or 'potential' to snooze it or restore it for later review. Where the organization has Monitoring on, two more states apply. 'monitoring' records that the fix shipped and starts verifying it with the report's follow-up checks; a report without open checks resolves instead. 'ready' reopens a report in monitoring or closed, keeping its research, pull requests and checks. Resolving a report in monitoring stops the verification by hand: pass `dismissal_reason` 'verified_manually', 'no_action_needed' or 'already_fixed', and say in `dismissal_note` what you checked. Dismissing or resolving closes the report's open implementation PR, if it has one. A resolved report never reopens: a recurrence starts a fresh report linked to it. `dismissal_reason` and `dismissal_note` are saved as a dismissal artefact, so the rationale survives later transitions. Reason codes need state 'suppressed' or 'resolved', not 'potential'. When the report only reached the wrong person, `inbox-reports-leave-reviewers` keeps it open for everyone else, while `wrong_assignee` closes it for everyone. Returns 409 when the report's current status does not allow the transition. To transition several reports, use `inbox-reports-bulk-set-state`.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Resolve, dismiss, or snooze an inbox report",
-        "title": "Resolve, dismiss, or snooze an inbox report",
+        "summary": "Change an inbox report's state",
+        "title": "Change an inbox report's state",
         "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/state/"],
         "annotations": {
@@ -13198,7 +13183,7 @@
         }
     },
     "scout-check-record-result": {
-        "description": "Close the follow-up check your run was dispatched to answer, and only that check. Your run note carries its `check_id` and what to establish. Record what you established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one, `errored` retries it, and `inconclusive` ends it unless the `reason` is `awaiting_data`, which looks again later. The verdict lands on the report as a `check_result` entry in the inbox. Nothing else closes a check, so a run that investigates and never calls this leaves the report with an unanswered follow-up. You may also record a check on your own scout whose `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, a `paused` check, a check your run already answered, and a check the coordinator measures itself.",
+        "description": "Close the follow-up check your run was dispatched to answer, and only that check. Your run note carries its `check_id` and what to establish. Record what you established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one, `errored` retries it, and `inconclusive` ends it unless the `reason` is `awaiting_data`, which looks again later. The verdict lands on the report as a `check_result` entry in the inbox. Nothing else closes a check, so a run that investigates and never calls this leaves the report with an unanswered follow-up. You may also record a check on your own scout whose `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for a check on another scout, a `pending` check whose clock has not started, a check that is not due yet, a `paused` check, a check your run already answered, and a check the coordinator measures itself.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Record the verdict on a report check",
@@ -13513,7 +13498,7 @@
         }
     },
     "scout-report-check-create": {
-        "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact rather than something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. NOT idempotent: check `scout-report-check-list` first, because a report holds at most five open checks and a second check for the same claim is noise. Pass the `run_id` of your own in-progress run. Use `metric_threshold` when a bounded query and a baseline exist, and `agent` for a claim no single number settles, which a later scout run answers. `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved yet, the check is stored `pending`, and the gap you left becomes the wait that starts when the report resolves, so a check never measures the days before the fix shipped. The verdict lands on the report as a `check_result` entry in the inbox.",
+        "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact rather than something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. NOT idempotent: check `scout-report-check-list` first, because a report holds at most five open checks and a second check for the same claim is noise. Pass the `run_id` of your own in-progress run. Use `metric_threshold` when a bounded query and a baseline exist, and `agent` for a claim no single number settles, which a later scout run answers. `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved yet, the check is stored `pending`, and the gap you left becomes the wait that starts when the fix ships: when Monitoring starts where the organization has it on, otherwise when the report resolves. So a check never measures the days before the fix shipped. The verdict lands on the report as a `check_result` entry in the inbox.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Write a follow-up check on a report",
@@ -13528,7 +13513,7 @@
         }
     },
     "scout-report-check-list": {
-        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`, `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.",
+        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check waits for the report's fix to ship before its clock starts; every status other than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`, `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's follow-up checks",
