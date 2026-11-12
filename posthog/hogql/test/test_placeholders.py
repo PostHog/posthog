@@ -44,6 +44,8 @@ class TestParser(SimpleTestCase):
             ("filters.previous(timestamp AS timestamp)", True),
             ("filters.dateRange.from", False),
             ("filters.dateRange.to", False),
+            ("filters.previous.dateRange.from", False),
+            ("filters.previous.dateRange.to", False),
         ]
     )
     def test_find_placeholders_chain_filters(self, placeholder: str, is_predicate: bool) -> None:
@@ -51,6 +53,13 @@ class TestParser(SimpleTestCase):
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
         self.assertEqual(finder.has_predicate_filters, is_predicate)
+
+    @parameterized.expand([("filters.interval",), ("filters.interval('week')",), ("filters.breakdown(a AS 'plan')",)])
+    def test_filter_values_do_not_apply_date_or_property_predicates(self, placeholder: str) -> None:
+        finder = find_placeholders(parse_select("SELECT {" + placeholder + "} FROM events"))
+        self.assertTrue(finder.has_filters)
+        self.assertFalse(finder.has_date_filters)
+        self.assertFalse(finder.has_predicate_filters)
 
     @parameterized.expand(
         [

@@ -589,14 +589,17 @@ class TestMCPToolsAPI(APIBaseTest):
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute, mock_capture):
         mock_execute.side_effect = RuntimeError("unexpected")
+        filters = {"properties": [{"key": "api_token", "type": "event", "value": "fake-token", "operator": "exact"}]}
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
-            {"args": {"query": "SELECT 1"}},
+            {"args": {"query": "SELECT 1", "filters": filters}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["args"], {"query": "SELECT 1"})
+        self.assertEqual(mock_execute.call_args.args[0].filters.properties[0].value, "fake-token")
         error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
         self.assertEqual(
             response.json(),

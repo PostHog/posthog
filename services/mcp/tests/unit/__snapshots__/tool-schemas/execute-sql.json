@@ -17,6 +17,7 @@
                         "dateRange": {
                             "anyOf": [
                                 {
+                                    "additionalProperties": {},
                                     "properties": {
                                         "date_from": {
                                             "anyOf": [
@@ -39,7 +40,14 @@
                                             ]
                                         },
                                         "explicitDate": {
-                                            "type": "boolean"
+                                            "anyOf": [
+                                                {
+                                                    "type": "boolean"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
                                         }
                                     },
                                     "type": "object"

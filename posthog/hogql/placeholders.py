@@ -1,6 +1,6 @@
 import time
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -62,8 +62,7 @@ class FindPlaceholders(TraversingVisitor):
         super().__init__()
         self.has_filters = False  # Legacy fallback: treat filters as before
         self.has_predicate_filters = False
-        # The filters forms that expand into a predicate, so a date range can bound the query
-        # through them. The dotted call forms substitute a value and cannot add one.
+        # Predicates and date bounds can constrain the query's range; interval and breakdown values cannot.
         self.has_date_filters = False
         self.placeholder_fields: list[list[str | int]] = []  # Did we find simple fields
         self.placeholder_expressions: list[ast.Expr] = []  # Did we find complex expressions
@@ -81,10 +80,11 @@ class FindPlaceholders(TraversingVisitor):
         self.has_filters = True
         if is_filters_predicate_placeholder(node):
             self.has_predicate_filters = True
-        if not isinstance(node.expr, ast.ExprCall) or cast(ast.Field, node.expr.expr).chain in (
-            ["filters", "previous"],
-            ["filters", "native"],
-            ["filters", "previous", "native"],
+        if is_filters_predicate_placeholder(node) or node.chain in (
+            ["filters", "dateRange", "from"],
+            ["filters", "dateRange", "to"],
+            ["filters", "previous", "dateRange", "from"],
+            ["filters", "previous", "dateRange", "to"],
         ):
             self.has_date_filters = True
 

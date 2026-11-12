@@ -104,11 +104,12 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("2026-01-01", result.content)
         self.assertIn("2026-01-03", result.content)
 
-    async def test_interval_placeholder_does_not_apply_date_range(self) -> None:
+    @parameterized.expand([("filters.interval",), ("filters.interval('day')",)])
+    async def test_interval_placeholder_does_not_apply_date_range(self, placeholder: str) -> None:
         with self.assertRaisesRegex(MaxToolRetryableError, "date range needs"):
             await self.tool.execute(
                 ExecuteSQLMCPToolArgs(
-                    query="SELECT {filters.interval('day')} AS bucket, count() FROM events",
+                    query="SELECT {" + placeholder + "} AS bucket, count() FROM events",
                     filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
                 )
             )

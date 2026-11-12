@@ -18,7 +18,13 @@ describe('executeSqlHandler', () => {
         { structured: true, outputFormat: 'json' },
     ] as const)('preserves results and query metadata: %j', async ({ structured, outputFormat }) => {
         const filters = {
-            dateRange: { date_from: '-7d', date_to: null },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+                explicitDate: null,
+                daysOfWeek: [1, 2],
+                excludeIncompletePeriods: null,
+            },
             properties: [
                 { key: 'region', type: 'event', value: ['west'], operator: 'exact' },
                 { key: 'paid', type: 'group', group_type_index: 1, value: true, operator: 'exact', label: 'Paid' },

@@ -205,7 +205,14 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             logger.exception(
                 "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
             )
-            capture_exception(e, properties={"tag": "mcp", "args": args_data, "error_id": error_id})
+            capture_exception(
+                e,
+                properties={
+                    "tag": "mcp",
+                    "args": {key: value for key, value in args_data.items() if key != "filters"},
+                    "error_id": error_id,
+                },
+            )
             return Response(
                 {
                     "success": False,

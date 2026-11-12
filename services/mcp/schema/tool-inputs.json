@@ -664,9 +664,17 @@
                                                     ]
                                                 },
                                                 "explicitDate": {
-                                                    "type": "boolean"
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
                                                 }
-                                            }
+                                            },
+                                            "additionalProperties": {}
                                         },
                                         {
                                             "type": "null"

@@ -1021,7 +1021,12 @@ export const ExecuteSQLSchema = z.object({
     // The backend validates the full filter union; narrowing it here can strip group or cohort metadata.
     filters: z
         .looseObject({
-            dateRange: HogQLFilters.shape.dateRange.nullable(),
+            dateRange: z
+                .looseObject({
+                    ...HogQLFilters.shape.dateRange.unwrap().shape,
+                    explicitDate: z.boolean().nullish(),
+                })
+                .nullish(),
             properties: z
                 .array(z.record(z.string(), z.unknown()))
                 .nullish()
