@@ -5,7 +5,7 @@ from posthog.schema import LogsSparklineBreakdownBy, LogsSparklineRankBy
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -68,18 +68,23 @@ class SparklineQueryRunner(LogsQueryRunner):
         results = []
         for result in response.results:
             breakdown_value = result[1] if result[1] not in (None, "") else "(no value)"
-            results.append(
-                {
-                    # Tag the bucket time as UTC so it serializes with an offset, matching the log
-                    # row timestamp and the live_logs_checkpoint the frontend compares it against.
-                    "time": result[0].replace(tzinfo=ZoneInfo("UTC")) if result[0] else result[0],
-                    result_key: breakdown_value,
-                    "count": result[2],
-                    "bytes_uncompressed": result[3],
-                }
-            )
+            row = {
+                # Tag the bucket time as UTC so it serializes with an offset, matching the log
+                # row timestamp and the live_logs_checkpoint the frontend compares it against.
+                "time": result[0].replace(tzinfo=ZoneInfo("UTC")) if result[0] else result[0],
+                result_key: breakdown_value,
+                "count": result[2],
+            }
+            if self._ranks_by_bytes:
+                # Other callers get no byte sum, and a zero would say that the logs have no bytes.
+                row["bytes_uncompressed"] = result[3]
+            results.append(row)
 
         return LogsQueryResponse(results=results)
+
+    @property
+    def _ranks_by_bytes(self) -> bool:
+        return (self.query.sparklineRankBy or DEFAULT_RANK_BY) == LogsSparklineRankBy.BYTES
 
     def to_query(self) -> ast.SelectQuery:
         # The row count is bounded by construction: the rollup in the joined subquery leaves at most
@@ -135,7 +140,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                                     toStartOfInterval({time_field}, {one_interval_period}) AS time,
                                     {breakdown_field} AS breakdown_value,
                                     count() AS event_count,
-                                    sum(_bytes_uncompressed) AS bytes_uncompressed
+                                    {bytes_uncompressed} AS bytes_uncompressed
                                 FROM logs
                                 WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
                                 GROUP BY breakdown_value, time
@@ -156,6 +161,11 @@ class SparklineQueryRunner(LogsQueryRunner):
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
+                # The minute-aggregate projection holds only count(). A byte sum in the query makes
+                # ClickHouse read the raw rows, so only a caller that ranks by bytes gets one.
+                "bytes_uncompressed": parse_expr("sum(_bytes_uncompressed)")
+                if self._ranks_by_bytes
+                else ast.Constant(value=0),
                 "breakdown_field": ast.Field(
                     chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
                 ),
