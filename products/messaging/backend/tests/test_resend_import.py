@@ -342,16 +342,26 @@ class TestResendImport(BaseTest):
             sensitive_config={},
             created_by_id=self.user.id,
         )
+        IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id="hello@example.com",
+            config={"email": "hello@example.com", "domain": "example.com", "verified": False},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
         welcome = {
             **FIXTURES["templates"][0],
             "subject": "",
             "from": '"{{ person.properties.a }}" <hello@example.com>',
             "reply_to": ["{{person.properties.b}}@example.com"],
         }
-        self.resend.data = {**self.resend.data, "templates": [welcome, *self.resend.data["templates"][1:]]}
+        receipt = {**self.resend.data["templates"][1], "from": "{{ event.properties.secret }}@example.com"}
+        self.resend.data = {**self.resend.data, "templates": [welcome, receipt, *self.resend.data["templates"][2:]]}
 
         run = self._run(["templates"])
 
+        receipt_from = MessageTemplate.objects.get(team_id=self.team.id, key=receipt["alias"]).content["email"]["from"]
+        assert receipt_from["email"] == '{{ "{{" }} event.properties.secret }}@example.com'
         email = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email").content["email"]
         assert (email["from"]["integrationId"], email["from"]["email"]) == (sender.id, "hello@example.com")
         assert email["from"]["name"] == '{{ "{{" }} person.properties.a }}'
