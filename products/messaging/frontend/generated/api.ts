@@ -42,12 +42,12 @@ import type {
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
-    PatchedRescheduleEmailApi,
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
+    RescheduleEmailApi,
     RescheduledEmailApi,
     ScheduledEmailPageApi,
     SendEmailApi,
@@ -169,14 +169,14 @@ export const getMessagingEmailsPartialUpdateUrl = (projectId: string, id: string
 export const messagingEmailsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedRescheduleEmailApi?: PatchedRescheduleEmailApi,
+    rescheduleEmailApi: RescheduleEmailApi,
     options?: RequestInit
 ): Promise<RescheduledEmailApi> => {
     return apiMutator<RescheduledEmailApi>(getMessagingEmailsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedRescheduleEmailApi),
+        body: JSON.stringify(rescheduleEmailApi),
     })
 }
 
