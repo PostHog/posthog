@@ -19,6 +19,7 @@ import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import * as posthogUtils from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -212,7 +213,9 @@ describe('SourceWebhooksConsumer', () => {
         const getQueuedHogFlowIds = (): string[] => hogflowQueue.queued.map((invocation) => invocation.functionId)
 
         describe('hog function processing', () => {
-            it('should 404 if the hog function does not exist', async () => {
+            it('should 404 without reporting an exception if the hog function does not exist', async () => {
+                const capture = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
@@ -220,6 +223,7 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+                expect(capture).not.toHaveBeenCalled()
             })
 
             it('should 404 if the hog function is deleted', async () => {
