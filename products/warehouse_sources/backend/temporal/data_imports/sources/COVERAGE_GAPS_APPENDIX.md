@@ -12445,10 +12445,10 @@ Today (10): `check_ins`, `discounts`, `event_series`, `events`, `issued_membersh
 
 Diffed against: <https://developers.tickettailor.com/sitemap.xml>
 
-- [ ] `GET /v1/vouchers/{id}/codes` — the individual codes issued under each synced voucher, with redemption state — the analytical grain vouchers alone lack (high)
-- [ ] `GET /v1/holds` — held/reserved seats per event, required to reconcile inventory against issued tickets (medium)
-- [ ] `GET /v1/stores` — lookup resolving the store a synced product belongs to, for per-store merch revenue (medium)
-- [ ] `GET /v1/event_series/{id}/waitlist` — waitlist signups, the demand signal for sold-out events (medium)
+- [x] `GET /v1/vouchers/{id}/codes` — the individual codes issued under each synced voucher, with redemption state — the analytical grain vouchers alone lack (high) → `voucher_codes` (full refresh, fan-out over `vouchers`)
+- [x] `GET /v1/holds` — held/reserved seats per event, required to reconcile inventory against issued tickets (medium) → `holds` (full refresh)
+- [x] `GET /v1/stores` — lookup resolving the store a synced product belongs to, for per-store merch revenue (medium) → `stores` (full refresh)
+- [x] `GET /v1/event_series/{id}/waitlist_signups` — waitlist signups, the demand signal for sold-out events (medium) → `waitlist_signups` (full refresh, fan-out over `event_series`)
 - [ ] `GET /v1/checkout_forms (+ /v1/checkout_forms/{id}/elements)` — lookup that decodes the custom checkout answers stored on orders and issued tickets (medium)
 - [ ] `GET /v1/event_series/{id}/overrides` — per-occurrence overrides on a recurring series, explaining why an occurrence differs from its series (low)
 
