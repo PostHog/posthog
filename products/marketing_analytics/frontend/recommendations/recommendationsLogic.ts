@@ -1,11 +1,16 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import {
+    RecommendationsEntryPoint,
+    marketingAnalyticsLogic,
+    marketingAnalyticsLogicActions,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     IntegrationFilter,
+    MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
     NodeKind,
@@ -38,13 +43,34 @@ export interface recommendationsLogicValues {
     connectedSourceTypes: string[]
     query: MarketingAnalyticsRecommendationsQuery
     dataNodeProps: DataNodeLogicProps
-    selectedRule: string | null
+    selectedRule: MarketingAnalyticsRecommendationRule | null
     introSeen: boolean
 }
 
-export interface recommendationsLogicActions {
-    loadSources: () => void
-    setSelectedRule: (rule: string | null) => { rule: string | null }
+export interface recommendationsLogicActions extends Pick<
+    marketingAnalyticsLogicActions,
+    | 'loadSources'
+    | 'reportRecommendationsShown'
+    | 'reportRecommendationsOpened'
+    | 'reportRecommendationsIntroDismissed'
+    | 'reportRecommendationsRuleSelected'
+    | 'reportRecommendationsClosed'
+    | 'reportRecommendationsActionClicked'
+> {
+    openRecommendations: (
+        rule: MarketingAnalyticsRecommendationRule,
+        entryPoint: RecommendationsEntryPoint,
+        recommendationCount: number
+    ) => {
+        rule: MarketingAnalyticsRecommendationRule
+        entryPoint: RecommendationsEntryPoint
+        recommendationCount: number
+    }
+    selectRule: (
+        rule: MarketingAnalyticsRecommendationRule,
+        ruleRecommendationCount: number
+    ) => { rule: MarketingAnalyticsRecommendationRule; ruleRecommendationCount: number }
+    closeRecommendations: () => { value: true }
     dismissIntro: () => { value: true }
 }
 
@@ -54,20 +80,43 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
     path(['products', 'marketingAnalytics', 'recommendationsLogic']),
     connect(() => ({
         values: [marketingAnalyticsLogic, ['dataWarehouseSources', 'integrationFilter', 'dateFilter']],
-        actions: [marketingAnalyticsLogic, ['loadSources']],
+        actions: [
+            marketingAnalyticsLogic,
+            [
+                'loadSources',
+                'reportRecommendationsShown',
+                'reportRecommendationsOpened',
+                'reportRecommendationsIntroDismissed',
+                'reportRecommendationsRuleSelected',
+                'reportRecommendationsClosed',
+                'reportRecommendationsActionClicked',
+            ],
+        ],
     })),
     actions({
-        setSelectedRule: (rule: string | null) => ({ rule }),
+        openRecommendations: (
+            rule: MarketingAnalyticsRecommendationRule,
+            entryPoint: RecommendationsEntryPoint,
+            recommendationCount: number
+        ) => ({ rule, entryPoint, recommendationCount }),
+        selectRule: (rule: MarketingAnalyticsRecommendationRule, ruleRecommendationCount: number) => ({
+            rule,
+            ruleRecommendationCount,
+        }),
+        closeRecommendations: true,
         dismissIntro: true,
     }),
     reducers({
-        selectedRule: [null as string | null, { setSelectedRule: (_, { rule }) => rule }],
-        // pinned: persisted under this reducer name, renaming it shows the intro again to everyone who closed it
-        introSeen: [
-            false,
-            { persist: true },
-            { dismissIntro: () => true, setSelectedRule: (seen, { rule }) => seen || rule !== null },
+        selectedRule: [
+            null as MarketingAnalyticsRecommendationRule | null,
+            {
+                openRecommendations: (_, { rule }) => rule,
+                selectRule: (_, { rule }) => rule,
+                closeRecommendations: () => null,
+            },
         ],
+        // pinned: persisted under this reducer name, renaming it shows the intro again to everyone who closed it
+        introSeen: [false, { persist: true }, { dismissIntro: () => true, openRecommendations: () => true }],
     }),
     selectors({
         selectedSources: [
@@ -124,6 +173,20 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             }),
         ],
     }),
+    listeners(({ actions, selectors }) => ({
+        openRecommendations: ({ entryPoint, recommendationCount }) => {
+            actions.reportRecommendationsOpened(entryPoint, recommendationCount)
+        },
+        selectRule: ({ rule, ruleRecommendationCount }) => {
+            actions.reportRecommendationsRuleSelected(rule, ruleRecommendationCount)
+        },
+        closeRecommendations: (_, __, ___, previousState) => {
+            actions.reportRecommendationsClosed(selectors.selectedRule(previousState))
+        },
+        dismissIntro: () => {
+            actions.reportRecommendationsIntroDismissed()
+        },
+    })),
     afterMount(({ values, actions }) => {
         if (!values.dataWarehouseSources) {
             actions.loadSources()

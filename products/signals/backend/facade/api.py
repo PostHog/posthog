@@ -24,10 +24,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -47,8 +48,6 @@ from products.signals.backend.activity_summary.read import (
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
     MatchKind as MatchKind,
-    SearchMode as SearchMode,
-    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -78,6 +77,10 @@ from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalS
 from products.signals.backend.facade.source_scouts import (
     SOURCE_TEMPLATE_HASH_METADATA_KEY,
     SOURCE_TEMPLATE_METADATA_KEY,
+)
+from products.signals.backend.hybrid_search import (
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
 )
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
@@ -129,6 +132,7 @@ from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejectionKind as ScoutRunRejectionKind,
 )
 from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunQueued as WorkflowScoutRunQueued,
     WorkflowScoutRunRejected as WorkflowScoutRunRejected,
     WorkflowScoutRunStarted as WorkflowScoutRunStarted,
     # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
@@ -142,6 +146,8 @@ from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.signals import admit_signal
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import is_sandbox_run_request
 
@@ -184,8 +190,9 @@ class InboxSummary:
 
 
 def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth: bool = False) -> InboxSummary:
+    task_filter: Q | None = None
     if service_auth:
-        rows = generated_pull_requests(team_id)
+        can_read_summary = True
     elif isinstance(user, User):
         access = tasks_facade.task_access_scope(team_id=team_id, user=user)
         task_filter = tasks_facade.visible_tasks_q(access.user_id, relation="task")
@@ -193,28 +200,46 @@ def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth:
             task_filter &= Q(task_id__in=access.allowed_ids) | Q(task__created_by_id=access.user_id)
         elif access.blocked_ids:
             task_filter &= ~(Q(task_id__in=access.blocked_ids) & ~Q(task__created_by_id=access.user_id))
-        rows = generated_pull_requests(team_id, task_filter=task_filter)
+        can_read_summary = True
     else:
-        rows = SignalReportPullRequest.objects.for_team(team_id).none()
+        can_read_summary = False
 
     period_end = timezone.now()
     period_start = period_end - INBOX_SUMMARY_PERIOD
-    merged_rows = (
-        rows.filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
-        .values(
-            "number",
-            "participant_ids",
-            "participant_logins",
-            "participants_synced_at",
-            "repository",
-            "url",
+    # Keep the indexed merge-window lookup separate so the JSON-backed provenance check runs only for recent PRs.
+    candidate_rows = (
+        list(
+            SignalReportPullRequest.objects.for_team(team_id)
+            .filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
+            .values(
+                "id",
+                "number",
+                "participant_ids",
+                "participant_logins",
+                "participants_synced_at",
+                "repository",
+                "url",
+            )
+            .order_by("-merged_at", "repository", "number")
         )
-        .order_by("-merged_at", "repository", "number")
+        if can_read_summary
+        else []
+    )
+    generated_ids = (
+        set(
+            generated_pull_requests(team_id, task_filter=task_filter)
+            .filter(id__in=[row["id"] for row in candidate_rows])
+            .values_list("id", flat=True)
+        )
+        if candidate_rows
+        else set()
     )
     participation_complete = True
     people_by_id: dict[int, str] = {}
     pull_requests: list[InboxSummaryPullRequest] = []
-    for row in merged_rows.iterator():
+    for row in candidate_rows:
+        if row["id"] not in generated_ids:
+            continue
         pull_requests.append(
             InboxSummaryPullRequest(repository=row["repository"], number=row["number"], url=row["url"])
         )
@@ -1025,6 +1050,15 @@ async def emit_signal(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
     )
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
+        return False
+
+    try:
+        await database_sync_to_async_pool(admit_signal)(
+            team=team, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+        )
+    except (QuotaLimitExceeded, TrialRefused) as error:
+        reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+        capture_emission_event("signal_data_source_filtered", {"filter_reason": reason})
         return False
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be

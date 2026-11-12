@@ -422,6 +422,11 @@ export interface SurveyApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1545,7 +1550,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * * `external_survey` - external survey
      * * `api` - api */
     type: SurveyTypeEnumApi
-    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
@@ -1710,7 +1715,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      */
     responses_limit?: number | null
     /**
-     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
      * @minimum 1
      * @maximum 500
      * @nullable
@@ -1723,6 +1728,11 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1925,6 +1935,11 @@ export interface SurveySerializerCreateUpdateOnlyApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1982,7 +1997,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * * `external_survey` - external survey
      * * `api` - api */
     type?: SurveyTypeEnumApi
-    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
@@ -2147,7 +2162,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      */
     responses_limit?: number | null
     /**
-     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
      * @minimum 1
      * @maximum 500
      * @nullable
@@ -2160,6 +2175,11 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -2451,6 +2471,43 @@ export interface SurveyResponsesListApi {
 }
 
 /**
+ * * `unavailable` - unavailable
+ * * `rendering` - rendering
+ * * `ready` - ready
+ */
+export type SnapshotStatusEnumApi = (typeof SnapshotStatusEnumApi)[keyof typeof SnapshotStatusEnumApi]
+
+export const SnapshotStatusEnumApi = {
+    Unavailable: 'unavailable',
+    Rendering: 'rendering',
+    Ready: 'ready',
+} as const
+
+export interface SiteSnapshotApi {
+    /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
+     *
+     * * `unavailable` - unavailable
+     * * `rendering` - rendering
+     * * `ready` - ready */
+    status: SnapshotStatusEnumApi
+    /**
+     * ID of the exported image. Load it from the exports content endpoint once the status is `ready`.
+     * @nullable
+     */
+    exported_asset_id: number | null
+    /**
+     * URL of the page the snapshot shows. Null when the status is `unavailable`.
+     * @nullable
+     */
+    page_url: string | null
+    /**
+     * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+     * @nullable
+     */
+    viewport_width: number | null
+}
+
+/**
  * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
  */
 export type SurveyStatsResponseApiStats = { [key: string]: unknown }
@@ -2632,6 +2689,25 @@ export type SurveysResponsesListParams = {
      */
     until?: string
 }
+
+export type SurveysSiteSnapshotRetrieveParams = {
+    /**
+     * Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.
+     *
+     * * `desktop` - Desktop
+     * * `mobile` - Mobile
+     * @minLength 1
+     */
+    device: SurveysSiteSnapshotRetrieveDevice
+}
+
+export type SurveysSiteSnapshotRetrieveDevice =
+    (typeof SurveysSiteSnapshotRetrieveDevice)[keyof typeof SurveysSiteSnapshotRetrieveDevice]
+
+export const SurveysSiteSnapshotRetrieveDevice = {
+    Desktop: 'desktop',
+    Mobile: 'mobile',
+} as const
 
 export type SurveysStatsRetrieveParams = {
     /**

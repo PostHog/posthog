@@ -10,6 +10,8 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.models.organization import OrganizationMembership
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -21,6 +23,8 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
+_MW = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
 
 
 class TestDataWarehouseAPI(APIBaseTest):
@@ -1092,6 +1096,73 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
         value = self.create_personal_api_key_with_scopes(scopes)
         response = self._get(value)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+
+class TestHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
+    """GET and POST /hoglake_credentials share one route, and DRF gives the POST the GET's
+    action kwargs. The viewset's dangerously_get_required_scopes splits them, so a read-only
+    key can list but not mint a credential."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _call(self, method: str, value: str):
+        return getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/data_warehouse/hoglake_credentials/",
+            {"name": "laptop", "scope": "read"},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @patch(f"{_MW}.list_hoglake_credentials", return_value=Response({"hoglake_credentials": []}))
+    @patch(f"{_MW}.create_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_read_key_lists_but_cannot_create(self, create, list_):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+
+        assert self._call("get", value).status_code == status.HTTP_200_OK
+        assert self._call("post", value).status_code == status.HTTP_403_FORBIDDEN
+        create.assert_not_called()
+
+    @patch(f"{_MW}.create_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_write_key_creates(self, create):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+
+        assert self._call("post", value).status_code == status.HTTP_201_CREATED
+        create.assert_called_once()
+
+
+class TestMyHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
+    """GET and POST /my_hoglake_credentials share one route, like /hoglake_credentials."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def _call(self, method: str, value: str):
+        return getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/data_warehouse/my_hoglake_credentials/",
+            {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @patch(f"{_MW}.list_my_hoglake_credentials", return_value=Response({"hoglake_credentials": []}))
+    @patch(f"{_MW}.create_my_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_read_key_lists_but_cannot_create(self, create, list_):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+
+        assert self._call("get", value).status_code == status.HTTP_200_OK
+        assert self._call("post", value).status_code == status.HTTP_403_FORBIDDEN
+        create.assert_not_called()
+
+    @patch(f"{_MW}.create_my_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_write_key_creates(self, create):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+
+        assert self._call("post", value).status_code == status.HTTP_201_CREATED
+        create.assert_called_once()
 
 
 class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):

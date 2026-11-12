@@ -1419,7 +1419,7 @@
             this.ui.changelogError.replaceChildren();
             this.ui.changelogForm.replaceChildren(...(view.config
               ? [this.migrationForm(view), this.retireGroupForm()]
-              : [this.seedForm(), this.restoreForm()]));
+              : [this.seedForm(view), this.restoreForm()]));
           }
           if (!view.config) {
             this.ui.changelogStatus.replaceChildren(
@@ -1498,25 +1498,30 @@
           }
         },
 
-        seedForm() {
+        seedForm(view) {
           const topicInput = el("input", { type: "text", placeholder: "changelog topic, e.g. personhog_updates_64", style: "width: 360px" });
           const groupInput = el("input", { type: "text", placeholder: "writer consumer group, e.g. personhog-writer", style: "width: 280px" });
+          const clusterSelect = view.clusters.length > 0
+            ? el("select", { title: "The Kafka cluster the topic lives on" },
+                view.clusters.map((name) => el("option", { value: name }, name)))
+            : null;
           const error = el("div");
           const button = el("button", {}, "Seed config/changelog");
           button.onclick = async () => {
             const topic = topicInput.value.trim();
             const writer_group = groupInput.value.trim();
+            const cluster = clusterSelect ? clusterSelect.value : null;
             if (!topic || !writer_group) {
               error.replaceChildren(el("div", { class: "error-box" }, "Enter the topic and the writer's consumer group."));
               return;
             }
-            if (!window.confirm(`Seed config/changelog with topic ${topic}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata. Every personhog participant adopts this object; only a migration can move it afterward.`)) return;
+            if (!window.confirm(`Seed config/changelog with topic ${topic}${cluster ? ` on ${cluster}` : ""}, with writer group ${writer_group}?\n\nThe partition count is read from the topic's metadata. Every personhog participant adopts this object; only a migration can move it afterward.`)) return;
             button.disabled = true;
             try {
               await fetchJSON("api/personhog/changelog/seed", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ topic, writer_group }),
+                body: JSON.stringify(cluster ? { topic, writer_group, cluster } : { topic, writer_group }),
               });
               this.refresh();
             } catch (e) {
@@ -1526,7 +1531,7 @@
             }
           };
           return el("div", { style: "padding: 0 14px 6px" },
-            el("div", { class: "row" }, topicInput, groupInput, button),
+            el("div", { class: "row" }, ...[topicInput, groupInput, clusterSelect, button].filter(Boolean)),
             error);
         },
 

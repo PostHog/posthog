@@ -1783,6 +1783,16 @@ export interface CohortHistoryBuildApi {
     updated_at: string | null
 }
 
+/**
+ * * `history_over_limit` - History over limit
+ */
+export type CohortRealtimeUnavailableReasonEnumApi =
+    (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
+
+export const CohortRealtimeUnavailableReasonEnumApi = {
+    HistoryOverLimit: 'history_over_limit',
+} as const
+
 export interface CohortRealtimeReadinessApi {
     /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
@@ -1801,6 +1811,15 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
+    /** A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+     *
+     * * `history_over_limit` - History over limit */
+    reason: CohortRealtimeUnavailableReasonEnumApi | null
+    /**
+     * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+     * @nullable
+     */
+    history_limit_days: number | null
 }
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
@@ -1982,7 +2001,7 @@ export interface FeatureFlagTestEvaluationRequestApi {
 }
 
 /**
- * Person properties at the time of evaluation (for historical evaluations)
+ * Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted.
  */
 export type FeatureFlagTestEvaluationResponseApiPersonProperties = { [key: string]: unknown }
 
@@ -1995,7 +2014,7 @@ export interface FeatureFlagConditionPropertyAnalysisApi {
     value: unknown
     /** Property type (person, group, etc.) */
     type: string
-    /** Actual property value from user */
+    /** Actual property value from user. Null when the property is not set, or when property access control hides it from the requesting user. */
     actual_value: unknown
     /** Whether this property condition matched */
     matched: boolean
@@ -2044,7 +2063,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
     condition_index: number | null
     /** Payload associated with the flag result, if any */
     payload: unknown
-    /** Person properties at the time of evaluation (for historical evaluations) */
+    /** Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted. */
     person_properties: FeatureFlagTestEvaluationResponseApiPersonProperties
     /**
      * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
@@ -2070,6 +2089,7 @@ export interface FeatureFlagVersionResponseApi {
     readonly filters: FeatureFlagVersionResponseApiFilters
     active?: boolean
     deleted?: boolean
+    archived?: boolean
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -2112,6 +2132,31 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     readonly modified_by: number | null
+}
+
+export interface FeatureFlagRestoreVersionRequestApi {
+    /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+    ask_rollback_reason?: boolean
+    /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+     *
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other */
+    rollback_reason?: RollbackReasonEnumApi | null
+    /**
+     * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+     * @maxLength 1000
+     * @nullable
+     */
+    rollback_reason_note?: string | null
+    /**
+     * The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
 }
 
 /**
@@ -2706,6 +2751,10 @@ export type FeatureFlagsListParams = {
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts
     /**
+     * Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.
+     */
+    ids?: string
+    /**
      * Filter by exact feature flag key match. Case insensitive.
      */
     key?: string
@@ -2868,4 +2917,8 @@ export type ScheduledChangesListParams = {
      * Filter by the ID of a specific feature flag.
      */
     record_id?: string
+    /**
+     * Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.
+     */
+    record_ids?: string
 }

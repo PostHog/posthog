@@ -312,11 +312,11 @@ const SdkTracing = ({ ctx }: { ctx: OnboardingComponentsContext }): JSX.Element 
 
             <CodeBlock
                 blocks={[
-                    { language: 'bash', file: 'Python', code: 'pip install "posthog[otel]"' },
+                    { language: 'bash', file: 'Python', code: 'pip install "posthog[otel]<8"' },
                     {
                         language: 'bash',
                         file: 'Node',
-                        code: 'npm install @posthog/ai @opentelemetry/sdk-trace-node @opentelemetry/resources @opentelemetry/exporter-trace-otlp-http',
+                        code: 'npm install @posthog/ai@8 @opentelemetry/sdk-trace-node @opentelemetry/resources @opentelemetry/exporter-trace-otlp-http',
                     },
                     {
                         language: 'bash',

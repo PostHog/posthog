@@ -144,6 +144,21 @@ export function IconAnalyticsBars(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconBurst(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            {...props}
+        >
+            <path d="M12 1.75V8.25M12 15.75V22.25M8.25 12H1.75M15.75 12H22.25M8 8L6 6M16 8L18 6M16 16L18 18M8 16L6 18" />
+        </LemonIconBase>
+    )
+}
+
 export function IconPersonAdd(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>

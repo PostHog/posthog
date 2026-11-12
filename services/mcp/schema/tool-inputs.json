@@ -633,7 +633,7 @@
                     "description": "The final SQL query to be executed."
                 },
                 "context": {
-                    "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+                    "description": "Why this query runs, and the governed-catalog outcome behind it. Write \"governed catalog consulted: no match\" here only after a catalog check found no approved metric for the measure: a `metric-list` call, or a metric listing that your instructions provide. Without that check, leave the phrase out. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
                     "type": "string"
                 },
                 "truncate": {
@@ -651,6 +651,16 @@
                 }
             },
             "required": ["query"]
+        },
+        "ExperimentHealthGetSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "number",
+                    "description": "The ID of the experiment to check"
+                }
+            },
+            "required": ["id"]
         },
         "ExperimentResultsGetSchema": {
             "type": "object",
@@ -705,7 +715,7 @@
                     ]
                 },
                 "query": {
-                    "description": "A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.",
+                    "description": "A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.",
                     "type": "object",
                     "propertyNames": {
                         "type": "string"
@@ -714,7 +724,7 @@
                 },
                 "series": {
                     "default": 0,
-                    "description": "Index of the series in the chart's results that the story follows. Defaults to the first one.",
+                    "description": "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one.",
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
@@ -741,10 +751,10 @@
                             "start": {
                                 "type": "string",
                                 "minLength": 1,
-                                "description": "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+                                "description": "The first point the chapter covers. On a trends chart, copy it from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart). On a funnel, give the step number, where `1` is the first step."
                             },
                             "end": {
-                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point.",
+                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point. A funnel chapter about the drop between two steps starts at the earlier step and ends at the later one.",
                                 "type": "string",
                                 "minLength": 1
                             },
@@ -826,7 +836,7 @@
                     ]
                 },
                 "query": {
-                    "description": "A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.",
+                    "description": "A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.",
                     "type": "object",
                     "propertyNames": {
                         "type": "string"
@@ -835,7 +845,7 @@
                 },
                 "series": {
                     "default": 0,
-                    "description": "Index of the series in the chart's results that the story follows. Defaults to the first one.",
+                    "description": "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one.",
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
@@ -862,10 +872,10 @@
                             "start": {
                                 "type": "string",
                                 "minLength": 1,
-                                "description": "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+                                "description": "The first point the chapter covers. On a trends chart, copy it from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart). On a funnel, give the step number, where `1` is the first step."
                             },
                             "end": {
-                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point.",
+                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point. A funnel chapter about the drop between two steps starts at the earlier step and ends at the later one.",
                                 "type": "string",
                                 "minLength": 1
                             },
@@ -1390,13 +1400,18 @@
                         "type": "string",
                         "description": "Exact UUID of an existing scorer version in this project."
                     },
+                    "calculate": {
+                        "description": "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result.",
+                        "type": "boolean"
+                    },
                     "status": {
+                        "default": "ok",
+                        "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
                         "type": "string",
-                        "enum": ["ok", "error", "skipped", "not_applicable"],
-                        "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable"
+                        "enum": ["ok", "error", "skipped", "not_applicable"]
                     },
                     "value": {
-                        "description": "Required for ok: finite number, boolean, or distinct category keys matching the scorer version.",
+                        "description": "Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true.",
                         "anyOf": [
                             {
                                 "type": "number"
@@ -1496,9 +1511,157 @@
                         "additionalProperties": false
                     }
                 },
-                "required": ["item_id", "scorer_version_id", "status"]
+                "required": ["item_id", "scorer_version_id"]
             },
             "description": "One to 1,000 unique item/scorer-version results. The entire request commits atomically."
+        },
+        "OptionalScoreDefinitionConfigSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "options": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "key": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128,
+                                        "description": "Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected."
+                                    },
+                                    "label": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256,
+                                        "description": "Human-readable label shown in the review UI."
+                                    }
+                                },
+                                "required": ["key", "label"]
+                            },
+                            "description": "Ordered categorical options. Must contain at least one option with unique keys."
+                        },
+                        "selection_mode": {
+                            "description": "Whether reviewers select one option or many. Defaults to \"single\".",
+                            "type": "string",
+                            "enum": ["single", "multiple"]
+                        },
+                        "min_selections": {
+                            "description": "Minimum selections required. Only valid when selection_mode is \"multiple\".",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                        },
+                        "max_selections": {
+                            "description": "Maximum selections allowed. Only valid when selection_mode is \"multiple\".",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                        },
+                        "passing_rule": {
+                            "description": "Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "categories": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string",
+                                                "maxLength": 128
+                                            },
+                                            "description": "Passing category keys. Every returned category must be included."
+                                        }
+                                    },
+                                    "required": ["categories"],
+                                    "additionalProperties": false
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["options"],
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"categorical\"."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "min": {
+                            "description": "Optional inclusive minimum score.",
+                            "type": "number"
+                        },
+                        "max": {
+                            "description": "Optional inclusive maximum score (must be ≥ min).",
+                            "type": "number"
+                        },
+                        "step": {
+                            "description": "Optional increment step for numeric input, e.g. 1 or 0.5.",
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                        },
+                        "passing_rule": {
+                            "description": "Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "operator": {
+                                            "type": "string",
+                                            "enum": ["gte", "lte"],
+                                            "description": "Pass at or above (gte), or at or below (lte), the threshold."
+                                        },
+                                        "threshold": {
+                                            "type": "number",
+                                            "description": "Finite passing threshold within any configured score bounds."
+                                        }
+                                    },
+                                    "required": ["operator", "threshold"],
+                                    "additionalProperties": false
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"numeric\"."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "true_label": {
+                            "description": "Optional label shown for the true branch (e.g. \"Yes\").",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "false_label": {
+                            "description": "Optional label shown for the false branch (e.g. \"No\").",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "true_is_failure": {
+                            "description": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"boolean\"."
+                }
+            ],
+            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
         },
         "OrganizationGetAllSchema": {
             "type": "object",

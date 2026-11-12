@@ -80,9 +80,8 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert result.just_created_run is True
         assert result.trace_id == "trace-1"
 
-        # Task.create_and_run called with the PostHog AI origin and no repo / no PR.
+        # Task.create_and_run called with the PostHog AI profile and no repo / no PR.
         _, kwargs = m_car.call_args
-        assert kwargs["origin_product"] == Task.OriginProduct.POSTHOG_AI
         assert kwargs["profile"] == POSTHOG_AI
         assert kwargs["repository"] is None
         assert kwargs["create_pr"] is False

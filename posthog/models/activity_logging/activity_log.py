@@ -88,6 +88,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIPRestrictions",
     "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
@@ -532,6 +533,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_enabled": "PR generation",
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
+        "default_slack_notification_min_priority": "team Slack minimum priority",
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
@@ -546,6 +548,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
+    },
+    "OrganizationIPRestrictions": {
+        "ip_restrictions": "IP allowlist",
+        "enabled": "IP restrictions enabled",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -728,6 +734,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
+        # Redis TTL edits from PostHog Admin carry the staff reason, and the row lands on the acting
+        # staff user's current organization, which has no relation to the edited key.
+        "scope": "Admin",
+        "activities": ["ttl_updated", "ttl_removed"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
         # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
@@ -807,6 +821,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+        "embedding",
+        "embedding_model",
+        "embedding_text_hash",
     ],
     "DataQualityCheck": [
         # Written by the runner, not by a person editing the check.
@@ -824,6 +841,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "score_inputs",
         "payload",
     ],
+    "OrganizationIPRestrictions": ["organization"],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
@@ -898,6 +916,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "version",
         # Internal pointer to the flag-cleanup task, not a user-meaningful change.
         "flag_cleanup_task_id",
+        # The copy of the rule that a launch stores for the analysis. It holds the rule's seed.
+        "feature_flag_rule_snapshot",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -1116,8 +1136,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
-        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
-        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",

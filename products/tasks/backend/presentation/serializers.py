@@ -32,6 +32,7 @@ from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_
 from products.tasks.backend.facade.api import (
     CHANNEL_INSTRUCTIONS_MAX_BYTES,
     PUBLIC_RUN_OPTIONS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_RUN_FAILURE_ERROR_TYPES,
     create_fields_from_options,
     options_from_request,
@@ -73,12 +74,12 @@ from products.tasks.backend.facade.profiles import (
     RunOptionsCaller,
     SourceKind,
     TaskProfile,
-    TaskProfileError,
     TaskRunOptionsError,
     TaskSource,
     TaskSourceError,
     check_task_source,
     find_task_profile,
+    public_profile_for_origin,
     resolve_task_origin,
 )
 from products.tasks.backend.facade.run_config import (
@@ -676,6 +677,17 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="First-party PostHog client that created this task.",
     )
+    last_client = serializers.ChoiceField(
+        choices=tasks_facade.TaskClient.choices,
+        allow_null=True,
+        required=False,
+        help_text="Client the latest person turn on this task came from. Null when no turn came from a known client.",
+    )
+    last_client_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="When the latest person turn from `last_client` arrived.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -707,6 +719,8 @@ class TaskSerializer(DataclassSerializer):
             "slack_thread_references",
             "origin_key",
             "client_provenance",
+            "last_client",
+            "last_client_at",
         ]
 
 
@@ -746,7 +760,6 @@ class TaskRunResponseSerializer(TaskCreateResponseSerializer):
         fields = [*TaskCreateResponseSerializer.Meta.fields, "run"]
 
 
-TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
     f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
     "surface can show a prompt snippet without the full body. Open the task for the complete text."
@@ -1339,11 +1352,12 @@ class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
             }
             if profile_only:
                 raise serializers.ValidationError(profile_only)
-            return attrs
-        try:
-            origin = resolve_task_origin(profile=profile, origin_product=attrs.get("origin_product"), internal=None)
-        except TaskProfileError as error:
-            raise serializers.ValidationError({"origin_product": str(error)}) from error
+            return self._with_origin_profile(attrs)
+        origin = resolve_task_origin(profile)
+        if attrs.get("origin_product", origin.origin_product) != origin.origin_product:
+            raise serializers.ValidationError(
+                {"origin_product": f"Origin {attrs['origin_product']!r} does not match task profile {profile.key!r}"}
+            )
         try:
             check_task_source(profile=profile, source=source)
         except TaskSourceError as error:
@@ -1363,6 +1377,16 @@ class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
             attrs["idempotency_fingerprint"] = request_fingerprint(self.initial_data)
         if options_data is not None:
             attrs.update(self._options_fields(profile, options_data, attrs))
+        return attrs
+
+    def _with_origin_profile(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        origin_product = attrs.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
+        profile = public_profile_for_origin(origin_product)
+        if profile is None:
+            raise serializers.ValidationError(
+                {"origin_product": f"origin_product '{origin_product}' is reserved for server-created tasks"}
+            )
+        attrs["profile"] = profile.key
         return attrs
 
     def _options_fields(
@@ -2476,8 +2500,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 

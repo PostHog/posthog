@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
@@ -87,7 +88,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
-from products.tasks.backend.facade.api import asks_for_run, idempotent_request
+from products.tasks.backend.facade.api import asks_for_run, idempotent_request, uses_public_create
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
@@ -114,7 +115,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.profiles import find_task_profile
+from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
     RunSource,
@@ -597,6 +598,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
@@ -608,7 +610,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
         bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
         tasks = tasks_facade._list_tasks_queryset(
-            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
+            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility, basic=basic
         ).exclude(id__in=_hidden_scout_trial_task_ids(request, self.team_id))
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
@@ -616,7 +618,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tag_queries(is_scout_experiment=True)
         # Description bodies dominate the list payload. A summary surface asks for basic=true
         # and gets the smaller rows without them.
-        basic = getattr(request, "validated_query_data", {}).get("basic", False)
         serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
             serializer_class(
@@ -900,7 +901,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         can_activate_warm_run = (
             "branch" in validated_data
             and origin_product in WARMABLE_ORIGIN_PRODUCTS
-            and "profile" not in validated_data
+            and not uses_public_create(validated_data)
         )
         # An agent run never activates a warm run (see `run_task`), so only a create without a run is refused.
         if can_activate_warm_run and not start_run and is_sandbox_origin_request(request):
@@ -1669,13 +1670,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
-        if (
-            not result.run_error
-            and result.run_id is not None
-            and request.headers.get("X-PostHog-Client-Platform") == "mobile"
-        ):
-            tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
-        response_data = TaskSerializer(result.task).data
+        task = result.task
+        if not result.run_error and result.run_id is not None:
+            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
+            if request.validated_data.get("pending_user_message") or request.validated_data.get(
+                "pending_user_artifact_ids"
+            ):
+                client = get_task_client_provenance(request)
+                recorded_at = tasks_facade.record_task_client(task_id=str(pk), team_id=self.team_id, client=client)
+                if task is not None and recorded_at is not None:
+                    task = dataclasses.replace(task, last_client=client, last_client_at=recorded_at)
+        response_data = TaskSerializer(task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
         response_data["run"] = self._created_run_payload(result, response_data, task_id=pk)
@@ -1840,7 +1846,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_sandbox_origin_request(request):
             return _sandbox_run_disabled_response()
         origin_product = request.validated_data["origin_product"]
-        if not self._warm_enabled(origin_product):
+        profile = public_profile_for_origin(origin_product)
+        if profile is None or not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
 
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
@@ -1881,7 +1888,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
             client_provenance=get_task_client_provenance(request),
-            origin_product=request.validated_data["origin_product"],
+            profile=profile,
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
             signal_report_id=signal_report.id if signal_report is not None else None,
             code_access_allowed=code_access_allowed,
@@ -3852,8 +3859,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+            self._record_person_turn(request, task_id)
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
@@ -4009,12 +4015,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
-            if (
-                success
-                and method == "permission_response"
-                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+            if (success and method == "permission_response") or (
+                agent_response.ok and self._is_pi_person_answer(method, params, response_data)
             ):
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+                self._record_person_turn(request, task_id)
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4070,6 +4074,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _is_pi_person_answer(method: str, params: object, response_data: object) -> bool:
+        command = params.get("command") if method == "pi/rpc" and isinstance(params, dict) else None
+        if not isinstance(command, dict) or not isinstance(response_data, dict) or "error" in response_data:
+            return False
+        if command.get("type") == "mcp_permission_response":
+            return True
+        return command.get("type") == "extension_ui_response" and ("confirmed" in command or "value" in command)
+
+    def _record_person_turn(self, request: Request, task_id: str) -> None:
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+        tasks_facade.record_task_client(
+            task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+        )
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:
@@ -5305,11 +5325,10 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         query = SandboxCustomImageListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         origin_product = query.validated_data.get("origin_product")
-        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+        origin_allowed = not origin_product or tasks_facade.sandbox_custom_images_enabled(
             self.team_id, request.user.id, origin_product=origin_product
-        ):
-            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
-        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
+        )
+        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id) if origin_allowed else []
         page = self.paginate_queryset(images)
         if page is not None:
             return self.get_paginated_response(SandboxCustomImageSerializer(page, many=True).data)

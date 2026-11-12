@@ -54,6 +54,19 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
+_WIDTH_SUFFIXED_CONVERSION = re.compile(r"to(U?Int|Float|Decimal)(?:8|16|32|64|128|256)(OrNull|OrZero|OrDefault)?")
+
+
+def _width_suffixed_conversion_suggestion(name: str) -> str | None:
+    # The nearest lexical match for toInt8OrNull is countOrNull, so derive the name from the type family instead.
+    match = _WIDTH_SUFFIXED_CONVERSION.fullmatch(name)
+    if match is None:
+        return None
+    family = "Int" if match[1] in ("Int", "UInt") else match[1]
+    with_suffix = f"to{family}{match[2] or ''}"
+    return with_suffix if with_suffix in ALL_EXPOSED_FUNCTION_NAMES else f"to{family}"
+
+
 class BasePrinter(Visitor[str]):
     # NOTE: Call "prepare_and_print_ast()", not this class directly.
     # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
@@ -1148,6 +1161,12 @@ class BasePrinter(Visitor[str]):
             if cast_suggestion is not None:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{cast_suggestion}(...)'?"
+                )
+
+            width_suggestion = _width_suffixed_conversion_suggestion(node.name)
+            if width_suggestion is not None:
+                raise QueryError(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{width_suggestion}(...)'?"
                 )
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

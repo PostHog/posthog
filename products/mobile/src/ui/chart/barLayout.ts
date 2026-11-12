@@ -1,6 +1,6 @@
 import { BAR_BAND_PADDING } from './chartMath'
 import { bucketCount, isCompareSeries } from './chartSeries'
-import type { BarLayout, ChartSeries } from './types'
+import type { BarLayout, ChartKind, ChartSeries } from './types'
 
 const MIN_BAR_WIDTH = 6
 const MIN_STACK_WIDTH = 14
@@ -15,18 +15,32 @@ export function barWindow(count: number, size: number, endOffset: number): { sta
     return { start: Math.max(0, end - size), end: Math.min(count, end) }
 }
 
-export function barSegments(series: ChartSeries[], layout: BarLayout): { starts: number[]; ends: number[] }[] {
-    const positive = Array<number>(bucketCount(series)).fill(0)
-    const negative = Array<number>(positive.length).fill(0)
+export function barSegments(
+    series: ChartSeries[],
+    layout: BarLayout,
+    kind: ChartKind = 'bar'
+): { starts: number[]; ends: number[] }[] {
+    const totalsByAxis = {
+        left: {
+            positive: Array<number>(bucketCount(series)).fill(0),
+            negative: Array<number>(bucketCount(series)).fill(0),
+        },
+        right: {
+            positive: Array<number>(bucketCount(series)).fill(0),
+            negative: Array<number>(bucketCount(series)).fill(0),
+        },
+    }
     return series.map((s) => {
         const starts: number[] = []
         const ends: number[] = []
+        const axis = totalsByAxis[s.axis ?? 'left']
+        const bar = (s.kind ?? kind) === 'bar' && !isCompareSeries(s)
         s.points.forEach((point, index) => {
-            const totals = point.value < 0 ? negative : positive
-            const start = layout === 'stacked' && !isCompareSeries(s) ? (totals[index] ?? 0) : 0
+            const totals = point.value < 0 ? axis.negative : axis.positive
+            const start = layout === 'stacked' && bar ? (totals[index] ?? 0) : 0
             starts.push(start)
             ends.push(Number.isFinite(point.value) ? start + point.value : Number.NaN)
-            if (Number.isFinite(point.value) && !isCompareSeries(s)) {
+            if (Number.isFinite(point.value) && bar) {
                 totals[index] = start + point.value
             }
         })

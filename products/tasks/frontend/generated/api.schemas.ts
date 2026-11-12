@@ -1307,6 +1307,21 @@ export const TaskClientProvenanceEnumApi = {
 } as const
 
 /**
+ * * `posthog_desktop` - PostHog Desktop
+ * * `posthog_mobile` - PostHog Mobile
+ * * `posthog_web` - PostHog Web
+ * * `slack` - Slack
+ */
+export type TaskClientEnumApi = (typeof TaskClientEnumApi)[keyof typeof TaskClientEnumApi]
+
+export const TaskClientEnumApi = {
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    Slack: 'slack',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1372,6 +1387,18 @@ export interface TaskDetailDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
 }
 
 /**
@@ -1442,6 +1469,18 @@ export interface TaskBasicApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -1898,6 +1937,18 @@ export interface TaskCreateResponseDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -2893,6 +2944,18 @@ export interface TaskRunResponseApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -5339,7 +5402,7 @@ export type SandboxCustomImagesListParams = {
      */
     offset?: number
     /**
-     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     * The list is empty when tasks from this origin product cannot run on custom images. Leave it out to list every image you can see.
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit

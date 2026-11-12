@@ -12,9 +12,11 @@ import { DeprecateSuggestionModal } from './DeprecateSuggestionModal'
 import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
+import { WaitingSuggestionsNotice } from './WaitingSuggestionsNotice'
 
 export function SuggestedCertificationsTableContent(): JSX.Element | null {
-    const { stripState, listedSuggestions, surfaceSuggestions, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, listedSuggestions, surfaceSuggestions, status, showWaitingNotice } =
+        useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -30,6 +32,9 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
                 }
             />
         )
+    }
+    if (showWaitingNotice && stripState !== 'active' && stripState !== 'all_done') {
+        return <WaitingSuggestionsNotice />
     }
     if (stripState !== 'active' && stripState !== 'all_done') {
         return null
@@ -54,6 +59,7 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
                     }
                 />
             )}
+            {showWaitingNotice && <WaitingSuggestionsNotice />}
             <SuggestionsReviewModal
                 title="Certification suggestions"
                 summary={certificationSummaryText(surfaceSuggestions)}

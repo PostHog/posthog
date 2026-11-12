@@ -9,6 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { MCPDashboardSection } from '~/queries/schema/schema-general'
+
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { ActivityChart } from './dashboard/ActivityChart'
@@ -22,44 +24,47 @@ import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ProtocolVersionStrip } from './dashboard/ProtocolVersionStrip'
 import { RecentToolCallsCard } from './dashboard/RecentToolCallsCard'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
+import { ToolLatencyChart } from './dashboard/ToolLatencyChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
-import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from './mcpDashboardOverviewLogic'
+import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import {
+    mcpDashboardOverviewLogic,
+    rankedToolsEmptyMessage,
+    rankToolsByErrorRate,
+    rankToolsByP95,
+    slowestToolsEmptyMessage,
+} from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
+        dashboardLoading,
         headlineKpis,
-        kpisLoading,
         periodTotals,
-        periodTotalsLoading,
         intentClusterCount,
         notableSessions,
-        sessionRowsLoading,
         harnessRows,
-        harnessRowsLoading,
         modelRows,
-        modelRowsLoading,
         hasModelData,
         protocolVersionRows,
-        protocolVersionRowsLoading,
         hasProtocolVersionData,
         dailyActivity,
-        activityRowsLoading,
         activityIncompleteTail,
         kpiIncompleteTail,
         toolDailySeries,
-        toolDailyRowsLoading,
         toolRows,
-        toolRowsLoading,
         dateFilter,
         interval,
         queryFilters,
         canShowFeedback,
         feedbackContextKey,
+        failedLoads,
+        loadingSections,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
+        useActions(mcpDashboardOverviewLogic)
     const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
@@ -74,10 +79,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const showModel = isCardVisible('model') && hasModelData
     const showProtocolVersion = isCardVisible('protocol-version') && hasProtocolVersionData
     const showToolErrors = isCardVisible('tool-errors')
+    const showToolLatency = isCardVisible('tool-latency')
     const showNotableSessions = isCardVisible('notable-sessions')
     const showRecentActivity = isCardVisible('recent-activity')
     const showUsage = showActivity || showToolUsage || showHarness || showModel || showProtocolVersion
-    const showReliability = showToolErrors || showNotableSessions
+    const showReliability = showToolErrors || showToolLatency || showNotableSessions
     const showsNoCards = !(showKpis || showUsage || showReliability || showRecentActivity)
 
     return (
@@ -86,17 +92,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
-                refreshing={
-                    kpisLoading ||
-                    periodTotalsLoading ||
-                    sessionRowsLoading ||
-                    harnessRowsLoading ||
-                    modelRowsLoading ||
-                    protocolVersionRowsLoading ||
-                    activityRowsLoading ||
-                    toolDailyRowsLoading ||
-                    toolRowsLoading
-                }
+                refreshing={dashboardLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -145,8 +141,12 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         kpis={headlineKpis}
                         users={periodTotals.users}
                         intentClusterCount={intentClusterCount}
-                        kpisLoading={kpisLoading}
-                        usersLoading={periodTotalsLoading}
+                        kpisLoading={!!loadingSections.kpis}
+                        usersLoading={!!loadingSections.periodTotals}
+                        kpisFailed={failedLoads.kpis}
+                        usersFailed={failedLoads.periodTotals}
+                        onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}
+                        onRetryUsers={() => loadSections([MCPDashboardSection.PeriodTotals])}
                         showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                         theme={theme}
                         interval={interval}
@@ -162,7 +162,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             {showActivity && (
                                 <ActivityChart
                                     daily={dailyActivity}
-                                    loading={activityRowsLoading}
+                                    loading={!!loadingSections.activityRows}
+                                    failed={failedLoads.activityRows}
+                                    onRetry={() => loadSections([MCPDashboardSection.ActivityRows])}
                                     theme={theme}
                                     timezone={timezone}
                                     interval={interval}
@@ -172,7 +174,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             {showToolUsage && (
                                 <ToolUsageChart
                                     data={toolDailySeries}
-                                    loading={toolDailyRowsLoading}
+                                    loading={!!loadingSections.toolDailyRows}
+                                    failed={failedLoads.toolDailyRows}
+                                    onRetry={() => loadSections([MCPDashboardSection.ToolDailyRows])}
                                     theme={theme}
                                     timezone={timezone}
                                     interval={interval}
@@ -181,7 +185,13 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         </CardRow>
                         <CardRow twoColumnsClassName="@min-[48rem]/mcp-overview:grid-cols-2">
                             {showHarness && (
-                                <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                                <HarnessBarChart
+                                    rows={harnessRows}
+                                    loading={!!loadingSections.harnessRows}
+                                    failed={failedLoads.harnessRows}
+                                    onRetry={() => loadSections([MCPDashboardSection.HarnessRows])}
+                                    theme={theme}
+                                />
                             )}
                             {showModel && <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />}
                         </CardRow>
@@ -197,15 +207,51 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             <ToolErrorRateChart
                                 rows={rankToolsByErrorRate(toolRows)}
                                 emptyMessage={rankedToolsEmptyMessage(toolRows)}
-                                loading={toolRowsLoading}
+                                loading={!!loadingSections.toolRows}
+                                failed={failedLoads.toolRows}
+                                onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                                 theme={theme}
                                 onToolClick={openToolReport}
                             />
                         )}
-                        {showNotableSessions && (
-                            <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                        {showToolLatency && (
+                            <ToolLatencyChart
+                                rows={rankToolsByP95(toolRows)}
+                                emptyMessage={slowestToolsEmptyMessage(toolRows)}
+                                loading={!!loadingSections.toolRows}
+                                failed={failedLoads.toolRows}
+                                onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
+                                theme={theme}
+                                onToolClick={openToolReport}
+                                action={
+                                    // Negative margin keeps the header as tall as a title-only header.
+                                    <LemonButton
+                                        className="-my-1"
+                                        type="secondary"
+                                        size="xsmall"
+                                        to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                            column: 'p95_duration_ms',
+                                            direction: 'DESC',
+                                        })}
+                                        data-attr="mcp-dashboard-slowest-tools-view-all"
+                                    >
+                                        View all tools
+                                    </LemonButton>
+                                }
+                            />
                         )}
                     </CardRow>
+                    {/* The card's self-start would shrink it to its content width in this flex column. */}
+                    {showNotableSessions && (
+                        <div className="min-w-0">
+                            <NotableSessionsTable
+                                sessions={notableSessions}
+                                loading={!!loadingSections.sessionRows}
+                                failed={failedLoads.sessionRows}
+                                onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
+                            />
+                        </div>
+                    )}
                 </section>
             )}
             {showRecentActivity && <RecentToolCallsCard filters={queryFilters} />}

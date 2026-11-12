@@ -9,6 +9,7 @@ interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
   optimisticItems: ConversationItem[];
   isCloud: boolean;
+  tailAnchors?: Map<string, string | null>;
 }
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
@@ -55,7 +56,7 @@ function reconcileInitialPromptEcho(
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
-// will appear.
+// will appear, or where they were sent when `tailAnchors` is given.
 //
 // Local sessions keep optimistic at the chronological end — they rely on
 // `replaceOptimisticWithEvent` to swap optimistic↔real in place.
@@ -63,6 +64,7 @@ export function mergeConversationItems({
   conversationItems,
   optimisticItems,
   isCloud,
+  tailAnchors,
 }: MergeConversationItemsArgs): ConversationItem[] {
   if (isCloud) {
     conversationItems = reconcileInitialPromptEcho(conversationItems);
@@ -159,10 +161,50 @@ export function mergeConversationItems({
     }
   }
 
-  return [
-    ...resolvedPinnedItems,
-    ...dedupedConversation.slice(0, tailInsertionIndex),
-    ...tailOptimisticItems,
-    ...dedupedConversation.slice(tailInsertionIndex),
-  ];
+  if (!tailAnchors || tailOptimisticItems.length === 0) {
+    return [
+      ...resolvedPinnedItems,
+      ...dedupedConversation.slice(0, tailInsertionIndex),
+      ...tailOptimisticItems,
+      ...dedupedConversation.slice(tailInsertionIndex),
+    ];
+  }
+
+  const tailIds = new Set(tailOptimisticItems.map((item) => item.id));
+  for (const id of tailAnchors.keys()) {
+    if (!tailIds.has(id)) tailAnchors.delete(id);
+  }
+  const lastUserMessageIndex = dedupedConversation.findLastIndex(
+    (entry) => entry.type === "user_message",
+  );
+  const placements = tailOptimisticItems.map((item) => {
+    if (!tailAnchors.has(item.id)) {
+      tailAnchors.set(
+        item.id,
+        dedupedConversation[tailInsertionIndex - 1]?.id ?? null,
+      );
+    }
+    const anchorId = tailAnchors.get(item.id);
+    const anchorIndex =
+      anchorId == null
+        ? -1
+        : dedupedConversation.findLastIndex((entry) => entry.id === anchorId);
+    if (anchorId != null && anchorIndex === -1) {
+      return { item, index: tailInsertionIndex };
+    }
+    return {
+      item,
+      index: Math.max(anchorIndex, lastUserMessageIndex) + 1,
+    };
+  });
+  placements.sort((left, right) => left.index - right.index);
+
+  const segments: ConversationItem[][] = [resolvedPinnedItems];
+  let start = 0;
+  for (const { item, index } of placements) {
+    segments.push(dedupedConversation.slice(start, index), [item]);
+    start = index;
+  }
+  segments.push(dedupedConversation.slice(start));
+  return ([] as ConversationItem[]).concat(...segments);
 }

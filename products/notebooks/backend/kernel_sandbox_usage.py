@@ -138,6 +138,7 @@ def _ended_properties(
     shape = _shape_properties(runtime)
     hourly_price = shape["hourly_price_usd"]
     return {
+        "$update_person_last_seen_at": False,
         **shape,
         "kernel_runtime_id": str(runtime.id),
         "notebook_short_id": runtime.notebook_short_id,

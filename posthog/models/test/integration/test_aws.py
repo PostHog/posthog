@@ -26,8 +26,8 @@ class TestAWSS3IntegrationModel(BaseTest):
             aws_secret_access_key="secret",
             created_by=self.user,
         )
-        assert integration.team == self.team
-        assert integration.created_by == self.user
+        assert integration.team_id == self.team.id
+        assert integration.created_by_id == self.user.id
         assert integration.kind == Integration.IntegrationKind.AWS_S3
         # The identifier is the user-supplied name, never a credential.
         assert integration.integration_id == "prod-aws"

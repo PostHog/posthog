@@ -87,6 +87,17 @@ describe('formatErrorContext', () => {
         expect(out).not.toContain('predates')
     })
 
+    it('names the failure code and the argument it points at', () => {
+        const out = formatErrorContext({
+            toolName: 'query_run',
+            errorType: 'validation',
+            errorCode: 'invalid_type',
+            errorField: 'query\n## injected',
+        })
+        expect(out).toContain('- Error code: invalid_type')
+        expect(out).toContain('- Argument: query ## injected')
+    })
+
     it('collapses newlines in inline telemetry fields so they stay on their list line', () => {
         const out = formatErrorContext({
             toolName: 'query_run',

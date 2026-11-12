@@ -157,7 +157,7 @@ task = Task.create_and_run(
 
 ### Adding a new origin product
 
-New task creators pass a registered profile.
+Task creation needs a registered profile.
 A profile names the origin product and sets who can see the task, the sandbox limits and the defaults.
 
 If your product doesn't have an `OriginProduct` entry yet,
@@ -211,6 +211,7 @@ In the AI chat view, the staff options menu sits beside the task actions, includ
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.
 Tokens expire after 6 hours and are scoped to a single team.
+Task-bound tokens enforce organization IP restrictions. When a signed MCP client IP is present, restrictions apply to that verified address; direct requests are checked using their trusted client IP.
 
 ### Scope presets
 
@@ -251,6 +252,10 @@ Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 `experiment:write`, `feature_flag:write`, `insight:write`, `survey:write`, and others.
 
 Internal scopes (`task:write`, `inbox:write`, `llm_gateway:read`) are always added automatically.
+
+Pre-warming through `warm_task_run` uses the task profile's MCP scopes. Pass `posthog_mcp_scopes` to narrow them for a run; warming refuses scopes beyond the profile. Tasks without a profile retain the `full` default. The selected scopes are saved before dispatch so the sandbox environment and MCP session receive the same permissions. Rewarming a completed run preserves its scopes, and a warm session cannot be reused for a different scope selection.
+
+Direct starts also use the task profile's MCP scopes, subject to the read-only limit for agent-started runs. Resumes keep their saved scopes and are rejected if those exceed the current profile or run-source limit.
 
 An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
 Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
@@ -447,6 +452,10 @@ DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 ```
 
 See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
+
+Signals report research stops retrying when GitHub still rejects repository credentials after the clone activity exhausts its retries.
+Transient clone failures remain retryable.
+When GitHub access is optional, research falls back to project data without code access.
 
 ## Code execution
 

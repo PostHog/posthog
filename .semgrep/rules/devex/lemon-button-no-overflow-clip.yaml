@@ -1,0 +1,45 @@
+rules:
+    - id: lemon-button-no-overflow-clip
+      message: |
+          This class clips the border of a primary or secondary `LemonButton`. The border is drawn on
+          pseudo-elements that sit exactly on the edge of the button box, so `overflow: hidden` cuts it
+          off when the page is not at 100% scale. In Safari it disappears completely, and in Chrome it
+          gets lighter.
+
+          To truncate the label, use the `truncate` prop, which clips the label and not the button:
+          `<LemonButton type="secondary" truncate>`. To clip other content, put the overflow class on
+          an element inside the button.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - /frontend/src
+              - /products/*/frontend
+          exclude:
+              - '**/*.test.tsx'
+              - '**/*.stories.tsx'
+      pattern-either:
+          # A class string written directly as the attribute value.
+          - patterns:
+                - pattern-either:
+                      - pattern: <LemonButton ... type="secondary" ... className="$CLASS" ... />
+                      - pattern: <LemonButton ... type="primary" ... className="$CLASS" ... />
+                      - pattern: <LemonButton ... className="$CLASS" ... type="secondary" ... />
+                      - pattern: <LemonButton ... className="$CLASS" ... type="primary" ... />
+                      - pattern: <LemonSelect ... className="$CLASS" ... />
+                # Semgrep anchors the regex at the start of the value.
+                - metavariable-regex:
+                      metavariable: $CLASS
+                      regex: ^(.*\s)?(truncate|overflow-hidden|overflow-clip|overflow-[xy]-(hidden|clip))(\s.*)?$
+          # A class string inside an expression, such as `cn(...)` or a conditional. The class has
+          # to sit inside quotes, so a variable named `truncate` does not match.
+          - patterns:
+                - pattern-either:
+                      - pattern: <LemonButton ... type="secondary" ... className={$CLASS} ... />
+                      - pattern: <LemonButton ... type="primary" ... className={$CLASS} ... />
+                      - pattern: <LemonButton ... className={$CLASS} ... type="secondary" ... />
+                      - pattern: <LemonButton ... className={$CLASS} ... type="primary" ... />
+                      - pattern: <LemonSelect ... className={$CLASS} ... />
+                - metavariable-regex:
+                      metavariable: $CLASS
+                      regex: (?s).*['"`]([^'"`]*\s)?(truncate|overflow-hidden|overflow-clip|overflow-[xy]-(hidden|clip))(\s[^'"`]*)?['"`]

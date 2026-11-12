@@ -61,6 +61,7 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_PREVIEW_PORT,
     FINAL_MESSAGE_MAX_CHARS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
 )
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
@@ -119,6 +120,7 @@ from products.tasks.backend.models import (
     SandboxSession,
     Task,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskPin,
     TaskRun,
@@ -139,6 +141,8 @@ from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
+
+SLACK_PROFILE = get_task_profile("slack")
 
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
@@ -1674,6 +1678,8 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.client_provenance, expected)
         self.assertEqual(response.json()["client_provenance"], expected)
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @parameterized.expand(
         [
@@ -1829,6 +1835,23 @@ class TestTaskAPI(BaseTaskAPITest):
         row = response.json()["results"][0]
         self.assertNotIn("description", row)
         self.assertEqual(row["description_preview"], "x" * 1000)
+
+    def test_basic_list_reads_only_a_slice_of_the_description(self):
+        self.create_task("Long", description="x" * 1500)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/api/projects/@current/tasks/?basic=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["description_preview"], "x" * TASK_DESCRIPTION_PREVIEW_LENGTH)
+        task_selects = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if 'FROM "posthog_task"' in query["sql"] and "COUNT(" not in query["sql"]
+        ]
+        self.assertEqual(len(task_selects), 1)
+        self.assertIn("SUBSTRING", task_selects[0])
+        self.assertEqual(task_selects[0].count('"posthog_task"."description"'), 1)
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
@@ -2795,6 +2818,7 @@ class TestTaskAPI(BaseTaskAPITest):
             self.team.id,
             self.user.id,
             origin_product=Task.OriginProduct.USER_CREATED,
+            posthog_mcp_scopes="full",
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,
@@ -2806,6 +2830,8 @@ class TestTaskAPI(BaseTaskAPITest):
             custom_image_id=None,
             initial_permission_mode=None,
             signal_report_id=None,
+            task_runtime=None,
+            json_schema=None,
         )
 
         update = self.client.patch(
@@ -2936,7 +2962,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
-        self.assertEqual((task.profile, task.options, task.idempotency_key), (None, None, None))
+        self.assertEqual((task.profile, task.options, task.idempotency_key), ("user", None, None))
 
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this
@@ -3058,7 +3084,7 @@ class TestTaskAPI(BaseTaskAPITest):
             team=self.team,
             title="Slack task",
             description="Created from Slack",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=self.user.id,
             repository="posthog/posthog",
             create_pr=True,
@@ -3666,18 +3692,24 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
-    def test_implementation_creation_respects_an_external_claim(self):
+    # A person and their agents count as one owner: their own agent's claim lets them start a task, a teammate's
+    # agent claim does not.
+    @parameterized.expand(
+        [("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)]
+    )
+    def test_implementation_creation_respects_an_external_claim(self, _name, own_agent, expected_status):
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
+        holder = self.user if own_agent else self.create_organization_user("teammate")
         report = SignalReport.objects.create(team=self.team)
         assignment = SignalReportAssignment.all_teams.create(
-            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+            team=self.team, report=report, actor_kind="agent", actor_user=holder, actor_agent="test-agent"
         )
         response = self._post_signal_report_task(report.id, "implementation")
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, expected_status)
         assignment.refresh_from_db()
         self.assertEqual(assignment.actor_agent, "test-agent")
-        self.assertFalse(Task.objects.filter(title="Report task").exists())
+        self.assertEqual(Task.objects.filter(title="Report task").exists(), own_agent)
 
     @parameterized.expand(
         [
@@ -3734,6 +3766,33 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "signal_report_task_cap")
         mock_workflow.assert_not_called()
         self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
+
+    @parameterized.expand(
+        [
+            ("implementation", "implementation", ["acme/web", "acme/assets"]),
+            ("discussion", "discussion", None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_inbox_started_implementation_run_gets_the_extra_repositories(
+        self, _name, relationship, expected_access, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        SignalTeamConfig.objects.create(
+            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+        )
+        report = SignalReport.objects.create(team=self.team)
+        create_response = self._post_signal_report_task(report.id, relationship)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("github_access_repositories"), expected_access)
+        self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
@@ -4701,6 +4760,28 @@ class TestTaskAPI(BaseTaskAPITest):
             "Read the attached file first",
         )
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("with_message", {"pending_user_message": "Keep going"}, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("without_message", {}, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_records_last_client_only_for_a_prompt(
+        self, _name: str, body: dict, expected: TaskClient | TaskClientProvenance, _mock_workflow
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            f"/api/projects/@current/tasks/{task.id}/run/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @patch("posthog.storage.object_storage.copy")
     @patch("posthog.storage.object_storage.tag")
@@ -7127,7 +7208,6 @@ ACP_ONLY_ENFORCED_PROFILE = replace(
     ACP_ONLY_PROFILE, key="test.acp_only_enforced", enforced_checks=frozenset({ContractCheck.RUNTIMES})
 )
 REPORT_PROFILE = replace(PUBLIC_PROFILE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
-SIGNAL_REPORT_ORIGIN_PROFILE = replace(REPORT_PROFILE, key="test.signal_report", origin_product="signal_report")
 TEST_PUBLIC_PROFILES = {
     profile.key: profile
     for profile in (
@@ -7137,7 +7217,6 @@ TEST_PUBLIC_PROFILES = {
         ACP_ONLY_PROFILE,
         ACP_ONLY_ENFORCED_PROFILE,
         REPORT_PROFILE,
-        SIGNAL_REPORT_ORIGIN_PROFILE,
     )
 }
 UNKNOWN_SOURCE_ID = str(uuid.uuid4())
@@ -7376,9 +7455,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         with patch(
             "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
         ):
-            response = self._create(
-                profile="test.signal_report", source={"kind": "signal_report", "id": str(report.id)}
-            )
+            response = self._create(profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         task = Task.objects.get(id=response.json()["id"])
@@ -7391,7 +7468,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
                 task.source_id,
                 task.repository,
             ),
-            ("test.signal_report", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
+            ("signals.inbox", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
         )
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [str(task.id)])
 
@@ -7410,7 +7487,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         ):
             statuses = [
                 self._create(
-                    profile="test.signal_report", source={"kind": "signal_report", "id": str(report.id)}
+                    profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)}
                 ).status_code
                 for report in reports
             ]
@@ -7588,6 +7665,50 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
 
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.json()["id"], first.json()["id"])
+
+    @parameterized.expand(
+        [
+            ("origin_omitted", {}, "user"),
+            ("user_created", {"origin_product": "user_created"}, "user"),
+            ("error_tracking", {"origin_product": "error_tracking"}, "error_tracking"),
+            ("loop", {"origin_product": "loop"}, "loop"),
+            ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
+        ]
+    )
+    def test_an_origin_only_create_stores_the_public_profile_of_its_origin(
+        self, _name: str, payload: dict[str, Any], profile_key: str
+    ) -> None:
+        response = self._create(**payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual((task.profile, task.options, task.source_kind), (profile_key, None, None))
+
+    def test_an_origin_only_create_without_a_public_profile_is_refused_like_a_reserved_origin(self) -> None:
+        with patch("products.tasks.backend.presentation.serializers.public_profile_for_origin", return_value=None):
+            response = self._create(origin_product="error_tracking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "origin_product")
+        self.assertIn("reserved for server-created tasks", response.json()["detail"])
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("origin_only", {}, True),
+            ("profile_only", {"profile": "test.public"}, True),
+            ("profile_and_options", {"profile": "test.public", "options": {"runtime": "pi"}}, False),
+            ("profile_and_key", {"profile": "test.public", "idempotency_key": "warm-1"}, False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run", return_value=None)
+    def test_only_a_plain_create_looks_for_a_warm_run_to_reuse(
+        self, _name: str, payload: dict[str, Any], looks: bool, mock_find_warm_run
+    ) -> None:
+        response = self._create(branch="main", **payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(mock_find_warm_run.called, looks)
 
 
 class TestTaskRepositoriesAction(BaseTaskAPITest):
@@ -15217,6 +15338,129 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_post.call_args.kwargs["json"]["method"], method)
 
+    @parameterized.expand(
+        [
+            ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
+            ("web", ARRAY_APP_CLIENT_ID_DEV, TaskClientProvenance.POSTHOG_WEB, TaskClientProvenance.POSTHOG_WEB),
+            ("session", None, None, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_user_message_records_last_client(
+        self,
+        _name: str,
+        client_id: str | None,
+        header: TaskClientProvenance | None,
+        expected: TaskClient | TaskClientProvenance,
+        _mock_signal_followup,
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+        client = self._oauth_client(client_id) if client_id else self.client
+        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
+
+        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+
+    @parameterized.expand(
+        [
+            (
+                "acp_permission",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission_error",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "error": {"code": -32000, "message": "No pending request"}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_dialog_answer",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "confirmed": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_dialog_cancel",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "cancelled": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_control_command",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "get_state"}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {}},
+                TaskClient.SLACK,
+            ),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_permission_answer_records_last_client(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        method: str,
+        params: dict,
+        agent_body: dict,
+        expected: TaskClient | TaskClientProvenance,
+        mock_post,
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, agent_body)
+        task = self.create_task(runtime=runtime)
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "p1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message(self, adapter, subscription_owner_matches, mock_signal_followup):
@@ -18669,36 +18913,43 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", 200),
+            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", True),
             (
                 "origin_on_the_default_vm_base",
                 '{"origin_products": ["user_created"], "default_base_origin_products": ["posthog_ai"]}',
                 "posthog_ai",
-                200,
+                True,
             ),
             (
                 "origin_fully_rolled_out_to_the_vm_runtime",
                 '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 100}}',
                 "posthog_ai",
-                200,
+                True,
             ),
             (
                 "origin_partly_rolled_out_to_the_vm_runtime",
                 '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 50}}',
                 "posthog_ai",
-                403,
+                False,
             ),
-            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", 403),
-            ("no_origin_given", '{"origin_products": ["user_created"]}', None, 200),
+            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", False),
+            ("no_origin_given", '{"origin_products": ["user_created"]}', None, True),
         ]
     )
-    def test_list_checks_the_vm_runtime_for_the_requested_origin(self, _name, payload, origin_product, expected):
+    def test_list_returns_images_only_when_the_requested_origin_can_use_them(
+        self, _name, payload, origin_product, images_listed
+    ):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
         self._vm_flag_payload = payload
         query = f"?origin_product={origin_product}" if origin_product else ""
 
         response = self.client.get(f"{self.base_url}{query}")
 
-        self.assertEqual(response.status_code, expected)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [result["id"] for result in response.json()["results"]],
+            [str(image.id)] if images_listed else [],
+        )
 
     def test_create_spawns_linked_builder_task_with_vm_override(self):
         response = self.client.post(

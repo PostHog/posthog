@@ -9,6 +9,7 @@ from products.tasks.backend.facade.profiles import (
     OAuthApp,
     PrAuthorship,
     Read,
+    SourceKind,
     TaskProfile,
     register_task_profiles,
 )
@@ -53,6 +54,8 @@ SLACK = TaskProfile(
     finish_in_flight=True,
 )
 
+REPORT_IMPLEMENTATION = replace(SLACK, key="slack.report_implementation", source_kind=SourceKind.SIGNAL_REPORT)
+
 REPO_SELECTION = replace(
     SLACK,
     key="slack.repo_selection",
@@ -62,7 +65,7 @@ REPO_SELECTION = replace(
     mcp_scopes="read_only",
 )
 
-PROFILES = (SLACK, REPO_SELECTION)
+PROFILES = (SLACK, REPORT_IMPLEMENTATION, REPO_SELECTION)
 
 
 def register() -> None:

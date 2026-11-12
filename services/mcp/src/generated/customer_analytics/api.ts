@@ -3,10 +3,47 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 73 enabled ops
+ * PostHog API - MCP 75 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const AccountNotesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const accountNotesListQueryLimitMax = 1000
+
+export const AccountNotesListQueryParams = () => zod.object({
+    account_id: zod.string().optional().describe('Only return notes linked to this account.'),
+    assigned_to: zod
+        .array(zod.number())
+        .optional()
+        .describe(
+            "Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user)."
+        ),
+    created_by: zod
+        .array(zod.number())
+        .optional()
+        .describe('Only return notes created by these user IDs (repeat the param per user).'),
+    limit: zod.number().max(accountNotesListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod.string().optional().describe("Sort order. Defaults to '-last_modified_at'."),
+    search: zod
+        .string()
+        .optional()
+        .describe('Full-text search across note title and content, plus substring match on account name.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names, e.g. `[\"renewal\",\"risk\"]`. Only return notes that carry any of the listed tags.'
+        ),
+})
 
 export const AccountRelationshipDefinitionsListParams = () => zod.object({
     project_id: zod
@@ -277,10 +314,23 @@ export const AccountsNotebooksListParams = () => zod.object({
 })
 
 export const AccountsNotebooksListQueryParams = () => zod.object({
+    created_by: zod
+        .array(zod.number())
+        .optional()
+        .describe('Only return notebooks created by these user IDs (repeat the param per user).'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    ordering: zod.string().optional().describe("Sort by creation date or author. Defaults to '-created_at'."),
+    ordering: zod
+        .string()
+        .optional()
+        .describe("Sort by creation date, last modification, author or title. Defaults to '-created_at'."),
     search: zod.string().optional().describe('Full-text search across notebook title and content.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names, e.g. `[\"renewal\",\"risk\"]`. Returns notebooks that carry any of the listed tags.'
+        ),
 })
 
 export const AccountsNotebooksCreateParams = () => zod.object({
@@ -293,6 +343,8 @@ export const AccountsNotebooksCreateParams = () => zod.object({
 })
 
 export const accountsNotebooksCreateBodyTitleMax = 256
+
+export const accountsNotebooksCreateBodyTagsItemMax = 255
 
 export const AccountsNotebooksCreateBody = () => zod.object({
     title: zod
@@ -307,6 +359,10 @@ export const AccountsNotebooksCreateBody = () => zod.object({
             'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.'
         ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+    tags: zod
+        .array(zod.string().max(accountsNotebooksCreateBodyTagsItemMax))
+        .optional()
+        .describe('Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.'),
 })
 
 export const AccountsNotebooksRetrieveParams = () => zod.object({
@@ -318,6 +374,32 @@ export const AccountsNotebooksRetrieveParams = () => zod.object({
         ),
     short_id: zod.string(),
 })
+
+/**
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
+ */
+export const AccountsNotebooksPartialUpdateParams = () => zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const accountsNotebooksPartialUpdateBodyTagsItemMax = 255
+
+export const AccountsNotebooksPartialUpdateBody = () => zod
+    .object({
+        tags: zod
+            .array(zod.string().max(accountsNotebooksPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe("Replaces the notebook's tags. Omit to leave them untouched."),
+    })
+    .describe(
+        "Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,\nsince a note's title comes from its first line."
+    )
 
 export const AccountsNotebooksDestroyParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),

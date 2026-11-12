@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
     INPUT_SCHEMA_CHAR_LIMIT,
     diffToolSurfaces,
+    findDocsMentions,
     renderAgentApiDiff,
     type ToolSurface,
 } from '../../scripts/lib/agent-api-diff'
@@ -150,5 +151,24 @@ describe('agent API diff', () => {
         expect(markdown).toContain('schema changed')
         expect(markdown).not.toContain('<!--')
         expect(markdown).not.toContain('\n<')
+    })
+
+    it('finds docs lines that name a removed tool and skips longer names', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-mentions-'))
+        try {
+            fs.mkdirSync(path.join(root, 'contents/docs/flags'), { recursive: true })
+            fs.writeFileSync(
+                path.join(root, 'contents/docs/flags/mcp.mdx'),
+                ['Call `flag-get-all` or `old-flag-get`.', 'https://mcp.posthog.com/mcp?tools=flag-get,flag-get'].join(
+                    '\n'
+                )
+            )
+            fs.writeFileSync(path.join(root, 'contents/docs/flags/example.js'), "callTool('flag-get')")
+            expect(findDocsMentions(['flag-get'], root, 'contents/docs')).toEqual([
+                { tool: 'flag-get', file: 'contents/docs/flags/mcp.mdx', line: 2 },
+            ])
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
     })
 })

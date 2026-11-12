@@ -72,10 +72,10 @@ Both etcd tools are disabled (their APIs return 503) unless `ETCD_ENDPOINTS` is 
 | `ETCD_ENDPOINTS` | empty | Comma-separated etcd endpoints; empty disables the etcd explorer and personhog topology tools |
 | `ETCD_ALLOWED_PREFIXES` | `/` | Comma-separated key prefixes the etcd explorer may read and write |
 | `PERSONHOG_ETCD_PREFIX` | `/personhog/` | Prefix the personhog coordination state lives under; must match the personhog services' `ETCD_PREFIX` |
-| `PERSONHOG_KAFKA_HOSTS` | `KAFKA_HOSTS` | Cluster the personhog changelog lives on, for the changelog panel |
+| `PERSONHOG_KAFKA_HOSTS` | `KAFKA_HOSTS` | Cluster of a changelog config that records no cluster; at startup, the `CHANGELOG_KAFKA_CLUSTERS` entry it matches is recorded into such a config |
 | `CHANGELOG_BACKUP_BUCKET` | empty | Versioned S3 bucket for `config/changelog` backups; empty disables backups and restore. Credentials and region come from the standard AWS environment |
 | `PERSONHOG_KAFKA_TLS` | `KAFKA_TLS` | TLS for `PERSONHOG_KAFKA_HOSTS` |
-| `CHANGELOG_KAFKA_CLUSTERS` | empty | Clusters the changelog can live on, by name, as JSON `{"name": {"hosts": "...", "tls": bool}}`; seeding and a migration write the named endpoint into the changelog config, and the changelog panel offers the names as a migration's target |
+| `CHANGELOG_KAFKA_CLUSTERS` | empty | Clusters the changelog can live on, by name, as JSON `{"name": {"hosts": "...", "tls": bool}}`; once set, a seed must name one, seeding and a migration write the named endpoint into the changelog config, and the changelog panel offers the names for both |
 | `PERSONHOG_CROSS_CLUSTER_MIGRATIONS` | `false` | Allows a migration onto another cluster; enable only once every personhog leader, writer, relay and router runs a build that reads the cluster, because an older router's coordinator drops the cluster at the flip and an older leader, writer or relay uses its own `KAFKA_HOSTS` for the new topic |
 | `PERSONHOG_HANDOFF_DEADLINE_SECS` | `120` | Per-phase deadline for flagging stuck handoffs; must match `COORDINATOR_HANDOFF_DEADLINE_SECS` |
 | `PERSONHOG_WARMING_DEADLINE_SECS` | `1800` | Warming-phase deadline; must match `COORDINATOR_WARMING_DEADLINE_SECS` |

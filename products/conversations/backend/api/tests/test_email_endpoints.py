@@ -1,4 +1,5 @@
 from datetime import timedelta
+from email import message_from_bytes
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -394,15 +395,16 @@ class TestEmailChannelPermissions(BaseTest):
         mock_cache_delete.assert_called_once()
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
-    @patch("products.conversations.backend.api.email_settings.cache.add", side_effect=[True, False])
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_resend_respects_channel_cooldown(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        _mock_cache_add: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
+        mock_cache.add.side_effect = [True, False]
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -433,19 +435,19 @@ class TestEmailChannelPermissions(BaseTest):
 
         assert first_response.status_code == 200
         assert second_response.status_code == 429
-        assert [cache_call.kwargs["timeout"] for cache_call in _mock_cache_add.call_args_list] == [30, 60]
+        assert [cache_call.kwargs["timeout"] for cache_call in mock_cache.add.call_args_list] == [30, 60]
         assert mock_email_message.call_count == 1
 
-    @patch("products.conversations.backend.api.email_settings.cache.get")
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_stops_after_the_address_reaches_its_attempt_limit(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        mock_cache_get: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
-        mock_cache_get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
+        mock_cache.get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -2077,6 +2079,27 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         config.refresh_from_db()
         assert config.domain_verified is (not flips_domain_verified)
+
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_renders_markdown_without_rich_content(self, mock_send_mime: MagicMock):
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        self._run_reply(
+            ticket,
+            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph\n\n```\ncurl https://example.com/api\n```",
+        )
+
+        message = message_from_bytes(mock_send_mime.call_args.args[1])
+        html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
+        payload = html_part.get_payload(decode=True)
+        assert isinstance(payload, bytes)
+        html = payload.decode()
+        assert '<a href="https://posthog.com/docs"' in html and ">the docs</a>" in html
+        assert "attacker.example" not in html
+        assert "<br" in html
+        assert html.count("<p>") == 2
+        assert "<code>curl https://example.com/api\r\n</code>" in html
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):

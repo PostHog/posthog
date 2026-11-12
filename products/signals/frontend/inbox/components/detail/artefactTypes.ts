@@ -133,6 +133,8 @@ export interface CheckResultContent {
 }
 
 export interface CheckObservationContent extends Pick<CheckResultContent, 'title' | 'explanation' | 'observed_value'> {
+    check_id?: string
+    monitoring_started_at?: string
     measured_at?: string
     monitoring_ends_at?: string | null
     matches?: boolean | null

@@ -4,7 +4,7 @@ import { PostHogApiError } from '@/lib/errors'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { explainChartHandler } from '@/tools/insights/explainChart'
 import { explainChartSaveHandler } from '@/tools/insights/explainChartSave'
-import { findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
+import { findStepRange, findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
@@ -18,6 +18,21 @@ const YEARS = ['2024-01-01', '2025-01-01', '2026-01-01']
 
 function apiError(status: number): PostHogApiError {
     return new PostHogApiError({ status, statusText: '', body: '', url: '', method: 'PUT' })
+}
+
+const FUNNEL_STEPS = [
+    { name: 'Pageview', count: 100, breakdown_value: ['Desktop'] },
+    { name: 'Signed up', count: 20, breakdown_value: ['Desktop'] },
+    { name: 'Paid', count: 5, breakdown_value: ['Desktop'] },
+]
+const FUNNEL_STEPS_MOBILE = [
+    { name: 'Pageview', count: 40, breakdown_value: ['Mobile'] },
+    { name: 'Signed up', count: 4, breakdown_value: ['Mobile'] },
+    { name: 'Paid', count: 1, breakdown_value: ['Mobile'] },
+]
+
+function inPeriod<Step>(steps: Step[], period: 'current' | 'previous'): (Step & { compare_label: string })[] {
+    return steps.map((step) => ({ ...step, compare_label: period }))
 }
 
 function createContext(
@@ -151,6 +166,7 @@ describe('explain-chart', () => {
                         { text: 'From one referrer.', query: { kind: 'TrendsQuery', series: [] } },
                         { text: 'The signup funnel shows it.', insightShortId: 'xyz98765' },
                         { text: 'A release went out.', url: github },
+                        { text: 'Raw events agree.', query: { kind: 'HogQLQuery', query: 'SELECT 1' } },
                     ],
                 },
             ],
@@ -160,13 +176,82 @@ describe('explain-chart', () => {
 
         const shown = result.chapters[0]!.evidence.map((item) => item.url)
         expect(shown[0]).toContain('/project/1/insights/new')
-        expect(shown.slice(1)).toEqual(['https://us.posthog.com/project/1/insights/xyz98765', github])
+        expect(shown.slice(1, 3)).toEqual(['https://us.posthog.com/project/1/insights/xyz98765', github])
+        expect(shown[3]).toContain('/project/1/sql?open_query=')
         await explainChartSaveHandler(context, args)
         const { saveExplanation } = vi.mocked(context.api.insights).mock.results[0]!.value
         const stored = saveExplanation.mock.calls[0][0].data.chapters[0].evidence.map(
             (item: { url: string | null }) => item.url
         )
-        expect(stored).toEqual([null, null, github])
+        expect(stored).toEqual([null, null, github, null])
+    })
+
+    it.each([
+        ['a step number', '2', undefined, [1, 1]],
+        ['the drop between two steps', '1', 'step 3', [0, 2]],
+        ['a step name in another case', 'SIGNED UP', undefined, [1, 1]],
+        ['a step past the funnel', '4', undefined, null],
+        ['steps given backwards', '3', '1', null],
+    ] as const)('finds the funnel steps for %s', (_, start, end, expected) => {
+        expect(findStepRange(['Pageview', 'Signed up', 'Paid'], start, end)).toEqual(expected)
+    })
+
+    it.each([
+        ['without a breakdown', FUNNEL_STEPS, 0, [], [100, 20, 5]],
+        [
+            'following its second breakdown value',
+            [FUNNEL_STEPS, FUNNEL_STEPS_MOBILE],
+            1,
+            ['Desktop', 'Mobile'],
+            [40, 4, 1],
+        ],
+        [
+            'following a breakdown value with no text',
+            [FUNNEL_STEPS, FUNNEL_STEPS_MOBILE.map((step) => ({ ...step, breakdown_value: [''] }))],
+            1,
+            ['Desktop', 'None'],
+            [40, 4, 1],
+        ],
+        [
+            'compared with the previous period',
+            [...inPeriod(FUNNEL_STEPS, 'current'), ...inPeriod(FUNNEL_STEPS, 'previous')],
+            0,
+            [],
+            [100, 20, 5],
+        ],
+        [
+            'with a breakdown, compared with the previous period',
+            [
+                inPeriod(FUNNEL_STEPS, 'current'),
+                inPeriod(FUNNEL_STEPS_MOBILE, 'current'),
+                inPeriod(FUNNEL_STEPS, 'previous'),
+                inPeriod(FUNNEL_STEPS_MOBILE, 'previous'),
+            ],
+            1,
+            ['Desktop', 'Mobile'],
+            [40, 4, 1],
+        ],
+    ])('explains a funnel %s', async (_, results, series, breakdowns, counts) => {
+        const context = createContext(
+            { kind: 'InsightVizNode', source: { kind: 'FunnelsQuery', series: [] } },
+            { results }
+        )
+
+        const result = await explainChartHandler(context, {
+            insightId: 'abc12345',
+            series,
+            headline: 'Most people leave before **Signed up**.',
+            chapters: [
+                { title: 'The drop to signing up', start: '1', end: '2' },
+                { title: 'A step that does not exist', start: '9' },
+            ],
+        })
+
+        expect(result.shape).toBe('funnel_steps')
+        expect(result.shape === 'funnel_steps' && result.steps.map((step) => step.count)).toEqual(counts)
+        expect(result.shape === 'funnel_steps' && result.breakdowns).toEqual(breakdowns)
+        expect(result.chapters.map((chapter) => chapter.range)).toEqual([[0, 1], null])
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('Use step numbers')
     })
 
     it.each([
@@ -182,21 +267,25 @@ describe('explain-chart', () => {
         expect(parsed.success).toBe(false)
     })
 
-    it.each([['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts']])(
-        'refuses %s',
-        async (_, source, message) => {
-            const context = createContext({ kind: 'InsightVizNode', source })
+    it.each([
+        ['a retention chart', { kind: 'RetentionQuery' }, 'trends charts and funnels that show steps'],
+        [
+            'a funnel over time',
+            { kind: 'FunnelsQuery', series: [], funnelsFilter: { funnelVizType: 'trends' } },
+            'conversion over time',
+        ],
+    ])('refuses %s', async (_, source, message) => {
+        const context = createContext({ kind: 'InsightVizNode', source })
 
-            await expect(
-                explainChartHandler(context, {
-                    insightId: 'abc12345',
-                    series: 0,
-                    headline: 'Conversion fell.',
-                    chapters: [{ title: 'A drop', start: '2026-10-02' }],
-                })
-            ).rejects.toThrow(message)
-        }
-    )
+        await expect(
+            explainChartHandler(context, {
+                insightId: 'abc12345',
+                series: 0,
+                headline: 'Conversion fell.',
+                chapters: [{ title: 'A drop', start: '2026-10-02' }],
+            })
+        ).rejects.toThrow(message)
+    })
 
     it.each([
         ...[
