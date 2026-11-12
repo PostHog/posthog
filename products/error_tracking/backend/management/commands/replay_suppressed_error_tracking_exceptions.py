@@ -16,6 +16,10 @@ Usage:
     # Live run: produce the matching events back to the topic
     python manage.py replay_suppressed_error_tracking_exceptions ... --live-run
 
+To shorten a long replay, start several commands with the same window and filters, and give each
+one a different part of the topic with --partitions, for example 0-63 and 64-127. A message is in
+one partition only, so the commands never replay the same event.
+
 A live run commits its progress to a consumer group derived from the window and the filters, so
 the same command resumes after an interruption instead of replaying from the start.
 """
@@ -42,6 +46,7 @@ from products.error_tracking.backend.logic.suppressed_exception_replay import (
     build_replay_consumer,
     build_replay_producer,
     default_group_id,
+    parse_partition_spec,
 )
 
 
@@ -59,6 +64,13 @@ def _parse_timestamp(raw: str) -> datetime:
 class _PropertyFilter:
     key: str
     value: str
+
+
+def _parse_partitions(raw: str) -> frozenset[int]:
+    try:
+        return parse_partition_spec(raw)
+    except ValueError as error:
+        raise ArgumentTypeError(str(error)) from error
 
 
 def _parse_property(raw: str) -> _PropertyFilter:
@@ -114,6 +126,13 @@ class Command(BaseCommand):
             "--group-id",
             default=None,
             help="Consumer group that stores the progress. The default is derived from the window and the filters.",
+        )
+        parser.add_argument(
+            "--partitions",
+            type=_parse_partitions,
+            default=None,
+            metavar="LIST",
+            help="Partitions to read, for example 0-31,40. The default is every partition of the topic.",
         )
         parser.add_argument("--batch-size", type=int, default=500, help="Messages to consume per poll.")
         parser.add_argument(
@@ -178,7 +197,7 @@ class Command(BaseCommand):
 
         try:
             try:
-                ranges = replayer.plan(window)
+                ranges = replayer.plan(window, options["partitions"])
             except ValueError as error:
                 raise CommandError(str(error)) from error
             self.stdout.write(

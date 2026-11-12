@@ -146,6 +146,33 @@ def classify_message(headers: Sequence[Header] | None, value: bytes | None, crit
     return "replay" if matches else "skip"
 
 
+def parse_partition_spec(raw: str) -> frozenset[int]:
+    """Parse a partition list such as "0-31,40" into partition numbers. A range includes both ends."""
+    partitions: set[int] = set()
+    for part in raw.split(","):
+        first, separator, last = part.strip().partition("-")
+        try:
+            low = int(first)
+            high = int(last) if separator else low
+        except ValueError:
+            raise ValueError(f"{part.strip()!r} is not a partition number or a range such as 0-31.") from None
+        if low > high:
+            raise ValueError(f"The partition range {part.strip()!r} ends before it starts.")
+        partitions.update(range(low, high + 1))
+    return frozenset(partitions)
+
+
+def select_partitions(available: Sequence[int], requested: frozenset[int] | None) -> list[int]:
+    """Return the partitions to read: all of them, or the requested ones when the topic has each of them."""
+    if requested is None:
+        return sorted(available)
+    unknown = requested - set(available)
+    if unknown:
+        # A typo in the partition list would otherwise leave part of the topic unread without a trace.
+        raise ValueError(f"The topic has no partition {', '.join(str(partition) for partition in sorted(unknown))}.")
+    return sorted(requested)
+
+
 def plan_partition_ranges(
     *,
     start_offsets: Mapping[int, int | None],
@@ -260,27 +287,30 @@ class SuppressedExceptionReplayer:
         self._should_stop = should_stop
         self._log = log
 
-    def plan(self, window: ReplayWindow) -> list[PartitionRange]:
-        """Resolve the window to offset ranges, one for each partition that has messages left to read."""
+    def plan(self, window: ReplayWindow, partitions: frozenset[int] | None = None) -> list[PartitionRange]:
+        """Resolve the window to offset ranges, one for each partition that has messages left to read.
+
+        partitions limits the plan to those partitions, so that several runs can share one window.
+        """
         topic_metadata = self._consumer.list_topics(self._topic, timeout=self._request_timeout_seconds).topics.get(
             self._topic
         )
         if topic_metadata is None or topic_metadata.error is not None or not topic_metadata.partitions:
             raise ValueError(f"Topic {self._topic} was not found on this cluster.")
-        partitions = sorted(topic_metadata.partitions)
+        selected = select_partitions(list(topic_metadata.partitions), partitions)
 
         committed = self._consumer.committed(
-            [TopicPartition(self._topic, partition) for partition in partitions],
+            [TopicPartition(self._topic, partition) for partition in selected],
             timeout=self._request_timeout_seconds,
         )
         return plan_partition_ranges(
-            start_offsets=self._offsets_at(partitions, window.start),
-            end_offsets=self._offsets_at(partitions, window.end),
+            start_offsets=self._offsets_at(selected, window.start),
+            end_offsets=self._offsets_at(selected, window.end),
             high_watermarks={
                 partition: self._consumer.get_watermark_offsets(
                     TopicPartition(self._topic, partition), timeout=self._request_timeout_seconds
                 )[1]
-                for partition in partitions
+                for partition in selected
             },
             committed_offsets={entry.partition: _valid_offset(entry.offset) for entry in committed},
         )

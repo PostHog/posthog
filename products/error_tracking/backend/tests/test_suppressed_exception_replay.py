@@ -12,7 +12,9 @@ from products.error_tracking.backend.logic.suppressed_exception_replay import (
     ReplayCriteria,
     SuppressedExceptionReplayer,
     classify_message,
+    parse_partition_spec,
     plan_partition_ranges,
+    select_partitions,
 )
 
 TOPIC = "ingestion-errortracking-main_test"
@@ -57,6 +59,29 @@ class ClassifyMessageTest(TestCase):
 
         assert classify_message(_headers(), only_one, criteria) == "skip"
         assert classify_message(_headers(), both, criteria) == "replay"
+
+
+class SelectPartitionsTest(TestCase):
+    @parameterized.expand(
+        [
+            ("single_partition", "7", {7}),
+            ("range_includes_both_ends", "0-3", {0, 1, 2, 3}),
+            ("list_of_ranges_and_numbers", "0-1, 5,126-127", {0, 1, 5, 126, 127}),
+        ]
+    )
+    def test_parses_partition_spec(self, _name: str, raw: str, expected: set[int]) -> None:
+        assert parse_partition_spec(raw) == expected
+
+    @parameterized.expand([("not_a_number", "a"), ("reversed_range", "5-2"), ("empty_item", "1,,2")])
+    def test_rejects_malformed_partition_spec(self, _name: str, raw: str) -> None:
+        with self.assertRaises(ValueError):
+            parse_partition_spec(raw)
+
+    def test_selects_requested_partitions_and_rejects_unknown_ones(self) -> None:
+        assert select_partitions([2, 0, 1], None) == [0, 1, 2]
+        assert select_partitions([2, 0, 1], frozenset({2, 0})) == [0, 2]
+        with self.assertRaises(ValueError):
+            select_partitions([0, 1, 2], frozenset({2, 3}))
 
 
 class PlanPartitionRangesTest(TestCase):
