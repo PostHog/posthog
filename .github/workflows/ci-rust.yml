@@ -79,6 +79,7 @@ jobs:
                         - '.github/scripts/rust_test_shards.py'
                         - '.github/scripts/resolve-changed-files.sh'
                         - '.github/actions/setup-uv/**'
+                        - '.github/actions/setup-python-cached/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
@@ -348,10 +349,17 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            - name: Resolve Python version
+              id: python-version
+              run: |
+                  version=$(python3 -c 'import tomllib; print(tomllib.load(open("../pyproject.toml", "rb"))["project"]["requires-python"].removeprefix("=="))')
+                  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
-                  python-version-file: 'pyproject.toml'
+                  python-version: ${{ steps.python-version.outputs.version }}
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
