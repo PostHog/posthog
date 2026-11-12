@@ -113,3 +113,4 @@ class TestResendImportFlag(APIBaseTest):
 
         assert [provider["key"] for provider in providers] == ["customerio"]
         assert response.status_code == 400
+        assert "Unknown import provider: resend" in str(response.json())

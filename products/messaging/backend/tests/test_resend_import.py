@@ -221,9 +221,12 @@ class TestResendImport(BaseTest):
         assert len(self.resend.calls) == 2
 
     def test_topic_choices_are_read_when_the_unsubscribes_step_did_not_run(self) -> None:
-        self._run(["topic_opt_outs"])
+        self.resend.failures["/contacts/c0000000-0000-4000-8000-000000000003/topics"] = [(404, {})]
+
+        run = self._run(["topic_opt_outs"])
 
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" in self.resend.calls
+        assert run.status == "completed"
 
     @parameterized.expand([("same_key", API_KEY, 2), ("another_key", "re_another_account_key", 3)])
     def test_a_new_import_continues_the_step_that_failed(self, _name: str, next_key: str, list_reads: int) -> None:

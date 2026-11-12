@@ -1,7 +1,7 @@
 """Writes data imported from another messaging tool. Re-importing never undoes a change made in PostHog.
 
-Every writer here adds what is missing and leaves existing rows alone, deleted ones included: someone may have removed
-that address from the list, opted that person back in, or deleted that category on purpose.
+Every writer here adds what is missing and leaves deleted rows alone: someone may have removed that address from the
+list, opted that person back in, or deleted that category on purpose.
 """
 
 from collections import Counter
@@ -59,12 +59,12 @@ class CategoryImportResult:
 def import_suppressions(
     team_id: int, imported: Iterable[ImportedSuppression], created_by_id: int | None
 ) -> SuppressionImportResult:
-    """Suppress the addresses that have no row yet.
+    """Suppress the addresses that have no row yet, or only a row counting soft bounces.
 
-    A bounce blocks every email, because the other tool lists one only for an address that can't receive mail. Nothing
-    here writes to the global hard-bounce list: one team's list must not block addresses for every other team. The one
-    change to an existing row is filling in the date and diagnostic of a row an earlier import of the same list wrote
-    without them.
+    A bounce blocks every email, because the other tool lists one only for an address that can't receive mail, so it
+    also marks a suppressed row that doesn't block transactional email yet. Nothing here writes to the global
+    hard-bounce list: one team's list must not block addresses for every other team. A row someone removed stays
+    removed.
     """
     # bulk_create skips the save() that moves a child environment's rows to its parent project.
     effective_team_id = resolve_effective_team_id(team_id)
@@ -93,20 +93,47 @@ def import_suppressions(
     suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
     inserted = set(suppressions.filter(pk__in=[row.pk for row in new_rows]).values_list("identifier", flat=True))
 
-    backfilled = []
+    changed = []
+    newly_suppressed: list[str] = []
     for identifier, row in existing.items():
         record = by_identifier[identifier]
-        if row.reason != record.reason or row.deleted or row.last_bounce_diagnostic or not record.suppressed_at:
+        # Someone removed the address, or added it by hand and owns that row.
+        if row.deleted or (row.suppressed and row.source == SuppressionSource.MANUAL):
             continue
-        row.suppressed_at = record.suppressed_at
+        bounced_at = record.suppressed_at or now
+        if not row.suppressed:
+            row.suppressed = True
+            row.source = record.source
+            row.reason = record.reason
+            row.suppressed_at = bounced_at
+            newly_suppressed.append(identifier)
+        elif row.reason == record.reason and not row.last_bounce_diagnostic and record.suppressed_at:
+            row.suppressed_at = record.suppressed_at
+        elif not (record.source == SuppressionSource.BOUNCE and row.hard_bounced_at is None):
+            continue
         if record.source == SuppressionSource.BOUNCE:
-            row.last_bounce_at = record.suppressed_at
-        row.last_bounce_diagnostic = record.diagnostic
-        backfilled.append(row)
-    suppressions.bulk_update(backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500)
+            row.last_bounce_at = record.suppressed_at or row.last_bounce_at
+            row.hard_bounced_at = row.hard_bounced_at or bounced_at
+        row.last_bounce_diagnostic = row.last_bounce_diagnostic or record.diagnostic
+        changed.append(row)
+    suppressions.bulk_update(
+        changed,
+        [
+            "suppressed",
+            "source",
+            "reason",
+            "suppressed_at",
+            "last_bounce_at",
+            "last_bounce_diagnostic",
+            "hard_bounced_at",
+        ],
+        batch_size=500,
+    )
 
-    added = Counter(by_identifier[identifier].source for identifier in inserted)
-    return SuppressionImportResult(added=added, already_present=len(by_identifier) - len(inserted))
+    added = Counter(by_identifier[identifier].source for identifier in [*inserted, *newly_suppressed])
+    return SuppressionImportResult(
+        added=added, already_present=len(by_identifier) - len(inserted) - len(newly_suppressed)
+    )
 
 
 def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created_by_id: int | None) -> int:

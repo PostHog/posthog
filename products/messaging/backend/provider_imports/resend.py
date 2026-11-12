@@ -323,6 +323,8 @@ def _fetch_topic_opt_outs(
         return
     # A contact's topic list doesn't say which topics are private, and the topics step leaves those out.
     private = {str(topic.get("id")) for topic in topics if topic.get("visibility") == "private"}
+    # A contact's topic list may leave out the name and description, so categories come from the topic itself.
+    topics_by_id = {str(topic.get("id")): topic for topic in topics if topic.get("id")}
     for page in client.pages("/contacts", _after(checkpoint)):
         opted_out_of_all = _emails_opted_out_of_all(context.team_id, page.data)
         topics_by_email: dict[str, list[dict[str, Any]]] = {}
@@ -330,10 +332,18 @@ def _fetch_topic_opt_outs(
             email = exact_email(contact.get("email"))
             contact_id = contact.get("id")
             if email and contact_id and email not in opted_out_of_all:
+                try:
+                    contact_topics = [
+                        topic for topics in client.pages(f"/contacts/{contact_id}/topics") for topic in topics.data
+                    ]
+                except ResendAPIError as e:
+                    # The contact was deleted after the page listed it, so it has no choices left to import.
+                    if e.status_code == 404:
+                        continue
+                    raise
                 topics_by_email[email] = [
-                    topic
-                    for topics in client.pages(f"/contacts/{contact_id}/topics")
-                    for topic in topics.data
+                    topics_by_id.get(str(topic.get("id")), topic)
+                    for topic in contact_topics
                     if topic.get("subscription") == "opt_out" and str(topic.get("id")) not in private
                 ]
         yield ImportPage(
