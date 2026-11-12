@@ -94,6 +94,25 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Example organization", result.content)
         self.assertEqual(replay, result.content)
 
+    async def test_date_value_placeholders_use_supplied_range(self) -> None:
+        filters = HogQLFilters(dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-03"))
+        result = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="SELECT {filters.dateRange.from} AS start, {filters.dateRange.to} AS end", filters=filters
+            )
+        )
+        self.assertIn("2026-01-01", result.content)
+        self.assertIn("2026-01-03", result.content)
+
+    async def test_interval_placeholder_does_not_apply_date_range(self) -> None:
+        with self.assertRaisesRegex(MaxToolRetryableError, "date range needs"):
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query="SELECT {filters.interval('day')} AS bucket, count() FROM events",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                )
+            )
+
     @parameterized.expand([(1, True, 1), (7, True, 2), (1, False, 2), (None, False, 4)])
     async def test_editor_filters_apply_to_ctes_and_visualization(
         self, days: int | None, filter_test_accounts: bool, expected_count: int
@@ -146,18 +165,25 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("no_placeholder", None, False, "no filter placeholders"),
-            ("raw_connection", "example-connection", True, "cannot be applied with sendRawQuery"),
+            ("no_placeholder", "SELECT 1", None, False, True, "no filter placeholders"),
+            ("raw_connection", "SELECT 1", "example-connection", True, True, "cannot be applied with sendRawQuery"),
+            ("date_only_test_accounts", "SELECT {filters.dateRange.from}", None, False, True, "predicate placeholder"),
+            ("date_only_properties", "SELECT {filters.dateRange.from}", None, False, False, "predicate placeholder"),
         ]
     )
     async def test_filters_cannot_be_silently_ignored(
-        self, _name: str, connection_id: str | None, raw: bool, expected_error: str
+        self, _name: str, sql: str, connection_id: str | None, raw: bool, test_accounts: bool, expected_error: str
     ) -> None:
         with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
             await self.tool.execute(
                 ExecuteSQLMCPToolArgs(
-                    query="SELECT 1",
-                    filters=HogQLFilters(filterTestAccounts=True),
+                    query=sql,
+                    filters=HogQLFilters(
+                        filterTestAccounts=test_accounts,
+                        properties=None
+                        if test_accounts
+                        else [EventPropertyFilter(key="region", value=["west"], operator=PropertyOperator.EXACT)],
+                    ),
                     connectionId=connection_id,
                     sendRawQuery=raw,
                 )
@@ -210,15 +236,22 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ("trailing_tokens", "SELECT 1 FROM events LIMIT 1 blah", "blah"),
             ("reserved_keyword", "SELECT count() FROM events WHERE GROUP BY", "BY"),
             ("bad_operator", "SELECT * FROM events WHERE 1 === 2", "="),
+            ("connection_filters", "SELECT 1 FROM example_table LIMIT 1 blah", "blah", "example-connection"),
         ]
     )
     async def test_syntax_error_locates_the_offending_fragment(
-        self, _name: str, query: str, expected_fragment: str
+        self, _name: str, query: str, expected_fragment: str, connection_id: str | None = None
     ) -> None:
         # A bare "this query isn't valid HogQL" tells the caller nothing about which construct to
         # rewrite, so it retries the same query. The parser knows the offset and the token; keep both.
         with self.assertRaises(MaxToolRetryableError) as ctx:
-            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query=query,
+                    connectionId=connection_id,
+                    filters=HogQLFilters(filterTestAccounts=True) if connection_id else None,
+                )
+            )
 
         message = str(ctx.exception)
         self.assertIn("Parser detail:", message)

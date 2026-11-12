@@ -19,8 +19,13 @@ describe('executeSqlHandler', () => {
     ] as const)('preserves results and query metadata: %j', async ({ structured, outputFormat }) => {
         const filters = {
             dateRange: { date_from: '-7d', date_to: null },
-            properties: [{ key: 'region', type: 'event', value: ['west'], operator: 'exact' }],
+            properties: [
+                { key: 'region', type: 'event', value: ['west'], operator: 'exact' },
+                { key: 'paid', type: 'group', group_type_index: 1, value: true, operator: 'exact', label: 'Paid' },
+                { key: 'id', type: 'cohort', value: 123, operator: 'in', cohort_name: 'Example cohort' },
+            ],
             filterTestAccounts: true,
+            interval: 'week',
         }
         const query = {
             kind: 'HogQLQuery',

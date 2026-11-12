@@ -31,16 +31,26 @@ class TestParser(SimpleTestCase):
         finder = find_placeholders(expr)
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
+        self.assertTrue(finder.has_predicate_filters)
         self.assertEqual(finder.placeholder_fields, [["foo"]])
         self.assertEqual(len(finder.placeholder_expressions), 1)
 
     @parameterized.expand(
-        [("filters",), ("filters.native(timestamp)",), ("filters.previous",), ("filters.previous.native(timestamp)",)]
+        [
+            ("filters", True),
+            ("filters.native(timestamp)", True),
+            ("filters.previous", True),
+            ("filters.previous.native(timestamp)", True),
+            ("filters.previous(timestamp AS timestamp)", True),
+            ("filters.dateRange.from", False),
+            ("filters.dateRange.to", False),
+        ]
     )
-    def test_find_placeholders_chain_filters(self, placeholder: str) -> None:
+    def test_find_placeholders_chain_filters(self, placeholder: str, is_predicate: bool) -> None:
         finder = find_placeholders(parse_select("select 1 from events where {" + placeholder + "}"))
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
+        self.assertEqual(finder.has_predicate_filters, is_predicate)
 
     @parameterized.expand(
         [

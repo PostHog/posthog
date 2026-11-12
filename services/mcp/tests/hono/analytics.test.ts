@@ -211,6 +211,23 @@ describe('Hono MCP analytics contexts', () => {
         ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
         ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
         [
+            'execute-sql with editor filters',
+            'execute-sql',
+            {
+                query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+            },
+            false,
+            false,
+        ],
+        [
+            'execute-sql through exec',
+            'exec',
+            { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+            false,
+            false,
+        ],
+        [
             'execute-sql querying metadata',
             'execute-sql',
             { query: 'SELECT name FROM system.information_schema.metrics' },
@@ -627,6 +644,21 @@ describe('Hono MCP analytics contexts', () => {
                 true,
             ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
+            [
+                'execute-sql metadata with editor filters',
+                'execute-sql',
+                {
+                    query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                    filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+                },
+                false,
+            ],
+            [
+                'execute-sql through exec',
+                'exec',
+                { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+                false,
+            ],
             [
                 'execute-sql with the marker only in a string literal',
                 'execute-sql',

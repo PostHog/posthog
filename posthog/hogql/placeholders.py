@@ -45,10 +45,23 @@ def is_filters_placeholder(node: ast.Placeholder) -> bool:
     )
 
 
+def is_filters_predicate_placeholder(node: ast.Placeholder) -> bool:
+    if node.chain:
+        return node.chain in (["filters"], ["filters", "previous"])
+    if isinstance(node.expr, ast.Call):
+        return node.expr.name == "filters"
+    return (
+        isinstance(node.expr, ast.ExprCall)
+        and isinstance(node.expr.expr, ast.Field)
+        and node.expr.expr.chain in (["filters", "previous"], ["filters", "native"], ["filters", "previous", "native"])
+    )
+
+
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
         self.has_filters = False  # Legacy fallback: treat filters as before
+        self.has_predicate_filters = False
         # The filters forms that expand into a predicate, so a date range can bound the query
         # through them. The dotted call forms substitute a value and cannot add one.
         self.has_date_filters = False
@@ -66,6 +79,8 @@ class FindPlaceholders(TraversingVisitor):
                 self.placeholder_expressions.append(node.expr)
             return
         self.has_filters = True
+        if is_filters_predicate_placeholder(node):
+            self.has_predicate_filters = True
         if not isinstance(node.expr, ast.ExprCall) or cast(ast.Field, node.expr.expr).chain in (
             ["filters", "previous"],
             ["filters", "native"],

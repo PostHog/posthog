@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import HogQLFilters, HogQLNotice, HogQLQuery
 
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
@@ -14,6 +15,7 @@ from posthog.sync import database_sync_to_async
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.sql.errors import hogql_validation_message
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.query_executor import hogql_error_code
@@ -73,12 +75,30 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     args_schema = ExecuteSQLMCPToolArgs
 
     def _validate_filter_placeholders(self, query: HogQLQuery) -> None:
-        if query.filters is not None and query.filters.model_dump(exclude_none=True):
-            if not find_placeholders(parse_select(query.query, placeholders={})).has_filters:
-                raise MaxToolRetryableError(
-                    "Structured filters were provided, but the SQL has no filter placeholders. "
-                    "Add {filters} to the WHERE clause of each relevant source scan, including CTEs."
-                )
+        if query.filters is None or not query.filters.model_dump(exclude_none=True):
+            return
+        try:
+            placeholders = find_placeholders(parse_select(query.query, placeholders={}))
+        except ExposedHogQLError as err:
+            raise MaxToolRetryableError(
+                f"Query validation failed: {hogql_validation_message(err, query.query)}",
+                error_code=hogql_error_code(err),
+            ) from err
+        if not placeholders.has_filters:
+            raise MaxToolRetryableError(
+                "Structured filters were provided, but the SQL has no filter placeholders. "
+                "Add {filters} to the WHERE clause of each relevant source scan, including CTEs."
+            )
+        if query.filters.dateRange and not placeholders.has_date_filters:
+            raise MaxToolRetryableError(
+                "The date range needs {filters} or date-range placeholders. "
+                "Interval and breakdown placeholders do not apply it."
+            )
+        if (query.filters.properties or query.filters.filterTestAccounts) and not placeholders.has_predicate_filters:
+            raise MaxToolRetryableError(
+                "Property and test-account filters need a predicate placeholder such as {filters}. "
+                "Date-only placeholders do not apply them. Add {filters} to each relevant source scan."
+            )
 
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> MCPToolResult:
         query: HogQLQuery
@@ -87,6 +107,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             raise MaxToolRetryableError(
                 "Structured filters cannot be applied with sendRawQuery. Use HogQL with filter placeholders."
             )
+        self._validate_filter_placeholders(HogQLQuery(query=args.query, filters=args.filters))
         if args.connectionId:
             # Queries targeting an external connection reference tables that aren't in the
             # default ClickHouse database, so the local parse/print HogQL validation step
@@ -108,7 +129,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             )
         else:
             try:
-                validated = await self._validate_hogql_query(args.query)
+                validated = await self._validate_hogql_query(args.query, args.filters)
             except PydanticOutputParserException as e:
                 message = f"Query validation failed: {e.validation_message}"
                 suggestion = await self._maybe_unknown_table_suggestion(
@@ -125,8 +146,6 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
             # returning 0 because the real event is `paid_bill`). The query still runs.
             taxonomy_warnings = await self._get_taxonomy_warnings(query.query)
-
-        self._validate_filter_placeholders(query)
 
         insight_context = InsightContext(
             team=self._team,

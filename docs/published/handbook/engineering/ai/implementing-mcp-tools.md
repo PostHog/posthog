@@ -835,6 +835,8 @@ For SQL editor queries, pass `current_query_node.source.filters` as the `execute
 This applies the editor's date, property, cohort, and test-account filters to both the tool execution and the visualization query.
 The editor applies the tool's input filters alongside the suggested SQL.
 Structured filters require filter placeholders and cannot be used with `sendRawQuery`.
+Date-value placeholders only supply dates; property and test-account filters need predicate placeholders such as `{filters}`.
+SQL calls with structured filters omit arguments and results from MCP analytics payloads and tool spans, since property values can contain sensitive data.
 The widget renders it through the shared Query component in a `DataVisualizationNode`.
 The Query component fetches the results for this visualization.
 All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.

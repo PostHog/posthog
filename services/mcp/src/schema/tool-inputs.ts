@@ -1018,9 +1018,22 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
-    filters: HogQLFilters.nullish().describe(
-        'Structured filters applied through SQL filter placeholders. When working in the SQL editor, copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. Pass an empty object to clear filters. Not supported with sendRawQuery.'
-    ),
+    // The backend validates the full filter union; narrowing it here can strip group or cohort metadata.
+    filters: z
+        .looseObject({
+            dateRange: HogQLFilters.shape.dateRange.nullable(),
+            properties: z
+                .array(z.record(z.string(), z.unknown()))
+                .nullish()
+                .describe(
+                    'Complete property-filter objects from the editor, including type, key, operator, value, and group_type_index for group filters. Preserve all fields and boolean values; the backend validates each filter.'
+                ),
+            filterTestAccounts: z.boolean().nullish(),
+        })
+        .nullish()
+        .describe(
+            'Structured filters applied through SQL filter placeholders. When working in the SQL editor, copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. Pass an empty object to clear filters. Not supported with sendRawQuery.'
+        ),
     context: z
         .string()
         .optional()

@@ -638,146 +638,71 @@
                         {
                             "type": "object",
                             "properties": {
-                                "properties": {
-                                    "type": "array",
-                                    "items": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "key": {
-                                                        "type": "string"
-                                                    },
-                                                    "value": {
-                                                        "anyOf": [
-                                                            {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "array",
-                                                                        "items": {
-                                                                            "type": "string"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "type": "array",
-                                                                        "items": {
-                                                                            "type": "number"
-                                                                        }
-                                                                    }
-                                                                ]
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ]
-                                                    },
-                                                    "operator": {
-                                                        "type": "string"
-                                                    },
-                                                    "type": {
-                                                        "type": "string"
-                                                    }
-                                                },
-                                                "required": ["key"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "enum": ["AND", "OR"]
-                                                    },
-                                                    "values": {
-                                                        "type": "array",
-                                                        "items": {
-                                                            "type": "object",
-                                                            "properties": {
-                                                                "key": {
-                                                                    "type": "string"
-                                                                },
-                                                                "value": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "array",
-                                                                                    "items": {
-                                                                                        "type": "string"
-                                                                                    }
-                                                                                },
-                                                                                {
-                                                                                    "type": "array",
-                                                                                    "items": {
-                                                                                        "type": "number"
-                                                                                    }
-                                                                                }
-                                                                            ]
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
-                                                                },
-                                                                "operator": {
-                                                                    "type": "string"
-                                                                },
-                                                                "type": {
-                                                                    "type": "string"
-                                                                }
-                                                            },
-                                                            "required": ["key"]
-                                                        }
-                                                    }
-                                                },
-                                                "required": ["type", "values"]
-                                            }
-                                        ]
-                                    }
-                                },
                                 "dateRange": {
-                                    "type": "object",
-                                    "properties": {
-                                        "date_from": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "date_from": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
                                                 },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ]
-                                        },
-                                        "date_to": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
+                                                "date_to": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
                                                 },
-                                                {
-                                                    "type": "null"
+                                                "explicitDate": {
+                                                    "type": "boolean"
                                                 }
-                                            ]
+                                            }
                                         },
-                                        "explicitDate": {
-                                            "type": "boolean"
+                                        {
+                                            "type": "null"
                                         }
-                                    }
+                                    ]
+                                },
+                                "properties": {
+                                    "description": "Complete property-filter objects from the editor, including type, key, operator, value, and group_type_index for group filters. Preserve all fields and boolean values; the backend validates each filter.",
+                                    "anyOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                    "type": "string"
+                                                },
+                                                "additionalProperties": {}
+                                            }
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
                                 },
                                 "filterTestAccounts": {
-                                    "type": "boolean"
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
                                 }
-                            }
+                            },
+                            "additionalProperties": {}
                         },
                         {
                             "type": "null"

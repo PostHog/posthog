@@ -408,6 +408,17 @@ function readsEmailRecipients(toolName: string, input: unknown): boolean {
 }
 
 function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
+    // Property-filter values can contain credentials under the generic `value` key.
+    // Exec embeds the arguments in text, so skip SQL payloads there too.
+    const sqlInput = input as { filters?: unknown; command?: unknown } | null | undefined
+    if (
+        (toolName === EXECUTE_SQL_TOOL_NAME && sqlInput?.filters != null) ||
+        (toolName === 'exec' &&
+            typeof sqlInput?.command === 'string' &&
+            sqlInput.command.includes(EXECUTE_SQL_TOOL_NAME))
+    ) {
+        return false
+    }
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
