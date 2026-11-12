@@ -1,9 +1,7 @@
 """The standing Trunk quarantine debt, attributed to owning teams.
 
-The quarantined set comes from the synced TrunkIo ``QuarantinedTests`` warehouse table; ownership
-from the repository's own files (``logic.ownership``), because a quarantine outlives the CI signal
-that would otherwise name a team. A test the repo cannot place, or whose path no team claims, lands
-under ``'unowned'``.
+Ownership comes from the repository's own files (``logic.ownership``), because a quarantine outlives
+the CI signal that would otherwise name a team.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -40,8 +38,7 @@ def _trunk_url(*, v2_shape: bool, org_url_slug: str | None, repository: str) -> 
 
 
 def _trunk_test_url(org_url_slug: str | None, repository: str, test_case_id: str) -> str | None:
-    """The Trunk app's per-test page for a v1 row, which carries no URL. The ``?repo`` form is what
-    Trunk itself redirects to the canonical repo-uuid URL (verified against the live app)."""
+    """A v1 row carries no URL. Trunk redirects this ``?repo`` form to its repo-uuid URL."""
     if not org_url_slug or not test_case_id:
         return None
     return f"https://app.trunk.io/{org_url_slug}/flaky-tests/test/{test_case_id}?repo={repository}"
@@ -61,8 +58,7 @@ def query_trunk_quarantine_debt(
     ttl_days: int,
     now: datetime,
 ) -> TrunkQuarantineDebt:
-    """Every currently quarantined test with its owning team and age, plus the per-team rollup;
-    the unavailable shape when no TrunkIo QuarantinedTests table is synced."""
+    """Tests are oldest first. ``available`` is False when no TrunkIo QuarantinedTests table is synced."""
     source = curated.trunk_quarantined_tests_source()
     if source is None:
         return TrunkQuarantineDebt(
@@ -147,7 +143,7 @@ def query_trunk_quarantine_debt(
             owner_team=owner_team,
             test_count=len(owned_tests),
             overdue_count=sum(1 for test in owned_tests if test.overdue),
-            # tests is sorted oldest first above, so each owner's first entry carries the max age
+            # `tests` is sorted oldest first, so each owner's first entry carries the greatest age.
             oldest_age_days=owned_tests[0].age_days,
         )
         for owner_team, owned_tests in rollup.items()

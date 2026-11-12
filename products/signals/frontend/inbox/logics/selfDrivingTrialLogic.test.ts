@@ -22,8 +22,8 @@ describe('selfDrivingTrialLogic', () => {
 
     afterEach(() => jest.useRealTimers())
 
-    it('starts and stops trial requests with the rollout flag, including polling after an error', async () => {
-        const logic = selfDrivingTrialLogic({ teamId: 1 })
+    it.each([1, null])('only requests trial status with a team and the rollout flag (team: %s)', async (teamId) => {
+        const logic = selfDrivingTrialLogic({ teamId })
         logic.mount()
         try {
             await jest.advanceTimersByTimeAsync(0)
@@ -32,16 +32,16 @@ describe('selfDrivingTrialLogic', () => {
 
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: true })
             await jest.advanceTimersByTimeAsync(0)
-            expect(mockTrialList).toHaveBeenCalledTimes(1)
+            expect(mockTrialList).toHaveBeenCalledTimes(teamId === null ? 0 : 1)
 
             await jest.advanceTimersByTimeAsync(60_000)
             await jest.advanceTimersByTimeAsync(0)
-            expect(mockTrialList).toHaveBeenCalledTimes(2)
+            expect(mockTrialList).toHaveBeenCalledTimes(teamId === null ? 0 : 2)
 
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: false })
             await jest.advanceTimersByTimeAsync(120_000)
             await logic.asyncActions.loadTrial()
-            expect(mockTrialList).toHaveBeenCalledTimes(2)
+            expect(mockTrialList).toHaveBeenCalledTimes(teamId === null ? 0 : 2)
             expect(logic.values.trialEnabled).toBe(false)
         } finally {
             logic.unmount()

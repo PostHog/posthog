@@ -114,6 +114,14 @@ class MetricRangeFunction(LabeledStrEnum):
     INCREASE = "increase", "increase"
 
 
+class MetricNameMatchMode(LabeledStrEnum):
+    """How a metric-names search matches a name: case-insensitive substring or prefix, or an RE2 regex."""
+
+    SUBSTRING = "substring", "substring"
+    PREFIX = "prefix", "prefix"
+    REGEX = "regex", "regex"
+
+
 class DashboardImportSource(LabeledStrEnum):
     """What a dashboard import reads: a Grafana dashboard JSON model, or a screenshot of a dashboard."""
 

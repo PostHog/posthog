@@ -13,7 +13,7 @@ from posthog.integrations.contracts import SOURCE_MARKER_CONFIG_KEY, Integration
 from posthog.integrations.enums import AuthType
 
 from . import model
-from .auth_types import AUTH_TYPE_CONFIG_KEY
+from .auth_types import AUTH_TYPE_CONFIG_KEY, default_auth_type
 
 if TYPE_CHECKING:
     from posthog.integrations.accessors import AuthAccessor, OAuthAccessor
@@ -34,6 +34,17 @@ def row_accessor(record: IntegrationRecord) -> "AuthAccessor":
     from posthog.integrations.accessors import AuthAccessor  # noqa: PLC0415 — the SDK imports the adapters
 
     return AuthAccessor(kind=record.kind, auth_type=AuthType(record.auth_type), source_rows=_source_rows(record))
+
+
+def creator_accessor(kind: str) -> "AuthAccessor":
+    """The SDK accessor that a creator of `kind` writes through: the default auth type, no warehouse source rows.
+
+    Use `upsert` for a reconnect (it clears `errors`, and `created_by_id=None` keeps the creator), or
+    `create` for a row that must be new.
+    """
+    from posthog.integrations.accessors import AuthAccessor  # noqa: PLC0415 — the SDK imports the adapters
+
+    return AuthAccessor(kind=kind, auth_type=default_auth_type(kind))
 
 
 def oauth_row_accessor(record: IntegrationRecord) -> "OAuthAccessor":

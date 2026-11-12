@@ -28,7 +28,7 @@ from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
     SCOPE_OBJECT_CHOICES,
 )
-from products.access_control.backend.facade.object_names import display_model
+from products.access_control.backend.facade.object_names import display_model, resolve_object_names
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
@@ -53,46 +53,34 @@ else:
     _GenericViewSet = object
 
 
-def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | None:
+def _access_target(view: Any, obj: Any) -> Model | ObjectAccessRef:
+    """`obj` as object access control reads it. A view that serves facade contracts returns a
+    contract from `get_object()`, and it names the object for access control through its
+    `object_access_ref()`."""
+    return obj if isinstance(obj, Model) else view.object_access_ref(obj)
+
+
+def _inherited_source_display_name(obj: Model | ObjectAccessRef, access: ResolvedAccess) -> str | None:
     """A human name for the parent object an inherited level comes through, so the UI can say
     which one. Only object-scoped sources have one, and the parent is always the object's own
     fallback relation (that's where the walk got its id), so it is read off the object — cached
     by Django, free when already loaded — never refetched by id. The name field comes from the
-    same registry the settings UI names objects with, so a new fallback parent needs no code here."""
+    same registry the settings UI names objects with, so a new fallback parent needs no code here.
+    A reference carries only the parent's id, so its parent is named by id instead."""
     if access.source != "parent_object":
         return None
+    if isinstance(obj, ObjectAccessRef):
+        parent_id = obj.fallback_parent.id if obj.fallback_parent else None
+        if parent_id is None:
+            return None
+        parent_name = resolve_object_names(access.source_resource, [parent_id], obj.team_id).get(parent_id)
+        return parent_name.name if parent_name else None
     parent = fallback_parent_object(obj, access.source_resource)
     display = display_model(access.source_resource)
     if parent is None or display is None:
         return None
     name = getattr(parent, display.name_field, None)
     return str(name) if name else None
-
-
-AccessControlTarget = Model | ObjectAccessRef
-
-
-def _user_access_level(user_access_control: UserAccessControl, target: AccessControlTarget) -> Optional[str]:
-    if isinstance(target, ObjectAccessRef):
-        return user_access_control.access_level_for_ref(target)
-    return user_access_control.get_user_access_level(target)
-
-
-def _access_control_target(view: Any) -> AccessControlTarget:
-    obj = view.get_object()
-    if isinstance(obj, Model):
-        return obj
-    return view.object_access_ref(obj)
-
-
-def _target_id(target: AccessControlTarget) -> str:
-    return target.id if isinstance(target, ObjectAccessRef) else str(target.pk)
-
-
-def _can_modify_access_levels(user_access_control: UserAccessControl, target: AccessControlTarget) -> bool:
-    if isinstance(target, ObjectAccessRef):
-        return user_access_control.check_can_modify_access_levels_for_ref(target)
-    return user_access_control.check_can_modify_access_levels_for_object(target)
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
@@ -228,7 +216,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         # We assume the highest level is required for the given resource to edit access controls
         required_level = highest_access_level(resource)
         team = context["view"].team
-        the_object = _access_control_target(context["view"])
+        the_object = _access_target(context["view"], context["view"].get_object())
 
         # Role-backed access controls require the ROLE_BASED_ACCESS feature — same gate
         # as the UI's "Roles" blocks and the runtime enforcement in UserTeamPermissions.
@@ -244,13 +232,19 @@ class AccessControlSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("The member must belong to the same organization as this project.")
 
         if resource_id:
-            if _target_id(the_object) != str(resource_id):
+            object_id = the_object.id if isinstance(the_object, ObjectAccessRef) else the_object.pk
+            if str(object_id) != str(resource_id):
                 raise exceptions.PermissionDenied(
                     "Cannot modify access controls for a resource different from the URL target."
                 )
 
             # Check that they have the right access level for this specific resource object
-            if not _can_modify_access_levels(access_control, the_object):
+            can_modify = (
+                access_control.check_can_modify_access_levels_for_ref(the_object)
+                if isinstance(the_object, ObjectAccessRef)
+                else access_control.check_can_modify_access_levels_for_object(the_object)
+            )
+            if not can_modify:
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
 
             # Cap distinct objects with per-object overrides.
@@ -473,8 +467,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if is_resource_level and resource != "project":
             raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
 
-        obj = _access_control_target(self)
-        resource_id = _target_id(obj)
+        obj = self.get_object()
+        resource_id = obj.id
 
         if is_resource_level:
             # If resource level then we are getting all controls for the project that aren't specific to a resource
@@ -484,7 +478,13 @@ class AccessControlViewSetMixin(_GenericViewSet):
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = _user_access_level(user_access_control, obj)
+        target = _access_target(self, obj)
+        if isinstance(target, ObjectAccessRef):
+            user_access_level = user_access_control.access_level_for_ref(target)
+            can_modify = user_access_control.check_can_modify_access_levels_for_ref(target)
+        else:
+            user_access_level = user_access_control.get_user_access_level(target)
+            can_modify = user_access_control.check_can_modify_access_levels_for_object(target)
 
         payload: dict[str, Any] = {
             "access_controls": serializer.data,
@@ -496,7 +496,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
-            "user_can_edit_access_levels": _can_modify_access_levels(user_access_control, obj)
+            "user_can_edit_access_levels": can_modify
             and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
         }
 
@@ -512,15 +512,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
             default_subject = SubjectAccessControl.for_default(user_access_control, team)
-            if isinstance(obj, ObjectAccessRef):
-                inherited = default_subject.inherited_access_for_ref(obj)
-                # A reference carries only its parent's id, so there is no parent object to name.
-                source_display_name = None
-            else:
-                inherited = default_subject.inherited_access_for_object(obj)
-                source_display_name = _inherited_source_display_name(obj, inherited) if inherited else None
+            inherited = (
+                default_subject.inherited_access_for_ref(target)
+                if isinstance(target, ObjectAccessRef)
+                else default_subject.inherited_access_for_object(target)
+            )
             payload["inherited_access"] = (
-                InheritedAccessSerializer({**asdict(inherited), "source_display_name": source_display_name}).data
+                InheritedAccessSerializer(
+                    {**asdict(inherited), "source_display_name": _inherited_source_display_name(target, inherited)}
+                ).data
                 if inherited
                 else None
             )
@@ -537,7 +537,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if not resource or resource == "INTERNAL":
             raise exceptions.NotFound("User access information is not available for this resource.")
 
-        obj = _access_control_target(self)
+        target = _access_target(self, self.get_object())
 
         org_memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
@@ -556,14 +556,17 @@ class AccessControlViewSetMixin(_GenericViewSet):
             if not project_access:
                 continue
 
-            access_level = _user_access_level(user_uac, obj)
+            if isinstance(target, ObjectAccessRef):
+                access_level = user_uac.access_level_for_ref(target)
+            else:
+                access_level = user_uac.get_user_access_level(target)
             if access_level is None or access_level == "none":
                 continue
 
             access_source = (
-                user_uac.get_access_source_for_ref(obj)
-                if isinstance(obj, ObjectAccessRef)
-                else user_uac.get_access_source_for_object(obj, resource)
+                user_uac.get_access_source_for_ref(target)
+                if isinstance(target, ObjectAccessRef)
+                else user_uac.get_access_source_for_object(target, resource)
             ) or AccessSource.DEFAULT
 
             users_with_access.append(
@@ -610,8 +613,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "Cannot modify access controls for a resource different from the URL target."
             )
 
-        obj = _access_control_target(self)
-        resource_id = _target_id(obj)
+        obj = self.get_object()
+        resource_id = str(obj.id)
         team = cast(Team, self.team)  # type: ignore
 
         # Generically validate the incoming data

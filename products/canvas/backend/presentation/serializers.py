@@ -1172,6 +1172,37 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     )
 
 
+class CanvasCreatorRequiredCode(models.TextChoices):
+    CAPABILITY_WIDENING = "capability_widening_requires_creator", "Capability widening requires creator"
+    PINNED_VERSION = "pinned_version_requires_creator", "Pinned version requires creator"
+    PERMISSION_DENIED = "permission_denied", "Permission denied"
+
+
+class CanvasCreatorRequiredSerializer(serializers.Serializer):
+    """403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+    or pinning a component version other than that component's live version."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the refusal.")
+    code = serializers.ChoiceField(
+        choices=CanvasCreatorRequiredCode.choices,
+        help_text="`capability_widening_requires_creator`: the change adds capabilities and the caller did not "
+        "create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than "
+        "that component's live version and the caller did not create that component. `permission_denied`: a "
+        "publish or edit supplied a name and the caller did not create the canvas.",
+    )
+    capability_widening = CanvasCapabilityWideningSerializer(
+        required=False,
+        help_text="Set for capability_widening_requires_creator. The capabilities the change adds, so the caller "
+        "can ask the canvas creator to publish them.",
+    )
+    components = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Set for pinned_version_requires_creator. IDs of the components whose placements must use the "
+        "live version or `latest` instead.",
+    )
+
+
 class CanvasActionDefinitionSerializer(serializers.Serializer):
     """One registered action verb, as the host renders it before invoking."""
 

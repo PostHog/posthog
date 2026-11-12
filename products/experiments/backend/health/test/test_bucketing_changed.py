@@ -14,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
 )
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
 from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
@@ -84,7 +85,8 @@ class TestBucketingChangedMidRun(TestCase):
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The key is an input of the '
                 'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
                 'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
-                f"date to {FIRST_CHANGE}.",
+                f"date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "key_changed_before_4_people",
@@ -101,7 +103,8 @@ class TestBucketingChangedMidRun(TestCase):
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The key is an input of the '
                 'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
                 'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
-                f"date to {FIRST_CHANGE}.",
+                f"date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "aggregation_changed_before_4_people",
@@ -125,7 +128,8 @@ class TestBucketingChangedMidRun(TestCase):
                 "The flag changed from matching by user ID to matching by device ID on September 20, 2026 at 3:04 PM "
                 "CEST. The change came 8 days after the start date. Users whose device ID differs from their user ID got a "
                 f"new variant draw, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or "
-                "move its start date to September 20, 2026 at 3:04 PM CEST.",
+                "move its start date to September 20, 2026 at 3:04 PM CEST."
+                f" {RESET_EFFECT}",
             ),
             (
                 "experience_continuity_changed_with_unknown_exposure",
@@ -138,7 +142,8 @@ class TestBucketingChangedMidRun(TestCase):
                 f'On {FIRST_CHANGE}, "Persist flag across authentication steps" was turned off. The change came 3 '
                 "hours after the start date. Users who logged in while it was on no longer keep the variant they got before "
                 f"logging in, so they may have switched variants. {MIXED_ASSIGNMENTS} Reset the experiment, or move "
-                f"its start date to {FIRST_CHANGE}.",
+                f"its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "experience_continuity_turned_on_after_a_set_back_change",
@@ -154,7 +159,8 @@ class TestBucketingChangedMidRun(TestCase):
                 ),
                 f'On {THIRD_CHANGE}, "Persist flag across authentication steps" was turned on. Users exposed between '
                 "these changes may have switched variants. A sample ratio mismatch or users in more than one variant "
-                f"can come from these changes. Reset the experiment, or move its start date to {THIRD_CHANGE}.",
+                f"can come from these changes. Reset the experiment, or move its start date to {THIRD_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "experience_continuity_turned_on",
@@ -178,7 +184,8 @@ class TestBucketingChangedMidRun(TestCase):
                 ),
                 f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. Every user and "
                 "group got a new variant draw, so people exposed before the change may have switched variants. "
-                f"{MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"{MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "two_settings_name_the_key_first",
@@ -188,7 +195,8 @@ class TestBucketingChangedMidRun(TestCase):
                 'flag across authentication steps" was turned off. The key is an input of the variant draw, so '
                 'every user got a new one. Exposures under "old-key" are no longer in the results, and code that '
                 'still uses "old-key" no longer gets this flag. Reset the experiment, or move its start date to '
-                f"{SECOND_CHANGE}.",
+                f"{SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "set_back_with_exposures_in_between",
@@ -204,7 +212,8 @@ class TestBucketingChangedMidRun(TestCase):
                 ),
                 f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
                 "People exposed in between got a new variant draw, so they may have switched variants. Move the "
-                f"start date to {SECOND_CHANGE}, or reset the experiment.",
+                f"start date to {SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
             (
                 "set_back_before_4_people",

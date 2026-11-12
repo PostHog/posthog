@@ -53,6 +53,7 @@ from posthog.tasks.email import (
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_hog_functions_digest,
     send_team_matview_failure_digest,
     send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
@@ -62,6 +63,7 @@ from posthog.tasks.email import (
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -1893,6 +1895,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_daily_digest()
         # Should now be sent to all users (creator, editor, original user, test2) - 4 separate emails
         assert len(mocked_email_messages) == 4
+
+    @parameterized.expand(
+        [
+            ("below_both_minimums", 40, 5, False),
+            ("enough_runs_above_threshold", 95, 5, True),
+            ("few_runs_but_enough_failures", 20, 10, True),
+            ("every_run_failed_at_low_volume", 0, 3, True),
+        ]
+    )
+    def test_send_team_hog_functions_digest_requires_enough_runs(
+        self, MockEmailMessage: MagicMock, _name: str, succeeded: int, failed: int, expect_email: bool
+    ) -> None:
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"data_pipeline_error_threshold": 0.01}
+        self.user.save()
+
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Low Volume Function", type="transformation", enabled=True, hog="return event"
+        )
+        for metric_kind, metric_name, count in (("success", "succeeded", succeeded), ("failure", "failed", failed)):
+            if count:
+                create_app_metric2(
+                    team_id=self.team.id,
+                    app_source="hog_function",
+                    app_source_id=str(hog_function.id),
+                    timestamp=timezone.now() - dt.timedelta(hours=1),
+                    metric_kind=metric_kind,
+                    metric_name=metric_name,
+                    count=count,
+                )
+
+        send_team_hog_functions_digest(self.team.id)
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)
 
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

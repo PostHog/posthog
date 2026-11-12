@@ -82,6 +82,44 @@ export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turns an answer engine on or off for the project, or sets how often it checks each prompt. The next daily run uses the change. Each check on an engine is a paid model call.
+ * @summary Update an AEO answer engine
+ */
+export const AeoEnginesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
+    frequency: zod
+        .enum(['daily', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .optional()
+        .describe(
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+        ),
+})
+
+/**
+ * Adds keywords to the project's keyword list. Send many at once. Blank entries and keywords already in the list are skipped and counted. Fails with 400 when the new keywords would take the list past 200.
+ * @summary Add AEO keywords
+ */
+export const aeoKeywordsCreateBodyKeywordsItemMax = 200
+
+export const aeoKeywordsCreateBodyKeywordsMax = 200
+
+export const AeoKeywordsCreateBody = /* @__PURE__ */ zod.object({
+    keywords: zod
+        .array(
+            zod
+                .string()
+                .max(aeoKeywordsCreateBodyKeywordsItemMax)
+                .describe('One keyword or phrase, at most 100 characters once whitespace is collapsed.')
+        )
+        .min(1)
+        .max(aeoKeywordsCreateBodyKeywordsMax)
+        .describe(
+            'Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.'
+        ),
+})
+
+/**
  * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
  * @summary Update an AEO prompt
  */

@@ -1,17 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LoadTags, TagOption, tagSelectLogic } from './tagSelectLogic'
+import { LoadTags, TagOption, excludingTags, tagSelectLogic } from './tagSelectLogic'
 
 const TAGS_PER_PAGE = 100
 
 export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): LoadTags {
     const { currentTeamId } = useValues(teamLogic)
     return useCallback<LoadTags>(
-        async (query, offset) => {
+        async (query, offset, isStale) => {
             if (options) {
                 const matches = options.filter((option) => option.tag.toLowerCase().includes(query.toLowerCase()))
                 return {
@@ -20,7 +20,7 @@ export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): 
                 }
             }
             if (customLoadTags) {
-                return customLoadTags(query, offset)
+                return customLoadTags(query, offset, isStale)
             }
             if (currentTeamId == null) {
                 return { results: [], hasMore: false }
@@ -41,13 +41,7 @@ export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): 
 /** `exclude` must be defined outside the component, because a new function on each render starts a new search. */
 export function useTagSourceExcluding(exclude: (tag: string) => boolean): LoadTags {
     const projectTags = useTagSource()
-    return useCallback<LoadTags>(
-        async (search, offset) => {
-            const page = await projectTags(search, offset)
-            return { ...page, results: page.results.filter(({ tag }) => !exclude(tag)) }
-        },
-        [projectTags, exclude]
-    )
+    return useMemo(() => excludingTags(projectTags, exclude), [projectTags, exclude])
 }
 
 export interface TagPages {

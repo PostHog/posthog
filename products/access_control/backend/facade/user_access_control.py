@@ -119,6 +119,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
+    # The account_note API scope split off `account`, and access control governs notes the way it governs
+    # accounts, through the Customer analytics rules.
+    "account_note": "customer_analytics",
     "customer_journey": "customer_analytics",
     "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
@@ -1119,21 +1122,23 @@ class UserAccessControl:
         resource = resource or model_to_resource(obj)
         if not resource:
             return None
-        return self._access_source(resource, str(obj.id), self._is_creator(obj))  # type: ignore[attr-defined]
+        return self._access_source(resource, str(obj.id), getattr(obj, "created_by_id", None))  # type: ignore[attr-defined]
 
     def get_access_source_for_ref(self, ref: ObjectAccessRef) -> Optional[AccessSource]:
-        """`get_access_source_for_object` for an object the caller holds only as a reference."""
+        """`get_access_source_for_object` for an object held only as a reference."""
         target = self._target_for_ref(ref)
-        return self._access_source(target.resource, target.object_id, self._is_creator_id(target.created_by_id))
+        return self._access_source(target.resource, target.object_id, target.created_by_id)
 
-    def _access_source(self, resource: APIScopeObject, object_id: str, is_creator: bool) -> Optional[AccessSource]:
+    def _access_source(
+        self, resource: APIScopeObject, object_id: str, created_by_id: Optional[int]
+    ) -> Optional[AccessSource]:
         org_membership = self._organization_membership
 
         if not org_membership:
             return None
 
         # Check if user is the creator
-        if is_creator:
+        if self._is_creator_id(created_by_id):
             return AccessSource.CREATOR
 
         # Check if user is org admin

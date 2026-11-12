@@ -235,7 +235,7 @@
         "scope": "project"
     },
     "analyticsSpaces": {
-        "template": "/analytics/spaces",
+        "template": "/analytics/collections",
         "params": [],
         "scope": "project"
     },
@@ -1479,6 +1479,21 @@
         "params": [],
         "scope": "project"
     },
+    "release": {
+        "template": "/releases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "releaseList": {
+        "template": "/releases/list",
+        "params": [],
+        "scope": "project"
+    },
+    "releases": {
+        "template": "/releases",
+        "params": [],
+        "scope": "project"
+    },
     "replay": {
         "template": "/replay/home",
         "params": [],
@@ -1852,6 +1867,11 @@
     "transactional": {
         "template": "/transactional",
         "params": [],
+        "scope": "project"
+    },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "transactionalEmailLogEntry": {

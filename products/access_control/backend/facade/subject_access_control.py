@@ -120,10 +120,12 @@ class SubjectAccessControl(UserAccessControl):
         system default), so their answer is never None on that account.
         """
         target = self._target_for_object(obj)
-        return self._inherited_access_for_target(target) if target else None
+        if target is None:
+            return None
+        return self._inherited_access_for_target(target)
 
     def inherited_access_for_ref(self, ref: ObjectAccessRef) -> Optional[ResolvedAccess]:
-        """`inherited_access_for_object` for an object the caller holds only as a reference."""
+        """`inherited_access_for_object` for an object held only as a reference."""
         return self._inherited_access_for_target(self._target_for_ref(ref))
 
     def _inherited_access_for_target(self, target: _ObjectAccessTarget) -> Optional[ResolvedAccess]:
