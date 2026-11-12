@@ -1,5 +1,7 @@
 """Start provider import runs, run their steps page by page, and record the outcome."""
 
+import hmac
+import hashlib
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
@@ -7,6 +9,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -81,7 +84,7 @@ def start_run(
     credentials = provider.check_credentials(team_id, api_key)
     progress = {step: _new_step_progress() for step in ordered_steps}
     if provider.resumes_after_failure:
-        _continue_failed_steps(team_id, provider.key, progress)
+        _continue_failed_steps(team_id, provider.key, progress, _key_id(credentials.api_key))
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -189,12 +192,25 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
     return [key for key in known if key in steps]
 
 
-def _continue_failed_steps(team_id: int, provider_key: str, progress: dict[str, dict[str, Any]]) -> None:
+def _continue_failed_steps(
+    team_id: int, provider_key: str, progress: dict[str, dict[str, Any]], key_id: str | None
+) -> None:
+    for step_progress in progress.values():
+        step_progress["key_id"] = key_id
     latest = _runs(team_id).filter(provider=provider_key).order_by("-created_at").first()
     if latest is None or latest.status != ProviderImportStatus.FAILED:
         return
     for step, step_progress in progress.items():
-        step_progress["checkpoint"] = latest.progress.get(step, {}).get("checkpoint")
+        previous = latest.progress.get(step, {})
+        # A cursor from another key can point into another account, so a new key starts the step over.
+        if previous.get("key_id") == key_id:
+            step_progress["checkpoint"] = previous.get("checkpoint")
+
+
+def _key_id(api_key: str | None) -> str | None:
+    if not api_key:
+        return None
+    return hmac.new(settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
 
 
 def _fail_stale_runs(team_id: int) -> None:
