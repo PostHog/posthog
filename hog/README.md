@@ -417,7 +417,7 @@ Use `minor` or `major` instead of `patch` when it fits. While the version is a p
 After the pull request merges to master, the workflow:
 
 1. Posts an approval request in the hog releases Slack channel.
-2. Waits for approval in the `hog-release` environment. The authors and mergers of the released pull requests can't approve.
+2. Waits for approval in the `hog-release` environment. The authors and mergers of the released pull requests can't approve, and a hog change merged after the run started stops it.
 3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
@@ -428,7 +428,7 @@ Merging the release pull request runs the workflow again, which:
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 
-- Re-run the failed jobs to finish a release that stopped. Files under a version never change: once the bucket has a version, a rerun reuses its files instead of signing again. GitHub, npm and the formula skip what they already have.
+- Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
 - A rerun of an older version never moves `stable`, npm's `latest` or the formula back.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
 - Don't run `sampo publish` or push `hog/v*` tags by hand.

@@ -44,8 +44,9 @@ download() {
     esac
     show_error=-S
     [ "${3:-}" != quiet ] || show_error=
+    # A transfer slower than 1 KB/s for 30 seconds counts as stalled, so it retries or falls back.
     curl --proto "$proto" --tlsv1.2 -fsL $show_error \
-        --retry 3 --connect-timeout 10 \
+        --retry 3 --connect-timeout 10 --speed-limit 1024 --speed-time 30 \
         -o "$2" "$1"
 }
 
@@ -223,14 +224,17 @@ main() {
     tar -xzf "$tmp/$archive" -C "$tmp/unpacked"
     [ -f "$tmp/unpacked/hog" ] || err "$archive has no hog binary."
 
-    # Copied next to the destination first, then renamed over it, so a running hog is never half-written.
+    # Staged next to the destination and run there first, so a build that can't run on this machine
+    # never replaces a working hog, and the rename never leaves a half-written one.
     mkdir -p "$install_dir"
     staged="$install_dir/.hog.$$.tmp"
     cp "$tmp/unpacked/hog" "$staged"
     chmod 755 "$staged"
+    if ! installed=$("$staged" --version 2>/dev/null); then
+        rm -f "$staged"
+        err "hog $version doesn't run on this machine, so the install left $install_dir as it was."
+    fi
     mv -f "$staged" "$install_dir/hog"
-
-    installed=$("$install_dir/hog" --version 2>/dev/null) || err "the installed hog at $install_dir/hog doesn't run."
     write_receipt
 
     say "Installed hog $installed to $install_dir/hog."

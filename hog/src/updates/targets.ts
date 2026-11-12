@@ -7,14 +7,15 @@ export interface Target {
     libc?: 'glibc' | 'musl'
 }
 
+// x64 builds use Bun's baseline runtime, which runs on CPUs without AVX2.
 export const TARGETS: readonly Target[] = [
     { id: 'darwin-arm64', bunTarget: 'bun-darwin-arm64', os: 'darwin', cpu: 'arm64' },
-    { id: 'darwin-x64', bunTarget: 'bun-darwin-x64', os: 'darwin', cpu: 'x64' },
-    { id: 'linux-x64', bunTarget: 'bun-linux-x64', os: 'linux', cpu: 'x64', libc: 'glibc' },
+    { id: 'darwin-x64', bunTarget: 'bun-darwin-x64-baseline', os: 'darwin', cpu: 'x64' },
+    { id: 'linux-x64', bunTarget: 'bun-linux-x64-baseline', os: 'linux', cpu: 'x64', libc: 'glibc' },
     { id: 'linux-arm64', bunTarget: 'bun-linux-arm64', os: 'linux', cpu: 'arm64', libc: 'glibc' },
-    { id: 'linux-x64-musl', bunTarget: 'bun-linux-x64-musl', os: 'linux', cpu: 'x64', libc: 'musl' },
+    { id: 'linux-x64-musl', bunTarget: 'bun-linux-x64-musl-baseline', os: 'linux', cpu: 'x64', libc: 'musl' },
     { id: 'linux-arm64-musl', bunTarget: 'bun-linux-arm64-musl', os: 'linux', cpu: 'arm64', libc: 'musl' },
-    { id: 'windows-x64', bunTarget: 'bun-windows-x64', os: 'win32', cpu: 'x64' },
+    { id: 'windows-x64', bunTarget: 'bun-windows-x64-baseline', os: 'win32', cpu: 'x64' },
     { id: 'windows-arm64', bunTarget: 'bun-windows-arm64', os: 'win32', cpu: 'arm64' },
 ]
 

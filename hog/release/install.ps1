@@ -77,18 +77,23 @@ function Install-Hog {
         $binary = Join-Path $tmp 'unpacked\hog.exe'
         if (-not (Test-Path $binary)) { throw "$archive has no hog.exe." }
 
-        # Windows can't overwrite a running exe, but it can rename one. The old copy goes aside first,
-        # so a hog that is running keeps working and the new one takes its place.
+        $installed = & $binary --version
+        if ($LASTEXITCODE -ne 0) { throw "hog $Version doesn't run on this machine, so the install changed nothing." }
+
+        # Windows can't overwrite a running exe, but it can rename one. The old copy goes aside, and comes
+        # back if the new one can't take its place.
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         $exe = Join-Path $InstallDir 'hog.exe'
         $old = Join-Path $InstallDir 'hog.old.exe'
         if (Test-Path $old) { Remove-Item -Force $old -ErrorAction SilentlyContinue }
         if (Test-Path $exe) { Move-Item -Force $exe $old }
-        Move-Item -Force $binary $exe
+        try {
+            Move-Item -Force $binary $exe
+        } catch {
+            if (Test-Path $old) { Move-Item -Force $old $exe }
+            throw
+        }
         if (Test-Path $old) { Remove-Item -Force $old -ErrorAction SilentlyContinue }
-
-        $installed = & $exe --version
-        if ($LASTEXITCODE -ne 0) { throw "The installed hog at $exe doesn't run." }
 
         # Best effort: hog works without the receipt, which tells a later upgrade that this script owns the binary.
         try {
