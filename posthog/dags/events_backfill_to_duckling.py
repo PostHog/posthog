@@ -105,6 +105,7 @@ from products.managed_warehouse.backend.facade.backfill_trino import (
     backfills_through_trino,
     connect_backfill_catalog,
     connect_hoglake_backfill_catalog,
+    get_cached_trino_backend,
     get_trino_backend,
 )
 from products.managed_warehouse.backend.facade.client import (
@@ -1216,6 +1217,10 @@ class HoglakeBackfillNotEnabled(Exception):
 
 
 HOGLAKE_NOT_ENABLED_REASON = "hoglake_not_enabled"
+BACKEND_UNKNOWN_REASON = "backend_unknown"
+# How long a sensor tick may spend asking the control plane for backends. A slow or failing control plane would
+# otherwise hold the tick past Dagster's sensor deadline, and no team would get its partitions.
+SENSOR_BACKEND_LOOKUP_BUDGET_SECONDS = 20.0
 
 
 def _open_ducklake_registration(
@@ -1357,15 +1362,35 @@ def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str
     return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
 
 
-def _next_month(month_start: date) -> date:
-    return (month_start.replace(day=1) + timedelta(days=32)).replace(day=1)
+# The Trino hoglake `add_files` procedure registers at most this many files in one call, and a full export registers
+# all of its files in one call.
+HOGLAKE_ADD_FILES_MAX_FILES = 10_000
+# Days that can gain rows between the scan that plans a full export and its last query, which has no upper bound.
+HOGLAKE_FULL_EXPORT_SLACK_DAYS = 7
+HOGLAKE_FULL_EXPORT_MAX_WRITERS = EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES // DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES
 
 
 @frozen
-class HoglakeMonth:
-    start: date
+class HoglakeDay:
+    day: date
     rows: int
-    busiest_day_rows: int
+
+
+@frozen
+class HoglakeExportQuery:
+    """One query of a full hoglake export: `_timestamp` in [start, end), where None leaves that end open."""
+
+    index: int
+    start: date | None
+    end: date | None
+    days: int
+    rows: int
+
+
+@frozen
+class HoglakeFullExportPlan:
+    queries: tuple[HoglakeExportQuery, ...]
+    files_per_day: int
 
 
 @retry(
@@ -1374,36 +1399,69 @@ class HoglakeMonth:
     retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
     reraise=True,
 )
-def hoglake_months_with_rows(
+def hoglake_days_with_rows(
     client: Client, table: str, timestamp_column: str, condition: str, settings: dict[str, Any]
-) -> list[HoglakeMonth]:
-    """The UTC calendar months that hold rows of a full export, oldest first, with their row counts."""
+) -> list[HoglakeDay]:
+    """The UTC days that hold rows of a full export, oldest first, with their row counts."""
     rows = client.execute(
-        f"SELECT toStartOfMonth({timestamp_column}, 'UTC') AS month, toDate({timestamp_column}, 'UTC') AS day, "
-        f"count() FROM {table} WHERE {condition} GROUP BY month, day ORDER BY month, day",
+        f"SELECT toDate({timestamp_column}, 'UTC') AS day, count() FROM {table} WHERE {condition} "
+        "GROUP BY day ORDER BY day",
         settings=settings,
     )
-    totals: dict[date, tuple[int, int]] = {}
-    for month, _day, day_rows in rows:
-        total, busiest = totals.get(month, (0, 0))
-        totals[month] = (total + int(day_rows), max(busiest, int(day_rows)))
-    return [
-        HoglakeMonth(start=month, rows=total, busiest_day_rows=busiest) for month, (total, busiest) in totals.items()
-    ]
+    return [HoglakeDay(day=day, rows=int(day_rows)) for day, day_rows in rows]
 
 
-def hoglake_per_day_fanout(config: DucklingBackfillConfig, month: HoglakeMonth) -> int:
-    """How many files to split each UTC day of a month into.
+def plan_hoglake_full_export(config: DucklingBackfillConfig, days: Sequence[HoglakeDay]) -> HoglakeFullExportPlan:
+    """Split a full export into queries over consecutive UTC days, with one number of files per day for all of them.
 
-    A hoglake file may hold one UTC day only, so a monthly export fans out per day. The busiest day sets the fan-out,
-    because a bulk update can put most of a month's rows on one day. One query keeps a writer open for every day of
-    the month, and the writers together must fit in the row-group buffer budget.
+    A hoglake file may hold one UTC day only. Each query keeps a writer open per day and file, and the writers must
+    fit in the row-group buffer budget. `add_files` registers every file of the export in one call, so the whole
+    export must stay within its file limit. The busiest day sets the files per day, because a bulk update can put
+    most rows on one day.
+
+    The first query has no lower bound and the last none above, so together they cover every `_timestamp`. They run
+    oldest first, and an update only moves a row to a later `_timestamp`. A row updated during the export therefore
+    lands in a query that has not run yet, or stays in one that has: it can be exported twice, as the daily exports
+    can, but never left out.
     """
-    days = calendar.monthrange(month.start.year, month.start.month)[1]
-    writer_limit = max(1, EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES // DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES // days)
-    return min(
-        _compute_fanout(month.busiest_day_rows, config.target_rows_per_file, config.max_s3_file_fanout), writer_limit
+    if not days:
+        return HoglakeFullExportPlan(
+            queries=(HoglakeExportQuery(index=0, start=None, end=None, days=0, rows=0),), files_per_day=1
+        )
+    file_limit = HOGLAKE_ADD_FILES_MAX_FILES // (len(days) + HOGLAKE_FULL_EXPORT_SLACK_DAYS)
+    if file_limit < 1:
+        raise ValueError(
+            f"A full export over {len(days)} days needs more files than add_files registers in one call "
+            f"({HOGLAKE_ADD_FILES_MAX_FILES})"
+        )
+    busiest = max(day.rows for day in days)
+    files_per_day = min(
+        _compute_fanout(busiest, config.target_rows_per_file, config.max_s3_file_fanout),
+        HOGLAKE_FULL_EXPORT_MAX_WRITERS,
+        file_limit,
     )
+    days_per_query = max(1, HOGLAKE_FULL_EXPORT_MAX_WRITERS // files_per_day)
+    groups = [days[start : start + days_per_query] for start in range(0, len(days), days_per_query)]
+    queries = tuple(
+        HoglakeExportQuery(
+            index=index,
+            start=None if index == 0 else group[0].day,
+            end=None if index == len(groups) - 1 else groups[index + 1][0].day,
+            days=len(group),
+            rows=sum(day.rows for day in group),
+        )
+        for index, group in enumerate(groups)
+    )
+    return HoglakeFullExportPlan(queries=queries, files_per_day=files_per_day)
+
+
+def hoglake_range_conditions(column: str, query: HoglakeExportQuery) -> list[str]:
+    conditions = []
+    if query.start is not None:
+        conditions.append(f"{column} >= toDateTime('{query.start.isoformat()}', 'UTC')")
+    if query.end is not None:
+        conditions.append(f"{column} < toDateTime('{query.end.isoformat()}', 'UTC')")
+    return conditions
 
 
 @frozen
@@ -2729,7 +2787,7 @@ def export_persons_full_to_duckling_s3(
         return None
 
     if target.backend == "hoglake":
-        return _export_persons_full_by_month(
+        return _export_persons_full_in_day_ranges(
             context, client, config, target, run_id, period_dir, full_export_settings, settings, columns
         )
 
@@ -2793,8 +2851,10 @@ def persons_export_sql(
     """
 
 
-def hoglake_persons_full_month_sql(s3_url: str, columns: str, team_id: int, month_start: date, fanout: int) -> str:
-    """One month of a full persons export, with one file per UTC day and hash bucket.
+def hoglake_persons_full_query_sql(
+    s3_url: str, columns: str, team_id: int, query: HoglakeExportQuery, files_per_day: int
+) -> str:
+    """One query of a full persons export, with one file per UTC day and hash bucket.
 
     The partition id joins the UTC day and the bucket in one string, because a tuple would put brackets and quotes
     in the file name. PARTITION BY sees the output columns of the SELECT, not the source aliases.
@@ -2803,15 +2863,14 @@ def hoglake_persons_full_month_sql(s3_url: str, columns: str, team_id: int, mont
         s3_url,
         columns,
         team_id,
-        partition_by=f"concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % {fanout}))",
-        conditions=[
-            f"p._timestamp >= toDateTime('{month_start.isoformat()}', 'UTC')",
-            f"p._timestamp < toDateTime('{_next_month(month_start).isoformat()}', 'UTC')",
-        ],
+        partition_by=(
+            f"concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % {files_per_day}))"
+        ),
+        conditions=hoglake_range_conditions("p._timestamp", query),
     )
 
 
-def _export_persons_full_by_month(
+def _export_persons_full_in_day_ranges(
     context: AssetExecutionContext,
     client: Client,
     config: DucklingBackfillConfig,
@@ -2822,27 +2881,27 @@ def _export_persons_full_by_month(
     settings: dict[str, Any],
     columns: str,
 ) -> HoglakeExport:
-    """Export all persons of a hoglake team, one query per month, into the same `full` directory.
+    """Export all persons of a hoglake team into the same `full` directory, one query per range of days.
 
     The persons table is partitioned by UTC day of `_timestamp`, and `add_files` refuses a file that spans two days.
     """
     team_id = target.team_id
-    months = hoglake_months_with_rows(
-        client, "person", "_timestamp", f"team_id = {team_id} AND is_deleted = 0", settings
-    )
+    days = hoglake_days_with_rows(client, "person", "_timestamp", f"team_id = {team_id} AND is_deleted = 0", settings)
+    plan = plan_hoglake_full_export(config, days)
     written_total = 0
-    for month in months:
-        month_start = month.start
-        fanout = hoglake_per_day_fanout(config, month)
-        partition_path = f"{period_dir}/{run_id}_{month_start:%Y%m}_{{_partition_id}}.parquet"
+    for query in plan.queries:
+        partition_path = f"{period_dir}/{run_id}_{query.index:04d}_{{_partition_id}}.parquet"
         s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, partition_path)
-        info = f"team_id={team_id}, full_export, month={month_start:%Y-%m}"
-        context.log.info(f"Exporting persons for {info} ({month.rows} rows, {fanout} file(s) per day)")
+        info = f"team_id={team_id}, full_export, days from {query.start or 'the start'} to {query.end or 'now'}"
+        context.log.info(f"Exporting persons for {info} ({query.rows} rows, {plan.files_per_day} file(s) per day)")
         written_rows = _execute_export_with_retry(
-            client, hoglake_persons_full_month_sql(s3_url, columns, team_id, month_start, fanout), export_settings, info
+            client,
+            hoglake_persons_full_query_sql(s3_url, columns, team_id, query, plan.files_per_day),
+            export_settings,
+            info,
         )
         written_total += _written_or_raise(written_rows, info)
-    logger.info("duckling_persons_full_export_success", team_id=team_id, months=len(months))
+    logger.info("duckling_persons_full_export_success", team_id=team_id, queries=len(plan.queries))
     return HoglakeExport(s3_glob=f"s3://{target.bucket}/{period_dir}/{run_id}_*.parquet", rows=written_total)
 
 
@@ -3831,14 +3890,33 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
             session.close()
 
 
-def _backend_allows_backfill(organization_id: str) -> bool:
-    try:
-        backend = get_trino_backend(organization_id, use_cache=True)
-    except CPUnavailableError as error:
-        # The run asks again, and fails there when the warehouse turns out to be hoglake without the flag.
-        logger.warning("duckling_sensor_backend_unavailable", organization_id=organization_id, error=str(error))
-        return True
-    return backend != "hoglake" or backfills_through_hoglake(organization_id)
+def _sensor_backend(organization_id: str, deadline: float) -> TrinoBackend | None:
+    """The organization's backend for a sensor tick, or None when the tick cannot tell.
+
+    A cached backend needs no request. Past the deadline, or when the control plane fails, a per-org DuckLake bucket
+    still names DuckLake, as it does for a run.
+    """
+    backend = get_cached_trino_backend(organization_id)
+    if backend is not None:
+        return backend
+    if time.monotonic() < deadline:
+        try:
+            return get_trino_backend(organization_id, use_cache=True)
+        except CPUnavailableError as error:
+            logger.warning("duckling_sensor_backend_unavailable", organization_id=organization_id, error=str(error))
+    stored = get_stored_bucket_config(organization_id)
+    if stored is not None and (stored.bucket or "").startswith(DUCKLAKE_BUCKET_PREFIX):
+        return "ducklake"
+    return None
+
+
+def _sensor_skip_reason(organization_id: str, deadline: float) -> str | None:
+    backend = _sensor_backend(organization_id, deadline)
+    if backend is None:
+        return BACKEND_UNKNOWN_REASON
+    if backend == "hoglake" and not backfills_through_hoglake(organization_id):
+        return HOGLAKE_NOT_ENABLED_REASON
+    return None
 
 
 def schedulable_backfill_team_memberships(
@@ -3847,24 +3925,29 @@ def schedulable_backfill_team_memberships(
     """Keep the teams that a run can back up now.
 
     A hoglake warehouse without the hoglake flag gets no partitions, so its days are created once the flag turns on.
+    A team whose backend the tick cannot tell gets none either, so a later tick creates them instead of a run failing
+    on them.
     """
     if not memberships:
         return []
-    allowed: dict[str, bool] = {}
+    deadline = time.monotonic() + SENSOR_BACKEND_LOOKUP_BUDGET_SECONDS
+    reasons: dict[str, str | None] = {}
     schedulable: list[ManagedWarehouseTeamMembership] = []
     for membership in memberships:
         organization_id = membership.organization_id
-        if organization_id not in allowed:
-            allowed[organization_id] = _backend_allows_backfill(organization_id)
-        if allowed[organization_id]:
+        if organization_id not in reasons:
+            reasons[organization_id] = _sensor_skip_reason(organization_id, deadline)
+        reason = reasons[organization_id]
+        if reason is None:
             schedulable.append(membership)
             continue
-        record_duckling_backfill_skipped(team_id=membership.team_id, dataset=dataset, reason=HOGLAKE_NOT_ENABLED_REASON)
+        record_duckling_backfill_skipped(team_id=membership.team_id, dataset=dataset, reason=reason)
         logger.info(
-            "duckling_sensor_skipped_hoglake_team",
+            "duckling_sensor_skipped_team",
             team_id=membership.team_id,
             organization_id=organization_id,
             dataset=dataset,
+            reason=reason,
         )
     return schedulable
 

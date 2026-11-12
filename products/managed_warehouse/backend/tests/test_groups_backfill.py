@@ -420,23 +420,19 @@ def test_groups_backfill_registers_through_hoglake_from_the_team_directory(
     assert (table, registered_replacement) == ("groups", replacement)
     assert location == f"s3://bkt/warehouses/org/data/team_7/_ph_backfill/groups/{directory}/"
     assert file_prefix == f"{import_id}_"
-    assert len(inserts) == (2 if directory == "full" else 1)
-    for insert in inserts:
+    [insert] = inserts
+    assert (
+        f"'https://bkt.s3.us-east-1.amazonaws.com/warehouses/org/data/team_7/_ph_backfill/groups/{directory}/{file_prefix}"
+        in insert
+    )
+    if directory == "full":
         assert (
-            f"'https://bkt.s3.us-east-1.amazonaws.com/warehouses/org/data/team_7/_ph_backfill/groups/{directory}/{file_prefix}"
+            "PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(group_type_index, group_key) % 1))"
             in insert
         )
-    if directory == "full":
-        first, second = inserts
-        assert (
-            "PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(group_type_index, group_key) %"
-            in first
-        )
-        assert "_timestamp >= toDateTime('2025-11-01', 'UTC') AND _timestamp < toDateTime('2025-12-01', 'UTC')" in first
-        assert (
-            "_timestamp >= toDateTime('2025-12-01', 'UTC') AND _timestamp < toDateTime('2026-01-01', 'UTC')" in second
-        )
-        assert f"/full/{file_prefix}202511_{{_partition_id}}.parquet" in first
+        # One query covers every day, with no bound on `_timestamp`, so a group updated during the export is kept.
+        assert "_timestamp >=" not in insert and "_timestamp <" not in insert
+        assert f"/full/{file_prefix}0000_{{_partition_id}}.parquet" in insert
 
 
 @time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
@@ -491,11 +487,8 @@ def _run_groups_through_trino(
             inserts.append(query)
             client.last_query = SimpleNamespace(progress=SimpleNamespace(written_rows=3))
             return []
-        if "GROUP BY month" in query:
-            return [
-                (datetime(2025, 11, 1).date(), datetime(2025, 11, 3).date(), 5),
-                (datetime(2025, 12, 1).date(), datetime(2025, 12, 1).date(), 5),
-            ]
+        if "GROUP BY day" in query:
+            return [(datetime(2025, 11, 3).date(), 5), (datetime(2025, 12, 1).date(), 5)]
         if "'One'" in query:
             assert not hoglake, "hoglake lists the files itself"
             return [("0.parquet",)]

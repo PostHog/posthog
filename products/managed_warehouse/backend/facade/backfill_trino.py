@@ -16,6 +16,7 @@ __all__ = [
     "backfills_through_trino",
     "connect_backfill_catalog",
     "connect_hoglake_backfill_catalog",
+    "get_cached_trino_backend",
     "get_trino_backend",
 ]
 
@@ -30,6 +31,10 @@ def backfills_through_hoglake(organization_id: str) -> bool:
 
 def get_trino_backend(organization_id: str, *, use_cache: bool = False) -> TrinoBackend:
     return backfill_trino.trino_backend_for(organization_id, use_cache=use_cache)
+
+
+def get_cached_trino_backend(organization_id: str) -> TrinoBackend | None:
+    return backfill_trino.cached_trino_backend(organization_id)
 
 
 def connect_backfill_catalog(

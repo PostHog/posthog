@@ -73,6 +73,9 @@ HOGLAKE_NAMESPACE_MISSING_HINT = (
     "namespace when it enables the team for the warehouse, so check the team's hogtower enablement."
 )
 BACKEND_CACHE_TTL_SECONDS = 60.0
+# A backend the control plane reports is fixed when the warehouse is created, so sensors, which tick hourly, keep it
+# across ticks and stop asking for it.
+REPORTED_BACKEND_CACHE_TTL_SECONDS = 6 * 3600.0
 REBUILD_HINT = "Run duckling_trino_conversion_job for the team, or a full backfill with rebuild_mismatched_table: true."
 
 
@@ -120,35 +123,45 @@ def data_imports_trino_flag(organization_id: str) -> bool | None:
     return None if value is None else value is True
 
 
+# The monotonic time each cached backend expires at, with the backend.
 _backend_cache: dict[str, tuple[float, TrinoBackend]] = {}
+
+
+def cached_trino_backend(organization_id: str) -> TrinoBackend | None:
+    """The backend that an earlier cached lookup found, without asking the control plane."""
+    cached = _backend_cache.get(organization_id)
+    if cached is None or time.monotonic() >= cached[0]:
+        return None
+    return cached[1]
 
 
 def trino_backend_for(organization_id: str, *, use_cache: bool = False) -> TrinoBackend:
     """The connector behind the organization's managed Trino catalog, from the hogtower Trino status.
 
     An organization without a Trino status, and a control plane that has no Trino route, count as DuckLake, because
-    every warehouse that predates hoglake is a DuckLake warehouse. A control plane that fails, refuses the request, or
-    answers for another organization raises, because guessing DuckLake for a hoglake warehouse would send its backfill to the
-    wrong statements. `use_cache` serves sensors, which ask about every organization on each tick.
+    every warehouse that predates hoglake is a DuckLake warehouse. Any other answer that is not a success raises,
+    because guessing DuckLake for a hoglake warehouse would send its backfill to the wrong statements. `use_cache`
+    serves sensors, which ask about every organization on each tick.
     """
     from products.managed_warehouse.backend.presentation.views import cp_trino_status_for  # noqa: PLC0415
 
-    now = time.monotonic()
-    cached = _backend_cache.get(organization_id) if use_cache else None
-    if cached is not None and now - cached[0] < BACKEND_CACHE_TTL_SECONDS:
-        return cached[1]
+    if use_cache and (cached := cached_trino_backend(organization_id)) is not None:
+        return cached
 
     response = cp_trino_status_for(organization_id)
-    # 501 means the control plane is not configured at all, as in a local environment without hogtower. A refused
-    # credential says nothing about the backend, so it counts as unavailable too.
-    if (response.status_code >= 500 and response.status_code != 501) or response.status_code in (401, 403):
+    # 404 means the organization has no Trino status. 501 means the control plane is not configured at all, as in a
+    # local environment without hogtower.
+    if response.status_code in (404, 501):
+        _backend_cache[organization_id] = (time.monotonic() + BACKEND_CACHE_TTL_SECONDS, "ducklake")
+        return "ducklake"
+    if not 200 <= response.status_code < 300:
         raise CPUnavailableError(
             f"the control plane could not report the Trino backend of organization {organization_id} "
             f"(HTTP {response.status_code})"
         )
-    backend: TrinoBackend = "ducklake"
+    reported = None
     body = response.data
-    if 200 <= response.status_code < 300 and isinstance(body, dict):
+    if isinstance(body, dict):
         # The backend is fixed when the warehouse is created, so a tenancy that is not enabled yet still reports it.
         trino_status = body.get("status")
         trino_status = trino_status if isinstance(trino_status, dict) else {}
@@ -162,9 +175,10 @@ def trino_backend_for(organization_id: str, *, use_cache: bool = False) -> Trino
             raise CPUnavailableError(
                 f"the control plane answered the Trino status of organization {organization_id} for another organization"
             )
-        if (body.get("backend") or trino_status.get("backend")) == "hoglake":
-            backend = "hoglake"
-    _backend_cache[organization_id] = (now, backend)
+        reported = body.get("backend") or trino_status.get("backend")
+    backend: TrinoBackend = "hoglake" if reported == "hoglake" else "ducklake"
+    ttl = REPORTED_BACKEND_CACHE_TTL_SECONDS if reported in ("hoglake", "ducklake") else BACKEND_CACHE_TTL_SECONDS
+    _backend_cache[organization_id] = (time.monotonic() + ttl, backend)
     return backend
 
 

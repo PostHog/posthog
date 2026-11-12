@@ -550,6 +550,7 @@ class TestTrinoBackendFor:
     @parameterized.expand(
         [
             ("server_error", {"error": "boom"}, 502),
+            ("rate_limited", {"error": "slow down"}, 429),
             ("unauthorized", {"error": "no"}, 401),
             ("forbidden", {"error": "no"}, 403),
             ("another_organization", {"enabled": True, "status": {"org": "org-2", "backend": "hoglake"}}, 200),
@@ -563,6 +564,28 @@ class TestTrinoBackendFor:
         ):
             with pytest.raises(CPUnavailableError):
                 trino_backend_for("org-1")
+
+    @parameterized.expand(
+        [
+            ("reported_backend", {"enabled": True, "status": {"org": "org-1", "backend": "hoglake"}}, 200, 1),
+            ("no_trino_status", {"error": "none"}, 404, 2),
+        ]
+    )
+    def test_a_sensor_keeps_a_reported_backend_across_hourly_ticks(
+        self, _name: str, body: dict, code: int, requests: int
+    ) -> None:
+        clock = [1_000.0]
+        with (
+            patch(
+                "products.managed_warehouse.backend.presentation.views._request", return_value=self._status(body, code)
+            ) as request,
+            patch("products.managed_warehouse.backend.backfill_trino.time.monotonic", side_effect=lambda: clock[0]),
+        ):
+            first = trino_backend_for("org-1", use_cache=True)
+            clock[0] += 3_600
+            assert trino_backend_for("org-1", use_cache=True) == first
+
+        assert request.call_count == requests
 
     def test_a_sensor_reads_the_status_once_per_ttl_and_a_run_always_reads_it(self) -> None:
         body = {"enabled": True, "status": {"org": "org-1", "backend": "hoglake"}}

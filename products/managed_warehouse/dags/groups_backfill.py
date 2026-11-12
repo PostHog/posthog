@@ -1,4 +1,5 @@
 import functools
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -45,7 +46,6 @@ from posthog.dags.events_backfill_to_duckling import (
     _get_cluster,
     _glob_run_files,
     _merged_clickhouse_settings,
-    _next_month,
     _open_ducklake_registration,
     _repair_stale_running_statuses,
     _resolve_duckling_target,
@@ -53,11 +53,12 @@ from posthog.dags.events_backfill_to_duckling import (
     backfill_through_trino,
     export_glob,
     get_s3_url_for_clickhouse,
+    hoglake_days_with_rows,
     hoglake_export_directory,
-    hoglake_months_with_rows,
-    hoglake_per_day_fanout,
+    hoglake_range_conditions,
     is_full_export_partition,
     parse_partition_key_dates,
+    plan_hoglake_full_export,
     schedulable_backfill_team_memberships,
 )
 
@@ -105,15 +106,15 @@ GROUPS_TRINO_COLUMN_TYPES = {
 
 
 def groups_snapshot_select_sql(
-    team_id: int, date: datetime | None = None, *, for_trino: bool = False, until: datetime | None = None
+    team_id: int, date: datetime | None = None, *, for_trino: bool = False, conditions: Sequence[str] = ()
 ) -> str:
     if team_id <= 0:
         raise ValueError("Groups backfill requires a positive team ID")
-    date_filter = ""
+    date_filter = "".join(f" AND {condition}" for condition in conditions)
     if date is not None:
         start = escape_clickhouse_string(date.strftime("%Y-%m-%d"))
-        end = escape_clickhouse_string((until if until is not None else date + timedelta(days=1)).strftime("%Y-%m-%d"))
-        date_filter = f"AND _timestamp >= toDateTime({start}, 'UTC') AND _timestamp < toDateTime({end}, 'UTC')"
+        end = escape_clickhouse_string((date + timedelta(days=1)).strftime("%Y-%m-%d"))
+        date_filter += f" AND _timestamp >= toDateTime({start}, 'UTC') AND _timestamp < toDateTime({end}, 'UTC')"
     group_type_index = "toInt16(group_type_index) AS group_type_index" if for_trino else "group_type_index"
     created_at = "toDateTime64(created_at, 6, 'UTC') AS created_at" if for_trino else "created_at"
     return f"""
@@ -126,7 +127,7 @@ def groups_snapshot_select_sql(
     """
 
 
-def _export_groups_full_by_month(
+def _export_groups_full_in_day_ranges(
     context: AssetExecutionContext,
     client: "Client",
     config: DucklingBackfillConfig,
@@ -134,34 +135,31 @@ def _export_groups_full_by_month(
     run_id: str,
     settings: dict[str, Any],
 ) -> HoglakeExport:
-    """Export all groups of a hoglake team, one query per month, into the same `full` directory.
+    """Export all groups of a hoglake team into the same `full` directory, one query per range of days.
 
     The groups table is partitioned by UTC day of `_timestamp`, and `add_files` refuses a file that spans two days.
     The partition id joins the UTC day and the bucket in one string, because a tuple would put brackets and quotes in
     the file name.
     """
     directory = hoglake_export_directory(target, "groups", None)
-    months = hoglake_months_with_rows(client, "groups", "_timestamp", f"team_id = {int(target.team_id)}", settings)
+    days = hoglake_days_with_rows(client, "groups", "_timestamp", f"team_id = {int(target.team_id)}", settings)
+    plan = plan_hoglake_full_export(config, days)
     written_total = 0
-    for month in months:
-        month_start = month.start
-        fanout = hoglake_per_day_fanout(config, month)
+    for query in plan.queries:
         s3_url = get_s3_url_for_clickhouse(
-            target.bucket, target.bucket_region, f"{directory}/{run_id}_{month_start:%Y%m}_{{_partition_id}}.parquet"
+            target.bucket, target.bucket_region, f"{directory}/{run_id}_{query.index:04d}_{{_partition_id}}.parquet"
         )
         select = groups_snapshot_select_sql(
-            target.team_id,
-            datetime(month_start.year, month_start.month, 1),
-            for_trino=True,
-            until=datetime.combine(_next_month(month_start), datetime.min.time()),
+            target.team_id, for_trino=True, conditions=hoglake_range_conditions("_timestamp", query)
         )
         export_sql = f"""
             INSERT INTO FUNCTION s3({escape_clickhouse_string(s3_url)}, 'Parquet')
-            PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(group_type_index, group_key) % {fanout}))
+            PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(group_type_index, group_key) % {plan.files_per_day}))
             {select}
             SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
         """
-        info = f"team_id={target.team_id}, date=full, month={month_start:%Y-%m}"
+        info = f"team_id={target.team_id}, date=full, days from {query.start or 'the start'} to {query.end or 'now'}"
+        context.log.info(f"Exporting groups for {info} ({query.rows} rows, {plan.files_per_day} file(s) per day)")
         written_total += _written_or_raise(_execute_export_with_retry(client, export_sql, settings, info), info)
     return HoglakeExport(s3_glob=f"s3://{target.bucket}/{directory}/{run_id}_*.parquet", rows=written_total)
 
@@ -197,7 +195,9 @@ def export_groups_to_duckling_s3(
     if for_trino:
         settings.update(TRINO_EXPORT_SETTINGS)
     if target.backend == "hoglake" and date is None:
-        return _export_groups_full_by_month(context, client, config, target, run_id or context.run.run_id, settings)
+        return _export_groups_full_in_day_ranges(
+            context, client, config, target, run_id or context.run.run_id, settings
+        )
     count_sql = "SELECT count() FROM groups WHERE team_id = %(team_id)s"
     count_params: dict[str, int | str] = {"team_id": target.team_id}
     if date is not None:

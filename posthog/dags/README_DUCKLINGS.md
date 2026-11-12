@@ -83,6 +83,9 @@ Routing for a hoglake warehouse:
 - Without either, the run fails with `HoglakeBackfillNotEnabled` before it exports anything, and records the skip reason `hoglake_not_enabled`.
   The run fails instead of finishing, because a finished run would mark its days as backfilled.
 - The sensors create no partitions for such a team, so its days appear once the flag turns on.
+- The sensors also create no partitions for a team whose backend they cannot tell, and record the skip reason `backend_unknown`. A later tick creates them.
+  A tick reuses a reported backend for six hours, because the backend is fixed when the warehouse is created, and stops asking the control plane after 20 seconds.
+  Without an answer, a `posthog-duckling-*` bucket still counts as DuckLake, as it does for a run.
 - A DuckLake warehouse keeps the paths above. If the control plane reports a `bucket_prefix` for it, the run refuses with an error, because ClickHouse can neither list nor reach files under a prefix of a shared bucket.
   The sensors still create partitions for such a team, so its runs keep failing with that error.
 
@@ -95,12 +98,15 @@ Each table holds one team, so there is no shared-table guard.
 ClickHouse writes the same Trino-typed Parquet as above, under the data path of the warehouse that the control plane returns:
 
 - Day export: `<data_path>data/team_<id>/_ph_backfill/<table>/day=YYYY-MM-DD/<run>_<token>_<n>.parquet`
-- Full persons or groups export: `<data_path>data/team_<id>/_ph_backfill/<table>/full/<run>_<token>_<YYYYMM>_<day>_<n>.parquet`
+- Full persons or groups export: `<data_path>data/team_<id>/_ph_backfill/<table>/full/<run>_<token>_<query>_<day>_<n>.parquet`
 
 Every hoglake file holds one UTC day, because `add_files` refuses a file whose `_timestamp` range spans two days.
-A full persons or groups export therefore runs one ClickHouse query per UTC month that has rows, and partitions each query by UTC day and hash bucket.
-All months write into the same `full/` directory, and one `add_files` call registers them together.
-The files per day follow the busiest UTC day of the month, and shrink as needed to keep the writers of a 31-day month within the row-group buffer budget.
+A full persons or groups export therefore partitions its queries by UTC day and hash bucket.
+It runs one ClickHouse query per range of consecutive days, as long as each query keeps its writers within the row-group buffer budget.
+All queries write into the same `full/` directory, and one `add_files` call registers them together, which takes at most 10,000 files.
+The files per day follow the busiest UTC day, and shrink as needed to keep the whole export within that limit.
+The first query has no lower bound on `_timestamp` and the last none above, and they run oldest first.
+An update only moves a row to a later `_timestamp`, so a row updated during the export can be exported twice, as with the daily exports, but never left out.
 Daily exports select the UTC day with an explicit `'UTC'` zone.
 
 ClickHouse lists nothing.

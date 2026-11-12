@@ -1,5 +1,6 @@
 import os
 import re
+import itertools
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -21,6 +22,7 @@ from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
     _DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR,
+    BACKEND_UNKNOWN_REASON,
     DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
     EVENTS_COLUMNS,
@@ -30,6 +32,9 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_TRINO_COLUMNS,
     EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
+    HOGLAKE_ADD_FILES_MAX_FILES,
+    HOGLAKE_FULL_EXPORT_MAX_WRITERS,
+    HOGLAKE_FULL_EXPORT_SLACK_DAYS,
     HOGLAKE_NOT_ENABLED_REASON,
     MAX_S3_FILE_FANOUT,
     PERSONS_COLUMNS,
@@ -43,7 +48,7 @@ from posthog.dags.events_backfill_to_duckling import (
     DucklingBackfillConfig,
     DucklingTarget,
     HoglakeBackfillNotEnabled,
-    HoglakeMonth,
+    HoglakeDay,
     _compute_fanout,
     _connect_duckgres,
     _connection_dropped,
@@ -74,11 +79,11 @@ from posthog.dags.events_backfill_to_duckling import (
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
     get_s3_url_for_clickhouse,
-    hoglake_months_with_rows,
-    hoglake_per_day_fanout,
+    hoglake_days_with_rows,
     is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
+    plan_hoglake_full_export,
     register_files_with_duckling,
     register_persons_files_with_duckling,
     schedulable_backfill_team_memberships,
@@ -2893,7 +2898,7 @@ class _FakeExportClickHouse:
     def __init__(
         self,
         files_per_export: int,
-        months: list[tuple[date, int]] | None = None,
+        days: list[tuple[date, int]] | None = None,
         rows_per_file: int = 5,
         reports_rows: bool = True,
     ) -> None:
@@ -2901,7 +2906,7 @@ class _FakeExportClickHouse:
         self.rows_per_file = rows_per_file
         self.last_query: Any = None
         self.reports_rows = reports_rows
-        self.months = months or []
+        self.days = days or []
         self.inserts: list[tuple[str, dict[str, Any]]] = []
         self.objects: list[str] = []
         self.listings = 0
@@ -2918,8 +2923,8 @@ class _FakeExportClickHouse:
             if self.reports_rows:
                 self.last_query = SimpleNamespace(progress=SimpleNamespace(written_rows=written))
             return []
-        if "GROUP BY month" in query:
-            return [(month, month, rows) for month, rows in self.months]
+        if "GROUP BY day" in query:
+            return list(self.days)
         if "'One'" in query:
             self.listings += 1
             pattern = re.search(r"s3\('([^']+)'", query)
@@ -3347,8 +3352,8 @@ class TestBackfillThroughHoglake:
     def test_exports_under_the_team_data_path_and_registers_the_directory_without_listing(
         self, _name, run, partition_key, table, column_types, directory, replacement
     ):
-        months = [(date(2026, 5, 1), 10), (date(2026, 6, 1), 7)] if directory.endswith("full/") else []
-        clickhouse = _FakeExportClickHouse(files_per_export=2, months=months)
+        days = [(date(2026, 5, 1), 10), (date(2026, 6, 1), 7)] if directory.endswith("full/") else []
+        clickhouse = _FakeExportClickHouse(files_per_export=2, days=days)
 
         catalog, connect_hoglake = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
 
@@ -3359,10 +3364,10 @@ class TestBackfillThroughHoglake:
             catalog.registered
         )
         assert (registered_table, registered_location, registered_replacement) == (table, location, replacement)
-        # Every INSERT wrote 2 files of 5 rows, and the full persons export ran one INSERT per month.
-        assert expected_rows == 10 * (len(months) or 1)
+        # The one INSERT wrote 2 files of 5 rows.
+        assert expected_rows == 10
         assert file_prefix == f"{import_id}_" and import_id.startswith("0123456789abcdef_")
-        assert len(clickhouse.inserts) == (len(months) or 1)
+        assert len(clickhouse.inserts) == 1
         for insert, settings in clickhouse.inserts:
             assert (
                 f"'https://bkt.s3.us-east-1.amazonaws.com/{location.removeprefix('s3://bkt/')}{file_prefix}" in insert
@@ -3371,10 +3376,10 @@ class TestBackfillThroughHoglake:
         assert clickhouse.listings == 0
 
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
-    def test_a_full_persons_export_writes_one_utc_day_per_file_one_month_at_a_time(self):
-        clickhouse = _FakeExportClickHouse(
-            files_per_export=1, months=[(date(2026, 5, 1), 930_000_000), (date(2026, 12, 1), 7)]
-        )
+    def test_a_full_persons_export_runs_oldest_first_with_the_outer_ranges_open(self):
+        # A bulk update puts 40M rows on the first day, which sets 8 files per day, so 32 days fit in one query.
+        days = [(date(2026, 5, 1) + timedelta(days=offset), 40_000_000 if offset == 0 else 7) for offset in range(40)]
+        clickhouse = _FakeExportClickHouse(files_per_export=1, days=days)
 
         catalog, _ = self._run(_run_duckling_persons_backfill, "2", clickhouse, DucklingBackfillConfig())
 
@@ -3383,18 +3388,16 @@ class TestBackfillThroughHoglake:
         first, second = (insert for insert, _ in clickhouse.inserts)
         for insert in (first, second):
             assert (
-                "PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) %"
+                "PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % 8))"
                 in insert
             )
-        assert "p._timestamp >= toDateTime('2026-05-01', 'UTC')" in first
-        assert "p._timestamp < toDateTime('2026-06-01', 'UTC')" in first
-        assert "p._timestamp >= toDateTime('2026-12-01', 'UTC')" in second
-        assert "p._timestamp < toDateTime('2027-01-01', 'UTC')" in second
-        assert f"/full/{file_prefix}202605_{{_partition_id}}.parquet" in first
-        assert f"/full/{file_prefix}202612_{{_partition_id}}.parquet" in second
-        # A busy month splits each day into more files, and 31 days of writers stay within the buffer budget.
-        busy, quiet = (int(re.search(r"% (\d+)\)", insert)[1]) for insert in (first, second))  # type: ignore[index]
-        assert quiet == 1 and 1 < busy <= 256 // 31
+        # Rows that an update moves past the scan land in the last query, which runs last and has no upper bound.
+        assert "p._timestamp >=" not in first
+        assert "p._timestamp < toDateTime('2026-06-02', 'UTC')" in first
+        assert "p._timestamp >= toDateTime('2026-06-02', 'UTC')" in second
+        assert "p._timestamp <" not in second
+        assert f"/full/{file_prefix}0000_{{_partition_id}}.parquet" in first
+        assert f"/full/{file_prefix}0001_{{_partition_id}}.parquet" in second
 
     @parameterized.expand(
         [
@@ -3504,7 +3507,7 @@ class TestBackfillThroughHoglake:
     )
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
     def test_export_only_runs_write_under_the_data_path_without_opening_the_catalog(self, _name, run, partition_key):
-        clickhouse = _FakeExportClickHouse(files_per_export=1, months=[(date(2026, 5, 1), 10)])
+        clickhouse = _FakeExportClickHouse(files_per_export=1, days=[(date(2026, 5, 1), 10)])
 
         catalog, connect_hoglake = self._run(
             run, partition_key, clickhouse, DucklingBackfillConfig(skip_ducklake_registration=True)
@@ -3515,36 +3518,45 @@ class TestBackfillThroughHoglake:
         assert "/warehouses/org-1/data/team_2/_ph_backfill/" in clickhouse.inserts[0][0]
 
 
-class TestHoglakeFullExportFanout:
-    def test_lists_each_month_with_its_busiest_utc_day(self):
+class TestHoglakeFullExportPlan:
+    def test_lists_the_utc_days_with_their_rows(self):
         client = MagicMock()
-        client.execute.return_value = [
-            (date(2026, 5, 1), date(2026, 5, 1), 3),
-            (date(2026, 5, 1), date(2026, 5, 9), 40_000_000),
-            (date(2026, 6, 1), date(2026, 6, 2), 7),
-        ]
+        client.execute.return_value = [(date(2026, 5, 1), 3), (date(2026, 5, 9), 40_000_000)]
 
-        months = hoglake_months_with_rows(client, "person", "_timestamp", "team_id = 2", {})
+        days = hoglake_days_with_rows(client, "person", "_timestamp", "team_id = 2", {})
 
-        assert months == [
-            HoglakeMonth(start=date(2026, 5, 1), rows=40_000_003, busiest_day_rows=40_000_000),
-            HoglakeMonth(start=date(2026, 6, 1), rows=7, busiest_day_rows=7),
-        ]
-        assert "GROUP BY month, day" in client.execute.call_args.args[0]
+        assert days == [HoglakeDay(day=date(2026, 5, 1), rows=3), HoglakeDay(day=date(2026, 5, 9), rows=40_000_000)]
 
     @parameterized.expand(
         [
-            ("one_bulk_update_day_in_a_quiet_month", 40_000_000, 8),
-            ("moderate_busiest_day", 6_000_000, 2),
-            ("quiet_month", 100, 1),
+            ("no_rows", 0, 0, 1, 1),
+            ("five_quiet_years", 1826, 100, 1, 8),
+            ("one_bulk_update_day", 40, 40_000_000, 8, 2),
+            ("bulk_update_day_in_a_long_history", 2000, 40_000_000, 4, 32),
         ]
     )
-    def test_sizes_the_files_per_day_from_the_busiest_day_within_the_writer_budget(
-        self, _name, busiest_day_rows, expected
+    def test_covers_every_timestamp_within_the_writer_and_file_limits(
+        self, _name, day_count, busiest_day_rows, files_per_day, query_count
     ):
-        month = HoglakeMonth(start=date(2026, 5, 1), rows=busiest_day_rows + 30_000, busiest_day_rows=busiest_day_rows)
+        days = [
+            HoglakeDay(day=date(2020, 1, 1) + timedelta(days=offset), rows=busiest_day_rows if offset == 0 else 7)
+            for offset in range(day_count)
+        ]
 
-        assert hoglake_per_day_fanout(DucklingBackfillConfig(), month) == expected
+        plan = plan_hoglake_full_export(DucklingBackfillConfig(), days)
+
+        assert (plan.files_per_day, len(plan.queries)) == (files_per_day, query_count)
+        assert plan.queries[0].start is None and plan.queries[-1].end is None
+        assert all(earlier.end == later.start for earlier, later in itertools.pairwise(plan.queries))
+        assert sum(query.days for query in plan.queries) == day_count
+        assert max(query.days for query in plan.queries) * plan.files_per_day <= HOGLAKE_FULL_EXPORT_MAX_WRITERS
+        assert (day_count + HOGLAKE_FULL_EXPORT_SLACK_DAYS) * plan.files_per_day <= HOGLAKE_ADD_FILES_MAX_FILES
+
+    def test_refuses_an_export_with_more_days_than_add_files_registers(self):
+        days = [HoglakeDay(day=date(1990, 1, 1) + timedelta(days=offset), rows=1) for offset in range(10_000)]
+
+        with pytest.raises(ValueError, match="more files than add_files registers"):
+            plan_hoglake_full_export(DucklingBackfillConfig(), days)
 
 
 class TestSchedulableBackfillTeamMemberships:
@@ -3564,21 +3576,40 @@ class TestSchedulableBackfillTeamMemberships:
 
     @parameterized.expand(
         [
-            ("ducklake", "ducklake", False, True),
-            ("hoglake_with_the_flag", "hoglake", True, True),
-            ("hoglake_without_the_flag", "hoglake", False, False),
-            ("backend_unknown", CPUnavailableError("control plane down"), False, True),
+            ("ducklake", "ducklake", False, None, None),
+            ("hoglake_with_the_flag", "hoglake", True, None, None),
+            ("hoglake_without_the_flag", "hoglake", False, None, HOGLAKE_NOT_ENABLED_REASON),
+            # A run could not route a team whose backend is unknown, so its days wait for a later tick.
+            (
+                "backend_unknown",
+                CPUnavailableError("control plane down"),
+                False,
+                "shared-warehouses",
+                BACKEND_UNKNOWN_REASON,
+            ),
+            (
+                "backend_unknown_per_org_ducklake_bucket",
+                CPUnavailableError("down"),
+                False,
+                "posthog-duckling-abc",
+                None,
+            ),
         ]
     )
-    def test_keeps_a_team_unless_its_warehouse_is_hoglake_without_the_flag(self, _name, backend, flag, scheduled):
+    def test_keeps_a_team_only_when_a_run_can_back_it_up(self, _name, backend, flag, stored_bucket, skip_reason):
         memberships = [self._membership(1, "org-a"), self._membership(2, "org-a")]
 
         with (
+            patch("posthog.dags.events_backfill_to_duckling.get_cached_trino_backend", return_value=None),
             patch(
                 "posthog.dags.events_backfill_to_duckling.get_trino_backend",
                 side_effect=backend if isinstance(backend, Exception) else None,
                 return_value=None if isinstance(backend, Exception) else backend,
             ) as get_backend,
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
+                return_value=SimpleNamespace(bucket=stored_bucket),
+            ),
             patch(
                 "posthog.dags.events_backfill_to_duckling.backfills_through_hoglake", return_value=flag
             ) as flag_lookup,
@@ -3586,12 +3617,34 @@ class TestSchedulableBackfillTeamMemberships:
         ):
             kept = schedulable_backfill_team_memberships(memberships, dataset="events")
 
-        assert kept == (memberships if scheduled else [])
+        assert kept == (memberships if skip_reason is None else [])
         assert get_backend.call_count == 1 and get_backend.call_args.kwargs == {"use_cache": True}
-        assert skipped.call_count == (0 if scheduled else 2)
-        if not scheduled:
-            assert skipped.call_args.kwargs == {"team_id": 2, "dataset": "events", "reason": HOGLAKE_NOT_ENABLED_REASON}
+        assert skipped.call_count == (0 if skip_reason is None else 2)
+        if skip_reason is not None:
+            assert skipped.call_args.kwargs == {"team_id": 2, "dataset": "events", "reason": skip_reason}
         assert flag_lookup.call_count <= 1
+
+    def test_stops_asking_the_control_plane_once_the_tick_budget_is_spent(self):
+        memberships = [self._membership(1, "org-cached"), self._membership(2, "org-new")]
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.SENSOR_BACKEND_LOOKUP_BUDGET_SECONDS", 0.0),
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_cached_trino_backend",
+                side_effect=lambda org: "ducklake" if org == "org-cached" else None,
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.get_trino_backend") as get_backend,
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
+                return_value=SimpleNamespace(bucket="shared-warehouses"),
+            ),
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped") as skipped,
+        ):
+            kept = schedulable_backfill_team_memberships(memberships, dataset="events")
+
+        assert kept == [memberships[0]]
+        get_backend.assert_not_called()
+        assert skipped.call_args.kwargs == {"team_id": 2, "dataset": "events", "reason": BACKEND_UNKNOWN_REASON}
 
     def test_the_events_daily_sensor_creates_no_partitions_for_a_hoglake_team_without_the_flag(self):
         from dagster import DagsterInstance, build_sensor_context
@@ -3603,6 +3656,7 @@ class TestSchedulableBackfillTeamMemberships:
                 "posthog.dags.events_backfill_to_duckling.list_enabled_backfill_team_memberships",
                 return_value=memberships,
             ),
+            patch("posthog.dags.events_backfill_to_duckling.get_cached_trino_backend", return_value=None),
             patch(
                 "posthog.dags.events_backfill_to_duckling.get_trino_backend",
                 side_effect=lambda org, **_: "hoglake" if org == "org-hoglake" else "ducklake",
