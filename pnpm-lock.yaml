@@ -6030,9 +6030,6 @@ importers:
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
-      '@testing-library/dom':
-        specifier: '*'
-        version: 10.4.2
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31

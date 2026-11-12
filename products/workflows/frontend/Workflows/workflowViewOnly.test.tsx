@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonCollapse } from '@posthog/lemon-ui'
 
@@ -85,6 +85,7 @@ function setWorkflowResourceAccess(level: AccessControlLevel): void {
 
 function MonacoLikeEditor(): JSX.Element {
     const codeRef = useRef<HTMLTextAreaElement>(null)
+    const [isFindOpen, setIsFindOpen] = useState(false)
 
     useEffect(() => {
         const code = codeRef.current!
@@ -95,7 +96,7 @@ function MonacoLikeEditor(): JSX.Element {
             }
             if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault()
-                code.dataset.findWidget = 'open'
+                setIsFindOpen(true)
             }
         }
         code.addEventListener('keydown', onKeyDown)
@@ -105,6 +106,7 @@ function MonacoLikeEditor(): JSX.Element {
     return (
         <div className="monaco-editor">
             <textarea ref={codeRef} aria-label="Code" defaultValue="    return event" />
+            {isFindOpen && <input aria-label="Find in code" />}
         </div>
     )
 }
@@ -393,9 +395,24 @@ describe('view-only workflow', () => {
     })
 
     it.each([
-        ['tabs out of a code editor instead of indenting', '{Tab}', 'After code'],
-        ['shift-tabs out of a code editor instead of outdenting', '{Shift>}{Tab}{/Shift}', 'Before code'],
-    ])('%s for a viewer', async (_, keys, nextFieldLabel) => {
+        ['a viewer tabs out of a code editor', AccessControlLevel.Viewer, '{Tab}', 'After code', '    return event'],
+        [
+            'a viewer shift-tabs out of a code editor',
+            AccessControlLevel.Viewer,
+            '{Shift>}{Tab}{/Shift}',
+            'Before code',
+            '    return event',
+        ],
+        ['an editor indents code with Tab', AccessControlLevel.Editor, '{Tab}', 'Code', '        return event'],
+        [
+            'an editor outdents code with Shift+Tab',
+            AccessControlLevel.Editor,
+            '{Shift>}{Tab}{/Shift}',
+            'Code',
+            'return event',
+        ],
+    ])('%s', async (_, accessLevel, keys, focusedFieldLabel, codeAfter) => {
+        logic.actions.loadWorkflowSuccess({ ...VIEWER_WORKFLOW, user_access_level: accessLevel })
         const user = userEvent.setup()
         renderForViewer(
             <ViewOnlyArea>
@@ -409,22 +426,25 @@ describe('view-only workflow', () => {
 
         await user.keyboard(keys)
 
-        expect(screen.getByLabelText(nextFieldLabel)).toHaveFocus()
-        expect(code.value).toBe('    return event')
+        expect(screen.getByLabelText(focusedFieldLabel)).toHaveFocus()
+        expect(code.value).toBe(codeAfter)
     })
 
-    it('opens the browser find bar instead of the code editor find for a viewer', () => {
+    it.each([
+        ['a viewer gets the browser find bar instead of the code editor find', AccessControlLevel.Viewer, true],
+        ['an editor gets the code editor find', AccessControlLevel.Editor, false],
+    ])('%s', (_, accessLevel, reachesBrowserFind) => {
+        logic.actions.loadWorkflowSuccess({ ...VIEWER_WORKFLOW, user_access_level: accessLevel })
         renderForViewer(
             <ViewOnlyArea>
                 <MonacoLikeEditor />
             </ViewOnlyArea>
         )
-        const code = screen.getByLabelText('Code')
 
-        const reachedBrowserFind = fireEvent.keyDown(code, { key: 'f', metaKey: true })
+        const reachedBrowserFind = fireEvent.keyDown(screen.getByLabelText('Code'), { key: 'f', metaKey: true })
 
-        expect(reachedBrowserFind).toBe(true)
-        expect(code).not.toHaveAttribute('data-find-widget')
+        expect(reachedBrowserFind).toBe(reachesBrowserFind)
+        expect(screen.queryByLabelText('Find in code') === null).toBe(reachesBrowserFind)
     })
 
     it('lets a viewer copy a webhook URL from a step', async () => {

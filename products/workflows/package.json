@@ -31,7 +31,6 @@
         "@dnd-kit/core": "*",
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
-        "@testing-library/dom": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
