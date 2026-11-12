@@ -10,6 +10,7 @@ import {
     messagingProviderImportsCreate,
     messagingProviderImportsList,
     messagingProviderImportsProvidersList,
+    messagingProviderImportsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type {
     ImportProviderOptionApi,
@@ -223,7 +224,23 @@ export const providerImportLogic = kea<providerImportLogicType>([
         importRuns: [
             null as ProviderImportRunApi[] | null,
             {
-                loadImportRuns: async () => await messagingProviderImportsList(String(values.currentTeamIdStrict)),
+                loadImportRuns: async () => {
+                    const teamId = String(values.currentTeamIdStrict)
+                    const runs = await messagingProviderImportsList(teamId)
+                    // The list holds only recent runs, so a long import can drop out of it while it still runs.
+                    const missing = values.trackedImportRunIds.filter((id) => !runs.some((run) => run.id === id))
+                    const fetched = await Promise.all(
+                        missing.map((id) =>
+                            messagingProviderImportsRetrieve(teamId, id).catch((error: { status?: number }) => {
+                                if (error.status === 404) {
+                                    return null
+                                }
+                                throw error
+                            })
+                        )
+                    )
+                    return [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                },
             },
         ],
         importProviders: [

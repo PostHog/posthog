@@ -55,6 +55,7 @@ describe('providerImportLogic', () => {
     let customerIOLogic: ReturnType<typeof customerIOImportLogic.build>
     let runResponses: [number, ProviderImportRunApi[] | { detail: string }][]
     let listCalls: number
+    let retrieved: ProviderImportRunApi
     let startBodies: Record<string, unknown>[]
 
     beforeEach(() => {
@@ -64,6 +65,7 @@ describe('providerImportLogic', () => {
             [200, [importRun('completed')]],
         ]
         listCalls = 0
+        retrieved = importRun('completed')
         startBodies = []
         useMocks({
             get: {
@@ -76,6 +78,7 @@ describe('providerImportLogic', () => {
                     listCalls += 1
                     return runResponses[Math.min(listCalls - 1, runResponses.length - 1)]
                 },
+                '/api/projects/:team_id/messaging_provider_imports/:id/': () => [200, retrieved],
             },
             post: {
                 '/api/projects/:team_id/messaging_provider_imports/': async ({ request }) => {
@@ -126,6 +129,22 @@ describe('providerImportLogic', () => {
         await jest.advanceTimersByTimeAsync(10000)
 
         expect(listCalls).toBe(callsWhenFinished)
+    })
+
+    it('follows a running import that dropped out of the recent list until it ends', async () => {
+        runResponses = [[200, []]]
+        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
+        jest.useFakeTimers()
+        await expectLogic(logic, () => logic.actions.startImport({ apiKey: 'app-key' })).toDispatchActions([
+            'startImportSuccess',
+            'loadImportRunsSuccess',
+        ])
+
+        await jest.advanceTimersByTimeAsync(2000)
+        await expectLogic(logic).toDispatchActions(['loadImportRunsSuccess'])
+
+        expect(logic.values.latestImportRun?.status).toBe('completed')
+        expect(logic.values.isImportRunActive).toBe(false)
     })
 
     it('asks which tool to import from only when there is more than one', async () => {
