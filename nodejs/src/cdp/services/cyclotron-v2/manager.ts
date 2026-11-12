@@ -485,6 +485,7 @@ export class CyclotronV2Manager {
         const client = await this.pool.connect()
         let claimedIds: Set<string>
         const storedFingerprints = new Map<string, string>()
+        let capacityRefusal: unknown
         try {
             await client.query('BEGIN')
 
@@ -512,7 +513,14 @@ export class CyclotronV2Manager {
             claimedIds = new Set(claimed.rows.map((row) => row.id))
 
             const toInsert = entries.filter((entry) => claimedIds.has(entry.id))
-            // A key that expired with its job gone between the read above and this claim has no slot yet.
+            // A key that expired with its job gone between the read above and this claim skipped the guard.
+            if (fresh.length === 0 && toInsert.length > 0) {
+                await this.insertGuard().catch((err) => {
+                    capacityRefusal = err
+                    throw err
+                })
+            }
+            // Such a key has no slot yet either.
             const unslotted = toInsert.filter((entry) => entry.job.queueName === 'email' && !dequeueSeqs.has(entry.id))
             if (unslotted.length > 0) {
                 const lateSeqs = await allocateEmailDequeueSeqs(
@@ -553,7 +561,9 @@ export class CyclotronV2Manager {
                     originalError: String(err),
                 })
             }
-            dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            if (err !== capacityRefusal) {
+                dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            }
             throw err
         } finally {
             client.release()

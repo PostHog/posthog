@@ -1596,6 +1596,33 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('still refuses a key that a full queue would reclaim after it was read as taken', async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const fullManager = createManager({ depthLimit: 1, depthCheckIntervalMs: 0 })
+                await fullManager.connect()
+                // The key expiring with its job gone between the read and the claim can't be timed from outside,
+                // because the claim's NOW() is fixed when its transaction begins. So the read reports it as taken.
+                jest.spyOn(fullManager as any, 'liveIdempotencyKeyIds').mockResolvedValue(new Set([id]))
+                try {
+                    await expect(fullManager.createJobsIdempotently([keyed(id, 'b')])).rejects.toThrow(/queue is full/i)
+                } finally {
+                    await fullManager.disconnect()
+                }
+                const { rows } = await assertPool.query<{ fingerprint: string; expired: boolean }>(
+                    'SELECT fingerprint, expires_at <= NOW() AS expired FROM cyclotron_idempotency_keys WHERE id = $1',
+                    [id]
+                )
+                expect(rows).toEqual([{ fingerprint: 'a', expired: true }])
+                expect(await totalJobCount()).toBe(1)
+            })
+
             it('takes an email dequeue slot only for a job it queues', async () => {
                 const teamId = 4242
                 const emailCounter = async (): Promise<string | undefined> =>
