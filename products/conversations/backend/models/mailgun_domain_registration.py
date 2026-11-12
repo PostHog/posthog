@@ -9,7 +9,8 @@ class MailgunDomainRegistration(UUIDModel):
 
     Several regions share one Mailgun account, so a domain with no support channel here may
     still belong to a channel in another region. The cleanup task only deletes domains listed
-    here, and only while Mailgun still reports the same domain id. No team foreign key: the row
+    here, and only while Mailgun still reports the same domain id. A backfilled row has no id until
+    the cleanup matches it to a Mailgun registration. No team foreign key: the row
     must outlive the team so the cleanup can still find the domain.
     """
 

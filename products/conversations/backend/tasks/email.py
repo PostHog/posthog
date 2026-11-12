@@ -352,6 +352,7 @@ def cleanup_mailgun_domains(dry_run: bool = False) -> None:
         candidates=result.candidates if dry_run else len(result.candidates),
         unowned_orphans=result.unowned_orphans,
         kept=result.kept,
+        adopted_registrations=result.adopted_registrations,
         deleted=result.deleted,
         failed=result.failed,
         pruned_registrations=result.pruned_registrations,

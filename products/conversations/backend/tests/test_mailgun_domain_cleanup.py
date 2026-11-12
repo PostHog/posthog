@@ -69,7 +69,6 @@ class TestMailgunDomainCleanup(BaseTest):
             ("registered_unverified_orphan", [], "mg-1", "unverified", DAYS_60, False, True),
             ("orphan_registered_by_another_region", [], None, "unverified", DAYS_60, False, False),
             ("orphan_reclaimed_by_another_region", [], "mg-0", "unverified", DAYS_60, False, False),
-            ("registration_without_mailgun_id", [], "", "unverified", DAYS_60, False, False),
             ("orphan_just_registered", [], "mg-1", "unverified", timedelta(minutes=5), False, False),
             ("active_orphan", [], "mg-1", "active", DAYS_60, False, False),
             ("inbound_domain", [], "mg-1", "unverified", DAYS_60, True, False),
@@ -135,3 +134,22 @@ class TestMailgunDomainCleanup(BaseTest):
         self._run([listed] if listed else [], current={DOMAIN: current})
 
         assert MailgunDomainRegistration.objects.filter(domain=DOMAIN).exists() == should_keep
+
+    @parameterized.expand(
+        [
+            ("registered_with_first_channel", DAYS_60 + timedelta(minutes=1), True),
+            ("reclaimed_after_first_channel", timedelta(days=2), False),
+            ("registered_long_before_first_channel", DAYS_365, False),
+        ]
+    )
+    def test_backfilled_registration_adopts_only_a_mailgun_registration_made_with_its_first_channel(
+        self, _name: str, mailgun_age: timedelta, should_adopt: bool
+    ) -> None:
+        self._register(DOMAIN, mailgun_domain_id="", age=DAYS_60)
+
+        deleted = self._run([_mailgun_domain(DOMAIN, "unverified", mailgun_age)])
+
+        assert deleted == ([DOMAIN] if should_adopt else [])
+        assert MailgunDomainRegistration.objects.get(domain=DOMAIN).mailgun_domain_id == (
+            "mg-1" if should_adopt else ""
+        )

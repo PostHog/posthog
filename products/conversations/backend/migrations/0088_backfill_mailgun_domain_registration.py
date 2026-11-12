@@ -1,20 +1,26 @@
 from django.db import migrations
+from django.db.models import Min
 from django.db.models.functions import Lower
 
 
 def backfill_registrations(apps, schema_editor):
-    # A support channel in this region is proof that this region registered its domain. Domains
-    # that already lost every channel cannot be attributed to a region, so they stay unlisted.
+    # A support channel here proves this region registered its domain, close to when the first channel was
+    # saved. The cleanup task adopts the Mailgun id only for a registration created near that time.
     EmailChannel = apps.get_model("conversations", "EmailChannel")
     MailgunDomainRegistration = apps.get_model("conversations", "MailgunDomainRegistration")
-    domains = (
+    first_channels = (
         EmailChannel.objects.filter(kind="support")
         .annotate(domain_lower=Lower("domain"))
-        .values_list("domain_lower", flat=True)
-        .distinct()
+        .values("domain_lower")
+        .annotate(first_created_at=Min("created_at"))
+        .values_list("domain_lower", "first_created_at")
     )
     MailgunDomainRegistration.objects.bulk_create(
-        [MailgunDomainRegistration(domain=domain) for domain in domains if domain],
+        [
+            MailgunDomainRegistration(domain=domain, registered_at=first_created_at)
+            for domain, first_created_at in first_channels
+            if domain
+        ],
         ignore_conflicts=True,
         batch_size=1000,
     )

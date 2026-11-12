@@ -22,6 +22,9 @@ logger = structlog.get_logger(__name__)
 
 # An orphan this young may belong to a connect that registered the domain but has not saved its channel yet.
 ORPHAN_MIN_AGE = timedelta(hours=1)
+# Connect registers the domain moments before it saves the first channel. A backfilled row only adopts
+# a Mailgun registration created this close to its first channel, so a later reclaim stays unowned.
+BACKFILL_MATCH_WINDOW = timedelta(minutes=10)
 MAX_DELETIONS_PER_RUN = 100
 MAX_PRUNE_CHECKS_PER_RUN = 100
 DELETE_PAUSE_SECONDS = 0.1
@@ -40,6 +43,7 @@ class CleanupResult:
     candidates: list[str]
     unowned_orphans: list[str]
     kept: dict[str, int]
+    adopted_registrations: int
     deleted: int
     failed: int
     pruned_registrations: int
@@ -57,7 +61,28 @@ def _mailgun_created_at(item: dict[str, Any]) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
-def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime) -> OrphanScan:
+def _adoptable_registrations(mailgun_domains: list[dict[str, Any]]) -> dict[str, str]:
+    """Match backfilled rows, which have no Mailgun id yet, to the Mailgun registration they describe."""
+    first_channel_at = dict(
+        MailgunDomainRegistration.objects.filter(mailgun_domain_id="").values_list("domain", "registered_at")
+    )
+    adoptable: dict[str, str] = {}
+    for item in mailgun_domains:
+        name = str(item.get("name", "")).lower()
+        mailgun_domain_id = item.get("id")
+        created_at = _mailgun_created_at(item)
+        if (
+            name in first_channel_at
+            and isinstance(mailgun_domain_id, str)
+            and mailgun_domain_id
+            and created_at is not None
+            and abs(created_at - first_channel_at[name]) <= BACKFILL_MATCH_WINDOW
+        ):
+            adoptable[name] = mailgun_domain_id
+    return adoptable
+
+
+def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime, adopted: dict[str, str]) -> OrphanScan:
     protected: set[str] = set()
     inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
     if inbound_domain:
@@ -70,6 +95,7 @@ def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime) -> Orpha
     registered_ids = dict(
         MailgunDomainRegistration.objects.exclude(mailgun_domain_id="").values_list("domain", "mailgun_domain_id")
     )
+    registered_ids.update(adopted)
     scan = OrphanScan(owned={}, unowned=[], kept=Counter())
 
     for item in mailgun_domains:
@@ -128,14 +154,20 @@ def _prune_registrations(mailgun_domains: list[dict[str, Any]], now: datetime) -
 def cleanup_mailgun_domains(*, dry_run: bool, max_deletions: int = MAX_DELETIONS_PER_RUN) -> CleanupResult:
     now = timezone.now()
     mailgun_domains = list_domains()
-    scan = _scan_orphans(mailgun_domains, now)
+    adoptable = _adoptable_registrations(mailgun_domains)
+    scan = _scan_orphans(mailgun_domains, now, adoptable)
     candidates = list(scan.owned)[:max_deletions]
     kept = scan.kept
 
     deleted = 0
     failed = 0
     pruned = 0
+    adopted = 0
     if not dry_run:
+        for domain, mailgun_domain_id in adoptable.items():
+            adopted += MailgunDomainRegistration.objects.filter(domain=domain, mailgun_domain_id="").update(
+                mailgun_domain_id=mailgun_domain_id
+            )
         pruned = _prune_registrations(mailgun_domains, now)
         for domain in candidates:
             # A connect may have saved a channel for this domain since the snapshot.
@@ -160,6 +192,7 @@ def cleanup_mailgun_domains(*, dry_run: bool, max_deletions: int = MAX_DELETIONS
         candidates=candidates,
         unowned_orphans=scan.unowned,
         kept=dict(kept),
+        adopted_registrations=adopted,
         deleted=deleted,
         failed=failed,
         pruned_registrations=pruned,
