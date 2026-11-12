@@ -31,7 +31,7 @@ const CONVERSION_EVENT = '$workflows_conversion'
 
 // Earlier runs have no `conversion_by_start` row even when they converted, so a range that reaches back
 // past this keeps counting conversions by when they happened. Otherwise its rate would read near zero.
-export const CONVERSION_BY_START_RECORDED_SINCE = '2026-11-04T00:00:00Z'
+export const CONVERSION_BY_START_RECORDED_SINCE = '2026-11-13T00:00:00Z'
 
 export function conversionRateQuery(
     dateFrom: Dayjs,

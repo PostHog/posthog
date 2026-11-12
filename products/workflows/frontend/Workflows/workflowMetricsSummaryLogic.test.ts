@@ -684,31 +684,31 @@ describe('conversionRateQuery', () => {
     it.each([
         {
             name: 'a range after the ship date reads whole hours by run start',
-            dateFrom: '2026-11-10T10:30:00Z',
-            dateTo: '2026-11-10T12:30:00Z',
+            dateFrom: '2026-11-20T10:30:00Z',
+            dateTo: '2026-11-20T12:30:00Z',
             expected: {
-                dateFrom: '2026-11-10T10:00:00.000Z',
-                dateTo: '2026-11-10T13:00:00.000Z',
+                dateFrom: '2026-11-20T10:00:00.000Z',
+                dateTo: '2026-11-20T13:00:00.000Z',
                 metricName: ['conversion_by_start'],
             },
         },
         {
             name: 'an end time already on the hour stays there',
-            dateFrom: '2026-11-10T10:00:00Z',
-            dateTo: '2026-11-10T12:00:00Z',
+            dateFrom: '2026-11-20T10:00:00Z',
+            dateTo: '2026-11-20T12:00:00Z',
             expected: {
-                dateFrom: '2026-11-10T10:00:00.000Z',
-                dateTo: '2026-11-10T12:00:00.000Z',
+                dateFrom: '2026-11-20T10:00:00.000Z',
+                dateTo: '2026-11-20T12:00:00.000Z',
                 metricName: ['conversion_by_start'],
             },
         },
         {
             name: 'a range reaching back past the ship date keeps counting by conversion time',
-            dateFrom: '2026-11-03T23:30:00Z',
-            dateTo: '2026-11-10T12:30:00Z',
+            dateFrom: '2026-11-12T23:30:00Z',
+            dateTo: '2026-11-20T12:30:00Z',
             expected: {
-                dateFrom: '2026-11-03T23:30:00.000Z',
-                dateTo: '2026-11-10T12:30:00.000Z',
+                dateFrom: '2026-11-12T23:30:00.000Z',
+                dateTo: '2026-11-20T12:30:00.000Z',
                 metricName: ['conversion'],
             },
         },
