@@ -47,7 +47,6 @@ export function peopleRecentRowKey(href: string): string {
     return `recent:${href}`
 }
 
-/** A pinned person, group, cohort, account or ticket, with the key its sidebar row slides in under. */
 export interface TodayPeoplePin extends TodayPeopleRecent {
     key: string
 }
@@ -56,10 +55,7 @@ function isPeopleType(type: string | undefined): type is TodayPeopleRecentType {
     return (TODAY_PEOPLE_RECENT_TYPES as readonly (string | undefined)[]).includes(type)
 }
 
-/**
- * The People pane's pins among all shortcuts, in shortcut order. A People pin keys on its href, which is also how a
- * cohort starred in the classic navigation is found, so that star shows here too.
- */
+/** Keys on the href, so a cohort starred in the classic navigation shows here too. */
 export function peoplePinsFromShortcuts(shortcuts: FileSystemEntry[]): TodayPeoplePin[] {
     const pins = new Map<string, TodayPeoplePin>()
     for (const shortcut of shortcuts) {
