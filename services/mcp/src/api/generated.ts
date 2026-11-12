@@ -33129,6 +33129,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -33295,6 +33300,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -85000,6 +85010,11 @@ export namespace Schemas {
       readonly status?: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted?: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason?: string | null;
       /** @nullable */
       readonly approved_at?: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -131137,7 +131152,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Words to match against the metric name, display name, description, and definition. Results come best match first. A metric matches when it contains any word, compared by stem. A quoted phrase must match all its words, and common words such as 'what' or 'our' are ignored. Partial words, synonyms, and acronyms do not match: 'rev' does not find 'revenue', and 'mrr' does not find 'monthly recurring revenue'.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**

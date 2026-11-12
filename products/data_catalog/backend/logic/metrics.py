@@ -31,7 +31,7 @@ from posthog.models.scoping import team_scope
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
-from ..facade.contracts import MetricBulkOwnerChange
+from ..facade.contracts import MetricBulkOwnerChange, MetricListFilters
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
 from ..tasks.tasks import sync_metric_lineage_task
@@ -694,9 +694,18 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
-def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
-    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+def metrics_visible_to_user(
+    team: Team, user: User, user_access_control: UserAccessControl, filters: MetricListFilters | None = None
+) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read.
+
+    With ``filters``, only the metrics the list shows. The plain list and the ranked search both pass them here.
+    """
     metrics = metrics_for_team(team)
+    if filters is not None and filters.status:
+        metrics = metrics.filter(status=filters.status)
+    if filters is not None and filters.definition_kind:
+        metrics = metrics.filter(definition__kind=filters.definition_kind)
     denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics

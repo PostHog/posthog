@@ -256,8 +256,10 @@ class TestMetricAPI(APIBaseTest):
         )
 
         names = [row["name"] for row in self.client.get(self.url).json()["results"]]
+        searched = [row["name"] for row in self.client.get(self.url, {"search": "hidden, allowed"}).json()["results"]]
 
         assert names == ["allowed"]
+        assert searched == ["allowed"]
         assert self.client.get(f"{self.url}hidden/").status_code == status.HTTP_404_NOT_FOUND
         for overwrite in (False, True):
             conflict = self.client.post(
