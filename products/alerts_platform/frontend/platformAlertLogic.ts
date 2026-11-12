@@ -172,7 +172,7 @@ export interface platformAlertLogicActions {
         snoozeUntil: string
     }
     submitRuleMetadataForm: () => {
-        value: true
+        value: boolean
     }
     submitRuleMetadataFormFailure: (
         error: Error,
