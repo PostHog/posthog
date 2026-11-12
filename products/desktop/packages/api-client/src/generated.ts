@@ -12137,6 +12137,12 @@ export namespace Schemas {
         enabled: boolean;
         include_invoiceless_charges: boolean;
     }>;
+    export type SourceUpdatePayload = {
+        /**
+         * Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds.
+         */
+        credential_id: string;
+    };
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -12227,6 +12233,10 @@ export namespace Schemas {
          * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
          */
         connection_warning: string | null;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        payload?: (SourceUpdatePayload & unknown) | undefined;
     };
     export type FeatureFlagExperimentSetMetadata = {
         /**
@@ -16329,6 +16339,7 @@ export namespace Schemas {
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
+        payload: SourceUpdatePayload & unknown;
     }>;
     /**
      * * `errors` - Errors or bugs

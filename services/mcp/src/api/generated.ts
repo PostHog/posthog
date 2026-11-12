@@ -51025,6 +51025,11 @@ export namespace Schemas {
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
+    export interface SourceUpdatePayload {
+      /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+      credential_id: string;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -51113,6 +51118,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface ExternalDataSourceSyncState {
@@ -87378,6 +87385,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning?: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -114096,7 +114105,7 @@ export namespace Schemas {
     }
 
     export interface SourceCredential {
-      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
       credential_id: string;
       /** The source type the stored credentials are for. */
       source_type: string;
