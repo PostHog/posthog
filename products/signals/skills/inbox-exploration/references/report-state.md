@@ -44,6 +44,12 @@ inbox-reports-set-state
   selection for the project, and when the named repository is connected to the project it also
   becomes this report's own next selection. Without a usable correction the report's selection is
   cleared instead, so a restored report re-selects rather than reusing the rejected repository.
+- A `wrong_repo` correction fixes one report.
+  When a whole kind of request keeps going to the wrong repository, a repo routing rule is the project-wide lever:
+  it maps a kind of request to the repository that owns it, and the repository selector reads it for every task and report.
+  Read the rules with `inbox-repo-routing-rules-list` first, to see if one should have applied or now sends work to the wrong place.
+  Then fix that rule with `inbox-repo-routing-rules-update`, or add one with `inbox-repo-routing-rules-create`.
+  Confirm with the user before a rule change, because it moves teammates' future work too.
 - `wrong_assignee` means the report reached the wrong person or team. It is routing feedback, not a
   verdict that the report itself was wrong.
 - On a dismiss, snooze, or restore, the `dismissal_note` is also forwarded as a steering note to the

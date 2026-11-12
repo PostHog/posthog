@@ -89,7 +89,7 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
     ) -> tuple[bool, str | None]:
         if not config.project_id.isascii() or not config.project_id.isdigit() or int(config.project_id) <= 0:
             return False, "Enter a positive Site Audit project ID from your Ahrefs project URL."
-        return validate_ahrefs_credentials(config.api_key)
+        return validate_ahrefs_credentials(config.api_key, str(int(config.project_id)))
 
     def source_for_pipeline(self, config: AhrefsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return ahrefs_source(

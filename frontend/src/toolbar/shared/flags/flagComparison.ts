@@ -6,25 +6,10 @@ import { isInToolbarRoot } from '~/toolbar/shared/utils'
 import { captureElementScreenshot } from '~/toolbar/shared/utils/screenshot'
 
 import { CaptureStillRunningError } from './flagComparisonErrors'
-import type { FlagInfo } from './flagInfo'
 
 const SETTLE_QUIET_MS = 1000
 const SETTLE_MAX_MS = 8000
 const CAPTURE_MAX_MS = 20000
-
-export interface ComparisonState {
-    value: string | boolean
-    label: string
-}
-
-/** Off comes first, so it is the "before" image. Then on, or each variant of a multivariate flag. */
-export function comparisonStates(flag: FlagInfo): ComparisonState[] {
-    const off: ComparisonState = { value: false, label: 'Off' }
-    if (flag.variants.length === 0) {
-        return [off, { value: true, label: 'On' }]
-    }
-    return [off, ...flag.variants.map((variant) => ({ value: variant.key, label: variant.key }))]
-}
 
 export type FlagOverrides = Record<string, string | boolean>
 

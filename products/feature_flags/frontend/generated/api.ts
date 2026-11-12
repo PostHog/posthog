@@ -32,6 +32,7 @@ import type {
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
+    FeatureFlagRestoreVersionRequestApi,
     FeatureFlagRollOutToEveryoneRequestApi,
     FeatureFlagSetActiveRequestApi,
     FeatureFlagSetReleaseConditionRolloutRequestApi,
@@ -1177,6 +1178,38 @@ export const featureFlagsVersionsRetrieve = async (
     return apiMutator<FeatureFlagVersionResponseApi>(getFeatureFlagsVersionsRetrieveUrl(projectId, id, versionNumber), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureFlagsVersionsRestoreCreateUrl = (projectId: string, id: number, versionNumber: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/restore/`
+}
+
+/**
+ * Restore a past version of a feature flag.
+ *
+ * Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+ * what they were at `version_number`. Read that version first with the versions endpoint to see
+ * what will change. The flag's key, its enabled state, and its archived state stay as they are,
+ * as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+ * version, so it can be undone by restoring the version before it.
+ *
+ * Send the flag's current `version`. A change after that version is refused with 409. An
+ * approval policy that gates the change opens a change request instead. A restore to a version
+ * that matches the current configuration writes nothing and returns the flag.
+ */
+export const featureFlagsVersionsRestoreCreate = async (
+    projectId: string,
+    id: number,
+    versionNumber: number,
+    featureFlagRestoreVersionRequestApi: FeatureFlagRestoreVersionRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsVersionsRestoreCreateUrl(projectId, id, versionNumber), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRestoreVersionRequestApi),
     })
 }
 

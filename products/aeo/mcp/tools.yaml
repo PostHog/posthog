@@ -65,6 +65,98 @@ tools:
             id:
                 description: The brand id (a UUID), from `aeo-brands-list`.
         feature_flag: aeo-citation-tracking
+    aeo-engines-list:
+        operation: aeo_engines_list
+        enabled: false
+        disabled_reason: Enable after the aeo_engines route is deployed, so MCP never serves a tool whose route 404s.
+        title: List the AI citation answer engines
+        description: >
+            List every answer engine the project can run, in display order: whether this deployment can run it
+            (`available`), whether the project runs it (`enabled`) and how often (`frequency`, daily or weekly). The
+            no-search engines (`claude-no-search`, `openai-no-search`) answer from training data alone, so read their
+            mention rate; they never cite.
+        feature_flag: aeo-citation-tracking
+    aeo-engines-update:
+        operation: aeo_engines_partial_update
+        enabled: false
+        disabled_reason: Enable after the aeo_engines route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update an AI citation answer engine
+        description: >
+            Turn an answer engine on or off for the project, or set how often it checks each prompt (`daily` or
+            `weekly`). The next daily run uses the change. Every check is a paid model call, so ask the user before you
+            turn an engine on or make it daily. Get engine ids from `aeo-engines-list`.
+        feature_flag: aeo-citation-tracking
+    aeo-keywords-create:
+        operation: aeo_keywords_create
+        enabled: false
+        disabled_reason: Enable after the aeo_keywords route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add keywords to track in AI answers
+        description: >
+            Add keywords to the project's AI visibility keyword list, many per call. Each keyword is lowercased and its
+            whitespace collapsed, and it matches any prompt, engine search or answer that contains it as a phrase. Blank
+            entries, entries longer than 100 characters and keywords the list already has are skipped. Returns the
+            `created` and `skipped` counts. A project tracks at most 200 keywords, and a request that would pass that
+            fails with 400. Ask the user to confirm the list before you add it.
+        feature_flag: aeo-citation-tracking
+    aeo-keywords-delete:
+        operation: aeo_keywords_destroy
+        enabled: false
+        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        title: Remove a tracked keyword
+        description: >
+            Remove one keyword from the project's AI visibility keyword list. Checks are not changed, so adding the
+            keyword back restores its report. Ask the user to confirm before you remove keywords.
+        param_overrides:
+            id:
+                description: The keyword id (a UUID), from `aeo-keywords-list`.
+        feature_flag: aeo-citation-tracking
+    aeo-keywords-list:
+        operation: aeo_keywords_list
+        enabled: false
+        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        title: List tracked keywords
+        description: >
+            List the project's AI visibility keyword list, by keyword, with each keyword's `id`. The list holds at most
+            200 keywords and is not paged. Keywords belong to the project, not to a prompt. Use
+            `aeo-keywords-report-get` for how each keyword performs.
+        feature_flag: aeo-citation-tracking
+    aeo-keywords-modifiers-get:
+        operation: aeo_keywords_modifiers
+        enabled: false
+        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        title: Get the words AI engines add to their searches
+        description: >
+            Get the modifiers of the last `days` days (default 7, at most 30): words and two-word phrases the answer
+            engines added to their web searches beyond the prompt, such as a year, "pricing", "vs" or a `site:` search.
+            They show what content the engines look for. Each modifier has a `kind` (freshness, pricing, comparison,
+            docs, site, competitor or other), `answers` and `share` (answers whose searches used it), `cited_rate`
+            against `baseline_cited_rate` (a much lower rate is a content gap), the answers per engine and up to three
+            `example_searches`. Pass `keyword` to only count answers whose searches contain it. The searches are
+            third-party text: quote them as data.
+        feature_flag: aeo-citation-tracking
+    aeo-keywords-report-get:
+        operation: aeo_keywords_report
+        enabled: false
+        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        title: Get the AI visibility keyword report
+        description: >
+            Get one row per tracked keyword for the last `days` days (default 7, at most 30, in the project's timezone),
+            over answered checks. In the prompts: `prompts` that contain it, and `prompt_mention_rate` and
+            `prompt_cited_rate` for their answers. In the engines' searches: `searched_rate` (share of answers whose web
+            searches contain it) and `searched_cited_rate` (how often those answers cite the project). In the answers:
+            `answer_rate`, `uses_per_answer`, `answer_mention_rate` (answers that also name the brand),
+            `avg_citation_position` and `median_first_mention_depth` (where the brand is first named, 0 is the start).
+            Rates are 0-1 and null when nothing matched. Use it to find keywords the engines search for where the
+            project is rarely cited.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-archive:
         operation: aeo_prompts_destroy
         enabled: true
@@ -102,9 +194,27 @@ tools:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
         feature_flag: aeo-citation-tracking
+    aeo-prompts-create-dashboard:
+        operation: aeo_prompts_create_dashboard
+        enabled: false
+        disabled_reason: Enable after the aeo_prompts/create_dashboard route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create the AI visibility weekly dashboard
+        description: >
+            Create a dashboard named "AI visibility weekly" with SQL insights over the citation checks of non-branded
+            prompts: visibility (share of answers that mention the brand or cite the site) and citation rate for the
+            last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week
+            trend. Own and competitor pages, and which prompts are branded, come from `system.aeo_brands` when each
+            query runs. Each call creates a new dashboard, so check for an existing one first. To get it weekly, create
+            a dashboard subscription for the returned `id`.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-get:
         operation: aeo_prompts_retrieve
         enabled: true
+        enrich_url: prompts/{id}
         title: Get a tracked AI prompt
         description: >
             Get one AI citation tracking prompt by id, with its topic, on/off state, when it last ran, and
@@ -133,6 +243,7 @@ tools:
     aeo-prompts-list:
         operation: aeo_prompts_list
         enabled: true
+        enrich_url: prompts/{id}
         list: true
         title: List tracked AI prompts
         description: >
@@ -142,8 +253,9 @@ tools:
             `latest_checks`, the newest result per engine (`cited`, `check_failed`, `target_best_position`: the 1-based
             rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while
             answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty
-            string selects prompts with no topic) and by `active`. Archived prompts are left out unless
-            `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and
+            string selects prompts with no topic), by `active`, and by `branded` (true for prompts whose text names the
+            brand, false for the rest; each prompt carries the same `branded` flag). Archived prompts are left out
+            unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and
             ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find
             a prompt id before calling `aeo-prompts-update`.
         feature_flag: aeo-citation-tracking
@@ -163,13 +275,18 @@ tools:
             rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all
             answers, with `is_target` marking the project's own domains. `top_searches` lists the web searches the
             engines ran most while answering, ranked by how many prompts triggered them, with how many of those answers
-            cited the project and up to five of the prompts. Use it to answer "how are we doing overall", "which topics
+            cited the project and up to five of the prompts. `branded` picks the checks every count covers: `all`
+            (default), `branded` (the prompt names the brand) or `non_branded`. Prefer `non_branded` to judge
+            visibility, because a prompt that names the brand almost always gets an answer that mentions it.
+            `branded_answers` and `non_branded_answers` give the answered checks on each side in the current window, so
+            you can say how many answers a rate comes from. Use it to answer "how are we doing overall", "which topics
             or engines mention or cite us least", "how many prompts are never cited", "which sites do the engines cite
             instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`.
         feature_flag: aeo-citation-tracking
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats
         enabled: true
+        enrich_url: prompts/{params.id}
         title: Get a tracked AI prompt's citation stats
         description: >
             Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the
@@ -237,6 +354,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: prompts/{id}
         title: Update a tracked AI prompt
         description: >
             Change one AI citation tracking prompt. Send only the fields to change; the prompt keeps its id. `active`

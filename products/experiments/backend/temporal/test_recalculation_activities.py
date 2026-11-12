@@ -1220,6 +1220,8 @@ class TestCalculateActivity(BaseTest):
         [
             ("activity_queue", "activity-q", "activity-q", ClickHouseUser.EXPERIMENTS),
             ("precompute_queue", "activity-q", "precompute-q", ClickHouseUser.EXPERIMENTS),
+            ("build_queue", "activity-q", "build-q", ClickHouseUser.EXPERIMENTS),
+            ("direct_heavy_queue", "activity-q", "direct-heavy-q", ClickHouseUser.EXPERIMENTS),
             ("main_queue", "activity-q", "main-q", ClickHouseUser.CACHE_WARMUP),
             ("collapsed_queues", "main-q", "main-q", ClickHouseUser.CACHE_WARMUP),
         ]
@@ -1242,6 +1244,8 @@ class TestCalculateActivity(BaseTest):
                 EXPERIMENTS_RECALCULATION_TASK_QUEUE="main-q",
                 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE=activity_task_queue,
                 EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE="precompute-q",
+                EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE="build-q",
+                EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE="direct-heavy-q",
             ),
             patch("posthog.clickhouse.client.execute.get_client_from_pool") as client_from_pool,
             _patched_runner() as mock_runner,

@@ -6,16 +6,11 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
-import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { QUEUE_DEPTHS_SQL } from './due-rows-sql'
+import { v2JobToInvocation } from './job-codec'
 import { createCyclotronPool } from './pg-pool'
-import {
-    CYCLOTRON_COUNTER_MAX,
-    CyclotronV2CleanupResult,
-    CyclotronV2DequeuedJob,
-    CyclotronV2JanitorConfig,
-} from './types'
+import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
 // the janitor writes when it gives up on a poison pill. Lets operators target
@@ -101,11 +96,7 @@ interface PoisonRow {
     created: string
     parent_run_id: string | null
     state: Buffer | null
-    distinct_id: string | null
-    person_id: string | null
-    action_id: string | null
     janitor_touch_count: number
-    transition_count: number
 }
 
 export class CyclotronV2Janitor {
@@ -297,8 +288,7 @@ export class CyclotronV2Janitor {
 
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
-                    parent_run_id, state, distinct_id, person_id, action_id,
-                    janitor_touch_count, transition_count
+                    parent_run_id, state, janitor_touch_count
              FROM cyclotron_jobs
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
@@ -422,7 +412,7 @@ export class CyclotronV2Janitor {
     // `hogFlow` carries only the id the lifecycle row needs (function_id), while
     // the rerun path rebuilds the full flow from the function id on replay.
     private poisonRowToInvocation(row: PoisonRow): CyclotronJobInvocationHogFlow {
-        const job: CyclotronV2DequeuedJob = {
+        const invocation = v2JobToInvocation({
             id: row.id,
             teamId: row.team_id,
             functionId: row.function_id,
@@ -431,20 +421,9 @@ export class CyclotronV2Janitor {
             scheduled: DateTime.fromISO(row.scheduled, { zone: 'utc' }),
             created: DateTime.fromISO(row.created, { zone: 'utc' }),
             parentRunId: row.parent_run_id,
-            transitionCount: row.transition_count,
             state: row.state,
-            distinctId: row.distinct_id,
-            personId: row.person_id,
-            actionId: row.action_id,
             cancelRequestedAt: null,
-            ack: () => Promise.resolve(),
-            fail: () => Promise.resolve(),
-            reschedule: () => Promise.resolve(),
-            cancel: () => Promise.resolve(),
-            heartbeat: () => Promise.resolve(),
-            bulkCreateAndCheckIn: () => Promise.resolve({ newJobIds: [] }),
-        }
-        const invocation = v2JobToInvocation(job)
+        })
         return { ...invocation, hogFlow: { id: invocation.functionId } } as CyclotronJobInvocationHogFlow
     }
 

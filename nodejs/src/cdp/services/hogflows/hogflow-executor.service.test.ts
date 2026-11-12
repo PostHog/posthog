@@ -3,24 +3,31 @@ import { SESv2Client, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
+import { createHash, randomUUID } from 'node:crypto'
+import { IncomingMessage, ServerResponse, createServer } from 'node:http'
+import { AddressInfo } from 'node:net'
+import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
+import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
-import { CyclotronJobInvocationHogFlow } from '../../types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
@@ -30,6 +37,12 @@ import { HogInputsService } from '../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import {
+    AttachmentMissingError,
+    AttachmentStore,
+    AttachmentStoreUnavailableError,
+    LoadedAttachment,
+} from '../messaging/attachment-store'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { EmailService } from '../messaging/email.service'
@@ -37,8 +50,10 @@ import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { PushNotificationFetchUtils, PushNotificationService } from '../messaging/push-notification.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
@@ -60,6 +75,110 @@ const cleanLogs = (logs: string[]): string[] => {
     return logs.map((log) => log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms'))
 }
 
+type DeliveredEmail = { to: string[]; subject: string; attachments: { filename: string; bytes: Buffer }[] }
+
+class SesV2Fake {
+    readonly delivered: DeliveredEmail[] = []
+    endpoint = ''
+    private readonly server = createServer((request, response) => void this.handle(request, response))
+
+    static async start(): Promise<SesV2Fake> {
+        const fake = new SesV2Fake()
+        await new Promise<void>((resolve) => fake.server.listen(0, '127.0.0.1', resolve))
+        fake.endpoint = `http://127.0.0.1:${(fake.server.address() as AddressInfo).port}`
+        return fake
+    }
+
+    client(): SESv2Client {
+        return new SESv2Client({
+            region: 'us-east-1',
+            endpoint: this.endpoint,
+            credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+        })
+    }
+
+    async close(): Promise<void> {
+        this.server.closeAllConnections()
+        await new Promise((resolve) => this.server.close(resolve))
+    }
+
+    private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+        const chunks: Buffer[] = []
+        for await (const chunk of request) {
+            chunks.push(chunk as Buffer)
+        }
+        if (request.method !== 'POST' || request.url !== '/v2/email/outbound-emails') {
+            response
+                .writeHead(404, { 'content-type': 'application/json', 'x-amzn-errortype': 'NotFoundException' })
+                .end(JSON.stringify({ message: `No route for ${request.method} ${request.url}` }))
+            return
+        }
+        const { Destination, Content } = parseJSON(Buffer.concat(chunks).toString())
+        this.delivered.push({
+            to: Destination.ToAddresses,
+            subject: Content.Simple.Subject.Data,
+            attachments: (Content.Simple.Attachments ?? []).map(
+                (attachment: { FileName: string; RawContent: string }) => ({
+                    filename: attachment.FileName,
+                    bytes: Buffer.from(attachment.RawContent, 'base64'),
+                })
+            ),
+        })
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ MessageId: randomUUID() }))
+    }
+}
+
+class AttachmentStoreFake implements AttachmentStore {
+    loadsBeforeOutage = Infinity
+    private readonly files = new Map<string, Buffer>()
+
+    store(teamId: number, filename: string, bytes: Buffer): EmailAttachmentMetadata {
+        const sha256 = createHash('sha256').update(bytes).digest('hex')
+        this.files.set(`${teamId}/${sha256}`, bytes)
+        return { filename, contentType: 'application/pdf', sizeBytes: bytes.length, sha256 }
+    }
+
+    prepareUploads(): Promise<never> {
+        return Promise.reject(new Error('Sends in these tests reference files that are already stored'))
+    }
+
+    acceptForSend(): Promise<never> {
+        return Promise.reject(new Error('Sends in these tests reference files that are already stored'))
+    }
+
+    load(teamId: number, files: EmailAttachmentMetadata[]): Promise<LoadedAttachment[]> {
+        if (this.loadsBeforeOutage-- <= 0) {
+            return Promise.reject(new AttachmentStoreUnavailableError(new Error('The bucket did not answer')))
+        }
+        try {
+            return Promise.resolve(
+                files.map((file) => {
+                    const bytes = this.files.get(`${teamId}/${file.sha256}`)
+                    if (!bytes) {
+                        throw new AttachmentMissingError(file.sha256)
+                    }
+                    return { file, bytes }
+                })
+            )
+        } catch (error) {
+            return Promise.reject(error)
+        }
+    }
+}
+
+async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
+    const metric = await register.getSingleMetric(name)!.get()
+    const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
+        metric.values
+    return values
+        .filter(
+            (value) =>
+                (value.metricName ?? name) === metricName &&
+                Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+        )
+        .reduce((sum, value) => sum + value.value, 0)
+}
+
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let cohortMembershipRepository: CohortMembershipRepository
@@ -70,47 +189,69 @@ describe('Hogflow Executor', () => {
     const mockFetch = jest.mocked(fetch)
     const mockPushProviderFetch = jest.fn<ReturnType<TrackedPushFetch>, Parameters<TrackedPushFetch>>()
 
-    beforeEach(async () => {
-        mockPushProviderFetch.mockReset()
-        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-
-        mockFetch.mockImplementation((): any => {
-            return {
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ status: 200 })),
-            }
-        })
-
-        hub = await createHub({
-            SITE_URL: 'http://localhost:8000',
-        })
-        team = (await createTestTeamFixture(hub.postgres)).team
-        integrationId = uniqueTestId()
-        const hogInputsService = new HogInputsService(
-            hub.integrationManager,
-            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-            hub.encryptedFields
-        )
-        const emailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+    const createEmailService = ({
+        ses,
+        teamDailyCap,
+        suppressionDb,
+        store = null,
+    }: {
+        ses?: SesV2Fake
+        teamDailyCap?: number
+        suppressionDb?: PostgresRouter
+        store?: AttachmentStore | null
+    } = {}): EmailService => {
+        const teamEmailRateLimiter = teamDailyCap
+            ? new RateLimiterService(
+                  createRedisV2PoolFromConfig({
+                      connection: hub.CDP_REDIS_HOST
+                          ? {
+                                url: hub.CDP_REDIS_HOST,
+                                options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                            }
+                          : { url: hub.REDIS_URL },
+                      poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                      poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                  }),
+                  { name: 'team-email-test' }
+              )
+            : null
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
-                sesEndpoint: hub.SES_ENDPOINT,
+                sesEndpoint: ses?.endpoint ?? hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                ...(teamDailyCap ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] } : {}),
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            emailSuppressionService,
+            new EmailSuppressionService(suppressionDb ?? hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() }
+            { report: jest.fn(), reportEmailSent: jest.fn() },
+            undefined,
+            null,
+            teamEmailRateLimiter,
+            store
+        )
+        if (ses) {
+            emailService.sesV2Client = ses.client()
+        }
+        return emailService
+    }
+
+    const createExecutor = (
+        emailService: EmailService
+    ): { executor: HogFlowExecutorService; hogFlowFunctionsService: HogFlowFunctionsService } => {
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(
@@ -147,20 +288,63 @@ describe('Hogflow Executor', () => {
                         backoffMaxMs: 30000,
                     },
                     undefined as any,
-                    undefined as any
+                    undefined as any,
+                    { reportPushSent: () => Promise.resolve() }
                 ),
             }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
-        hogFlowFunctionsService = new HogFlowFunctionsService(hub.SITE_URL, hogFunctionTemplateManager, hogExecutor)
+        const hogFlowFunctionsService = new HogFlowFunctionsService(
+            hub.SITE_URL,
+            hogFunctionTemplateManager,
+            hogExecutor
+        )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+        const recipientPreferencesService = new RecipientPreferencesService(
+            recipientsManager,
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+        )
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real
         // service would fire live DNS lookups for the fixture recipients here.
         const emailValidationService = {
             getSkipReason: () => Promise.resolve(null),
         } as unknown as EmailValidationService
+        return {
+            executor: new HogFlowExecutorService(
+                hogFlowFunctionsService,
+                recipientPreferencesService,
+                emailValidationService,
+                cohortMembershipRepository,
+                hub.integrationManager,
+                null
+            ),
+            hogFlowFunctionsService,
+        }
+    }
+
+    beforeEach(async () => {
+        mockPushProviderFetch.mockReset()
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        mockFetch.mockImplementation((): any => {
+            return {
+                status: 200,
+                text: () => Promise.resolve(JSON.stringify({ status: 200 })),
+            }
+        })
+
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+        })
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationId = uniqueTestId()
+        cohortMembershipRepository = {
+            getMemberCohortIds: () => Promise.resolve([]),
+            getCohortMembership: () => Promise.resolve(null),
+        }
+        ;({ executor, hogFlowFunctionsService } = createExecutor(createEmailService()))
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
@@ -196,19 +380,6 @@ describe('Hogflow Executor', () => {
         })
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
-
-        cohortMembershipRepository = {
-            getMemberCohortIds: () => Promise.resolve([]),
-            getCohortMembership: () => Promise.resolve(null),
-        }
-        executor = new HogFlowExecutorService(
-            hogFlowFunctionsService,
-            recipientPreferencesService,
-            emailValidationService,
-            cohortMembershipRepository,
-            hub.integrationManager,
-            null
-        )
     })
 
     describe('general event processing', () => {
@@ -3097,6 +3268,7 @@ describe('Hogflow Executor', () => {
     describe('billing metrics', () => {
         const createHogFlow = (flow: SimpleHogFlowRepresentation): HogFlow => {
             return new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
                 .withExitCondition('exit_on_conversion')
                 .withWorkflow({
                     actions: {
@@ -3269,6 +3441,101 @@ describe('Hogflow Executor', () => {
             )
             expect(emailBilling).toHaveLength(2)
         })
+
+        const suspendEmailSending = async (): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspended_at, email_sending_suspension_reason)
+                 VALUES ($1, false, 'off', now(), 'testing suspension')`,
+                [team.id],
+                'test-suspend-email-sending'
+            )
+        }
+
+        it.each<{
+            label: string
+            senderId?: unknown
+            toEmail?: string
+            verified?: boolean
+            suspended?: boolean
+            outcome: string
+        }>([
+            { label: 'the sender id is not a number', senderId: 'not-a-number', outcome: 'failed' },
+            { label: 'the sender no longer exists', senderId: 999_999_999, outcome: 'email_failed' },
+            { label: 'the sender domain is not verified', verified: false, outcome: 'email_failed' },
+            { label: 'email sending is suspended for the team', suspended: true, outcome: 'email_suspended' },
+            { label: 'the recipient has no email address', toEmail: '', outcome: 'email_missing_recipient' },
+        ])(
+            'does not bill an email step when $label',
+            async ({ senderId, toEmail = 'recipient@example.com', verified = true, suspended = false, outcome }) => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: integrationId,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified,
+                        provider: 'maildev',
+                    },
+                })
+                if (suspended) {
+                    await suspendEmailSending()
+                }
+                await insertHogFunctionTemplate(hub.postgres, {
+                    id: 'template-email',
+                    name: 'Test Email Template',
+                    code: `sendEmail(inputs.email)`,
+                    inputs_schema: [
+                        {
+                            type: 'native_email',
+                            key: 'email',
+                            integration: 'email',
+                            required: true,
+                            templating: 'liquid',
+                        },
+                    ],
+                })
+                const hogFlow = createHogFlow({
+                    actions: {
+                        email: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: toEmail, name: 'Recipient' },
+                                            from: { integrationId: senderId ?? integrationId },
+                                            subject: 'Subject',
+                                            text: 'Text',
+                                            html: 'HTML',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email', type: 'continue' },
+                        { from: 'email', to: 'exit', type: 'continue' },
+                    ],
+                })
+
+                let result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
+                const metrics = [...result.metrics]
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    metrics.push(...result.metrics)
+                }
+
+                const emailStepMetrics = metrics.filter((m) => m.instance_id === 'email').map((m) => m.metric_name)
+                expect(emailStepMetrics).toContain(outcome)
+                expect(emailStepMetrics).not.toContain('billable_invocation')
+            }
+        )
     })
 
     describe('email queue routing', () => {
@@ -3314,7 +3581,7 @@ describe('Hogflow Executor', () => {
             })
         }
 
-        const emailAction = (subject: string) =>
+        const emailAction = (subject: string, to = 'recipient@example.com') =>
             ({
                 type: 'function_email',
                 config: {
@@ -3322,7 +3589,7 @@ describe('Hogflow Executor', () => {
                     inputs: {
                         email: {
                             value: {
-                                to: { email: 'recipient@example.com', name: 'Recipient' },
+                                to: { email: to, name: 'Recipient' },
                                 from: { integrationId, email: 'test@posthog.com' },
                                 subject,
                                 text: `${subject} text`,
@@ -3333,7 +3600,7 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
-        const emailFlow = (email: Record<string, any>): HogFlow =>
+        const emailFlow = (email: Record<string, any>, stepConfig: Record<string, any> = {}): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3351,6 +3618,7 @@ describe('Hogflow Executor', () => {
                             config: {
                                 template_id: 'template-email-routing-test',
                                 inputs: { email: { value: email } },
+                                ...stepConfig,
                             },
                         },
                         exit: {
@@ -3597,69 +3865,244 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
-        it('keeps the team cap label and the suppression tries on the delayed email only, not on the email after it', async () => {
-            await insertEmailSetup('ses')
-            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
-            sesSend
-                .mockResolvedValueOnce({ MessageId: 'capped-email' })
-                .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
+        describe('a scheduled transactional send', () => {
+            let ses: SesV2Fake
 
-            const hogFlow = new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withExitCondition('exit_only_at_end')
-                .withWorkflow({
-                    actions: {
-                        trigger: {
-                            type: 'trigger',
-                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
-                        },
-                        email_1: emailAction('Capped Email'),
-                        email_2: emailAction('Next Email'),
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'email_2', type: 'continue' },
-                        { from: 'email_2', to: 'exit', type: 'continue' },
-                    ],
-                })
-                .build()
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: { ...createHogExecutionGlobals().event, event: '$pageview' },
+            beforeEach(async () => {
+                ses = await SesV2Fake.start()
+                await insertEmailSetup('ses')
             })
 
-            const routed = await executor.execute(invocation)
-            // As if the team sending cap and an unread suppression list had delayed email_1 on the email queue.
-            routed.invocation.queueMetadata = {
-                ...routed.invocation.queueMetadata,
-                teamCapped: true,
-                suppressionLookupAttempts: 7,
+            afterEach(async () => {
+                await ses.close()
+            })
+
+            it('measures its queue wait from its scheduled time, not from when it was created', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const invocation = createExampleHogFlowInvocation(emailFlow(storedStep()), {
+                    event: { ...createHogExecutionGlobals().event, event: TRANSACTIONAL_EMAIL_EVENT },
+                })
+                invocation.queueCreatedAt = DateTime.utc().minus({ hours: 1 })
+                invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                const waits = (metricName: string): Promise<number> =>
+                    metricValue('cdp_email_queue_to_send_ms', { source: 'transactional_api' }, metricName)
+                const [countBefore, sumBefore] = [
+                    await waits('cdp_email_queue_to_send_ms_count'),
+                    await waits('cdp_email_queue_to_send_ms_sum'),
+                ]
+
+                let result = await runner.execute(invocation)
+                while (!result.finished) {
+                    result = await runner.execute(result.invocation)
+                }
+
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Test Email'])
+                expect((await waits('cdp_email_queue_to_send_ms_count')) - countBefore).toEqual(1)
+                const waitMs = (await waits('cdp_email_queue_to_send_ms_sum')) - sumBefore
+                expect(waitMs).toBeGreaterThanOrEqual(30_000)
+                expect(waitMs).toBeLessThan(30 * 60_000)
+            })
+        })
+
+        describe('the email after one the email queue delayed', () => {
+            let ses: SesV2Fake
+
+            beforeEach(async () => {
+                ses = await SesV2Fake.start()
+                await insertEmailSetup('ses')
+            })
+
+            afterEach(async () => {
+                await ses.close()
+            })
+
+            const twoEmailFlow = (nextRecipient: string): HogFlow =>
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withExitCondition('exit_only_at_end')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                            },
+                            email_1: emailAction('Delayed Email'),
+                            email_2: emailAction('Next Email', nextRecipient),
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'email_1', type: 'continue' },
+                            { from: 'email_1', to: 'email_2', type: 'continue' },
+                            { from: 'email_2', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+
+            const runUntilHeld = async (
+                runner: HogFlowExecutorService,
+                invocation: CyclotronJobInvocationHogFlow
+            ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+                let result = await runner.execute(invocation)
+                for (let step = 0; step < 10 && !result.finished; step++) {
+                    if ((result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now()) {
+                        return result
+                    }
+                    result = await runner.execute(result.invocation)
+                }
+                return result
             }
 
-            const result = await executor.execute(routed.invocation)
+            const runAfterDelay = async (
+                runner: HogFlowExecutorService,
+                delayedWith: CyclotronJobInvocationHogFlow['queueMetadata'],
+                { nextRecipient = 'recipient@example.com', send }: { nextRecipient?: string; send?: QueuedSend } = {}
+            ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+                const invocation = flowInvocation(twoEmailFlow(nextRecipient))
+                invocation.state.send = send
+                const routed = await runner.execute(invocation)
+                expect(routed.invocation.queue).toBe('email')
+                const firstEmailHeldOnceAndNowFiveSecondsLate: CyclotronJobInvocationHogFlow = {
+                    ...routed.invocation,
+                    queueMetadata: { ...routed.invocation.queueMetadata, ...delayedWith },
+                    queueDueAt: DateTime.utc().minus({ seconds: 5 }),
+                }
+                return await runUntilHeld(runner, firstEmailHeldOnceAndNowFiveSecondsLate)
+            }
 
-            expect(result.invocation.state.currentAction?.id).toBe('email_2')
-            expect(result.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 0 })
+            const sendsLeftInTheTeamBudget = async (runner: HogFlowExecutorService): Promise<number> => {
+                for (let sent = 0; sent < 5; sent++) {
+                    const result = await runUntilHeld(runner, flowInvocation(emailFlow(storedStep())))
+                    if (!result.finished) {
+                        return sent
+                    }
+                }
+                throw new Error('the team budget did not run out')
+            }
+
+            it('charges the team budget for the next email, though the delayed one had paid already', async () => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, false, 'off', '', '', 0)`,
+                    [team.id],
+                    'test-team-email-tier'
+                )
+                const { executor: runner } = createExecutor(createEmailService({ ses, teamDailyCap: 4 }))
+
+                const result = await runAfterDelay(runner, { teamBudgetClaimed: true })
+
+                expect(result.finished).toBe(true)
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email', 'Next Email'])
+                expect(await sendsLeftInTheTeamBudget(runner)).toBe(3)
+            })
+
+            it('records the wait of the next email as not held by the team cap', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const waits = (teamCapped: string): Promise<number> =>
+                    metricValue(
+                        'cdp_email_queue_to_send_ms',
+                        { source: 'workflow', team_capped: teamCapped },
+                        'cdp_email_queue_to_send_ms_count'
+                    )
+                const [cappedBefore, uncappedBefore] = [await waits('true'), await waits('false')]
+
+                const result = await runAfterDelay(runner, { teamCapped: true })
+
+                expect(result.finished).toBe(true)
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email', 'Next Email'])
+                expect({
+                    capped: (await waits('true')) - cappedBefore,
+                    uncapped: (await waits('false')) - uncappedBefore,
+                }).toEqual({ capped: 1, uncapped: 1 })
+            })
+
+            it("holds the next email for its first suppression retry, not the delayed one's eighth, when the list cannot be read", async () => {
+                let listUnreadable = true
+                const suppressionDb = await postgresThatDropsConnections(
+                    hub.DATABASE_URL,
+                    (message) => listUnreadable && message.includes('next@example.com')
+                )
+                const { executor: runner } = createExecutor(
+                    createEmailService({ ses, suppressionDb: suppressionDb.postgres })
+                )
+
+                const held = await runAfterDelay(
+                    runner,
+                    { suppressionLookupAttempts: 7 },
+                    { nextRecipient: 'next@example.com' }
+                )
+                expect(held.finished).toBe(false)
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email'])
+                expect(held.invocation.queueScheduledAt!.diff(DateTime.utc()).as('seconds')).toBeLessThanOrEqual(60)
+
+                listUnreadable = false
+                const result = await runUntilHeld(runner, held.invocation)
+                await suppressionDb.close()
+
+                expect(result.finished).toBe(true)
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email', 'Next Email'])
+            })
+
+            it('retries the files of the next email when the bucket goes down, though the delayed one used up its retries', async () => {
+                const store = new AttachmentStoreFake()
+                const file = store.store(team.id, 'report.pdf', Buffer.from('%PDF-1.4 report'))
+                const { executor: runner } = createExecutor(createEmailService({ ses, store }))
+                store.loadsBeforeOutage = 1
+
+                const held = await runAfterDelay(
+                    runner,
+                    { attachmentLoadRetries: 10 },
+                    { send: { tracking: { captureEngagement: false }, attachments: [file] } }
+                )
+                expect(held.finished).toBe(false)
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Delayed Email'])
+
+                store.loadsBeforeOutage = Infinity
+                const result = await runUntilHeld(runner, held.invocation)
+
+                expect(result.finished).toBe(true)
+                expect(ses.delivered).toEqual([
+                    expect.objectContaining({ subject: 'Delayed Email' }),
+                    {
+                        to: [expect.stringContaining('recipient@example.com')],
+                        subject: 'Next Email',
+                        attachments: [{ filename: 'report.pdf', bytes: Buffer.from('%PDF-1.4 report') }],
+                    },
+                ])
+            })
         })
 
         it.each([
             {
                 name: 'a template send as the step renders it',
                 step: storedStep,
+                stepConfig: { template_uuid: 'template-1' },
                 send: (): QueuedSend | undefined => undefined,
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: { template_uuid: 'template-1' } }),
+            },
+            {
+                name: 'a step whose email input names a template, with the template the step was saved from',
+                step: () => ({ ...storedStep(), template: { template_uuid: 'another-template' } }),
+                stepConfig: { template_uuid: 'template-1' },
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep(), template: { template_uuid: 'template-1' } }),
             },
             {
                 name: 'a code send for a local template as the step renders it',
                 step: storedStep,
+                stepConfig: {},
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false } }),
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
             {
                 name: "a code send with the caller's content, sender, reply-to and copies over the step",
                 step: codeKeyStep,
+                stepConfig: { template_key: 'reset_password' },
                 send: codeSend,
                 expected: () => ({
                     type: 'email',
+                    template: { template_key: 'reset_password' },
                     to: { email: 'recipient@example.com', name: 'Recipient' },
                     from: { integrationId, email: 'security@posthog.com', name: 'Security' },
                     cc: 'manager@example.com, team@example.com',
@@ -3674,18 +4117,20 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a code send with the metadata of its files, which the email worker loads by job id',
                 step: storedStep,
+                stepConfig: {},
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false }, attachments: [attachmentFile] }),
-                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
+                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile], template: {} }),
             },
             {
                 name: 'a step whose own email input lists files without them, because only an accepted send has files',
                 step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                stepConfig: {},
                 send: (): QueuedSend | undefined => undefined,
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
-        ])('hands the email queue $name', async ({ step, send, expected }) => {
+        ])('hands the email queue $name', async ({ step, stepConfig, send, expected }) => {
             await insertEmailSetup('ses')
-            const invocation = flowInvocation(emailFlow(step()))
+            const invocation = flowInvocation(emailFlow(step(), stepConfig))
             invocation.state.variables = { name: 'Ada' }
             invocation.state.send = send()
 

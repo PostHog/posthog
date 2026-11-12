@@ -1,9 +1,12 @@
 import json
+from contextlib import nullcontext
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
@@ -35,12 +38,26 @@ from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
+from products.alerts.backend.platform_source_config_schema import INSIGHT_SOURCE_CONFIG
 from products.alerts.backend.presentation.views.alert import AlertSerializer
-from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade import (
+    api as platform_api,
+    testing as platform_testing,
+)
 from products.alerts_platform.backend.facade.api import list_configurations
-from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDelivery,
+    Grouping,
+    PlatformAlertConfigurationEdit,
+    PlatformAlertCreateRefused,
+    SourceKind,
+)
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
+from products.alerts_platform.backend.facade.scheduling import (
+    REAL_TIME_CADENCE_MINUTES,
+    CalendarInterval,
+    alert_check_offset,
+)
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -917,6 +934,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
                 )
                 for insight_id in (insight["id"], self.insight["id"])
             )
+            platform_testing.start_firing(native.id, team_id=self.team.id, at=datetime(2026, 1, 1, tzinfo=UTC))
         destination = HogFunction.objects.create(
             team=self.team,
             type="internal_destination",
@@ -925,10 +943,18 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             enabled=True,
             filters={
                 "source": "internal-events",
-                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "events": [
+                    {"id": "$insight_alert_firing", "type": "events"},
+                    {"id": INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION["resolve"], "type": "events"},
+                ],
                 "properties": [{"key": "alert_id", "value": str(native.id), "operator": "exact", "type": "event"}],
             },
         )
+        resolves: list[tuple[str, str, bool]] = []
+
+        def emit(*, alert_id: str, events: list[Any], **_: Any) -> None:
+            destination_kept = not HogFunction.objects.get(id=destination.id).deleted
+            resolves.extend((alert_id, event.event_name, destination_kept) for event in events)
 
         started: list[NativeCleanupInputs] = []
 
@@ -942,6 +968,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
         with (
             mock.patch("products.alerts.backend.platform_native_cleanup._start", side_effect=start),
+            mock.patch("products.alerts.backend.platform_alert_legacy_events.emit_alert_internal_events", emit),
             self.captureOnCommitCallbacks(execute=True),
         ):
             if path.startswith("soft_delete"):
@@ -964,6 +991,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
         destination.refresh_from_db()
         assert ({view.id for view in remaining.configurations}, destination.deleted) == ({kept.id}, True)
+        assert resolves == [(str(native.id), INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION["resolve"], True)]
         expected_start = [NativeCleanupInputs(team_id=self.team.id, insight_ids=(insight["id"],))]
         assert started == (expected_start if temporal_up else [])
 
@@ -2939,6 +2967,56 @@ class TestAlertRealTimeInterval(TrendsInsightAPITest):
 
     @parameterized.expand(
         [
+            ("real_time_past_the_limit", REAL_TIME_CADENCE_MINUTES, None),
+            ("hourly", 60, (60, None)),
+            ("weekly", 60 * 24 * 7, (60 * 24 * 7, "week")),
+        ]
+    )
+    def test_a_create_with_no_insight_row_is_admitted_at_its_own_cadence(
+        self, _name: str, check_interval_minutes: int, stored: tuple[int, str | None] | None
+    ) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+        assert INSIGHT_SOURCE_CONFIG.native is not None
+        creating = replace(INSIGHT_SOURCE_CONFIG, native=replace(INSIGHT_SOURCE_CONFIG.native, creates=True))
+        edit = PlatformAlertConfigurationEdit(
+            name="native",
+            enabled=True,
+            source_config={
+                "insight_id": self.insight["id"],
+                "condition": {
+                    "threshold": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"lower": 0}},
+                    "comparison": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                },
+            },
+            grouping=Grouping(),
+            schedule_restriction=None,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            cooldown_minutes=0,
+            check_interval_minutes=check_interval_minutes,
+        )
+
+        with (
+            mock.patch("products.alerts_platform.backend.logic.source_configs.spec", return_value=creating),
+            team_scope(self.team.id),
+            nullcontext() if stored else pytest.raises(PlatformAlertCreateRefused, match="limit of 1 real-time"),
+        ):
+            platform_api.create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.INSIGHT,
+                edit=edit,
+                created_by_id=self.user.id,
+                natively=True,
+            )
+
+        page = list_configurations(team_id=self.team.id, source_kinds=["insight"], limit=10, offset=0)
+        native = [view for view in page.configurations if view.legacy_configuration_id is None]
+        assert [(view.check_interval_minutes, view.recurrence_unit) for view in native] == ([stored] if stored else [])
+
+    @parameterized.expand(
+        [
             ("enable", {"enabled": False}, {"enabled": True}),
             (
                 "switch_to_real_time",
@@ -3182,6 +3260,12 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight = self.create_trends_insight(interval="day")
+        # These tests turn every flag on, which would also make each create skip the insight row they read back.
+        native_creates = mock.patch(
+            "products.alerts.backend.presentation.views.alert.creates_native_alert", return_value=False
+        )
+        native_creates.start()
+        self.addCleanup(native_creates.stop)
 
     def _create_breakdown_insight(self) -> dict[str, Any]:
         return self.create_trends_insight(

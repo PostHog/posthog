@@ -90,7 +90,12 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
 // Server-minted tokens are not excluded here: scouts carry the same internal scopes as sandbox
 // runs, so each rule's `presets` decides which of them it reaches.
 function isGuidanceAudience(state: ResolvedState): boolean {
-    return !(state.isImpersonated || state.suppressAnalytics || state.clientProfile.consumer === 'posthog_ai')
+    return !(
+        state.isImpersonated ||
+        state.suppressAnalytics ||
+        state.clientProfile.consumer === 'posthog_ai' ||
+        state.clientProfile.isArtifactRuntime()
+    )
 }
 
 // The flag and org consent decide only whether the text goes out: an eligible caller with the

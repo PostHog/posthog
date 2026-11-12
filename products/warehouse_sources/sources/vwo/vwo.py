@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import structlog
 from jsonpath_ng import DatumInContext, JSONPath
 from requests import HTTPError, RequestException
 
@@ -21,6 +22,8 @@ from products.warehouse_sources.sources.sdk import (
     schema_for_resource,
 )
 from products.warehouse_sources.sources.vwo.settings import API_ORIGIN, ENDPOINTS, VWOEndpoint
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -43,8 +46,20 @@ def vwo_error_detail(body: Any) -> str:
 
 class VWOCollectionSelector(JSONPath):
     # The campaign example is malformed. Accept flat and partialCollection envelopes without selecting nested goals.
+    def __init__(self, skip_missing_envelope: bool = False) -> None:
+        # Per-campaign child responses can come back with neither `_data` nor `_errors`. One such campaign
+        # must not fail the whole fan-out, so it reads as an empty page. Responses with `_errors` still fail.
+        self.skip_missing_envelope = skip_missing_envelope
+
     def find(self, data: Any) -> list[DatumInContext]:
         if not isinstance(data, dict) or "_data" not in data:
+            if self.skip_missing_envelope and not (isinstance(data, dict) and "_errors" in data):
+                logger.warning(
+                    "vwo_child_response_without_data_envelope",
+                    body_type=type(data).__name__,
+                    keys=sorted(data)[:10] if isinstance(data, dict) else None,
+                )
+                return [DatumInContext([])]
             raise ValueError(
                 f"VWO returned no data envelope{vwo_error_detail(data)}. Check the token permissions and API response."
             )
@@ -73,7 +88,9 @@ def client_config(api_token: str, api_version: str) -> ClientConfig:
 
 def endpoint_config(endpoint: VWOEndpoint) -> Endpoint:
     return {
-        "data_selector": "_data" if endpoint.singleton else VWOCollectionSelector(),
+        "data_selector": "_data"
+        if endpoint.singleton
+        else VWOCollectionSelector(skip_missing_envelope=endpoint.fanout is not None),
         "data_selector_required": True,
         "paginator": {"type": "offset", "limit": endpoint.page_size, "total_path": "_data.totalCount"}
         if endpoint.paginated

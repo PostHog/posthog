@@ -114,9 +114,9 @@ export function EventContentConversation({
     const openCustomParserMax = useCustomParserMaxTool({
         eventId,
         traceId,
+        timestamp,
         input,
         output,
-        tools: loadedTools,
         inputRecognized,
         outputRecognized,
         isLoading,
