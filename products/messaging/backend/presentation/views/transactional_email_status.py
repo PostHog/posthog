@@ -134,6 +134,21 @@ MANAGE_UNAVAILABLE_RESPONSE = OpenApiResponse(
 )
 
 
+class _ScheduledSendsOff(serializers.ValidationError):
+    pass
+
+
+def _require_scheduled_moves(team: Any) -> None:
+    try:
+        require_scheduled_sends(
+            team,
+            "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time that "
+            "already passed to send it now.",
+        )
+    except serializers.ValidationError as e:
+        raise _ScheduledSendsOff(e.detail) from None
+
+
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
@@ -252,15 +267,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             requested_at = serializer.validated_data["scheduled_at"]
             report["lead_time_bucket"] = lead_time_bucket(requested_at)
             if report["lead_time_bucket"] != "now":
-                try:
-                    require_scheduled_sends(
-                        self.team,
-                        "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time "
-                        "that already passed to send it now.",
-                    )
-                except serializers.ValidationError:
-                    report["outcome"] = "scheduled_sends_off"
-                    raise
+                _require_scheduled_moves(self.team)
             message_id = _message_id(pk)
             scheduled_at = reschedule_email(self.team_id, message_id, requested_at)
             report["outcome"] = "scheduled"
@@ -275,9 +282,11 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         report: dict[str, Any] = {"outcome": "error"}
         try:
             yield report
+        except _ScheduledSendsOff:
+            report["outcome"] = "scheduled_sends_off"
+            raise
         except serializers.ValidationError:
-            if report["outcome"] == "error":
-                report["outcome"] = "invalid_request"
+            report["outcome"] = "invalid_request"
             raise
         except EmailNotFound:
             report["outcome"] = "not_found"
