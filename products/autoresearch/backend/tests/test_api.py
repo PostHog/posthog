@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -754,6 +755,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert data["can_proceed"] is False
         assert len(data["warnings"]) == 2
         assert data["warnings"][0]["severity"] == "error"
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("unexpected", RuntimeError("boom"), "unavailable"),
+        ]
+    )
+    def test_validate_reports_why_the_check_did_not_run(self, _name: str, exc: Exception, expected_code: str):
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows", side_effect=exc):
+            resp = self.client.post(f"{self.base_url}/validate/", {"target_event": "$signup"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert data["error_code"] == expected_code
+        assert data["error"]
 
     @parameterized.expand(
         [

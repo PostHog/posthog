@@ -1211,6 +1211,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-warehouse-scene',
                 'context-layer',
                 'warehouse-multi-destination',
+                'dwh-custom-source-ai-builder',
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
