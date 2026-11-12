@@ -291,7 +291,6 @@ layer = "modules"
 [[modules]]
 path = "products.cdp"
 depends_on = [
-    "products.access_control",
     "products.cohorts",
     "ee",
     "posthog",

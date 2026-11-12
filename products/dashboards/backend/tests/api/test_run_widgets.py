@@ -1,7 +1,9 @@
 import typing
+from datetime import UTC, datetime
 from typing import Any, cast
 
-from posthog.test.base import APIBaseTest
+import time_machine
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -13,9 +15,11 @@ from rest_framework import status
 from posthog.schema import RecordingOrder, RecordingOrderDirection
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.clickhouse.client.execute import UntaggedQueryError
+from posthog.clickhouse.client.execute import UntaggedQueryError, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.models import Team
+from posthog.clickhouse.workload import Workload
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes import APIScopeObject
@@ -27,6 +31,7 @@ from posthog.slo.types import SloOperation, SloOutcome
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_LIMIT,
@@ -58,11 +63,54 @@ from products.dashboards.backend.widgets.error_tracking_list import run_error_tr
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.event_definitions.backend.models import PropertyDefinition
 from products.logs.backend.models import LogsView
 
 
 def _empty_listing_result() -> RecordingsListingResult:
     return RecordingsListingResult(recordings=[], more_recordings_available=False, timings_header="", next_cursor=None)
+
+
+class TestLogsWidgetPropertyAccess(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand([("member",), ("admin",)])
+    @time_machine.travel("2026-11-01T12:00:00Z", tick=False)
+    def test_logs_widget_respects_viewer_property_access(self, access: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = (
+            OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        services = ["application", "posthog-internal-hog-functions", "posthog-internal-workflows"]
+        for service in services:
+            sync_execute(
+                "INSERT INTO logs (team_id, timestamp, body, service_name) VALUES (%(team_id)s, %(timestamp)s, %(body)s, %(service)s)",
+                {
+                    "team_id": self.team.pk,
+                    "timestamp": datetime(2026, 11, 1, 11, 30, tzinfo=UTC),
+                    "body": f"{service} message",
+                    "service": service,
+                },
+                workload=Workload.LOGS,
+            )
+
+        result = run_logs_list_widget(self.team, {"limit": 10}, user=self.user)
+
+        expected_services = ["application"] if access == "member" else services
+        assert sorted(row["body"] for row in result["results"]) == [
+            f"{service} message" for service in expected_services
+        ]
 
 
 class TestWidgetRegistry(SimpleTestCase):

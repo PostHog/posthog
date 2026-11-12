@@ -25,6 +25,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -67,7 +68,6 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 from products.cdp.backend.models.plugin import TranspilerError
-from products.cdp.backend.permissions import CDPPropertyAccessPermission
 from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,

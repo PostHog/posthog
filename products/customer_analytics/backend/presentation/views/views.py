@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
@@ -70,7 +71,6 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.cdp.backend.permissions import CDPPropertyAccessPermission
 from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (

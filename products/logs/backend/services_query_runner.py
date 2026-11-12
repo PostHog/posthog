@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from typing import Any
 
@@ -14,7 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 
 from products.logs.backend.agent_window import utc_iso, window_echo
@@ -297,6 +297,10 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         self.baseline_date_range = baseline_date_range
         self._pristine_scope = self._scope()
 
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        baseline = self.__dict__.get("_baseline_runner")
+        return [baseline] if baseline is not None else []
+
     def get_cache_payload(self) -> dict[str, Any]:
         return {
             **super().get_cache_payload(),
@@ -318,6 +322,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
         return ServicesQueryRunner(
             team=self.team,
+            user=self.user,
             query=self.query.model_copy(deep=True, update={"dateRange": date_range}),
             service_name_search=self.service_name_search,
             environment=self.environment,

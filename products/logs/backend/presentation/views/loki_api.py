@@ -1,8 +1,7 @@
 import re
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
-
-from products.cdp.backend.permissions import CDPPropertyAccessPermission
 
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 

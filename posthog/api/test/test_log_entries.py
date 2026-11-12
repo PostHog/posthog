@@ -236,14 +236,15 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for service in services:
             sync_execute(
                 """INSERT INTO logs
-                (uuid, team_id, timestamp, observed_timestamp, body, severity_text, severity_number, service_name)
-                VALUES (%(uuid)s, %(team_id)s, %(timestamp)s, %(timestamp)s, %(body)s, 'info', 9, %(service)s)""",
+                (uuid, team_id, timestamp, observed_timestamp, body, severity_text, severity_number, service_name, attributes_map_str)
+                VALUES (%(uuid)s, %(team_id)s, %(timestamp)s, %(timestamp)s, %(body)s, 'info', 9, %(service)s, %(attributes)s)""",
                 {
                     "uuid": str(uuid4()),
                     "team_id": self.team.pk,
                     "timestamp": datetime(2026, 11, 1, 11, tzinfo=UTC),
                     "body": f"{service} message",
                     "service": service,
+                    "attributes": {"permission_note__str": service},
                 },
                 workload=Workload.LOGS,
             )
@@ -267,6 +268,26 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert sorted(row["body"] for row in logs.json()["results"]) == [
             f"{service} message" for service in expected_services
         ]
+
+        groups = self.client.post(
+            f"/api/projects/{self.team.pk}/logs/group-by/",
+            {"query": {"dateRange": {"date_from": "-1d"}, "groupBy": "permission_note"}},
+        )
+        assert groups.status_code == 200, groups.json()
+        assert sorted(row["value"] for row in groups.json()["groups"]) == expected_services
+
+        attributes = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT DISTINCT service_name, attribute_value FROM log_attributes ORDER BY service_name",
+                },
+                "refresh": "force_blocking",
+            },
+        )
+        assert attributes.status_code == 200, attributes.json()
+        assert attributes.json()["results"] == [[service, service] for service in expected_services]
 
     @time_machine.travel("2023-09-23 12:00:00", tick=False)
     def test_pages_log_entries_by_offset(self):

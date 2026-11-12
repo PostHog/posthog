@@ -62,9 +62,9 @@ def _build_logs_query(team: Team, config: ValidatedLogsListWidgetConfig, limit: 
     )
 
 
-def _run_logs_query(team: Team, query: LogsQuery) -> dict[str, Any]:
+def _run_logs_query(team: Team, query: LogsQuery, user: User | None) -> dict[str, Any]:
     with tags_context(product=Product.LOGS, feature=Feature.QUERY, team_id=team.pk):
-        return LogsQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+        return LogsQueryRunner(team=team, query=query, user=user).calculate().model_dump(mode="json")
 
 
 def _transform_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -84,7 +84,7 @@ def run_logs_list_widget(
     typed_config = validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
-        data = _run_logs_query(team, _build_logs_query(team, typed_config, page_limit))
+        data = _run_logs_query(team, _build_logs_query(team, typed_config, page_limit), user)
         raw_results = data.get("results")
         return ListWidgetPage(
             results=raw_results if isinstance(raw_results, list) else [],

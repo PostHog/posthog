@@ -19,6 +19,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPOrganizationPropertyAccessPermission, CDPPropertyAccessPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.event_usage import report_user_action
@@ -53,7 +54,6 @@ from products.cdp.backend.models.plugin import (
     transpile,
     update_validated_data_from_url,
 )
-from products.cdp.backend.permissions import CDPOrganizationPropertyAccessPermission, CDPPropertyAccessPermission
 from products.cdp.backend.templates import HOG_FUNCTION_MIGRATORS
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts

@@ -232,7 +232,7 @@ class LogsPatternBucketsTable(InternalLogsAccessTable):
         return "logs_pattern_buckets"
 
 
-class LogAttributesTable(Table):
+class LogAttributesTable(InternalLogsAccessTable):
     description: str = "Distinct log attribute key/value pairs with occurrence counts, used to power log attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS
     fields: dict[str, FieldOrTable] = {

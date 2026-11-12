@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.paging import Page, PageRequest
@@ -18,7 +19,6 @@ from products.cdp.backend.models.plugin import (
     count_plugin_log_entries,
     fetch_plugin_log_entries,
 )
-from products.cdp.backend.permissions import CDPLogPropertyAccessPermission
 
 
 class PluginLogEntrySerializer(DataclassSerializer):
