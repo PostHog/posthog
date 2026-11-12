@@ -17,6 +17,7 @@ from typing import Any
 
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_category import MessageCategory
@@ -407,9 +408,17 @@ def _offset_after(client: SendGridClient, path: str, position: int, last: str, e
     return 0, None
 
 
+@frozen
+class _ListPage:
+    rows: list[Any]
+    # Where to continue: the offset after these rows, and the email of the last one.
+    offset: int
+    last: str | None
+
+
 def _list_pages_after(
     client: SendGridClient, path: str, offset: int, last: str | None, end_time: int
-) -> Iterator[tuple[list[Any], int, str | None]]:
+) -> Iterator[_ListPage]:
     """New rows of a suppression list, with the offset and email to continue after them.
 
     Lists have no cursor, only an offset. Pinning the end of the range keeps new entries out, but deleting an entry
@@ -427,7 +436,7 @@ def _list_pages_after(
         if fresh:
             offset += len(fresh)
             last = _list_email(fresh[-1])
-            yield fresh, offset, last
+            yield _ListPage(rows=fresh, offset=offset, last=last)
         if len(rows) < SUPPRESSION_PAGE_SIZE:
             return
 
@@ -443,11 +452,11 @@ def _fetch_suppressions(
         start = int(resume["offset"]) if not reached and resume else 0
         anchor = str(resume["last"]) if not reached and resume and "last" in resume else None
         reached = True
-        for rows, offset, last in _list_pages_after(client, path, start, anchor, end_time):
+        for page in _list_pages_after(client, path, start, anchor, end_time):
             yield ImportPage(
-                processed=len(rows),
-                save=partial(_save_suppressions, context, rows, list_key, source, reason),
-                checkpoint=_offset_checkpoint(fingerprint, list_key, offset, end_time, last),
+                processed=len(page.rows),
+                save=partial(_save_suppressions, context, page.rows, list_key, source, reason),
+                checkpoint=_offset_checkpoint(fingerprint, list_key, page.offset, end_time, page.last),
             )
 
 
@@ -483,11 +492,11 @@ def _fetch_global_unsubscribes(
     end_time = int(resume["end_time"]) if resume and "end_time" in resume else int(timezone.now().timestamp())
     start = int(resume["offset"]) if resume and "offset" in resume else 0
     anchor = str(resume["last"]) if resume and "last" in resume else None
-    for rows, offset, last in _list_pages_after(client, "/v3/suppression/unsubscribes", start, anchor, end_time):
+    for page in _list_pages_after(client, "/v3/suppression/unsubscribes", start, anchor, end_time):
         yield ImportPage(
-            processed=len(rows),
-            save=partial(_save_global_unsubscribes, context, rows),
-            checkpoint=_offset_checkpoint(fingerprint, "global", offset, end_time, last),
+            processed=len(page.rows),
+            save=partial(_save_global_unsubscribes, context, page.rows),
+            checkpoint=_offset_checkpoint(fingerprint, "global", page.offset, end_time, page.last),
         )
 
 
