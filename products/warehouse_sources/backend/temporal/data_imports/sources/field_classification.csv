@@ -1361,7 +1361,7 @@ Windmill,host workspace api_token,,,,,windmill
 WindsorAi,,,,,,windsor-ai
 Wise,api_token,,,,,wise
 WisprFlow,,,,,,wispr-flow
-Wistia,,,,,,wistia
+Wistia,api_token,,,,,wistia
 Wix,api_key site_id,,,,,wix
 Wiz,,,,,,wiz
 Wompi,,,,,,wompi
