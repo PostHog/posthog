@@ -98,6 +98,7 @@ PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
 PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
 
 _STRICT_RECONCILE_TIMEOUT_SECONDS = 60
+_SWEEP_TIMEOUT_LIMIT = 3
 
 
 class StaleScheduleDeleteError(Exception):
@@ -409,6 +410,7 @@ def clamp_targets_to_plan_floor() -> int:
     """
     candidates = _user_set_targets_finer_than(MAX_PLAN_REFRESH_FLOOR)
     clamped = 0
+    timeouts = 0
     for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
         try:
             dags = _dags_with_targets_finer_than_plan_floor(organization)
@@ -420,11 +422,11 @@ def clamp_targets_to_plan_floor() -> int:
             try:
                 clamped += _clamp_dag_targets_to_plan_floor(dag)
             except TimeoutError as error:
-                logger.exception(
-                    "Plan floor clamp stopped on a reconcile timeout", dag_id=str(dag.id), team_id=dag.team_id
-                )
+                logger.exception("Plan floor clamp timed out", dag_id=str(dag.id), team_id=dag.team_id)
                 capture_exception(error)
-                return clamped
+                timeouts += 1
+                if timeouts >= _SWEEP_TIMEOUT_LIMIT:
+                    return clamped
             except Exception as error:
                 logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
                 capture_exception(error)

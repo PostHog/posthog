@@ -666,21 +666,28 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual((rewritten, get_declared_target(node)), expected)
         self.assertEqual(capture.call_count, expected[0])
 
-    def test_plan_floor_sweep_stops_when_a_reconcile_times_out(self):
+    @parameterized.expand(
+        [
+            ("one_timeout_skips_only_its_dag", [TimeoutError, None], 2, 1),
+            ("repeated_timeouts_stop_the_sweep", [TimeoutError] * 4, 3, 0),
+        ]
+    )
+    def test_plan_floor_sweep_on_reconcile_timeouts(self, _name, outcomes, expected_calls, expected_rewritten):
         _grant_refresh_interval(self.organization, 360)
-        for name in ("first", "second"):
+        for index in range(len(outcomes)):
             node = _saved_query_node(
-                self.team, DAG.objects.create(team=self.team, name=name), f"mv_{name}", NodeType.MAT_VIEW
+                self.team, DAG.objects.create(team=self.team, name=f"dag_{index}"), f"mv_{index}", NodeType.MAT_VIEW
             )
             set_declared_target(node, M15)
 
         with (
             mock.patch(FLOOR_FLAG, return_value=True),
-            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=TimeoutError) as reconcile,
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=outcomes) as reconcile,
+            mock.patch("posthog.event_usage.posthoganalytics.capture"),
         ):
             rewritten = clamp_targets_to_plan_floor()
 
-        self.assertEqual((rewritten, reconcile.call_count), (0, 1))
+        self.assertEqual((rewritten, reconcile.call_count), (expected_rewritten, expected_calls))
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()
