@@ -75,6 +75,7 @@ import {
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
+import { isNewReplayLayout } from './replayLayout'
 
 // Re-exported for back-compat with existing import sites; the implementations now live in the leaf
 // `recordingsQueryConversions` module so they can be imported without pulling in this logic file.
@@ -167,6 +168,7 @@ interface BackendEventsMatching {
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
 
 export const RECORDINGS_LIMIT = 20
+const MAX_LIVE_ONLY_PAGES = 3
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
@@ -557,6 +559,7 @@ function sortRecordings(
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
+    watchLayout?: boolean
     /**
      * Which surface embeds this playlist, stamped on `recording list fetched`. Set it wherever the
      * playlist is one part of another page, so its list loads can be told apart from the replay
@@ -1948,6 +1951,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 if (values.sessionRecordingsResponseLoading) {
                     return // We don't want to load if we are currently loading
                 }
+                cache.liveOnlyPages = 0
 
                 actions.loadSessionRecordings(direction)
             },
@@ -1960,6 +1964,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
+
+                const liveOnly =
+                    payload?.direction === 'older' &&
+                    sessionRecordingsResponse.results.length > 0 &&
+                    sessionRecordingsResponse.results.every((recording) => recording.ongoing)
+                cache.liveOnlyPages = liveOnly ? (cache.liveOnlyPages ?? 0) + 1 : 0
+                if (
+                    liveOnly &&
+                    values.hasNext &&
+                    cache.liveOnlyPages <= MAX_LIVE_ONLY_PAGES &&
+                    !!props.watchLayout &&
+                    isNewReplayLayout(playerSettingsLogic.values.replayLayout)
+                ) {
+                    actions.loadSessionRecordings('older')
+                }
             },
 
             loadSessionRecordingsFailure: ({ error, errorObject }) => {

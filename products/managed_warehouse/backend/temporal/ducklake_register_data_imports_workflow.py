@@ -23,6 +23,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -43,6 +44,10 @@ from products.managed_warehouse.backend.common import (
     get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
     is_dev_mode,
+)
+from products.managed_warehouse.backend.duckgres_availability import (
+    DuckgresOrganizationStatus,
+    probe_duckgres_organization,
 )
 from products.managed_warehouse.backend.facade.api import get_control_plane_data_path
 from products.managed_warehouse.backend.facade.contracts import (
@@ -316,43 +321,52 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         trino_flag = inputs.register_through_trino
     else:
         trino_flag = await asyncio.to_thread(data_imports_trino_flag, organization_id)
-    if trino_flag is True:
-        readiness = await asyncio.to_thread(get_trino_target_readiness, organization_id)
-        if readiness.lookup_failed:
-            raise ApplicationError(
-                f"The Trino target readiness check failed for team {inputs.team_id}", non_retryable=False
+    register_through_trino = trino_flag is True
+    if not register_through_trino:
+        # The flag alone is not sufficient: registration resolves the team's schema through
+        # the duckgres control plane, which only knows orgs with a provisioned server, so a
+        # flag-enabled team in an unprovisioned org would fail the prepare activity with a
+        # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
+        # (connections come from env vars), so the check applies only to real deployments.
+        if is_dev_mode():
+            return True
+
+        server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
+        if server is None:
+            if trino_flag is None:
+                # Trino is the only engine this organization can use, and the flag may enable it, so the gate retries
+                # instead of skipping a run the flag would allow.
+                raise ApplicationError(
+                    f"The Trino registration flag gave no answer for team {inputs.team_id}, "
+                    "and its organization has no duckgres server",
+                    non_retryable=False,
+                )
+            await logger.ainfo(
+                "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
             )
-        # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
-        # instead of falling back to duckgres. The next completed sync starts registration again.
-        if readiness.catalog_name is None:
-            await logger.ainfo("Trino target is not ready; skipping DuckLake data imports registration through Trino")
-            get_ducklake_register_data_imports_skipped_metric(team_id=inputs.team_id, reason="trino_not_ready").add(1)
             return False
-        return True
 
-    # The flag alone is not sufficient: registration resolves the team's schema through
-    # the duckgres control plane, which only knows orgs with a provisioned server, so a
-    # flag-enabled team in an unprovisioned org would fail the prepare activity with a
-    # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
-    # (connections come from env vars), so the check applies only to real deployments.
-    if is_dev_mode():
-        return True
+        # An organization that duckgres refuses registers through Trino, because PostHog provisions every warehouse
+        # with Trino. An unanswered probe keeps duckgres, which fails the run visibly if it is wrong. An explicit
+        # duckgres override skips the probe, because the engine choice honors the override.
+        if inputs.register_through_trino is not None:
+            return True
+        status = await asyncio.to_thread(probe_duckgres_organization, server)
+        if status is not DuckgresOrganizationStatus.REFUSED:
+            return True
+        await logger.ainfo("duckgres refuses the organization; registering DuckLake data imports through Trino")
 
-    server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
-    if server is None:
-        if trino_flag is None:
-            # Trino is the only engine this organization can use, and the flag may enable it, so the gate retries
-            # instead of skipping a run the flag would allow.
-            raise ApplicationError(
-                f"The Trino registration flag gave no answer for team {inputs.team_id}, "
-                "and its organization has no duckgres server",
-                non_retryable=False,
-            )
-        await logger.ainfo(
-            "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
+    readiness = await asyncio.to_thread(get_trino_target_readiness, organization_id)
+    if readiness.lookup_failed:
+        raise ApplicationError(
+            f"The Trino target readiness check failed for team {inputs.team_id}", non_retryable=False
         )
+    # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
+    # instead of falling back to duckgres. The next completed sync starts registration again.
+    if readiness.catalog_name is None:
+        await logger.ainfo("Trino target is not ready; skipping DuckLake data imports registration through Trino")
+        get_ducklake_register_data_imports_skipped_metric(team_id=inputs.team_id, reason="trino_not_ready").add(1)
         return False
-
     return True
 
 
@@ -392,12 +406,15 @@ async def prepare_ducklake_data_imports_registration_activity(
         # Database lookups use the shared database thread, and network calls run in their own threads, so a slow
         # flags service or control plane cannot block other activities' database calls.
         organization_id = str(await database_sync_to_async(_get_org_id_for_team)(inputs.team_id))
-        engine = await _registration_engine_for_team(inputs.team_id, organization_id, inputs.register_through_trino)
+        engine_choice = await _registration_engine_for_team(
+            inputs.team_id, organization_id, inputs.register_through_trino
+        )
+        engine = engine_choice.engine
         trino_canary = inputs.use_trino_canary and engine == ENGINE_TRINO
         await logger.ainfo(
             "Chose the DuckLake data imports registration engine",
             engine=engine,
-            engine_source="override" if inputs.register_through_trino is not None else "flag",
+            engine_source=engine_choice.source,
             trino_canary=trino_canary,
         )
         if engine == ENGINE_TRINO:
@@ -511,19 +528,35 @@ def _record_registration_metrics(
     get_ducklake_register_data_imports_bytes_metric(team_id=team_id, schema_id=schema_id).record(float(copied_bytes))
 
 
-async def _registration_engine_for_team(team_id: int, organization_id: str, register_through_trino: bool | None) -> str:
+@frozen
+class _RegistrationEngineChoice:
+    engine: str
+    source: typing.Literal["override", "flag", "duckgres_refusal", "default"]
+
+
+async def _registration_engine_for_team(
+    team_id: int, organization_id: str, register_through_trino: bool | None
+) -> _RegistrationEngineChoice:
     if register_through_trino is not None:
-        return ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES
+        return _RegistrationEngineChoice(
+            engine=ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES, source="override"
+        )
     if await asyncio.to_thread(data_imports_through_trino, organization_id):
-        return ENGINE_TRINO
+        return _RegistrationEngineChoice(engine=ENGINE_TRINO, source="flag")
+    if is_dev_mode():
+        return _RegistrationEngineChoice(engine=ENGINE_DUCKGRES, source="default")
     # data_imports_through_trino returns False when the flag evaluation fails, so an org without a duckgres server
     # must retry instead of falling back to an engine it cannot use.
-    if not is_dev_mode() and await database_sync_to_async(get_duckgres_server_by_team_org)(team_id) is None:
+    server = await database_sync_to_async(get_duckgres_server_by_team_org)(team_id)
+    if server is None:
         raise ApplicationError(
             f"The Trino engine could not be confirmed for team {team_id} and its organization has no duckgres server",
             non_retryable=False,
         )
-    return ENGINE_DUCKGRES
+    # The copy activity copies files before it connects to duckgres, so the engine is decided here, not at connect time.
+    if await asyncio.to_thread(probe_duckgres_organization, server) is DuckgresOrganizationStatus.REFUSED:
+        return _RegistrationEngineChoice(engine=ENGINE_TRINO, source="duckgres_refusal")
+    return _RegistrationEngineChoice(engine=ENGINE_DUCKGRES, source="default")
 
 
 def _trino_landing_uri(

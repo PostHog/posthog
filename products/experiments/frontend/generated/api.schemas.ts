@@ -2666,6 +2666,40 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `flag_deleted` - Whether the feature flag is deleted
  * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
  * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+ * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+ * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+ * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+ * * `metric_name` - The name of a metric
+ * * `metric_role` - Whether a metric is primary or secondary
+ * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+ * * `sample_count` - Users or groups in a metric's results, across the variants
+ * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+ * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+ * * `variant` - The key of a variant
+ * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+ * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+ * * `significant` - Whether a variant's difference from the control is significant
+ * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+ * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+ * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+ * * `forced_count` - Users or groups that a release condition with a variant override served
+ * * `forced_percentage` - forced_count as a share of variant_matched_count
+ * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+ * * `changed_at` - When a change of the feature flag was saved
+ * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+ * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+ * * `before` - What a change of the feature flag changed, as it was before the change, in words
+ * * `after` - What a change of the feature flag changed, as it was after the change, in words
+ * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+ * * `event` - The name of an event that the check looked up
+ * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+ * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+ * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+ * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+ * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+ * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+ * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+ * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
  */
 export type ExperimentHealthValueKeyEnumApi =
     (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
@@ -2693,6 +2727,40 @@ export const ExperimentHealthValueKeyEnumApi = {
     FlagDeleted: 'flag_deleted',
     FlagRolledOut: 'flag_rolled_out',
     ShippedVariant: 'shipped_variant',
+    FlagLastCalledAt: 'flag_last_called_at',
+    SinceStartHours: 'since_start_hours',
+    DailyCalculationEndsAt: 'daily_calculation_ends_at',
+    MetricName: 'metric_name',
+    MetricRole: 'metric_role',
+    RatioSide: 'ratio_side',
+    SampleCount: 'sample_count',
+    PlannedSampleCount: 'planned_sample_count',
+    DataHours: 'data_hours',
+    Variant: 'variant',
+    DifferencePercentage: 'difference_percentage',
+    DetectableDifferencePercentage: 'detectable_difference_percentage',
+    Significant: 'significant',
+    ForcedConditionCount: 'forced_condition_count',
+    MatchedCount: 'matched_count',
+    VariantMatchedCount: 'variant_matched_count',
+    ForcedCount: 'forced_count',
+    ForcedPercentage: 'forced_percentage',
+    TrafficSinceAt: 'traffic_since_at',
+    ChangedAt: 'changed_at',
+    BeforeExposure: 'before_exposure',
+    ChangedSetting: 'changed_setting',
+    Before: 'before',
+    After: 'after',
+    FlagServiceCallPercentage: 'flag_service_call_percentage',
+    Event: 'event',
+    EventReceived: 'event_received',
+    InvalidMetricCount: 'invalid_metric_count',
+    UncheckedMetricCount: 'unchecked_metric_count',
+    FlagSplit: 'flag_split',
+    BaselineVariant: 'baseline_variant',
+    OtherRunningExperimentCount: 'other_running_experiment_count',
+    AssignedOutsideCount: 'assigned_outside_count',
+    OtherDraftExperimentCount: 'other_draft_experiment_count',
 } as const
 
 /**
@@ -2741,7 +2809,41 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `flag_active` - Whether the feature flag is enabled
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
@@ -2771,7 +2873,41 @@ export interface ExperimentHealthCheckRuleApi {
      * * `flag_active` - Whether the feature flag is enabled
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */
     threshold: number
@@ -2792,6 +2928,8 @@ export interface ExperimentHealthCheckRuleApi {
  * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
  */
 export type ExperimentHealthCheckResultApiValues = { [key: string]: string | number | boolean | null }
+
+export type ExperimentHealthCheckResultApiRowsItem = { [key: string]: string | number | boolean | null }
 
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -2842,6 +2980,8 @@ export interface ExperimentHealthCheckResultApi {
     values: ExperimentHealthCheckResultApiValues
     /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
     rule: ExperimentHealthCheckRuleApi | null
+    /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+    rows: ExperimentHealthCheckResultApiRowsItem[]
 }
 
 export interface ExperimentHealthReleaseConditionApi {

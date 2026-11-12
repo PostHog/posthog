@@ -45,12 +45,29 @@ describe('evaluation sentence parts', () => {
         { name: 'off', input: { enabled: false, frequency: 'scheduled' }, expected: 'never' },
         { name: 'scheduled', input: { enabled: true, frequency: 'scheduled' }, expected: 'weekly' },
         {
-            name: 'by result count',
+            name: 'by result count, at most daily',
             input: { enabled: true, frequency: 'every_n' },
-            expected: 'every 100 results',
+            expected: 'every 100 results, at most once a day',
+        },
+        {
+            name: 'by result count, at most hourly',
+            input: { enabled: true, frequency: 'every_n', cooldownMinutes: 60 },
+            expected: 'every 100 results, at most once an hour',
+        },
+        {
+            name: 'by result count, a custom gap',
+            input: { enabled: true, frequency: 'every_n', cooldownMinutes: 360 },
+            expected: 'every 100 results, at most once every 6 hours',
+        },
+        {
+            name: 'by result count, a gap saved in minutes through the API',
+            input: { enabled: true, frequency: 'every_n', cooldownMinutes: 90 },
+            expected: 'every 100 results, at most once every 90 minutes',
         },
     ])('reports: $name', ({ input, expected }) => {
-        expect(reportText({ scheduleCadence: 'weekly', triggerThreshold: 100, ...input })).toEqual(expected)
+        expect(
+            reportText({ scheduleCadence: 'weekly', triggerThreshold: 100, cooldownMinutes: 1440, ...input })
+        ).toEqual(expected)
     })
 
     test.each([
