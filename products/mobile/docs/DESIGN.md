@@ -5,6 +5,12 @@ This file records how it maps to React Native.
 
 ## App icon
 
+On iOS, the Icon Composer bundles in `assets/` keep the background and hedgehog on separate layers.
+Default uses the color mark on white. Dark uses the white square logomark on a dark fill.
+Clear and Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
+their labels on a separate layer. Preview all four appearances on the iOS Home Screen when
+changing the icon. [Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
+
 Android adaptive icon layers use a 108dp canvas, with a central 72dp viewport and a 66dp safe circle.
 `plugins/withAndroidAdaptiveIconInsets.js` adds a proportional 18dp inset on every side during
 prebuild, so the hedgehog and the DEV or PREVIEW label fit inside launcher masks. The inset
@@ -13,6 +19,14 @@ applies to both regular and round adaptive icons for all three build variants.
 Keep the 1024px source images at their existing scale; the plugin supplies Android's extra
 spacing. Icon changes need a new native build and cannot ship through an over-the-air update.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
+
+## Splash and in-app branding
+
+The native splash follows the device appearance. The animated splash and in-app logos
+use the app's Appearance setting. Light uses the gradient artwork. Dark uses the
+[official white artwork](https://brand.posthog.com/logo) for the logomark and landscape logo.
+The checked-in artwork comes from `@posthog/brand`. With `rsvg-convert` installed, run
+`pnpm brand:generate app` from `products/mobile` to refresh the in-app SVGs and dark splash PNG.
 
 ## Tokens
 
@@ -28,7 +42,6 @@ Scheme-independent values live in `src/ui/tokens.ts`. Colors and everything deri
   `surface` for cards, pills, sheets, floating cards, text fields and menus;
   `onInk` for text and icons on an `ink` fill; `onAccent` for text and icons on an `accent` fill.
   `white` is literal white in both schemes, only for text on a fixed color, such as avatar initials.
-  The logomark's head and the wordmark use `ink`, so they stay visible on a dark background.
 - `accent` (`accentHover` when pressed) fills the primary call to action: Sign in, Hand off, Send a decision.
   `orange` stays for warnings, failures, destructive actions, the P0/P1 priority and the report `alert` accent.
 - Some roles shared `border` or `ink` in light but need their own value in dark:
@@ -336,3 +349,5 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   rows with the event name as the chip and the offset as the time; errors and rage clicks draw in orange, and an error
   with an issue opens it. The round ink Chat button sits bottom right. Loading is a skeleton of the screen; "Couldn't
   find this recording" (expired or deleted) and "Couldn't load this session" are separate states.
+  With `mobile-replay-video` on, the pill's icon is a play glyph labeled Watch replay, and More starts with Open in PostHog.
+  Watch replay opens `ReplayVideoPlayer`, a full-screen modal: "Session replay" and a close button, then "Preparing video" with a spinner and the time waited, the video on black with native controls, or "Couldn't play this recording" with Try again and Open in PostHog.

@@ -2,7 +2,9 @@
 
 The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
 
-Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. Review and merge continues to show reports with an open implementation PR.
+Research completion activities update a report only while its locked status is `IN_PROGRESS`. The failure activity also handles `CANDIDATE` reports when admission fails before research starts. Status changes made during research, including archive, snooze, close, and resolve, remain in effect. Retries preserve completed transitions, including a return to `CANDIDATE` when new signals require more research.
+
+Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. The report list API's `view=monitoring` returns the same reports. Review and merge continues to show reports with an open implementation PR.
 
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
@@ -11,10 +13,17 @@ PR-driven resolutions emit `signal_report_status_changed` with `resolution_reaso
 
 PR-driven dismissals emit `dismissal_cause=pr_closed_without_merge` when all linked implementation PRs are closed without a merge. This also covers reconciliation after attaching an already-closed PR. Dismissal queries should prefer `dismissal_cause` and fall back to `dismissal_reason`, which remains the caller's feedback. The cause identifies automatic reconciliation, not who closed the PR or why they closed it.
 
+Web and Desktop use the same report action and run-state rules from `@posthog/agent-contracts/signal-report-state`.
+A person can resolve Ready, Pending input, Failed, Closed, and Monitoring reports.
+Monitoring and Closed reports show a completed agent run.
+A closed or merged implementation PR does not trigger an open-PR warning in a resolve or dismiss dialog.
+When the PR state is absent or unknown, Failed, Resolved, Suppressed, and Closed reports show a closed PR and do not poll its CI.
+An explicit PR state takes precedence over that fallback.
+
 A person can resolve a report by recording a manual implementation or a useful finding that needs no action. Feedback from the state API, Slack, PR closures, report merges, refunds, and plan rollups saves its verdict so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
 The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
 
-PR refunds require `signals-pr-refunds` and are unavailable to organizations with `self-driving-ubp` enabled. The inbox hides the refund action for those organizations, and the refund API returns HTTP 403 before changing the report or creating a refund. If the pricing flag cannot be evaluated, the API returns HTTP 503 so the caller can retry without changing the report or creating a refund. Only a confirmed disabled `self-driving-ubp` result permits the existing refund eligibility rules to run.
+PR refunds require `signals-pr-refunds` and are unavailable to organizations with `self-driving-ubp` enabled. The inbox hides the refund action for those organizations, and the refund API returns HTTP 403 before changing the report or creating a refund. If the pricing flag cannot be evaluated, the API returns HTTP 503 so the caller can retry without changing the report or creating a refund. Only a confirmed disabled `self-driving-ubp` result permits the existing refund eligibility rules to run. An organization whose usage-based billing starts at a later date counts as disabled until that date. The refund badge displays the amount returned toward the next invoice as AI credits, at 100 credits per dollar, rounded to the nearest whole credit; a confirmed zero refund remains zero, and a pending refund remains pending.
 
 Monitoring means implementation is complete and outcome verification is pending. With Monitoring enabled, Resolved means the report is finished and runs no follow-up checks. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled. With Monitoring disabled, PR merges retain legacy resolution transitions, including archived reports.
 
@@ -30,7 +39,7 @@ The backend `complete_implementation` service records a durable attempt and free
 
 The save transaction locks the report before the check. Replaying an identical submission ID returns its saved row even after lifecycle changes; changing its content raises `MonitoringResultConflict`. New submissions require enabled Monitoring, the current attempt's membership and definition version, an unchanged check, and an explicit completed soak. Pending, active, technically errored, and expired members remain eligible for final evaluation: interim execution errors and safety expiry do not remove a frozen attempt's final obligation. Cancelled or completed checks remain ineligible. Saving a result does not reactivate an errored or expired check. The evidence window must equal `[monitoring_started_at, monitoring_started_at + soak_minutes]`, including zero soak. New IDs preserve inconclusive and error history and allow later evaluation. Once a pass or failure exists, another submission cannot replace it. Invalidated new work raises `InvalidMonitoringResult`. Evaluators must retain their submission ID and payload across delivery retries and use a fresh ID for a new evaluation. This interface does not run evaluators, schedule retries, spend check runs, complete checks, or transition reports.
 
-Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs accept the Monitoring target. Start monitoring appears after follow-up checks load and at least one exists; the service decides whether any remain applicable when the request runs. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
+Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs accept the Monitoring target. Start monitoring now appears in the Follow-up checks section after follow-up checks load and at least one exists; the service decides whether any remain applicable when the request runs. Existing Monitoring reports can be finished manually, reopened, or archived. Reopening a Monitoring or Closed report returns it to Ready with its research, pull requests, and follow-up checks kept, and does not restart research. Refunded reports cannot be reopened. A reopened plan stays Ready even when all its steps are closed. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
 
@@ -106,7 +115,7 @@ Protected research runs require analytics access before a person can resume or w
 
 ## Monitoring metric definitions
 
-The report detail action is **Start monitoring**, with the tooltip “PostHog watches to make sure the fix works”. It is hidden until follow-up checks have loaded and when none are set. The implementation-completion service remains responsible for selecting applicable checks and deciding whether entry creates a Monitoring attempt or resolves directly.
+A report enters Monitoring manually from the **Follow-up checks** section of the report detail, which asks "Fix already implemented?" above the checks and offers **Start monitoring now**, with the tooltip “PostHog watches to make sure the fix works”. The section and its prompt are hidden until follow-up checks have loaded and when none are set. The implementation-completion service remains responsible for selecting applicable checks and deciding whether entry creates a Monitoring attempt or resolves directly.
 
 **Resolve** on a Monitoring report resolves it manually and cancels its remaining pending and active follow-up checks in the same transaction. Historical terminal checks and other reports' checks are preserved. Results already in flight cannot revive canceled checks. Its reasons are **Verified manually**, **No action needed**, **Was already fixed before this report**, and **Something else…**. The `verified_manually` reason is separate from `fixed_outside_posthog`, requires an enabled Monitoring period, and is preserved with caller attribution. A separate attributed log entry records that automatic verification and an evidence amendment were not performed, preserving the full 4,000-character limit for the user's feedback note.
 
@@ -295,7 +304,9 @@ The report remains readable and supports discussion, assignment, resolution, and
 
 Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
 
-Client-side access controls apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+
+Outside the pilot, Implement with PostHog opens the same GitHub connection flow when the project has no GitHub installation, or only installations marked unavailable. Reports reach such projects without onboarding, for example from Replay Vision scanners, scanner scouts, and scout findings, because those sources need no `SignalSourceConfig`. Report tasks push only with the project's own GitHub integration, so without one the backend refuses the task. The check reads only the project's integration list and does not probe repositories.
 
 Disable the flag to remove pilot activation and restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Reports and saved source/scout settings remain intact; fleet dispatch still applies its ordinary enrollment and exclusion gates.
 
@@ -339,6 +350,14 @@ Keep the selection flag disabled until the trial confirms suitable assignments a
 
 When a project member adds a reviewer, the report shows "Added by" and that member's name as the reason above the reviewer. The name comes from the authenticated author of the artefact that added the reviewer, not from the editable reason. If the author is unavailable, the report shows the generic "Added by teammate" badge instead.
 
+Shared Slack notification settings belong to the project selected in PostHog.
+Project members with Inbox editor access can change these settings; admin access is not required.
+API callers also need `inbox:write`.
+The team channel has its own minimum priority, separate from each reviewer's personal notification setting.
+The default, "All priorities", includes reports without a priority.
+A set minimum priority excludes reports without a priority and reports below that threshold.
+Filtering out a team notification does not block a reviewer's personal notification if it meets their personal threshold.
+
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
 The same access rule applies when a reviewer is added later.
 The team channel shows eligible suggested owners within Slack's text limit.
@@ -346,9 +365,9 @@ When the labels exceed that limit, the notification shows complete labels and a 
 It pings only owners routed to that channel, so owners with a personal notification target appear as plain text.
 Slack keeps plain-text owner names literal instead of converting them into mentions.
 Report text also escapes incomplete mention prefixes and nested tokens while it keeps valid HTTP links.
-If no suggested reviewer has access, the ready report still goes to the configured team channel without an owner label.
+If no suggested reviewer has access, a ready report that meets the team priority setting still goes to the configured team channel without an owner label.
 If the latest actionability judgment marks the report as already addressed, the system does not assign a fallback owner or send a reviewer push notification.
-Slack still sends the report to the configured team channel without reviewer mentions.
+Slack still sends the report to the configured team channel without reviewer mentions if it meets the team priority setting.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 The Slack notification's Implement button posts a request in the report thread and starts the Slack agent flow.
 The agent uses the clicking member's project access and can ask them to select a repository in Slack.
@@ -626,6 +645,7 @@ Its `needs_decision` API view also includes actionable ready or pending-input re
 Triage warns before a verdict closes an open implementation PR.
 New failed reports consume a daily inbox slot when they first become visible.
 Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
+Signal admission checks the daily report limit before billable processing. Accepted signals finish buffering, report generation, and automatic implementation even if the limit is reached meanwhile. This can take the day's count above the configured limit; new work remains blocked. The configured limit, visibility-based count, and project-local day boundary are unchanged.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
@@ -677,3 +697,29 @@ The web report's Runs section lists linked tasks newest first, regardless of the
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
+
+Trial-funded background runs require the PostHog AI gateway.
+Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
+They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
+Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.
+The check uses the effective runtime and model access after defaults are applied, including for a prepared trial admission.
+The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
+Other funding modes keep their existing runtime and model access rules.
+First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.
+
+## Restarting the first-report scout
+
+After deploying a fix, an operator can restart a finished first-report investigation by resetting its `signals-scout-onboarding-...` Temporal workflow to the first `WorkflowTaskCompleted` event, before `run_signals_scout_activity`.
+The reset preserves the workflow input and creates a new scout run and task with a `first-report:<workflow_run_id>` key.
+Repeated activity delivery within the same Temporal execution returns the existing run; a reset supplies a new execution ID.
+Existing tasks and scout runs stay in the history, including attempts created with the legacy `first-report` key; no database edits are needed.
+The normal onboarding trigger still starts only once per project.
+First-report dispatch locks the canonical project's Signals config and checks for a live queued or in-progress run in the task creation transaction.
+A competing dispatch rolls back its task and run before any sandbox starts.
+Restarts re-evaluate the current experiment assignment and quota gates.
+
+Check the new scout run and its task outcome after resetting.
+A Temporal workflow marked `Completed` can have returned a failed or skipped scout result; that status alone does not mean the investigation succeeded.
+The onboarding UI reads the latest scout run, so a restart replaces the failed state with progress and then the new result.
+Reload a page that still shows the previous failure once after restarting; terminal states stop polling.
+While the new investigation is pending or running, the page polls every ten seconds and refreshes the report list when a report appears.

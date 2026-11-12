@@ -935,7 +935,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             task_run = TaskRun.objects.select_related(
                 "task__created_by",
                 "task__team",
-                "task__github_integration",
                 "task__github_user_integration",
             ).get(id=run_id)
             posthoganalytics.tag("origin_product", task_run.task.origin_product)

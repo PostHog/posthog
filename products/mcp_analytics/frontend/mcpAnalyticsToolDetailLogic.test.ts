@@ -141,6 +141,8 @@ describe('failure drill-down', () => {
                     occurrences: 2,
                     last_seen: '2026-07-15 00:00:00',
                     harnesses: [],
+                    cause: '',
+                    sample_message: '',
                 })
             }).toDispatchActions(['loadFailureOccurrences', 'loadFailureOccurrencesSuccess'])
 
@@ -234,6 +236,8 @@ describe('failure drill-down', () => {
                     occurrences: 1,
                     last_seen: '2026-07-15 00:00:00',
                     harnesses: [],
+                    cause: '',
+                    sample_message: '',
                 })
             }).toDispatchActions(['loadFailureOccurrencesSuccess'])
 

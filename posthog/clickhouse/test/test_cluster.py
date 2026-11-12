@@ -644,6 +644,15 @@ def test_map_hosts_by_role() -> None:
         assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
+    [shard] = cluster.shards
+    host3 = cluster.any_host_in_shard_by_roles(shard, [NodeRole.DATA], Workload.OFFLINE)
+    assert host3.connection_info.host == "host3"
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", lambda _, host, fn: lambda: fn(host)):
+        assert cluster.on_host(host3, lambda ran_on: ran_on).result() == host3
+    with pytest.raises(ValueError, match="is not a host of this cluster"):
+        cluster.on_host(host3._replace(shard_num=2), lambda _: None)
+
 
 def test_map_hosts_with_satellite_clusters() -> None:
     main_cluster_hosts = [

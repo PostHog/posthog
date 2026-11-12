@@ -123,6 +123,12 @@ ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+# ── HogQL source filters ────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a boolean expression over the source's filter catalog fields.
+# Clients send the expression as a string. The server stores it with the catalog version it was validated
+# against, so a later catalog version cannot change what a saved filter means.
+HOGQL_FILTER_KEY = "hogql_filter"
+
 
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are

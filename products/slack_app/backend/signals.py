@@ -4,10 +4,16 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import sdk_runs_hooks
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    with_teams,
+    workspace_integrations,
+)
 
 
 @receiver(post_save, sender=UserIntegration)
@@ -30,9 +36,21 @@ def onboard_slack_inbox_on_install(sender: Any, instance: WorkspaceIntegration, 
     worker), which also starts the installer's onboarding thread. An install without
     ``channels:manage``, and a re-auth (update_or_create, so created=False), start the installer's
     onboarding thread directly. Its stored state keeps it from running twice."""
-    if instance.kind != "slack":
+    # The SDK calls `onboard_slack_inbox_on_saved` itself. This receiver is for the writers that do not
+    # use the SDK yet, such as the OAuth callback.
+    if instance.kind != "slack" or sdk_runs_hooks():
         return
+    _onboard_slack_inbox(instance, created=created)
 
+
+def onboard_slack_inbox_on_saved(row: IntegrationRecord, *, created: bool, config_changed: bool) -> None:
+    # A write that leaves the config alone, such as an `errors` update, is not an install or a re-auth.
+    if row.kind != "slack" or not (created or config_changed):
+        return
+    _onboard_slack_inbox(with_teams([row])[0], created=created)
+
+
+def _onboard_slack_inbox(instance: WorkspaceIntegration, *, created: bool) -> None:
     if created:
         # Deferred: keep the import lazy since this receiver is wired from AppConfig.ready().
         from products.slack_app.backend.inbox_channel import has_inbox_scopes  # noqa: PLC0415
@@ -41,8 +59,8 @@ def onboard_slack_inbox_on_install(sender: Any, instance: WorkspaceIntegration, 
         # Robust, so a failed capture cannot stop the onboarding callback queued after it.
         transaction.on_commit(lambda: _capture_install(instance, has_inbox_scopes=inbox_scopes), robust=True)
         if inbox_scopes:
-            integration_id = instance.id
-            transaction.on_commit(lambda: _start_inbox_onboarding_workflow(integration_id))
+            team_id, integration_id = instance.team_id, instance.id
+            transaction.on_commit(lambda: _start_inbox_onboarding_workflow(team_id, integration_id))
             return
 
     transaction.on_commit(lambda: _start_installer_onboarding(instance), robust=True)
@@ -74,7 +92,7 @@ def _capture_install(integration: WorkspaceIntegration, *, has_inbox_scopes: boo
     )
 
 
-def _start_inbox_onboarding_workflow(integration_id: int) -> None:
+def _start_inbox_onboarding_workflow(team_id: int, integration_id: int) -> None:
     # Deferred imports keep the Temporal stack off the signals (AppConfig.ready) import path.
     import asyncio
 
@@ -96,7 +114,7 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> None:
         asyncio.run(
             client.start_workflow(
                 PostHogSlackInboxOnboardingWorkflow.run,
-                PostHogSlackInboxOnboardingInputs(integration_id=integration_id),
+                PostHogSlackInboxOnboardingInputs(team_id=team_id, integration_id=integration_id),
                 id=f"posthog-slack-inbox-onboarding-{integration_id}",
                 task_queue=settings.TASKS_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

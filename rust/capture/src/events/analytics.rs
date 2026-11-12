@@ -239,6 +239,7 @@ pub fn process_single_event(
         // Only the sender's flag marks a migration.
         // A timestamp reroute changes the topic, not the flag.
         historical_migration: data_type == DataType::AnalyticsHistorical,
+        options: None,
     };
 
     Ok(ProcessedEvent { metadata, event })

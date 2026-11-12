@@ -32,6 +32,7 @@ import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
 import { ProtocolVersionStrip } from './ProtocolVersionStrip'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
+import { ToolLatencyChart } from './ToolLatencyChart'
 import { ToolUsageChart } from './ToolUsageChart'
 
 const DAYS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
@@ -258,6 +259,29 @@ export const KeyMetricsLoading: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading
                 usersLoading
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsEmptyRange: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={{
+                    sessions: metric(0, 0, [], 'up'),
+                    toolCalls: metric(0, 0, [], 'up'),
+                    errorRatePct: metric(0, 0, [], 'down'),
+                    p95LatencyMs: metric(0, 0, [], 'down'),
+                }}
+                users={metric(0, 0, [], 'up')}
+                intentClusterCount={metric(0, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -498,6 +522,12 @@ export const ErrorRateByToolLoadError: Story = {
     )),
 }
 
+// The full dashboard stories snapshot this card next to the error-rate card, so this story only checks that it renders.
+export const SlowestToolsByLatency: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: withTheme((theme) => <ToolLatencyChart rows={TOOL_ROWS} loading={false} theme={theme} />),
+}
+
 export const DailyToolBreakdown: Story = {
     render: withTheme((theme) => (
         <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
@@ -515,6 +545,15 @@ export const FlaggedSessions: Story = {
     render: () => (
         <div className="w-[680px]">
             <NotableSessionsTable sessions={NOTABLE_SESSIONS} loading={false} />
+        </div>
+    ),
+}
+
+export const FlaggedSessionsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: () => (
+        <div className="w-[680px]">
+            <NotableSessionsTable sessions={[]} loading />
         </div>
     ),
 }

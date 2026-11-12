@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconPencil, IconSort, IconStack, IconTarget, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonMenuItem, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -91,6 +91,11 @@ const AddBreakdownMenuItem = ({
         </LemonDropdown>
     )
 }
+
+const getBreakdownMenuItem = (experiment: Experiment, onChange: (breakdown: Breakdown) => void): LemonMenuItem => ({
+    label: () => <AddBreakdownMenuItem experiment={experiment} onChange={onChange} />,
+    custom: true,
+})
 
 export const MetricHeader = ({
     dragHandle,
@@ -266,18 +271,11 @@ export const MetricHeader = ({
                                     [
                                         {
                                             items: [
-                                                canAddBreakdown && {
-                                                    label: () => (
-                                                        <AddBreakdownMenuItem
-                                                            experiment={experiment}
-                                                            onChange={(breakdown) => {
-                                                                onBreakdownChange(breakdown)
-                                                                closeMenu()
-                                                            }}
-                                                        />
-                                                    ),
-                                                    custom: true,
-                                                },
+                                                canAddBreakdown &&
+                                                    getBreakdownMenuItem(experiment, (breakdown) => {
+                                                        onBreakdownChange(breakdown)
+                                                        closeMenu()
+                                                    }),
                                                 {
                                                     label: 'Duplicate',
                                                     icon: <IconCopy />,

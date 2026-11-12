@@ -1,5 +1,3 @@
-// Where a change's time goes on the way to production, as bars sharing one scale.
-
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import type { DeliveryPipelineApi, DeliveryStageTimingApi } from '../generated/api.schemas'
@@ -37,7 +35,7 @@ const MERGE_TO_DEPLOY_COPY: LegCopy = {
 export interface MergeToDeployLeg {
     medianSeconds: number | null
     prCount: number
-    /** The Deploys tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
+    /** Shown beside the count because the legs above are repo-wide. */
     scopeLabel: string
 }
 
@@ -56,7 +54,7 @@ export function DeliveryPipeline({
     loading = false,
 }: {
     pipeline: DeliveryPipelineApi | null | undefined
-    /** The post-merge leg, read from the DORA endpoint. Null while loading or when deploy data is not synced. */
+    /** Null while loading or when deploy data is not synced. */
     mergeToDeploy: MergeToDeployLeg | null
     loading?: boolean
 }): JSX.Element | null {

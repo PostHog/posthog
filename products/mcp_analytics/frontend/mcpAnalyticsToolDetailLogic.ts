@@ -542,6 +542,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         // same way it grouped the failures table, so the bucket round-trips exactly.
                         errorType: bucket.error_type,
                         errorStatus: bucket.error_status || undefined,
+                        cause: bucket.cause,
                         dateRange: values.dateRange,
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolFailureOccurrenceItem[] }

@@ -1,4 +1,4 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -19,6 +19,7 @@ import {
     buildDailyChartData,
     maskIncompleteLatencyBox,
     mcpAnalyticsToolQualityLogic,
+    mcpToolQualityUrlWithDates,
 } from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
@@ -377,6 +378,49 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }).toFinishAllListeners()
             rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
             expect(rowsQuery).toMatchObject({ sortColumn: 'error_rate_pct', sortDirection: 'ASC', offset: 0 })
+        })
+
+        it.each([
+            [
+                'the dashboard link sorted by p95',
+                () =>
+                    mcpToolQualityUrlWithDates({ dateFrom: '-7d', dateTo: null }, null, {
+                        column: 'p95_duration_ms',
+                        direction: 'DESC',
+                    }),
+                { column: 'p95_duration_ms', direction: 'DESC' },
+            ],
+            [
+                'an ascending sort',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'users', sort_direction: 'ASC' }).url,
+                { column: 'users', direction: 'ASC' },
+            ],
+            [
+                'an unknown sort column',
+                () => combineUrl(urls.mcpAnalyticsToolQuality(), { sort: 'toString' }).url,
+                { column: 'total_calls', direction: 'DESC' },
+            ],
+        ])('opens the table on the sort from %s', async (_name, url, expected) => {
+            router.actions.push(url())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const rowsQueries = queryCallsSince(0).filter((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQueries.at(-1)).toMatchObject({ sortColumn: expected.column, sortDirection: expected.direction })
+        })
+
+        it('keeps a picked sort in the URL and drops it for the default sort', async () => {
+            router.actions.push(urls.mcpAnalyticsToolQuality())
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            logic.actions.setToolQualitySort('p95_duration_ms', 'ASC')
+            expect(router.values.searchParams).toMatchObject({ sort: 'p95_duration_ms', sort_direction: 'ASC' })
+
+            logic.actions.setToolQualitySort('total_calls', 'DESC')
+            expect(router.values.searchParams).not.toHaveProperty('sort')
+            expect(router.values.searchParams).not.toHaveProperty('sort_direction')
         })
 
         it('refetches the charts at the picked grouping, leaving the table alone', async () => {

@@ -5,6 +5,7 @@ import { GroupTypeIndex, SearchResponse, SearchableEntity } from '~/types'
 
 import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
+import { personsList } from 'products/persons/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
 import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
@@ -12,6 +13,7 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, requestDebounceMs, settl
 
 jest.mock('products/alerts/frontend/generated/api', () => ({ alertsList: jest.fn() }))
 jest.mock('products/conversations/frontend/generated/api', () => ({ conversationsTicketsList: jest.fn() }))
+jest.mock('products/persons/frontend/generated/api', () => ({ personsList: jest.fn() }))
 jest.mock('products/product_tours/frontend/generated/api', () => ({ productToursList: jest.fn() }))
 jest.mock('products/workflows/frontend/generated/api', () => ({ hogFlowsList: jest.fn() }))
 jest.mock('~/generated/core/api', () => ({
@@ -41,7 +43,11 @@ describe('settleRequest', () => {
     afterEach(() => jest.useRealTimers())
 
     test.each([
-        ['settles a stalled request empty at the deadline', false, { results: { persons: [] }, failed: true }],
+        [
+            'settles a stalled request empty at the deadline',
+            false,
+            { results: { persons: { items: [] } }, failed: true },
+        ],
         ['drops a request a newer query aborted', true, null],
     ])('%s', async (_, superseded, expected) => {
         const controller = new AbortController()
@@ -54,6 +60,21 @@ describe('settleRequest', () => {
         }
 
         await expect(settled).resolves.toEqual(expected)
+    })
+
+    test.each([
+        ['says more persons match when the API has a next page', 'https://example.com/next', true],
+        ['says nothing more when the API has no next page', null, undefined],
+    ])('%s', async (_, next, more) => {
+        jest.mocked(personsList).mockResolvedValue({
+            results: [{ uuid: 'p1', distinct_ids: ['d1'], properties: {} }],
+            next,
+        } as any)
+        const persons = REMOTE_REQUESTS.find((request) => request.id === 'persons') as RemoteRequest
+
+        const settled = await settleRequest(persons, 'ada', new AbortController().signal, context)
+
+        expect(settled?.results.persons?.more).toEqual(more)
     })
 
     it('keeps the group types that answered when the deadline passes', async () => {
@@ -86,7 +107,7 @@ describe('settleRequest', () => {
 
         const result = await settled
         expect(result?.failed).toBe(true)
-        expect(result?.results.groups?.map((item) => item.id)).toEqual(['group-0-acme'])
+        expect(result?.results.groups?.items.map((item) => item.id)).toEqual(['group-0-acme'])
     })
 
     describe('an is: type the file system does not hold', () => {
@@ -120,6 +141,9 @@ describe('settleRequest', () => {
                 count: 1,
                 results: [{ id: 't1', name: 'Revenue tour' }],
             } as any)
+            jest.mocked(personsList).mockResolvedValue({
+                results: [{ uuid: 'p1', distinct_ids: ['d1'], properties: { email: 'ada@example.com' } }],
+            } as any)
             jest.spyOn(api.search, 'list').mockImplementation(async ({ entities }) => ({
                 results: entities?.includes('hog_flow')
                     ? [unified('hog_flow', 'w1', 'Revenue nudge')]
@@ -143,9 +167,10 @@ describe('settleRequest', () => {
             ['type:workflows revenue', '/workflows/w1/workflow'],
             ['type:endpoints name:revenue', '/endpoints/revenue-daily'],
             ['type:ticket refund', '/support/tickets/42'],
+            ['type:person acme', '/persons/p1'],
         ])('searches its own API for %s', async (query, href) => {
             const result = await settleRequest(objects, query, new AbortController().signal, context)
-            expect(result?.results.results?.map((item) => item.href)).toEqual([href])
+            expect(result?.results.results?.items.map((item) => item.href)).toEqual([href])
         })
 
         test.each([
@@ -157,7 +182,7 @@ describe('settleRequest', () => {
             ['type:ticket re', 'two letters would scan every ticket message'],
         ])('finds nothing for %s without a request, because %s', async (query) => {
             const result = await settleRequest(objects, query, new AbortController().signal, context)
-            expect(result?.results.results).toEqual([])
+            expect(result?.results.results?.items).toEqual([])
             expect(alertsList).not.toHaveBeenCalled()
             expect(conversationsTicketsList).not.toHaveBeenCalled()
             expect(fileSystemSearchRetrieve).not.toHaveBeenCalled()
@@ -192,7 +217,7 @@ describe('settleRequest', () => {
         ])('keeps only the results whose name matches for %s', async (query, mockResults, hrefs) => {
             mockResults()
             const result = await settleRequest(objects, query, new AbortController().signal, context)
-            expect(result?.results.results?.map((item) => item.href)).toEqual(hrefs)
+            expect(result?.results.results?.items.map((item) => item.href)).toEqual(hrefs)
         })
 
         test.each([
@@ -228,7 +253,7 @@ describe('settleRequest', () => {
         ])('sends %s to the ticket list as search %s', async (query, search) => {
             const result = await settleRequest(objects, query, new AbortController().signal, context)
             expect(conversationsTicketsList).toHaveBeenCalledWith('1', { search, limit: 20 }, expect.anything())
-            expect(result?.results.results).toEqual([
+            expect(result?.results.results?.items).toEqual([
                 expect.objectContaining({
                     name: 'Refund not received',
                     productCategory: '#42 · Jane Doe · On hold',
@@ -251,7 +276,7 @@ describe('settleRequest', () => {
             } as any)
             const result = await settleRequest(objects, query, new AbortController().signal, context)
             expect(endpoint()).toHaveBeenCalledWith(...params)
-            expect(result?.results.results?.map((item) => item.href)).toEqual(['/workflows/w1/workflow'])
+            expect(result?.results.results?.items.map((item) => item.href)).toEqual(['/workflows/w1/workflow'])
         })
 
         test.each([
@@ -267,7 +292,7 @@ describe('settleRequest', () => {
             } as any)
             const result = await settleRequest(objects, query, new AbortController().signal, context)
             expect(conversationsTicketsList).toHaveBeenCalledWith('1', { search, limit: 20 }, expect.anything())
-            expect(result?.results.results?.map((item) => item.href)).toEqual(['/support/tickets/7'])
+            expect(result?.results.results?.items.map((item) => item.href)).toEqual(['/support/tickets/7'])
         })
 
         test.each([
@@ -298,7 +323,7 @@ describe('settleRequest', () => {
                 ],
             } as any)
             const result = await settleRequest(objects, 'type:ticket refund', new AbortController().signal, context)
-            expect(result?.results.results).toEqual([expect.objectContaining({ productCategory })])
+            expect(result?.results.results?.items).toEqual([expect.objectContaining({ productCategory })])
         })
     })
 
@@ -372,7 +397,7 @@ describe('settleRequest', () => {
                 new AbortController().signal,
                 context
             )
-            expect(result?.results.results?.map((item) => item.record?.type)).toEqual([
+            expect(result?.results.results?.items.map((item) => item.record?.type)).toEqual([
                 'hog_function/site_destination',
                 'hog_function/destination',
             ])

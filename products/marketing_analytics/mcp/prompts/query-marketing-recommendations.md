@@ -16,8 +16,8 @@ Do not use it for attribution, conversion goals, or channel performance. Use `ma
 
 Each result has:
 
-- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance` or `policy_limited`.
-- `level` — `campaign` or `search_term`. `subject` is the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.
+- `rule` — the check that produced it, for example `spend_without_conversions`, `brand_leak`, `budget_constrained`, `scale_campaign`, `review_campaign`, `brand_overlap`, `content_gap`, `keyword_gap`, `striking_distance`, `policy_limited` or `keyword_tracking`. `keyword_tracking` means the project's Google Ads sessions arrive without `utm_term`, so PostHog conversions cannot be tied to keywords until the account passes `utm_term={keyword}`.
+- `level` — `account`, `campaign` or `search_term`. `subject` is the ad account name, the campaign name or the search term, and `campaign` is the campaign a search term belongs to. For `keyword_gap`, `campaign` is the campaign to add the keyword to, because the search is not bought yet.
 - `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.
 - `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.
 - `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.

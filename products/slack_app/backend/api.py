@@ -57,6 +57,11 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.connect_tool import CONNECT_TOOL_SKIP_ACTION_ID, resume_mention_workflow
+from products.slack_app.backend.logic.daily_focus import (
+    DAILY_FOCUS_OFF_ACTION_ID,
+    daily_focus_off_blocks,
+    turn_off_daily_focus,
+)
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -1691,18 +1696,13 @@ def _resolve_untagged_followup_mapping(
     pipeline; ``None`` when the thread isn't ours and it should drop.
     """
     candidate_ids = [c.id for c in candidates]
-    # ``task`` is fetched separately inside the classifier activity — the
-    # handler hot path only needs the integration (for the ``mention_target``
-    # override downstream).
-    mapping = (
-        SlackThreadTaskMapping.objects.filter(
-            integration_id__in=candidate_ids,
-            channel=channel,
-            thread_ts=thread_ts,
-        )
-        .select_related("integration", "integration__team")
-        .first()
-    )
+    # ``task`` is fetched separately inside the classifier activity. The caller
+    # reads the mapping's integration from ``candidates``, which are already loaded.
+    mapping = SlackThreadTaskMapping.objects.filter(
+        integration_id__in=candidate_ids,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).first()
     return mapping
 
 
@@ -2999,6 +2999,7 @@ def route_posthog_code_event_to_relevant_region(
         # Threads we don't own are dropped here so the rest of the pipeline
         # only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
+        thread_integration: WorkspaceIntegration | None = None
         awaited_request_reply = False
         if event_type == "message":
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
@@ -3010,15 +3011,14 @@ def route_posthog_code_event_to_relevant_region(
                 if not _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0]):
                     return ROUTE_HANDLED_LOCALLY
                 awaited_request_reply = True
+            else:
+                thread_integration = next(
+                    c for c in workspace_result.candidates if c.id == untagged_followup_mapping.integration_id
+                )
             # A tagged reply also arrives as its own ``app_mention`` event, which owns
             # it. Letting this copy through would run the untagged-followup classifier
             # (and the ``ask`` prompt) on a message that explicitly addressed the app.
-            if _message_tags_bot(
-                event,
-                untagged_followup_mapping.integration
-                if untagged_followup_mapping is not None
-                else workspace_result.candidates[0],
-            ):
+            if _message_tags_bot(event, thread_integration or workspace_result.candidates[0]):
                 logger.info(
                     "slack_app_thread_message_ignored",
                     reason="tagged_reply",
@@ -3042,7 +3042,7 @@ def route_posthog_code_event_to_relevant_region(
         )
 
         if resolution.user is None:
-            if untagged_followup_mapping is not None:
+            if untagged_followup_mapping is not None and thread_integration is not None:
                 logger.info(
                     "slack_app_thread_message_unknown_user",
                     slack_team_id=slack_team_id,
@@ -3055,8 +3055,8 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id,
                     reason=f"user_unresolved:{resolution.failure_reason or 'unknown'}",
                     replied=False,
-                    integration=untagged_followup_mapping.integration,
-                    **unresolved_user_properties(resolution, untagged_followup_mapping.integration),
+                    integration=thread_integration,
+                    **unresolved_user_properties(resolution, thread_integration),
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Keep the failure reply out of the channel in an unapproved
@@ -3133,7 +3133,7 @@ def route_posthog_code_event_to_relevant_region(
         # closes the gap where the message author belongs to a different org
         # connected to the same workspace than the thread owner did.
         mention_target = target or (candidates[0] if len(candidates) == 1 else None)
-        if untagged_followup_mapping is not None:
+        if untagged_followup_mapping is not None and thread_integration is not None:
             if untagged_followup_mapping.integration_id not in {c.id for c in candidates}:
                 logger.info(
                     "slack_app_thread_message_user_no_access_to_mapping_team",
@@ -3148,11 +3148,11 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id,
                     reason="no_access_to_thread_team",
                     replied=False,
-                    integration=untagged_followup_mapping.integration,
+                    integration=thread_integration,
                     posthog_user=posthog_user,
                 )
                 return ROUTE_HANDLED_LOCALLY
-            mention_target = untagged_followup_mapping.integration
+            mention_target = thread_integration
         elif mention_target is None:
             picker_shown = _post_project_picker(
                 candidates,
@@ -4749,6 +4749,35 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     capture_slack_event(
         integration, WORK_FOCUS_SUGGESTION_CLICKED_EVENT, slack_user_id=slack_user_id, posthog_user=posthog_user
     )
+    return HttpResponse(status=200)
+
+
+def _handle_daily_focus_off(payload: dict) -> HttpResponse:
+    """Turn the daily work focus off from its DM, and say so where the button was. The DM is the person's own, so
+    the clicker is the person it is for."""
+    integration_id, _ = _extract_action_value_hints(payload, DAILY_FOCUS_OFF_ACTION_ID)
+    slack_team_id = payload.get("team", {}).get("id", "")
+    slack_user_id = payload.get("user", {}).get("id", "")
+    integration = get_workspace_integration(integration_id, slack_team_id) if integration_id else None
+    if integration is None or not slack_user_id:
+        return HttpResponse(status=200)
+    turn_off_daily_focus(integration, slack_user_id, source="dm")
+    container = payload.get("container") or {}
+    message = payload.get("message") or {}
+    blocks = message.get("blocks")
+    if isinstance(blocks, list) and container.get("channel_id") and container.get("message_ts"):
+        client = SlackIntegration(integration).client
+        client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+        try:
+            client.chat_update(
+                channel=container["channel_id"],
+                ts=container["message_ts"],
+                text=message.get("text") or "",
+                blocks=daily_focus_off_blocks(blocks),
+            )
+        except Exception:
+            # The setting is already off. Only the note in the DM is missing.
+            logger.warning("slack_app_daily_focus_off_note_failed", integration_id=integration.id, exc_info=True)
     return HttpResponse(status=200)
 
 
@@ -6526,6 +6555,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or interview_recruitment.interview_integration_hint(payload)
         or onboarding_interactivity.onboarding_integration_hint(payload)
         or _extract_action_value_hints(payload, CONNECT_TOOL_SKIP_ACTION_ID)[0]
+        or _extract_action_value_hints(payload, DAILY_FOCUS_OFF_ACTION_ID)[0]
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -6672,6 +6702,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_work_focus_task_click(payload)
             if action_id == WORK_FOCUS_START_ACTION_ID:
                 return _handle_work_focus_start_click(payload)
+            if action_id == DAILY_FOCUS_OFF_ACTION_ID:
+                return _handle_daily_focus_off(payload)
             if action_id == CONNECT_TOOL_SKIP_ACTION_ID:
                 return _handle_connect_tool_skip(payload)
             if is_onboarding_action(action_id):

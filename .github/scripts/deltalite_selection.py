@@ -32,6 +32,11 @@ def parity_config(source: str) -> dict[str, object]:
             raise ValueError("Cannot identify an installed parity requirement")
         pins.extend(matches)
     config["project"]["dependencies"] = pins
+    tool = config.get("tool")
+    if isinstance(tool, dict):
+        tool.pop("importlinter", None)
+        if not tool:
+            config.pop("tool")
     return config
 
 

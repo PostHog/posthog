@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { Skeleton } from '@posthog/quill-primitives'
-
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +14,7 @@ import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
 import { Card } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
@@ -177,7 +176,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                     {leaderboardModelRows.length === 0 && (loadingFacet('model') || loadingSections.modelRows) ? (
                         <Card title="Share of calls by model" className="min-w-0">
-                            <Skeleton className="h-48 w-full" />
+                            <div className="flex min-h-48 flex-col">
+                                <ChartSkeleton kind="shares" />
+                            </div>
                         </Card>
                     ) : (
                         <ModelBarChart
@@ -274,15 +275,6 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         onToolClick={openToolReport}
                     />
-                    <FacetShareCard
-                        title="Why calls fail"
-                        rows={facets.errorType}
-                        loading={loadingFacet('errorType')}
-                        failed={failedFacet('errorType')}
-                        theme={theme}
-                    />
-                </TwoColumns>
-                <TwoColumns>
                     <ToolErrorRateChart
                         rows={harnessErrorRows}
                         loading={!!loadingSections.harnessRows}
@@ -291,6 +283,16 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         title="Error rate by harness"
                         emptyMessage="No harness data in this date range. Try a wider range."
+                    />
+                </TwoColumns>
+                <TwoColumns>
+                    <FacetShareCard
+                        title="Why calls fail"
+                        rows={facets.errorType}
+                        loading={loadingFacet('errorType')}
+                        failed={failedFacet('errorType')}
+                        theme={theme}
+                        maxVisibleRows={8}
                     />
                     <NotableSessionsTable
                         sessions={notableSessions}

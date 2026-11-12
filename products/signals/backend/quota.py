@@ -17,7 +17,7 @@ from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.temporal.common.metrics import get_metric_meter
 
-from products.signals.backend.trial.funding import TrialFunding, signal_funding
+from products.signals.backend.trial.funding import TrialFunding
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited, self_driving_quota_resource
 
@@ -184,17 +184,13 @@ def _self_driving_admission(
 
 
 def self_driving_quota_gate(
-    team: "Team", *, signal_id: str | None = None, billing_status: "TrialBillingStatus | None" = None
+    team: "Team", *, billing_status: "TrialBillingStatus | None" = None
 ) -> SelfDrivingQuotaGate:
-    """Expose the same admission decision to workflows and the paused-state UI."""
+    """Expose admission for new work to workflows and the paused-state UI."""
     from products.signals.backend.trial.policy import TrialRefused  # noqa: PLC0415 -- avoid model registration cycle
 
-    parent = signal_funding(team.id, signal_id) if signal_id else None
     try:
-        # A legacy signal receipt pins funding but does not admit a new report pipeline.
-        return _self_driving_admission(
-            team, parent=parent if parent and parent.grant_id else None, billing_status=billing_status
-        ).gate
+        return _self_driving_admission(team, billing_status=billing_status).gate
     except TrialRefused:
         return SelfDrivingQuotaGate(limited=True, enforced=True)
 

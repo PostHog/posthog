@@ -373,17 +373,30 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
     }))
 }
 
-// A tool with a handful of calls swings to 100% on one failure, so ranking needs a minimum sample.
-export const MIN_CALLS_TO_RANK_ERRORS = 20
+// With a handful of calls, one failure or one slow call decides the rank, so ranking needs a minimum sample.
+export const MIN_CALLS_TO_RANK_TOOLS = 20
 
 export function rankToolsByErrorRate(rows: ToolRow[]): ToolRow[] {
     return rows
-        .filter((r) => r.total_calls >= MIN_CALLS_TO_RANK_ERRORS)
+        .filter((r) => r.total_calls >= MIN_CALLS_TO_RANK_TOOLS)
         .sort((a, b) => b.error_rate_pct - a.error_rate_pct)
 }
 
+// A p95 of 0 means no call in the range carried a duration, not an instant tool.
+export function rankToolsByP95(rows: ToolRow[]): ToolRow[] {
+    return rows
+        .filter((r) => r.total_calls >= MIN_CALLS_TO_RANK_TOOLS && r.p95_duration_ms > 0)
+        .sort((a, b) => b.p95_duration_ms - a.p95_duration_ms)
+}
+
 export function rankedToolsEmptyMessage(rows: ToolRow[]): string | undefined {
-    return rows.length > 0 ? `No tool has ${MIN_CALLS_TO_RANK_ERRORS} or more calls in this date range yet.` : undefined
+    return rows.length > 0 ? `No tool has ${MIN_CALLS_TO_RANK_TOOLS} or more calls in this date range yet.` : undefined
+}
+
+export function slowestToolsEmptyMessage(rows: ToolRow[]): string | undefined {
+    return rows.some((r) => r.total_calls >= MIN_CALLS_TO_RANK_TOOLS)
+        ? 'No tool calls in this date range have a recorded duration.'
+        : rankedToolsEmptyMessage(rows)
 }
 
 // Buckets at or after `currentStartBucket` belong to the selected window; the

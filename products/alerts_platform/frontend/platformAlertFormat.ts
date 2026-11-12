@@ -42,6 +42,10 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         label: 'Metrics',
         alertUrl: () => urls.metrics(),
     },
+    [PlatformAlertConfigurationSourceKindEnumApi.Traces]: {
+        label: 'Traces',
+        alertUrl: () => urls.tracing(),
+    },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {

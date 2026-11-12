@@ -1,13 +1,15 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.schema import DateRange, MarketingAnalyticsRecommendationsQuery, MarketingAnalyticsRecommendationsSource
+
+from posthog.models.utils import uuid7
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
@@ -19,6 +21,7 @@ PURCHASE = "customers/1/conversionActions/10"
 SIGNUP = "customers/1/conversionActions/20"
 MANAGER_SIGNUP = "customers/9/conversionActions/20"
 BOTH_SPLITS = ("campaign", "search_term")
+SESSION_START_MS = 1768478400000  # 2026-01-15 12:00 UTC
 
 
 class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -252,6 +255,78 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
         assert wasted[0].cpa.benchmarkSource == benchmark_source
         assert [gap.kind for gap in response.dataGaps or []] == gaps
+
+    @parameterized.expand(
+        [
+            ("suffix_without_keyword", "utm_source=google", "", ["Acme Ads"]),
+            ("suffix_with_keyword", "utm_source=google&utm_term={keyword}", "", []),
+            ("campaign_template_with_keyword", "utm_source=google", "{lpurl}?utm_term={keyword}", []),
+            ("customer_table_not_synced", None, "", ["Google Ads account"]),
+        ]
+    )
+    def test_keyword_tracking_reads_google_ads_sessions_and_account_settings(
+        self, _name: str, suffix: str | None, campaign_template: str, expected: list[str]
+    ) -> None:
+        campaigns = self._table(
+            "campaign",
+            {
+                "campaign_id": "Int64",
+                "campaign_name": "String",
+                "campaign_advertising_channel_type": "String",
+                "campaign_budget_amount_micros": "Int64",
+                "campaign_tracking_url_template": "String",
+            },
+            "campaign_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros,"
+            f"campaign_tracking_url_template\n1,Search,SEARCH,100000000,{campaign_template}\n",
+        )
+        stats = self._table(
+            "campaign_stats",
+            {
+                "campaign_id": "Int64",
+                "segments_date": "Date",
+                "metrics_cost_micros": "Int64",
+                "metrics_conversions": "Float64",
+            },
+            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+        )
+        customer = (
+            self._table(
+                "customer",
+                {"customer_descriptive_name": "String", "customer_final_url_suffix": "String"},
+                f"customer_descriptive_name,customer_final_url_suffix\nAcme Ads,{suffix}\n",
+            )
+            if suffix is not None
+            else None
+        )
+        # Only the sessions with a gclid count, so the organic visits with utm_term must not hide the gap.
+        for i in range(40):
+            properties = {"$session_id": str(uuid7(SESSION_START_MS + i)), "$current_url": "https://example.com"}
+            if i < 30:
+                properties["gclid"] = f"click{i}"
+            else:
+                properties["utm_term"] = "organic"
+            _create_event(
+                team=self.team, event="$pageview", distinct_id=f"user{i}", timestamp="2026-01-15", properties=properties
+            )
+        flush_persons_and_events()
+
+        response = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
+                sources=[
+                    MarketingAnalyticsRecommendationsSource(
+                        sourceType="GoogleAds",
+                        campaignTable=campaigns,
+                        campaignStatsTable=stats,
+                        customerTable=customer,
+                    )
+                ],
+            ),
+            team=self.team,
+            user=self.user,
+        ).calculate()
+
+        assert [rec.subject for rec in response.results if rec.rule == "keyword_tracking"] == expected
 
 
 class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
