@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use tracing::{info, warn};
 
@@ -8,14 +9,14 @@ use crate::ai_event_limits::AI_MAX_EVENT_BYTES_OVERRIDES;
 #[derive(Clone, Debug, Default)]
 pub struct AiEventSizeCaps {
     default: u64,
-    by_token: HashMap<String, u64>,
+    by_token: Arc<HashMap<String, u64>>,
 }
 
 impl From<u64> for AiEventSizeCaps {
     fn from(default: u64) -> Self {
         Self {
             default,
-            by_token: HashMap::new(),
+            by_token: Arc::default(),
         }
     }
 }
@@ -24,11 +25,11 @@ impl AiEventSizeCaps {
     /// Skips and logs any entry that is invalid or would not raise `default`,
     /// so one bad entry cannot stop capture from booting.
     pub fn parse(default: u64, by_token: &str, ceiling: u64) -> Self {
-        let mut caps = Self::from(default);
+        let mut caps = HashMap::new();
         for entry in by_token.split(',').map(str::trim).filter(|e| !e.is_empty()) {
             match parse_entry(entry, default, ceiling) {
                 Ok((token, bytes)) => {
-                    caps.by_token.insert(token.to_string(), bytes);
+                    caps.insert(token.to_string(), bytes);
                 }
                 Err(reason) => {
                     warn!(
@@ -38,13 +39,16 @@ impl AiEventSizeCaps {
                 }
             }
         }
-        if !caps.by_token.is_empty() {
+        if !caps.is_empty() {
             info!(
-                tokens = caps.by_token.len(),
+                tokens = caps.len(),
                 "AI event size cap raised for listed tokens"
             );
         }
-        caps
+        Self {
+            default,
+            by_token: Arc::new(caps),
+        }
     }
 
     pub fn default_bytes(&self) -> u64 {
