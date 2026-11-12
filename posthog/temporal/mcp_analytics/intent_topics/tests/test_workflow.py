@@ -1,6 +1,7 @@
 """Wiring tests for ``IntentTopicsWorkflow``: which activities run for which kind."""
 
 import uuid
+from datetime import timedelta
 
 import pytest
 
@@ -9,6 +10,13 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.mcp_analytics.intent_topics.constants import (
+    ACTIVITY_RETRY_POLICY,
+    ASSIGN_ACTIVITY_TIMEOUT,
+    REFIT_ACTIVITY_TIMEOUT,
+    SYNC_ACTIVITY_TIMEOUT,
+    WORKFLOW_EXECUTION_TIMEOUTS,
+)
 from posthog.temporal.mcp_analytics.intent_topics.models import IntentTopicsRunResult, IntentTopicsWorkflowInputs
 from posthog.temporal.mcp_analytics.intent_topics.workflow import IntentTopicsWorkflow
 
@@ -91,3 +99,16 @@ class TestParseInputs:
     def test_empty_payload_defaults(self) -> None:
         inputs = IntentTopicsWorkflow.parse_inputs([])
         assert (inputs.team_id, inputs.kind) == (0, "sync")
+
+
+@pytest.mark.parametrize(
+    "kind, activity_timeouts",
+    [
+        ("sync", [SYNC_ACTIVITY_TIMEOUT]),
+        ("assign", [ASSIGN_ACTIVITY_TIMEOUT]),
+        ("refit", [REFIT_ACTIVITY_TIMEOUT, ASSIGN_ACTIVITY_TIMEOUT]),
+    ],
+)
+def test_workflow_timeout_outlasts_every_activity_attempt(kind: str, activity_timeouts: list[timedelta]) -> None:
+    attempts = ACTIVITY_RETRY_POLICY.maximum_attempts or 1
+    assert WORKFLOW_EXECUTION_TIMEOUTS[kind] > sum((timeout * attempts for timeout in activity_timeouts), timedelta())
