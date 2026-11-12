@@ -57,12 +57,13 @@ export function defaultStateDir(env: NodeJS.ProcessEnv): string {
     return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'posthog-scenarios')
 }
 
-export type EnvironmentOptions = { hogli: Hogli; docker: string; postgresUrl: string }
+export type EnvironmentOptions = { hogli: Hogli; docker: string; postgresUrl: string; roleHealthyWithinMs: number }
 
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
     postgresUrl = STACK.postgresUrl,
+    roleHealthyWithinMs = ROLE_HEALTHY_WITHIN_MS,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     let stateDir = defaultStateDir(env)
@@ -142,7 +143,7 @@ export function createEnvironment({
     }
 
     async function untilHealthy(roles: Role[], exitsBefore: number): Promise<void> {
-        const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
+        const deadline = Date.now() + roleHealthyWithinMs
         for (;;) {
             const answering = await Promise.all(roles.map(answersHealth))
             const exit = recorded.slice(exitsBefore).find((exit) => roles.includes(exit.role))
@@ -156,7 +157,7 @@ export function createEnvironment({
             }
             if (Date.now() > deadline) {
                 throw new Error(
-                    `${silent} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${logOf(silent)}`
+                    `${silent} did not answer /_health within ${roleHealthyWithinMs / 1000}s; see ${logOf(silent)}`
                 )
             }
             await sleep(PROBE_INTERVAL_MS)
