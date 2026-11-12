@@ -181,6 +181,7 @@ export namespace Schemas {
         | "legacy_null_as_null"
         | "disabled";
     export type MaterializedColumnsOptimizationMode = "disabled" | "optimized";
+    export type MaterializedViewEngine = "clickhouse" | "trino";
     export type ParserMode =
         | "cpp_only"
         | "cpp_with_rust_shadow"
@@ -215,6 +216,7 @@ export namespace Schemas {
         materializationMode: MaterializationMode | null;
         materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
+        materializedViewEngine: MaterializedViewEngine | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
