@@ -32,6 +32,7 @@ import {
     type ReplayScanner,
     scannerTypeLabel,
 } from '../types'
+import { useModelNaming } from '../useModelNaming'
 
 /** Why the draft chose this model, doubling as the guidance on when each tier fits. Keyed by the
  * concrete model id so a retired model just falls through to the generic line. */
@@ -331,6 +332,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
+    const { fieldLabel, naming } = useModelNaming()
     const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
@@ -400,9 +402,9 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 </LemonTag>
                 <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
-                    <StatRow label="Model">
+                    <StatRow label={fieldLabel}>
                         <span className="inline-flex items-center gap-2">
-                            <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
+                            <LemonTag type="muted">{modelName(scanner.model, naming)}</LemonTag>
                             {creditsPerObservation != null ? (
                                 <span className="text-muted">
                                     {formatCreditCount(creditsPerObservation)} / observation
