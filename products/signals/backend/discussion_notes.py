@@ -139,7 +139,7 @@ def _forward(
     note_question = (
         question.strip()
         if question is not None
-        else extract_question(text, report_title=report.title, report_id=report_id)
+        else _extract_question(text, report_title=report.title, report_id=report_id)
     )
     if not note_question:
         return None
@@ -179,7 +179,7 @@ def _scopes_allow_note_write(api_scopes: Sequence[str]) -> bool:
     return "*" in scopes or scopes.issuperset(_REQUIRED_NOTE_SCOPES)
 
 
-def extract_question(text: str, *, report_title: str | None, report_id: str | None) -> str:
+def _extract_question(text: str, *, report_title: str | None, report_id: str | None) -> str:
     stripped = text.strip()
     if stripped.lower().startswith(_PROMPT_PREFIXES):
         _, _, question = stripped.partition("\n")

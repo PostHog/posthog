@@ -5013,17 +5013,10 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.",
     )
-    question = serializers.CharField(
-        allow_null=True,
-        help_text=(
-            "The question the person opened the discussion with, truncated. Null unless that person may steer "
-            "scouts on this project, or when the question could not be read from the task."
-        ),
-    )
     task_summary = serializers.CharField(
         allow_null=True,
         help_text=(
-            "The latest run's summary of the conversation and its outcome, written by the discussion agent. "
-            "Null when no run has written one yet, or when the summary is private to the person who started it."
+            "The latest run's summary of the conversation and its outcome. Null when no run has written one yet, "
+            "or when the summary could have been written by someone who may not steer scouts on this project."
         ),
     )

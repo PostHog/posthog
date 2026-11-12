@@ -2720,8 +2720,9 @@ class SignalScoutReportDiscussionsViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
     `signal_scout_internal` keeps this off every user-grantable credential, like
     `SignalScoutMembersViewSet`. The scout is never a parameter: it is the skill of the run the
     sandbox token is bound to, so a run reads discussions on its own scout's reports and no other.
-    A token bound to no scout run (a report-pipeline stage) is refused, and a private trial run
-    reads nothing, because its reports live in trial state rather than on the live fleet's rows.
+    A token bound to no scout run (a report-pipeline stage) is refused. A private trial run reads
+    nothing, because its reports live in trial state rather than on the live fleet's rows, and so
+    does a run whose credential fails the reports read gate (`_may_read_reports`).
     See `report_discussions.py` for the scope and visibility rules.
     """
 
@@ -2757,6 +2758,10 @@ class SignalScoutReportDiscussionsViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         if run_id is None:
             raise exceptions.PermissionDenied("Only a scout run can list discussions on its reports.")
         if trial_run_for_request(request, canonical_team.id) is not None:
+            return Response([])
+        # Rows quote report titles and discussion outcomes, which the notes list withholds from a
+        # caller failing the same reports read gate.
+        if not _may_read_reports(request, self, canonical_team):
             return Response([])
         skill_name = (
             SignalScoutRun.objects.for_team(canonical_team.id).values_list("skill_name", flat=True).get(id=run_id)

@@ -109099,12 +109099,7 @@ export namespace Schemas {
          */
       status: string | null;
       /**
-         * The question the person opened the discussion with, truncated. Null unless that person may steer scouts on this project, or when the question could not be read from the task.
-         * @nullable
-         */
-      question: string | null;
-      /**
-         * The latest run's summary of the conversation and its outcome, written by the discussion agent. Null when no run has written one yet, or when the summary is private to the person who started it.
+         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
          * @nullable
          */
       task_summary: string | null;

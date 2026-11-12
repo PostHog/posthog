@@ -4,8 +4,7 @@
 as a note, once, when the task is created. What the conversation concluded never reaches the scout
 that way: the answer, any follow-up, and the outcome land later, as the `task_summary` each run of
 the discussion task writes. This module is the pull side. A scout run lists the discussion tasks on
-the reports it emitted or edited, each with its latest readable summary, so a chat that ends with
-"this is expected, we do it on purpose" reaches the scout as a whole.
+the reports it emitted or edited, each with its latest summary when that summary is safe to read.
 
 Scope is set by provenance, never by the caller. The reports are the ones on the calling scout's own
 `SignalScoutRun` rows (the inverse of `scout_authorship.resolve_touching_scout_skills`), and the view
@@ -14,10 +13,14 @@ discussions. Only tasks on the canonical team qualify, as in `discussion_notes.p
 environment's discussion stays out of the parent project's scouts. Only tasks the whole team may
 read qualify, and a summary the tasks facade keeps private comes back null.
 
-The summary is agent-written prose derived from a person's chat, so the scout reads it as evidence,
-never as instructions. The question is the person's own text, so it stays behind the same steering
-gate the discussion note applies: it is returned only when the task's creator could have left a
-scout note by hand (`user_can_steer_scouts`), and is null otherwise.
+A summary is free text that reaches a scout holding privileged tools, so it has to clear the same
+bar as a scout note: whoever could have written it must be able to steer scouts. Nothing records who
+wrote a summary. The discussion agent writes it, but `set_summary` accepts any caller who controls
+the task, and a null-channel discussion task can be controlled by any member. So a summary is
+returned only when the task's creator alone controls it (`creator_controls_alone`) and that creator
+passes `user_can_steer_scouts`. Every other row keeps its report, status, and task id, with a null
+summary. The question itself is never returned: the discussion note already carries it behind the
+full steering gate, including the credential scopes this read cannot recover.
 """
 
 from __future__ import annotations
@@ -33,7 +36,6 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
-from products.signals.backend.discussion_notes import extract_question
 from products.signals.backend.dismissal_notes import user_can_steer_scouts
 from products.signals.backend.models import SignalReport, SignalScoutRun
 from products.tasks.backend.facade.api import TaskOriginProduct
@@ -50,7 +52,6 @@ REPORT_LOOKBACK = timedelta(days=90)
 MAX_RUNS_SCANNED = 1_000
 
 _MAX_TITLE_CHARS = 200
-_MAX_QUESTION_CHARS = 1_000
 _MAX_SUMMARY_CHARS = 4_000
 
 Involvement = Literal["authored", "edited"]
@@ -64,7 +65,6 @@ class ReportDiscussion:
     task_id: str
     created_at: datetime
     status: str | None
-    question: str | None
     task_summary: str | None
 
 
@@ -109,30 +109,21 @@ def list_report_discussions(
         created_after=created_after,
         limit=limit,
     )
-    steering_creators = _creators_who_may_steer(team, (task.created_by_id for task in tasks))
+    steering_creators = _creators_who_may_steer(team, (task.created_by_id for task in tasks if task.summary))
 
     discussions: list[ReportDiscussion] = []
     for task in tasks:
         discussion_report_id = report_by_task[task.task_id]
-        title = report_titles[discussion_report_id]
-        question = None
-        if task.created_by_id in steering_creators:
-            question = (
-                extract_question(task.description, report_title=title, report_id=discussion_report_id)[
-                    :_MAX_QUESTION_CHARS
-                ]
-                or None
-            )
+        summary = task.summary if task.creator_controls_alone and task.created_by_id in steering_creators else None
         discussions.append(
             ReportDiscussion(
                 report_id=discussion_report_id,
-                report_title=title[:_MAX_TITLE_CHARS],
+                report_title=report_titles[discussion_report_id][:_MAX_TITLE_CHARS],
                 involvement=involvement[discussion_report_id],
                 task_id=task.task_id,
                 created_at=task.created_at,
                 status=task.run_status,
-                question=question,
-                task_summary=task.summary[:_MAX_SUMMARY_CHARS] if task.summary else None,
+                task_summary=summary[:_MAX_SUMMARY_CHARS] if summary else None,
             )
         )
     return discussions
