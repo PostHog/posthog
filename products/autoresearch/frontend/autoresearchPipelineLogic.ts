@@ -47,6 +47,7 @@ import {
     autoresearchTrainingRunsArtifactsGetCreate,
     autoresearchTrainingRunsArtifactsRetrieve,
     autoresearchTrainingRunsList,
+    autoresearchTrainingRunsStopCreate,
     autoresearchTrainCreate,
 } from './generated/api'
 import {
@@ -343,6 +344,7 @@ export interface autoresearchPipelineLogicValues {
     hideLowestBucket: boolean | null
     hoveredAccuracyDate: string | null
     hoveredSearchPoint: SearchPoint | null
+    liveTrainingRun: AutoresearchTrainingRunApi | null
     latestChampionPerformance: OnlinePerformanceRowApi | null
     latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
@@ -394,6 +396,7 @@ export interface autoresearchPipelineLogicValues {
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     statusBrief: StatusBrief | null
+    stoppingTraining: boolean
     suggestionDraft: string
     suggestionPriority: CreateSuggestionPriorityEnumApi
     suggestionSubmitResult: AutoresearchSuggestionApi | null
@@ -804,6 +807,12 @@ export interface autoresearchPipelineLogicActions {
     steerOpened: () => {
         value: true
     }
+    stopTraining: () => {
+        value: true
+    }
+    stopTrainingFinished: () => {
+        value: true
+    }
     submitSuggestion: () => any
     submitSuggestionFailure: (
         error: string,
@@ -904,6 +913,7 @@ export interface autoresearchPipelineLogicMeta {
         lowestBucketHidden: (lowestBucket: LowestBucket | null, hideLowestBucket: boolean | null) => boolean
         lowCoveragePct: (coverageSummary: CoverageSummary | null) => number | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
+        liveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => AutoresearchTrainingRunApi | null
         scoredChallenger: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
         runRoles: (
             champion: AutoresearchModelApi | null,
@@ -996,6 +1006,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         saveSegmentCohortFinished: true,
         setWritePersonProperty: (enabled: boolean, source: PersonPropertyToggleSource) => ({ enabled, source }),
         setWritePersonPropertyFinished: true,
+        stopTraining: true,
+        stopTrainingFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
     }),
     reducers({
@@ -1124,6 +1136,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 setWritePersonProperty: () => true,
                 setWritePersonPropertyFinished: () => false,
+            },
+        ],
+        stoppingTraining: [
+            false,
+            {
+                stopTraining: () => true,
+                stopTrainingFinished: () => false,
             },
         ],
         segmentThresholds: [
@@ -1641,6 +1660,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (s) => [s.trainingRuns],
             (trainingRuns: AutoresearchTrainingRunApi[]): boolean => trainingRuns.some(isTrainingRunLive),
         ],
+        liveTrainingRun: [
+            (s) => [s.trainingRuns],
+            (trainingRuns: AutoresearchTrainingRunApi[]): AutoresearchTrainingRunApi | null =>
+                trainingRuns.find(isTrainingRunLive) ?? null,
+        ],
         scoredChallenger: [
             (s) => [s.models],
             (models: AutoresearchModelApi[]): AutoresearchModelApi | null => scoredChallenger(models),
@@ -1783,6 +1807,31 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             })
             // A project at its daily training limit explains when the next run can start in `detail`.
             lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not start training run')
+        },
+        stopTraining: async () => {
+            const run = values.liveTrainingRun
+            if (!values.currentTeamId || !run) {
+                actions.stopTrainingFinished()
+                return
+            }
+            try {
+                await autoresearchTrainingRunsStopCreate(String(values.currentTeamId), props.id, run.id)
+                // pinned: analytics event name and properties. Renaming breaks insights built on them.
+                posthog.capture('autoresearch model training stopped', { pipeline_id: props.id, run_id: run.id })
+                lemonToast.success('Training run stopped')
+                actions.loadTrainingRuns()
+                // A first run's stop puts the model back in draft.
+                actions.loadPipeline()
+            } catch (error: any) {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'stop_training',
+                    pipeline_id: props.id,
+                    status: error?.status,
+                })
+                lemonToast.error(error?.detail ?? error?.data?.detail ?? "Couldn't stop the training run. Try again.")
+            } finally {
+                actions.stopTrainingFinished()
+            }
         },
         pausePipelineSuccess: () => {
             posthog.capture('autoresearch model paused', { pipeline_id: props.id })
