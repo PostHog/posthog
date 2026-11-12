@@ -472,6 +472,68 @@ export function defaultPollingSyncSettings(
     return { sync_type: 'full_refresh' }
 }
 
+// The backend marks the candidates it ranked, so only those go to the model.
+const recommendationCandidates = (schema: ExternalDataSourceSyncSchema): IncrementalField[] =>
+    schema.incremental_fields.filter((field) => field.recommended !== undefined)
+
+async function fetchIncrementalFieldPicks(
+    teamId: number,
+    tables: ExternalDataSourceSyncSchema[]
+): Promise<Map<string, IncrementalField[]>> {
+    // One batch at a time keeps a large discovery from sending a burst of requests, and a failed
+    // batch drops only its own tables.
+    const picked = new Map<string, IncrementalField[]>()
+    for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
+        try {
+            const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(String(teamId), {
+                tables: batch.map((schema) => ({
+                    table: schema.table,
+                    // The model reads only the leading ranked candidates, so the rest stay local.
+                    incremental_fields: recommendationCandidates(schema).slice(0, MAX_RECOMMENDATION_CANDIDATES),
+                })),
+            })
+            for (const table of response.tables) {
+                picked.set(table.table, table.incremental_fields as IncrementalField[])
+            }
+        } catch {
+            continue
+        }
+    }
+    return picked
+}
+
+const isExcludedColumn = (schema: ExternalDataSourceSyncSchema, column: string): boolean =>
+    !!schema.masked_columns?.includes(column) || (!!schema.enabled_columns && !schema.enabled_columns.includes(column))
+
+/** Puts the model's order on a table, and moves its cursor only when the person kept the default. */
+function applyIncrementalFieldPick(
+    schema: ExternalDataSourceSyncSchema,
+    reordered: IncrementalField[],
+    connectorName: string
+): ExternalDataSourceSyncSchema {
+    const sent = new Set(reordered.map((field) => field.field))
+    const updated = {
+        ...schema,
+        incremental_fields: [...reordered, ...schema.incremental_fields.filter((field) => !sent.has(field.field))],
+    }
+    const previous = defaultPollingSyncSettings(schema, connectorName)
+    // A full-refresh default keeps whatever cursor discovery returned, so only the sync type says
+    // whether the person changed it.
+    const untouched =
+        schema.sync_type === previous.sync_type &&
+        (previous.sync_type === 'full_refresh' ||
+            (schema.incremental_field ?? undefined) === previous.incremental_field)
+    const next = defaultPollingSyncSettings(updated, connectorName)
+    // A column the person masked or left out of the sync cannot be the cursor.
+    if (!untouched || (next.incremental_field && isExcludedColumn(schema, next.incremental_field))) {
+        return updated
+    }
+    updated.sync_type = next.sync_type
+    updated.incremental_field = next.incremental_field ?? null
+    updated.incremental_field_type = next.incremental_field_type ?? null
+    return updated
+}
+
 function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
@@ -543,6 +605,7 @@ export interface sourceWizardLogicValues {
     isWebhookFieldInputsSubmitting: boolean
     isWebhookFieldInputsValid: boolean
     isWrapped: boolean
+    incrementalFieldModelEnabled: boolean
     modalTitle:
         | ''
         | 'Choose destinations'
@@ -1089,6 +1152,7 @@ export interface sourceWizardLogicMeta {
             | 'Set up webhook'
             | 'Tables ready to query'
         isWrapped: (arg: any) => boolean
+        incrementalFieldModelEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
     }
 }
 
@@ -1981,90 +2045,38 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         // determines if the wizard is wrapped in another component
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
+        // One-click setup shows no table list, so a late pick would change tables nobody reviews.
+        incrementalFieldModelEnabled: [
+            (s) => [s.featureFlags, (_, props) => props.autoConfigureTables],
+            (featureFlags: FeatureFlagsSet, autoConfigureTables: boolean | undefined): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL] && !autoConfigureTables,
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         // The table list never waits for the decision model: its picks arrive here afterwards, and
         // replace the defaults only of tables the person has not changed yet.
         loadIncrementalFieldRecommendations: async () => {
             const connectorName = values.selectedConnector?.name
-            const tables = values.databaseSchema.filter(
-                (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
-            )
-            if (
-                !connectorName ||
-                values.currentTeamId === null ||
-                tables.length === 0 ||
-                !values.featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]
-            ) {
+            const teamId = values.currentTeamId
+            const tables = values.databaseSchema.filter((schema) => recommendationCandidates(schema).length >= 2)
+            if (!connectorName || teamId === null || tables.length === 0 || !values.incrementalFieldModelEnabled) {
                 return
             }
             // A rediscovery, even for the same connector, makes the answer belong to another database.
             const discovery = cache.schemaDiscovery
             const selection = values.connectorSelectionCount
-            // One batch at a time keeps a large discovery from sending a burst of requests, and a
-            // failed batch drops only its own tables.
-            const picked = new Map<string, IncrementalField[]>()
-            for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
-                try {
-                    const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(
-                        String(values.currentTeamId),
-                        {
-                            tables: batch.map((schema) => ({
-                                table: schema.table,
-                                // The model reads only the leading ranked candidates, so the rest stay local.
-                                incremental_fields: schema.incremental_fields
-                                    .filter((field) => field.recommended !== undefined)
-                                    .slice(0, MAX_RECOMMENDATION_CANDIDATES),
-                            })),
-                        }
-                    )
-                    for (const table of response.tables) {
-                        picked.set(table.table, table.incremental_fields as IncrementalField[])
-                    }
-                } catch {
-                    continue
-                }
-            }
-            if (
-                cache.schemaDiscovery !== discovery ||
-                cache.recommendationsFrozenFor === discovery ||
-                values.connectorSelectionCount !== selection ||
-                picked.size === 0
-            ) {
+            const picked = await fetchIncrementalFieldPicks(teamId, tables)
+            const stillApplies = (): boolean =>
+                cache.schemaDiscovery === discovery &&
+                cache.recommendationsFrozenFor !== discovery &&
+                values.connectorSelectionCount === selection
+            if (picked.size === 0 || !stillApplies()) {
                 return
             }
             actions.setDatabaseSchemas(
                 values.databaseSchema.map((schema) => {
                     const reordered = picked.get(schema.table)
-                    if (!reordered) {
-                        return schema
-                    }
-                    const sent = new Set(reordered.map((field) => field.field))
-                    const fields = [
-                        ...reordered,
-                        ...schema.incremental_fields.filter((field) => !sent.has(field.field)),
-                    ]
-                    const updated = { ...schema, incremental_fields: fields }
-                    const previous = defaultPollingSyncSettings(schema, connectorName)
-                    // A full-refresh default keeps whatever cursor discovery returned, so only the
-                    // sync type says whether the person changed it.
-                    const untouched =
-                        schema.sync_type === previous.sync_type &&
-                        (previous.sync_type === 'full_refresh' ||
-                            (schema.incremental_field ?? undefined) === previous.incremental_field)
-                    const next = defaultPollingSyncSettings(updated, connectorName)
-                    // A column the person masked or left out of the sync cannot be the cursor.
-                    const pickedField = next.incremental_field
-                    const blocked =
-                        !!pickedField &&
-                        (!!schema.masked_columns?.includes(pickedField) ||
-                            (!!schema.enabled_columns && !schema.enabled_columns.includes(pickedField)))
-                    if (untouched && !blocked) {
-                        updated.sync_type = next.sync_type
-                        updated.incremental_field = next.incremental_field ?? null
-                        updated.incremental_field_type = next.incremental_field_type ?? null
-                    }
-                    return updated
+                    return reordered ? applyIncrementalFieldPick(schema, reordered, connectorName) : schema
                 })
             )
         },
@@ -2666,7 +2678,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.getDatabaseSchemas()
         },
         getDatabaseSchemas: async () => {
-            cache.schemaDiscovery = (cache.schemaDiscovery ?? 0) + 1
+            cache.schemaDiscovery = {}
             if (!values.selectedConnector) {
                 return
             }
@@ -2824,9 +2836,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
-                if (!props.autoConfigureTables) {
-                    actions.loadIncrementalFieldRecommendations()
-                }
+                actions.loadIncrementalFieldRecommendations()
             } catch (e: any) {
                 if (connectorChanged()) {
                     return
