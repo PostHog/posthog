@@ -13812,7 +13812,6 @@ export namespace Schemas {
      * * `flags` - flags
      * * `llm_analytics` - llm_analytics
      * * `sandbox` - sandbox
-     * * `user_interview` - user_interview
      * * `customer_analytics` - customer_analytics
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
@@ -13830,7 +13829,6 @@ export namespace Schemas {
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
-      UserInterview: 'user_interview',
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
@@ -58734,6 +58732,42 @@ export namespace Schemas {
       worstCampaign: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationRule = typeof MarketingAnalyticsRecommendationRule[keyof typeof MarketingAnalyticsRecommendationRule];
+
+
+    export const MarketingAnalyticsRecommendationRule = {
+      BudgetConstrained: 'budget_constrained',
+      BrandLeak: 'brand_leak',
+      ScaleCampaign: 'scale_campaign',
+      ReviewCampaign: 'review_campaign',
+      PolicyLimited: 'policy_limited',
+      BrandOverlap: 'brand_overlap',
+      ContentGap: 'content_gap',
+      KeywordGap: 'keyword_gap',
+      SpendWithoutConversions: 'spend_without_conversions',
+      StrikingDistance: 'striking_distance',
+      KeywordTracking: 'keyword_tracking',
+    } as const;
+
+    export type MarketingAnalyticsRecommendationIdentitySourceType = typeof MarketingAnalyticsRecommendationIdentitySourceType[keyof typeof MarketingAnalyticsRecommendationIdentitySourceType];
+
+
+    export const MarketingAnalyticsRecommendationIdentitySourceType = {
+      GoogleAds: 'google_ads',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationIdentity {
+      /** The Google Ads campaign id. Empty when the recommendation is not about one campaign. */
+      campaign_id: string;
+      /** The Google Ads account id. Empty when the recommendation is not tied to one account. */
+      customer_id: string;
+      rule: MarketingAnalyticsRecommendationRule;
+      /** The ad platform the ids belong to. */
+      source_type: MarketingAnalyticsRecommendationIdentitySourceType;
+      /** The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject. */
+      subject: string;
+    }
+
     export type MarketingAnalyticsRecommendationImpactDirection = typeof MarketingAnalyticsRecommendationImpactDirection[keyof typeof MarketingAnalyticsRecommendationImpactDirection];
 
 
@@ -58761,23 +58795,6 @@ export namespace Schemas {
       SearchTerm: 'search_term',
     } as const;
 
-    export type MarketingAnalyticsRecommendationRule = typeof MarketingAnalyticsRecommendationRule[keyof typeof MarketingAnalyticsRecommendationRule];
-
-
-    export const MarketingAnalyticsRecommendationRule = {
-      BudgetConstrained: 'budget_constrained',
-      BrandLeak: 'brand_leak',
-      ScaleCampaign: 'scale_campaign',
-      ReviewCampaign: 'review_campaign',
-      PolicyLimited: 'policy_limited',
-      BrandOverlap: 'brand_overlap',
-      ContentGap: 'content_gap',
-      KeywordGap: 'keyword_gap',
-      SpendWithoutConversions: 'spend_without_conversions',
-      StrikingDistance: 'striking_distance',
-      KeywordTracking: 'keyword_tracking',
-    } as const;
-
     export interface MarketingAnalyticsRecommendationStep {
       /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
       copyValue?: string | null;
@@ -58795,10 +58812,13 @@ export namespace Schemas {
       /** CPA figures in the account currency. */
       cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
+      identity: MarketingAnalyticsRecommendationIdentity;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
       impactDirection: MarketingAnalyticsRecommendationImpactDirection;
       impactType: MarketingAnalyticsRecommendationImpactType;
+      /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
+      key: string;
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
       rule: MarketingAnalyticsRecommendationRule;
@@ -128984,7 +129004,12 @@ export namespace Schemas {
 
     export type MembersProjectAccessRetrieveParams = {
     /**
-     * Narrow the list to one organization membership id.
+     * Narrow the list to the member with this email address (case-insensitive). Combined with `member_id`, both must match.
+     * @minLength 1
+     */
+    email?: string;
+    /**
+     * Narrow the list to one organization membership id. Combined with `email`, both must match.
      */
     member_id?: string;
     };

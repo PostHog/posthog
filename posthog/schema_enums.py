@@ -148,7 +148,6 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
     CUSTOMER_ANALYTICS = "customer_analytics"
 
 
@@ -2221,6 +2220,10 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     TARGET_CPA = "target_cpa"
     CAMPAIGN = "campaign"
     ACCOUNT = "account"
+
+
+class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
+    GOOGLE_ADS = "google_ads"
 
 
 class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
