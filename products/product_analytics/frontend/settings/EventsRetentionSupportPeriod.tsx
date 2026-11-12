@@ -2,11 +2,12 @@ import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
+
 import {
     EventsRetentionSupportPeriodModal,
     EventsRetentionSupportPeriodModalProps,
 } from './EventsRetentionSupportPeriodModal'
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionSupportPeriodProps extends Omit<EventsRetentionSupportPeriodModalProps, 'onClose'> {
     saving: boolean

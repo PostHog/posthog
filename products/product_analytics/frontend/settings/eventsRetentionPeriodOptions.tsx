@@ -1,7 +1,7 @@
 import { IconLock } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectSection } from '@posthog/lemon-ui'
 
-import { retentionPeriodLabel } from './retentionPeriodLabel'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 
 export interface EventsRetentionPeriodChoices {
     defaultLabel: string

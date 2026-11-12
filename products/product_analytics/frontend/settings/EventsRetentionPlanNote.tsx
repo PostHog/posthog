@@ -3,14 +3,13 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 import { urls } from 'scenes/urls'
 
 import { BillingPlan } from '~/types'
 
 import type { OrganizationEventsRetentionApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import { LONGEST_PLAN_RETENTION_MONTHS } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export type EventsRetentionPlan = Pick<
     OrganizationEventsRetentionApi,

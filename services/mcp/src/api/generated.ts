@@ -109037,6 +109037,21 @@ export namespace Schemas {
       by_type: ScannerStatsByType;
     }
 
+    export interface ScheduledEventsDeleted {
+      /**
+         * The date of the project's next scheduled deletion. Null while no deletion is scheduled.
+         * @nullable
+         */
+      readonly deletes_on: string | null;
+      /**
+         * The scheduled deletion removes the project's events from before this date. Null while no deletion is scheduled.
+         * @nullable
+         */
+      readonly deletes_before: string | null;
+      /** How many queryable events the scheduled deletion removes. 0 while no deletion is scheduled. The count can be up to a day old. */
+      readonly events_deleted: number;
+    }
+
     /**
      * Response shape for a table's destination override.
      */
