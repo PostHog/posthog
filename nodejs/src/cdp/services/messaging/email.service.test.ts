@@ -32,9 +32,9 @@ import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
+import { v2JobToInvocation } from '~/cdp/services/cyclotron-v2/job-codec'
 import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
