@@ -62,7 +62,7 @@ def import_suppressions(
     """Suppress the addresses that have no row yet, or only a row counting soft bounces.
 
     A bounce blocks every email, because the other tool lists one only for an address that can't receive mail, so it
-    also marks a suppressed row that doesn't block transactional email yet. Nothing here writes to the global
+    also marks a row that soft bounces suppressed without blocking transactional email. Nothing here writes to the global
     hard-bounce list: one team's list must not block addresses for every other team. A row someone removed stays
     removed.
     """
@@ -109,7 +109,11 @@ def import_suppressions(
             newly_suppressed.append(identifier)
         elif row.reason == record.reason and not row.last_bounce_diagnostic and record.suppressed_at:
             row.suppressed_at = record.suppressed_at
-        elif not (record.source == SuppressionSource.BOUNCE and row.hard_bounced_at is None):
+        elif not (
+            record.source == SuppressionSource.BOUNCE
+            and row.source == SuppressionSource.BOUNCE
+            and row.hard_bounced_at is None
+        ):
             continue
         if record.source == SuppressionSource.BOUNCE:
             row.last_bounce_at = record.suppressed_at or row.last_bounce_at
