@@ -16,7 +16,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
@@ -338,6 +338,66 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
         and item["value"] != MASKED_SECRET_VALUE
         and not (isinstance(item["value"], dict) and MASKED_SECRET_VALUE in item["value"].values())
     }
+
+
+def _raise_secret_reentry(errors: Any) -> None:
+    """Re-raise a test run's secret refusal as a save would, because the raw errors the test run returns drop its code."""
+    configuration_errors = errors.get("configuration") if isinstance(errors, dict) else None
+    inputs_errors = configuration_errors.get("inputs") if isinstance(configuration_errors, dict) else None
+    if not isinstance(inputs_errors, dict):
+        return
+    refused = {
+        key: str(error)
+        for key, error in inputs_errors.items()
+        if getattr(error, "code", None) == "secret_reentry_required"
+    }
+    if refused:
+        raise serializers.ValidationError({"inputs": refused}, code="secret_reentry_required")
+
+
+def _templating_of(held: Any) -> dict[str, Any]:
+    templating = held.get("templating") if isinstance(held, dict) else None
+    return {"templating": templating} if templating else {}
+
+
+def _draft_with_entered_secrets(draft: dict, entered: Optional[dict], held_secrets: dict) -> dict:
+    """The draft to publish, with the secrets the publisher entered again. Only secrets the draft already
+    holds are taken, so publishing can't change config or add a secret the preview didn't show. An entered
+    secret keeps the templating of the held one, because the dialog asks only for the value."""
+    if not entered:
+        return dict(draft)
+    secret_keys = {
+        schema["key"]
+        for schema in draft.get("inputs_schema") or []
+        if isinstance(schema, dict) and schema.get("secret") and "key" in schema
+    }
+    errors = {}
+    for key, item in entered.items():
+        held = held_secrets.get(key)
+        if key not in secret_keys or not held:
+            errors[key] = "Only a secret the draft already holds can be entered when publishing."
+        elif _is_blank_secret(item["value"]):
+            errors[key] = "Enter a value for the secret, and for every entry of a dictionary secret."
+        elif not _has_held_shape(item["value"], held.get("value") if isinstance(held, dict) else None):
+            errors[key] = "Enter the same entries the secret holds, so publishing adds or drops none."
+    if errors:
+        raise exceptions.ValidationError({"inputs": errors})
+    entered_inputs = {
+        key: {"value": item["value"], **_templating_of(held_secrets[key])} for key, item in entered.items()
+    }
+    return {**draft, "inputs": {**(draft.get("inputs") or {}), **entered_inputs}}
+
+
+def _has_held_shape(value: str | dict[str, str], held_value: Any) -> bool:
+    if isinstance(held_value, dict):
+        return isinstance(value, dict) and value.keys() == held_value.keys()
+    return isinstance(value, str)
+
+
+def _is_blank_secret(value: str | dict[str, str]) -> bool:
+    if isinstance(value, dict):
+        return not value or any(not entry.strip() for entry in value.values())
+    return not value.strip()
 
 
 def secret_reentry_enforced(team: Team) -> bool:
@@ -1199,12 +1259,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if not isinstance(draft, dict):
             return draft
         inputs = dict(draft.get("inputs") or {})
-        for schema in draft.get("inputs_schema") or []:
+        schemas = draft.get("inputs_schema") or []
+        for schema in schemas:
             key = schema.get("key") if isinstance(schema, dict) else None
             if not key or not schema.get("secret"):
                 continue
-            if draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key):
-                inputs[key] = {"secret": True}
+            stored = draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key)
+            if stored:
+                inputs[key] = (
+                    masked_dictionary_secret(stored)
+                    if exposes_secret_dictionary_keys(schema, schemas)
+                    else {"secret": True}
+                )
         return mask_config_secrets({**draft, "inputs": inputs})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
@@ -1348,6 +1414,23 @@ class HogFunctionRevisionRestoreRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "object", "additionalProperties": {"type": "string"}}]})
+class EnteredSecretValueField(serializers.Field):
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, str) or (isinstance(data, dict) and all(isinstance(v, str) for v in data.values())):
+            return data
+        raise serializers.ValidationError("Enter a string, or an object of strings for a dictionary secret.")
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
+class HogFunctionPublishSecretInputSerializer(serializers.Serializer):
+    value = EnteredSecretValueField(
+        help_text="The secret's value: a string, or an object of string entries for a dictionary secret."
+    )
+
+
 class HogFunctionPublishRequestSerializer(serializers.Serializer):
     confirm = serializers.BooleanField(
         default=False,
@@ -1362,6 +1445,16 @@ class HogFunctionPublishRequestSerializer(serializers.Serializer):
             "From the preview response, and required when confirm=true on an enabled function. Expires "
             "after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you "
             "always publish the exact draft you previewed."
+        ),
+    )
+    inputs = serializers.DictField(
+        child=HogFunctionPublishSecretInputSerializer(),
+        required=False,
+        help_text=(
+            "Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing "
+            "returned code secret_reentry_required: the staged config changes the code, inputs or mappings of "
+            "a function with a stored secret, so every stored secret it names has to be entered to go live. "
+            "Only secrets the draft already holds are accepted, each with a non-empty value."
         ),
     )
 
@@ -1742,6 +1835,7 @@ class HogFunctionViewSet(
             },
         )
         if not serializer.is_valid():
+            _raise_secret_reentry(serializer.errors)
             return Response(serializer.errors, status=400)
 
         configuration = serializer.validated_data["configuration"]
@@ -2171,7 +2265,11 @@ class HogFunctionViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(
                 locked,
-                data=dict(locked.draft),
+                data=_draft_with_entered_secrets(
+                    locked.draft,
+                    param_serializer.validated_data.get("inputs"),
+                    locked.encrypted_inputs,
+                ),
                 partial=True,
                 context={
                     **self.get_serializer_context(),

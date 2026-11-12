@@ -54,6 +54,7 @@ import {
     HogFunctionConfigurationClearChangesButton,
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
+import { HogFunctionSecretReentryModal } from './configuration/components/HogFunctionSecretReentryModal'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import { HogFunctionPublishDraftButton } from './configuration/HogFunctionPublishDraftButton'
 import { humanizeHogFunctionType } from './hog-function-utils'
@@ -595,6 +596,7 @@ export function HogFunctionScene(): JSX.Element {
         <SceneContent>
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <HogFunctionHeader />
+                <HogFunctionSecretReentryModal />
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} subTemplateId={subTemplateId} />
                 ) : (

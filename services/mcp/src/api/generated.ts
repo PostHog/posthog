@@ -57181,11 +57181,28 @@ export namespace Schemas {
       readonly draft_updated_at: string | null;
     }
 
+    /**
+     * The secret's value: a string, or an object of string entries for a dictionary secret.
+     */
+    export type HogFunctionPublishSecretInputValue = string | {[key: string]: string};
+
+    export interface HogFunctionPublishSecretInput {
+      /** The secret's value: a string, or an object of string entries for a dictionary secret. */
+      value: HogFunctionPublishSecretInputValue;
+    }
+
+    /**
+     * Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config changes the code, inputs or mappings of a function with a stored secret, so every stored secret it names has to be entered to go live. Only secrets the draft already holds are accepted, each with a non-empty value.
+     */
+    export type HogFunctionPublishRequestInputs = {[key: string]: HogFunctionPublishSecretInput};
+
     export interface HogFunctionPublishRequest {
       /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
       confirm?: boolean;
       /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
       confirm_token?: string;
+      /** Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing returned code secret_reentry_required: the staged config changes the code, inputs or mappings of a function with a stored secret, so every stored secret it names has to be entered to go live. Only secrets the draft already holds are accepted, each with a non-empty value. */
+      inputs?: HogFunctionPublishRequestInputs;
     }
 
     export interface HogFunctionPublishResponse {

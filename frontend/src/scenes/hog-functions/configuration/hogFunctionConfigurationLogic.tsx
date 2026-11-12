@@ -101,12 +101,26 @@ import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
+import { parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
     subTemplateId?: string | null
     id?: string | null
+}
+
+export function hogFunctionConfigurationLogicKey({
+    id,
+    templateId,
+    subTemplateId,
+    logicKey,
+}: HogFunctionConfigurationLogicProps): string {
+    let baseKey = id ?? templateId ?? 'new'
+    if (subTemplateId) {
+        baseKey = `${subTemplateId}_${baseKey}`
+    }
+    return logicKey ? `${logicKey}_${baseKey}` : baseKey
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
@@ -888,13 +902,7 @@ export type hogFunctionConfigurationLogicType = MakeLogicType<
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        let baseKey = id ?? templateId ?? 'new'
-        if (subTemplateId) {
-            baseKey = `${subTemplateId}_${baseKey}`
-        }
-        return logicKey ? `${logicKey}_${baseKey}` : baseKey
-    }),
+    key(hogFunctionConfigurationLogicKey),
     connect(() => ({
         values: [
             projectLogic,
@@ -2061,6 +2069,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
+            // hogFunctionSecretReentryLogic asks for the stored secrets in a dialog, or shows the refusal as a toast.
+            if (parseSecretReentryRefusal(errorObject)) {
+                return
+            }
             const maybeValidationError = errorObject.data
 
             if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {
