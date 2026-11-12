@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
@@ -54,6 +54,20 @@ def workflows_list_v2_enabled(team: "Team", user: "User") -> bool:
     if answers is not None and (team.id, user.pk) in answers:
         return answers[(team.id, user.pk)]
     return _evaluate_workflows_list_v2(team, user, only_evaluate_locally=True)
+
+
+def creator_files_workflow_rows(
+    team_id: int, creator_id: int | None, team_and_creator: Callable[[], tuple["Team", "User | None"]]
+) -> bool:
+    """Whether a workflow or email template files new tree rows: only when its creator has `workflows-list-v2`.
+    `team_and_creator` loads the related rows, and runs only when no resolved answer is in scope."""
+    if creator_id is None:
+        return False
+    resolved = resolved_workflows_list_v2_answer(team_id, creator_id)
+    if resolved is not None:
+        return resolved
+    team, creator = team_and_creator()
+    return creator is not None and workflows_list_v2_enabled(team, creator)
 
 
 # The product surface a FileSystem row belongs to. Legacy rows predate this column and are
