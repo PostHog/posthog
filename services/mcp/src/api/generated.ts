@@ -54946,6 +54946,15 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GitguardianScannerFindingSignalExtra {
+      severity: string | null;
+      validity: string | null;
+      status: string | null;
+      occurrences_count: string | null;
+      gitguardian_url: string | null;
+      date: string | null;
+    }
+
     export interface GithubCodeScanningScannerFindingSignalExtra {
       number: string | null;
       state: string | null;
@@ -54975,15 +54984,6 @@ export namespace Schemas {
       html_url: string | null;
       created_at: string | null;
       repository: string | null;
-    }
-
-    export interface GitguardianScannerFindingSignalExtra {
-      severity: string | null;
-      validity: string | null;
-      status: string | null;
-      occurrences_count: string | null;
-      gitguardian_url: string | null;
-      date: string | null;
     }
 
     export interface GithubIssueDependencyRef {
