@@ -19,7 +19,8 @@
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/apps.py",
+                "backend/logic/issue_appearance.py"
             ],
             "outputs": [],
             "cache": true
