@@ -363,8 +363,8 @@ describe('workflowMetricsSummaryLogic', () => {
 
     type Fault = { status: number; retryAfter?: string; times: number }
 
-    // A stand-in for the app_metrics table behind the query endpoint: it applies the metric-name and
-    // run-level filters the query asks for, then groups by the requested breakdown columns.
+    // A stand-in for the app_metrics table: it applies the metric-name and run-level filters the
+    // query asks for, then groups by the requested breakdown columns.
     const useAppMetricsMocks = (
         rows: MetricRow[],
         failWhen?: string,

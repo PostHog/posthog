@@ -90,8 +90,6 @@ export type AppMetricsTotalsResponse = Record<
 
 const CONCURRENCY_RETRY_MAX_WAIT_MS = 10_000
 
-// The query endpoint answers a burst over the organization's concurrency limit with a 429 and a short
-// Retry-After. A longer wait means a spent query budget, which a retry within the page load cannot clear.
 const concurrencyRetryWaitMs = (error: unknown): number | undefined => {
     if (!(error instanceof ApiError) || error.status !== 429) {
         return undefined
