@@ -192,8 +192,6 @@ export const transactionalEmail: TrafficKind = {
 
 const BOUNCE_EVENT = 'scenario_bounce'
 
-// The first send goes through an event flow, because cdp-api caches a negative suppression lookup per address. A
-// first send through cdp-api would cache "not suppressed" and let the follow-up through until that cache expires.
 export const bounceFollowup: TrafficKind = {
     name: 'bounce_followup',
     params: z.object({}).strict(),
