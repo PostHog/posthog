@@ -432,19 +432,19 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
         ),
         # Definition question with an empty catalog: the measure is only written down in a
         # saved insight, so the settled answer is a reusable definition the catalog lacks.
-        # Pins the proactive close — users don't know proposals exist, so the agent has to
-        # ask — and pins that asking is not license to create one unprompted.
+        # The instructions already say the project has no saved metrics, so the agent skips
+        # `metric-list`. Pins the proactive close — users don't know proposals exist, so the
+        # agent has to ask — and pins that asking is not license to create one unprompted.
         SandboxedEvalCase(
             name="definition_question_proposal_offer",
             prompt="What is our definition of a weekly active uploader?",
             expected={
-                "metrics_catalog_queried": {},
-                "metrics_catalog_before_data_discovery": {},
+                "metrics_catalog_not_queried": {},
                 "canonical_metric_run": {"outcome": "not_called"},
                 "governed_behavior_correctness": {
                     "expected_behavior": (
-                        "Checked the metrics catalog, found no governed definition of a weekly active uploader, "
-                        f"reconstructed the definition from the saved insight '{DEFINITION_INSIGHT_NAME}' (distinct "
+                        "Found no governed definition of a weekly active uploader, because the project has no "
+                        f"saved metrics, reconstructed the definition from the saved insight '{DEFINITION_INSIGHT_NAME}' (distinct "
                         "users with an uploaded_file event in the trailing 7 days), and labeled it noncanonical or "
                         "said no governed definition exists. It must then close the answer by noting this looks "
                         "like a reusable metric missing from the catalog and asking whether to add it as a "
@@ -515,9 +515,9 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             },
             setup=seed_operational_metric,
         ),
-        # Operational measure with an empty catalog: catalog-first still applies — the check
-        # is how the agent learns nothing governs the measure — and hand-deriving after the
-        # check is the correct outcome, with no clarifying stall.
+        # Operational measure with an empty catalog: the instructions already say nothing
+        # governs the measure, so the agent skips `metric-list` and hand-derives the rate
+        # with no clarifying stall.
         SandboxedEvalCase(
             name="scout_operational_no_match",
             prompt=(
@@ -526,13 +526,12 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 "score it against the recent baseline, and report whether reliability moved."
             ),
             expected={
-                "metrics_catalog_queried": {},
-                "metrics_catalog_before_data_discovery": {},
+                "metrics_catalog_not_queried": {},
                 "canonical_metric_run": {"outcome": "not_called"},
                 "governed_behavior_correctness": {
                     "expected_behavior": (
-                        "Checked the metrics catalog before any data-bearing call, found no governed "
-                        "definition for an error-rate measure, then derived the rate from events itself "
+                        "Found no governed definition for an error-rate measure, because the project has "
+                        "no saved metrics, then derived the rate from events itself "
                         "without stalling, labeling the derivation noncanonical or noting that no governed "
                         "definition exists. Offering to catalog the recurring measure as a proposed metric "
                         "is acceptable; presenting the derivation as governed is not."
