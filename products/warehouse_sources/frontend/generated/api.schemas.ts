@@ -369,7 +369,6 @@ export const IncrementalFieldTypeEnumApi = {
 } as const
 
 /**
- * * `never` - never
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -384,7 +383,6 @@ export type SettableSyncFrequencyEnumApi =
     (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
 export const SettableSyncFrequencyEnumApi = {
-    Never: 'never',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -565,9 +563,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -810,9 +807,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -1362,7 +1358,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     incremental_field_type?: string | null
     /**
-     * Human-readable sync frequency value.
+     * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      * @nullable
      */
     sync_frequency?: string | null
