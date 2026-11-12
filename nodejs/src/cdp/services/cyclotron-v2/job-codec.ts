@@ -58,7 +58,7 @@ type LookupColumnSource = {
     state?: {
         event?: { distinct_id?: string }
         personId?: string
-        currentAction?: { id?: string }
+        currentAction?: { id?: string; cohortLookupAttempts?: number }
     } | null
 }
 
@@ -75,11 +75,12 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
-// Only a wait re-evaluates on an early wake. Any other step would cut a delay, a retry backoff or a hold short.
-export function parksOnWaitUntilCondition(invocation: CyclotronJobInvocation): boolean {
+// Only a wait re-evaluates on an early wake. Any other step, or a wait's cohort lookup retry, would cut a delay, a retry backoff or a hold short.
+export function acceptsWakeSignal(invocation: CyclotronJobInvocation): boolean {
+    const inv = invocation as LookupColumnSource
     const actionId = extractActionId(invocation)
-    const action = (invocation as LookupColumnSource).hogFlow?.actions?.find((a) => a.id === actionId)
-    return action?.type === 'wait_until_condition'
+    const action = inv.hogFlow?.actions?.find((a) => a.id === actionId)
+    return action?.type === 'wait_until_condition' && !inv.state?.currentAction?.cohortLookupAttempts
 }
 
 export function decodeJobState(row: Pick<CyclotronV2DequeuedJob, 'id' | 'state'>): SerializedJobState {

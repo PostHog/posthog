@@ -8,10 +8,10 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../type
 import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
+    acceptsWakeSignal,
     extractActionId,
     extractDistinctId,
     extractPersonId,
-    parksOnWaitUntilCondition,
 } from './job-queue-postgres-v2'
 
 jest.mock('../cyclotron-v2', () => ({
@@ -148,7 +148,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
-    describe('parksOnWaitUntilCondition', () => {
+    describe('acceptsWakeSignal', () => {
         const hogFlow = {
             actions: [
                 { id: 'wait_1', type: 'wait_until_condition' },
@@ -167,12 +167,21 @@ describe('CyclotronJobQueuePostgresV2', () => {
                 hogFlow,
                 state: { currentAction: { id: actionId } },
             } as unknown as CyclotronJobInvocation
-            expect(parksOnWaitUntilCondition(invocation)).toBe(expected)
+            expect(acceptsWakeSignal(invocation)).toBe(expected)
+        })
+
+        it('is false while the wait waits to retry a failed cohort lookup', () => {
+            const invocation = {
+                ...baseInvocation,
+                hogFlow,
+                state: { currentAction: { id: 'wait_1', cohortLookupAttempts: 1 } },
+            } as unknown as CyclotronJobInvocation
+            expect(acceptsWakeSignal(invocation)).toBe(false)
         })
 
         it('is false for an invocation without a flow', () => {
             const invocation = { ...baseInvocation, state: { currentAction: { id: 'wait_1' } } } as any
-            expect(parksOnWaitUntilCondition(invocation)).toBe(false)
+            expect(acceptsWakeSignal(invocation)).toBe(false)
         })
     })
 

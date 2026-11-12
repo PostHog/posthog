@@ -556,7 +556,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                  SET scheduled = CASE WHEN cj.status = 'running' THEN clock_timestamp() ELSE LEAST(cj.scheduled, NOW()) END
                  FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS waits) u
                  WHERE cj.id = u.id
-                   AND (cj.status = 'running' OR (cj.status = 'available' AND u.waits ? cj.action_id))`,
+                   AND ((cj.status = 'running' AND cj.scheduled <= cj.last_transition)
+                       OR (cj.status = 'available' AND u.waits ? cj.action_id))`,
                 [sorted.map((s) => s.id), sorted.map((s) => JSON.stringify(s.waitActionIds))]
             )
             await client.query('COMMIT')
