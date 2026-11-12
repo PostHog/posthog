@@ -13938,6 +13938,14 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface AhrefsSearchOpportunitySignalExtra {
+      project_id: string | null;
+      issue_id: string | null;
+      issue_category: string | null;
+      issue_importance: string | null;
+      affected_urls: string | null;
+    }
+
     /**
      * * `used` - used
      * * `edited` - edited
@@ -22172,6 +22180,15 @@ export namespace Schemas {
       TeamRetention: 'team_retention',
       ByteBudget: 'byte_budget',
     } as const;
+
+    export interface BingWebmasterToolsSearchOpportunitySignalExtra {
+      site_url: string | null;
+      issue_flag: string | null;
+      issue: string | null;
+      affected_urls: string | null;
+      example_url: string | null;
+      inbound_links: string | null;
+    }
 
     /**
      * * `email` - email
@@ -62247,6 +62264,9 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `bing_webmaster_tools` - Bing Webmaster Tools
+     * * `ahrefs` - Ahrefs
+     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -62368,6 +62388,9 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      BingWebmasterTools: 'bing_webmaster_tools',
+      Ahrefs: 'ahrefs',
+      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -62539,6 +62562,9 @@ export namespace Schemas {
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
        * * `google_search_console` - Google Search Console
+       * * `bing_webmaster_tools` - Bing Webmaster Tools
+       * * `ahrefs` - Ahrefs
+       * * `semrush` - Semrush
        * * `pagerduty` - PagerDuty
        * * `opsgenie` - Opsgenie
        * * `incident_io` - incident.io
@@ -105845,6 +105871,9 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `bing_webmaster_tools` - bing_webmaster_tools
+     * * `ahrefs` - ahrefs
+     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -105966,6 +105995,9 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      BingWebmasterTools: 'bing_webmaster_tools',
+      Ahrefs: 'ahrefs',
+      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -106269,6 +106301,14 @@ export namespace Schemas {
       created_time: string | null;
     }
 
+    export interface SemrushSearchOpportunitySignalExtra {
+      project_id: string | null;
+      issue_id: string | null;
+      affected_pages: string | null;
+      example_url: string | null;
+      audit_snapshot_id: string | null;
+    }
+
     export interface VitallyConversationSignalExtra {
       external_url: string | null;
       created_at: string | null;
@@ -106360,7 +106400,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106430,6 +106470,9 @@ export namespace Schemas {
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
        * * `google_search_console` - google_search_console
+       * * `bing_webmaster_tools` - bing_webmaster_tools
+       * * `ahrefs` - ahrefs
+       * * `semrush` - semrush
        * * `pagerduty` - pagerduty
        * * `opsgenie` - opsgenie
        * * `incident_io` - incident_io
