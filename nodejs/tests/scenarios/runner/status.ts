@@ -48,17 +48,15 @@ export function statusOf({ minOffered, units, down, convergence, invariants, tim
         }
     }
     const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
-    const unobserved = timeline.filter(({ observedAt }) => observedAt === undefined)
+    const unobserved = timeline
+        .filter(({ observedAt }) => observedAt === undefined)
+        .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
     if (crashes.length === 0 && unobserved.length > 0) {
-        return {
-            status: 'invalid',
-            statusReason: unobserved
-                .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
-                .join('; '),
-        }
+        return { status: 'invalid', statusReason: unobserved.join('; ') }
     }
     const reasons = [
         ...crashes,
+        ...unobserved,
         ...(convergence.converged
             ? []
             : [

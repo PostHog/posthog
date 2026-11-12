@@ -344,26 +344,33 @@ describe('scenario environment', () => {
         }
         const specs = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR)
 
-        it.each<[string, string, string[]]>([
+        const POSTHOG = 'postgres://posthog:posthog@localhost:5432/posthog'
+
+        it.each<[string, Record<string, string>, string[]]>([
             [
                 'one server when Cyclotron shares it',
-                'postgres://posthog:posthog@localhost:5432/cyclotron',
-                ['postgres://posthog:posthog@localhost:5432/posthog'],
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron' },
+                [POSTHOG],
+            ],
+            [
+                'one server when Cyclotron spells the same server another way',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1/cyclotron' },
+                [POSTHOG],
             ],
             [
                 'both servers when a profile moves Cyclotron to another',
-                'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron',
-                [
-                    'postgres://posthog:posthog@localhost:5432/posthog',
-                    'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron',
-                ],
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron' },
+                [POSTHOG, 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron'],
             ],
-        ])('lists the Postgres servers the roles reach: %s', (_story, cyclotronUrl, servers) => {
-            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, {
-                CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
-            })
+            [
+                'both servers when a profile moves the read replica to another',
+                { DATABASE_READONLY_URL: 'postgres://posthog:posthog@replica.example.com:5432/posthog' },
+                [POSTHOG, 'postgres://posthog:posthog@replica.example.com:5432/posthog'],
+            ],
+        ])('lists the Postgres servers the roles reach: %s', (_story, settings, servers) => {
+            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
-            expect(postgresServersOf(spec, 'postgres://posthog:posthog@localhost:5432/posthog')).toEqual(servers)
+            expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
         })
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
