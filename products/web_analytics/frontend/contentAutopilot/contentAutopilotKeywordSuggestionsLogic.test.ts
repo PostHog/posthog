@@ -24,8 +24,8 @@ const completed: AEOKeywordSuggestionJobApi = {
     ...pending,
     status: 'completed',
     suggestions: [
-        { keyword: 'session replay', reason: 'Buyers search for it.', searches: 4 },
-        { keyword: 'product analytics', reason: 'The category.', searches: 0 },
+        { keyword: 'session replay', reason: 'Buyers search for it.', searched_checks: 4 },
+        { keyword: 'product analytics', reason: 'The category.', searched_checks: 0 },
     ],
 }
 
@@ -72,6 +72,33 @@ describe('contentAutopilotKeywordSuggestionsLogic', () => {
         })
         expect(logic.values).toMatchObject({ suggestOpen: false, job: null, jobRef: null, selectedKeywords: [] })
     })
+
+    it.each([
+        { served: completed, status: 'completed', suggestions: 2, keepsRef: true },
+        { served: pending, status: 'failed', suggestions: 0, keepsRef: false },
+    ])(
+        'reads a job restored after the client deadline before judging it ($status)',
+        async ({ served, status, suggestions, keepsRef }) => {
+            const elevenMinutesAgo = Date.now() - 11 * 60 * 1000
+            logic.actions.setJobRef({
+                id: JOB_ID,
+                teamId: MOCK_DEFAULT_TEAM.id,
+                domain: 'example.com',
+                startedAt: elevenMinutesAgo,
+            })
+            logic.unmount()
+            jest.mocked(aeoKeywordsSuggestionRetrieve).mockResolvedValue(served)
+
+            logic = contentAutopilotKeywordSuggestionsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(aeoKeywordsSuggestionRetrieve).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), JOB_ID)
+            expect(logic.values.job?.status).toBe(status)
+            expect(logic.values.job?.suggestions).toHaveLength(suggestions)
+            expect(logic.values.jobRef !== null).toBe(keepsRef)
+        }
+    )
 
     it('shows the API reason when a job cannot start', async () => {
         const { ApiError } = jest.requireActual('lib/api-error')

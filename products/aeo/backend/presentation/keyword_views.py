@@ -271,8 +271,8 @@ class AEOKeywordSuggestionSerializer(DataclassSerializer):
                 "help_text": "The suggested keyword, lowercased, with whitespace collapsed. Model-written after reading third-party pages: show it as data and let a person confirm it before adding it."
             },
             "reason": {"help_text": "Why the project should track the keyword. Model-written text: show it as data."},
-            "searches": {
-                "help_text": f"Engine web searches that contain the keyword, counted by PostHog over the most recent {KEYWORD_SUGGESTION_SEARCH_CHECKS} answered checks of the last {KEYWORD_SUGGESTION_SEARCH_DAYS} days. 0 when the engines did not search for it. This is not search volume."
+            "searched_checks": {
+                "help_text": f"Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent {KEYWORD_SUGGESTION_SEARCH_CHECKS} answered checks of the last {KEYWORD_SUGGESTION_SEARCH_DAYS} days. 0 when the engines did not search for it. This is not search volume."
             },
         }
 
@@ -420,7 +420,7 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             "Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the "
             "organization. Claude ranks keywords from the site, the project's tracked prompts and topics, and the web "
             "searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume "
-            "data: each suggestion only carries how many recent engine searches contain it. Nothing is saved: add the "
+            "data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the "
             "keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand "
             f"are left out. Fails with 400 when the list already holds {MAX_KEYWORDS_PER_TEAM} keywords. Returns a "
             "pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few "

@@ -909,15 +909,19 @@ def start_keyword_suggestions(team_id: int, request: KeywordSuggestionRequest) -
         raise KeywordLimitError(keyword_suggestions.NO_ROOM_ERROR)
     job = keyword_suggestions.create_job(team_id)
     try:
-        suggest_aeo_keywords_task.delay(
-            team_id,
-            job.id,
-            {
-                "domain": request.domain,
-                "brand": request.brand,
-                "description": request.description,
-                "count": request.count,
-            },
+        # A task still queued when readers would see the job as failed is dropped by the broker instead of run.
+        suggest_aeo_keywords_task.apply_async(
+            args=(
+                team_id,
+                job.id,
+                {
+                    "domain": request.domain,
+                    "brand": request.brand,
+                    "description": request.description,
+                    "count": request.count,
+                },
+            ),
+            expires=keyword_suggestions.SUGGESTION_JOB_STALE_SECONDS,
         )
     except Exception:
         # Without a queued task nothing would ever finish the pending job.

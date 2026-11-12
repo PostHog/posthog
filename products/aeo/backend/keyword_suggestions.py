@@ -2,7 +2,7 @@
 
 Claude ranks the keywords from the site, the tracked prompts and topics, and the web searches the engines ran
 while answering those prompts. PostHog has no search-volume data, so the only number on a suggestion is how many
-of those engine searches contain it, which PostHog counts itself.
+answers searched for it, which PostHog counts itself the way the keyword report does.
 
 Generation runs in a Celery task, and the result waits in the cache for the client to poll. Suggestions are never
 saved as keywords. A person reviews them and adds the ones they keep.
@@ -87,13 +87,13 @@ class KeywordContext:
     competitors: tuple[str, ...]
     prompts: tuple[str, ...]
     topics: tuple[str, ...]
-    # Lowercased, once per check that ran it, most recent checks first.
-    searches: tuple[str, ...]
+    # One tuple per answered check, most recent first, with that check's distinct searches lowercased.
+    searches: tuple[tuple[str, ...], ...]
     existing_keywords: frozenset[str]
 
     @property
     def top_searches(self) -> list[SearchCount]:
-        counts = Counter(self.searches)
+        counts = Counter(search for check in self.searches for search in check)
         return [
             SearchCount(search=search, checks=checks)
             for search, checks in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[
@@ -157,7 +157,7 @@ def build_keyword_instructions(request: KeywordSuggestionRequest, context: Keywo
         topics=", ".join(_plain(t, 100) for t in context.topics[:MAX_TOPICS_IN_INSTRUCTIONS]) or "none yet",
         prompts=_bullets([_plain(p, 300) for p in context.prompts[:MAX_PROMPTS_IN_INSTRUCTIONS]]),
         searches=_bullets([f"{_plain(s.search, 200)} ({s.checks})" for s in context.top_searches]),
-        existing=_bullets(sorted(context.existing_keywords)),
+        existing=_bullets([_plain(k, KEYWORD_MAX_LENGTH) for k in sorted(context.existing_keywords)]),
     )
 
 
@@ -166,7 +166,12 @@ def _names_a_term(keyword: str, terms: frozenset[str]) -> bool:
 
 
 def parse_keyword_suggestions(
-    text: str, *, count: int, existing_keywords: frozenset[str], excluded_terms: frozenset[str], searches: Sequence[str]
+    text: str,
+    *,
+    count: int,
+    existing_keywords: frozenset[str],
+    excluded_terms: frozenset[str],
+    searches: Sequence[Sequence[str]],
 ) -> list[KeywordSuggestion]:
     """Turn the model's answer into suggestions in the model's order, dropping malformed items, duplicates,
     keywords the list has, and keywords that name the brand. The model read third-party pages,
@@ -194,7 +199,8 @@ def parse_keyword_suggestions(
             KeywordSuggestion(
                 keyword=keyword,
                 reason=_plain(str(item.get("reason") or ""), REASON_MAX_LENGTH),
-                searches=sum(1 for search in searches if keyword in search),
+                # Counted per answer, as the keyword report counts `searched_checks`.
+                searched_checks=sum(1 for check in searches if any(keyword in search for search in check)),
             )
         )
     return suggestions
@@ -226,10 +232,11 @@ def read_context(team_id: int) -> KeywordContext:
         .order_by("-created_at")
         .values_list("search_queries", flat=True)[:KEYWORD_SUGGESTION_SEARCH_CHECKS]
     )
-    searches: list[str] = []
-    for queries in checks:
-        if isinstance(queries, list):
-            searches.extend(dict.fromkeys(" ".join(str(query).split()).lower() for query in queries if query))
+    searches = [
+        tuple(dict.fromkeys(" ".join(str(query).split()).lower() for query in queries if query))
+        for queries in checks
+        if isinstance(queries, list)
+    ]
     return KeywordContext(
         brand_names=brand_names(catalog.own_domains(team_id)),
         competitors=tuple(competitors),
@@ -303,7 +310,8 @@ def _save_job(team_id: int, job: KeywordSuggestionJob, *, started_at: float | No
             "status": job.status.value,
             "error": job.error,
             "suggestions": [
-                {"keyword": s.keyword, "reason": s.reason, "searches": s.searches} for s in job.suggestions
+                {"keyword": s.keyword, "reason": s.reason, "searched_checks": s.searched_checks}
+                for s in job.suggestions
             ],
         },
         timeout=SUGGESTION_JOB_TTL_SECONDS,
@@ -325,7 +333,7 @@ def load_job(team_id: int, job_id: str) -> KeywordSuggestionJob:
         status=SuggestionJobStatus(stored["status"]),
         error=stored["error"],
         suggestions=tuple(
-            KeywordSuggestion(keyword=item["keyword"], reason=item["reason"], searches=item["searches"])
+            KeywordSuggestion(keyword=item["keyword"], reason=item["reason"], searched_checks=item["searched_checks"])
             for item in stored["suggestions"]
         ),
     )
@@ -342,6 +350,12 @@ def fail_job(team_id: int, job_id: str, error: str) -> None:
 
 
 def run_job(team_id: int, job_id: str, request: KeywordSuggestionRequest) -> None:
+    # A task that waited in a backed-up queue may start after readers saw the job fail, so it must not pay for a call.
+    try:
+        if load_job(team_id, job_id).status != SuggestionJobStatus.PENDING:
+            return
+    except KeywordSuggestionJobNotFoundError:
+        return
     context = read_context(team_id)
     count = suggestion_count(request.count, len(context.existing_keywords))
     if count == 0:

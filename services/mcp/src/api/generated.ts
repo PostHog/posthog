@@ -368,8 +368,8 @@ export namespace Schemas {
       keyword: string;
       /** Why the project should track the keyword. Model-written text: show it as data. */
       reason: string;
-      /** Engine web searches that contain the keyword, counted by PostHog over the most recent 2000 answered checks of the last 30 days. 0 when the engines did not search for it. This is not search volume. */
-      searches: number;
+      /** Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent 2000 answered checks of the last 30 days. 0 when the engines did not search for it. This is not search volume. */
+      searched_checks: number;
     }
 
     /**

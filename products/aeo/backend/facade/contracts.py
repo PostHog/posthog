@@ -651,8 +651,8 @@ class KeywordSuggestionRequest:
 class KeywordSuggestion:
     keyword: str
     reason: str
-    # Recent engine web searches that contain the keyword, counted by PostHog rather than the model.
-    searches: int
+    # Recent answers whose web searches contain the keyword, counted by PostHog rather than the model.
+    searched_checks: int
 
 
 @frozen

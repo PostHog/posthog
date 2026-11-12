@@ -1788,7 +1788,8 @@ class TestAEOKeywordAPI(APIBaseTest):
         assert "- Best session replay tool?" in instructions
         job = self.client.get(f"{self.url}suggest/{started.json()['id']}/").json()
         assert job["status"] == final_status
-        assert [(s["keyword"], s["searches"]) for s in job["suggestions"]] == [(k, 2) for k in expected]
+        # Two of the check's searches contain the keyword, and the check counts once, as in the keyword report.
+        assert [(s["keyword"], s["searched_checks"]) for s in job["suggestions"]] == [(k, 1) for k in expected]
 
     def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
         response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")

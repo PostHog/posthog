@@ -22,27 +22,27 @@ const COMPLETED_JOB: AEOKeywordSuggestionJobApi = {
         {
             keyword: 'file sharing',
             reason: 'The engines search for it on most questions about sending files.',
-            searches: 14,
+            searched_checks: 14,
         },
         {
             keyword: 'large file transfer',
             reason: 'Agencies ask how to send big video files to clients.',
-            searches: 6,
+            searched_checks: 6,
         },
         {
             keyword: 'version history',
             reason: 'Buyers who need audit trails compare tools on it.',
-            searches: 3,
+            searched_checks: 3,
         },
         {
             keyword: 'client portal',
             reason: 'A common reason small teams switch tools.',
-            searches: 0,
+            searched_checks: 0,
         },
         {
             keyword: 'cloud storage pricing',
             reason: 'Price-sensitive buyers start here before they pick a plan.',
-            searches: 1,
+            searched_checks: 1,
         },
     ],
 }

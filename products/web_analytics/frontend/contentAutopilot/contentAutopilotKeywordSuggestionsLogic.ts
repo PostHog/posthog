@@ -24,7 +24,9 @@ import { SUGGESTION_POLL_INTERVAL_MS, siteDomain } from './contentAutopilotPromp
 export const KEYWORD_SUGGESTION_COUNTS = [10, 20, 30, 50]
 const MAX_POLL_FAILURES = 5
 // The server marks a lost job failed after 8 minutes; this is the fallback if that answer never arrives.
+// It applies only while polls still find the job pending, because a finished job stays readable for an hour.
 const CLIENT_JOB_DEADLINE_MS = 10 * 60 * 1000
+const STOPPED_JOB_ERROR = 'Keyword suggestions stopped before they finished. Try again.'
 
 export interface KeywordSuggestionJobRef {
     id: string
@@ -276,6 +278,10 @@ export const contentAutopilotKeywordSuggestionsLogic = kea<contentAutopilotKeywo
                 return
             }
             cache.disposables.dispose('keywordSuggestionPoll')
+            // A failed or expired job has nothing left to read, so it must not be polled again after a reload.
+            if (job.status === 'failed' && values.jobRef?.id === job.id) {
+                actions.setJobRef(null)
+            }
             if (job.status === 'completed' && values.selectedKeywords.length === 0) {
                 actions.setSelectedKeywords(job.suggestions.map(({ keyword }) => keyword))
             }
@@ -317,19 +323,14 @@ export const contentAutopilotKeywordSuggestionsLogic = kea<contentAutopilotKeywo
             if (!jobRef || !jobId || cache.pollInFlight) {
                 return
             }
-            if (Date.now() - jobRef.startedAt > CLIENT_JOB_DEADLINE_MS) {
-                actions.setJob({
-                    id: jobId,
-                    status: 'failed',
-                    suggestions: [],
-                    error: 'Keyword suggestions stopped before they finished. Try again.',
-                })
-                return
-            }
             cache.pollInFlight = true
             try {
-                const job = await aeoKeywordsSuggestionRetrieve(String(values.currentTeamIdStrict), jobId)
+                const fetched = await aeoKeywordsSuggestionRetrieve(String(values.currentTeamIdStrict), jobId)
                 cache.pollFailures = 0
+                const job: AEOKeywordSuggestionJobApi =
+                    fetched.status === 'pending' && Date.now() - jobRef.startedAt > CLIENT_JOB_DEADLINE_MS
+                        ? { ...fetched, status: 'failed', error: STOPPED_JOB_ERROR }
+                        : fetched
                 // A job the user replaced with a new request must not overwrite it.
                 if (
                     !cache.disposables.isDisposed &&

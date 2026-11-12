@@ -43,11 +43,9 @@ const SuggestionRow = ({ suggestion }: { suggestion: AEOKeywordSuggestionApi }):
             <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-1">
                     <span className="font-semibold break-words">{suggestion.keyword}</span>
-                    {suggestion.searches > 0 ? (
-                        <Tooltip title="How many of the AI engines' recent web searches contain this keyword.">
-                            <LemonTag type="highlight">
-                                {pluralize(suggestion.searches, 'engine search', 'engine searches')}
-                            </LemonTag>
+                    {suggestion.searched_checks > 0 ? (
+                        <Tooltip title="Recent answers where the engine searched the web for this keyword.">
+                            <LemonTag type="highlight">{`Searched in ${pluralize(suggestion.searched_checks, 'answer')}`}</LemonTag>
                         </Tooltip>
                     ) : null}
                 </div>

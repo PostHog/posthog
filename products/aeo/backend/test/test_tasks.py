@@ -120,3 +120,21 @@ def test_keyword_suggestion_task_fails_the_job_when_it_crashes(team: Team) -> No
 
     failed = keyword_suggestions.load_job(team.id, job.id)
     assert (failed.status, failed.error) == ("failed", keyword_suggestions.FAILED_ERROR)
+
+
+@pytest.mark.parametrize("job_state", ["failed", "missing"])
+def test_keyword_suggestion_task_skips_a_job_that_is_no_longer_pending(team: Team, job_state: str) -> None:
+    job_id = (
+        keyword_suggestions.create_job(team.id).id if job_state == "failed" else "00000000-0000-4000-8000-000000000000"
+    )
+    if job_state == "failed":
+        keyword_suggestions.fail_job(team.id, job_id, keyword_suggestions.STALE_JOB_ERROR)
+
+    with patch.object(keyword_suggestions, "resolve_ai_gateway_config") as gateway:
+        suggest_aeo_keywords_task(
+            team.id, job_id, {"domain": "example.com", "brand": "", "description": "", "count": 5}
+        )
+
+    gateway.assert_not_called()
+    if job_state == "failed":
+        assert keyword_suggestions.load_job(team.id, job_id).error == keyword_suggestions.STALE_JOB_ERROR
