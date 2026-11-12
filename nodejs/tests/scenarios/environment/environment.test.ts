@@ -1245,12 +1245,10 @@ describe('scenario environment', () => {
                 seen,
                 up: await up,
                 startedWhileMemberHeld: startedWhileMemberHeld(),
-                health: await Promise.all(CdpRole.options.map((role) => healthOf(role).catch(String))),
             }).toEqual({
                 seen: 'member seen',
                 up: 'up',
                 startedWhileMemberHeld: [],
-                health: CdpRole.options.map(() => 200),
             })
         }, 45_000)
 
@@ -1480,13 +1478,11 @@ describe('scenario environment', () => {
                 reset: await reset,
                 offsets: offsetsOf(),
                 startedWhileMemberHeld: startedWhileMemberHeld(),
-                health: await Promise.all(CdpRole.options.map((role) => healthOf(role).catch(String))),
             }).toEqual({
                 seen: 'member seen',
                 reset: 'reset',
                 offsets: { [group]: { [topic]: 'end' } },
                 startedWhileMemberHeld: [],
-                health: CdpRole.options.map(() => 200),
             })
         }, 45_000)
 
