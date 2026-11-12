@@ -14,7 +14,7 @@ from typing import Any, TypeVar, overload
 from uuid import UUID
 
 from django.db import IntegrityError, router, transaction
-from django.db.models import BooleanField, ExpressionWrapper, Prefetch, Q, QuerySet
+from django.db.models import BooleanField, ExpressionWrapper, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone
 
@@ -52,6 +52,7 @@ from .enums import (
     RoutingMode,
     RoutingOwnerOutcome,
     RoutingOwnerReason,
+    RoutingRunOrdering,
     RoutingScope,
     RoutingStatus,
 )
@@ -698,6 +699,17 @@ _ROUTING_RUN_COLUMNS = (
     "created_at",
 )
 
+_ROUTING_PULL_REQUEST_COLUMNS = (
+    "pr_number",
+    "title",
+    "author_login",
+    "pr_url",
+    "merged_at",
+    "additions",
+    "deletions",
+    "changed_files",
+)
+
 
 def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contracts.RoutingRunOwnerDTO:
     return contracts.RoutingRunOwnerDTO(
@@ -730,6 +742,15 @@ def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contrac
         team_id=row.team_id,
         repository=row.pull_request.repo_config.repository,
         pr_number=row.pull_request.pr_number,
+        pull_request=contracts.RoutingPullRequestDTO(
+            title=row.pull_request.title,
+            author=row.pull_request.author_login,
+            url=row.pull_request.pr_url,
+            merged_at=row.pull_request.merged_at,
+            additions=row.pull_request.additions,
+            deletions=row.pull_request.deletions,
+            changed_files=row.pull_request.changed_files,
+        ),
         head_sha=row.head_sha,
         mode=RoutingMode(row.mode),
         trigger=row.trigger,
@@ -754,7 +775,11 @@ def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
         RoutingRun.objects.for_team(team_id, canonical=True)
         .select_related("pull_request__repo_config")
         # The pull request row carries the routing record and the description, which the reads never use.
-        .only(*_ROUTING_RUN_COLUMNS, "pull_request__pr_number", "pull_request__repo_config__repository")
+        .only(
+            *_ROUTING_RUN_COLUMNS,
+            *(f"pull_request__{column}" for column in _ROUTING_PULL_REQUEST_COLUMNS),
+            "pull_request__repo_config__repository",
+        )
         .prefetch_related(Prefetch("owners", queryset=owners))
     )
 
@@ -770,15 +795,35 @@ def list_routing_runs(
     head_sha: str | None = None,
     created_after: datetime | None = None,
     created_before: datetime | None = None,
+    latest_per_pr: bool = False,
+    merged: bool | None = None,
+    merged_after: datetime | None = None,
+    merged_before: datetime | None = None,
+    ordering: RoutingRunOrdering = RoutingRunOrdering.NEWEST_RUN,
 ) -> LazyDTOList[contracts.RoutingRunDTO]:
-    """The team's reviewer routing runs, newest first, each with its decision for every owner but no file lists.
+    """The team's reviewer routing runs, each with its decision for every owner but no file lists.
 
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
     `outcome` and `reason` keep the runs where one owner row has them, the same row as `owner` when it is set.
+    `latest_per_pr` picks each pull request's newest run first, and every other filter then applies to that
+    run, so a pull request whose newest run fails a filter drops out rather than falling back to an older run.
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
     """
+    qs = _routing_runs(team_id, with_files=False)
     # Run ids are uuid7, so the id breaks a created_at tie in time order and a page boundary never splits a tie.
-    qs = _routing_runs(team_id, with_files=False).order_by("-created_at", "-id")
+    if ordering == RoutingRunOrdering.NEWEST_MERGE:
+        qs = qs.order_by(F("pull_request__merged_at").desc(nulls_last=True), "-created_at", "-id")
+    else:
+        qs = qs.order_by("-created_at", "-id")
+    if latest_per_pr:
+        # The subquery carries none of the other filters, so they judge the newest run instead of choosing it.
+        newest_run = (
+            RoutingRun.objects.for_team(team_id, canonical=True)
+            .filter(pull_request_id=OuterRef("pull_request_id"))
+            .order_by("-created_at", "-id")
+            .values("id")[:1]
+        )
+        qs = qs.filter(id=Subquery(newest_run))
     if repository:
         qs = qs.filter(pull_request__repo_config__repository=repository)
     if pr_number is not None:
@@ -789,6 +834,12 @@ def list_routing_runs(
         qs = qs.filter(created_at__gte=created_after)
     if created_before is not None:
         qs = qs.filter(created_at__lt=created_before)
+    if merged is not None:
+        qs = qs.filter(pull_request__merged_at__isnull=not merged)
+    if merged_after is not None:
+        qs = qs.filter(pull_request__merged_at__gte=merged_after)
+    if merged_before is not None:
+        qs = qs.filter(pull_request__merged_at__lt=merged_before)
     if owner or outcome or reason:
         # One subquery on the owners table, so a run that cut one owner and requested another never
         # matches `owner` plus `outcome` across two rows. The (team_id, owner) index answers `owner`.

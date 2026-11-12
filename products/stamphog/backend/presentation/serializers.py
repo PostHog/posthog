@@ -27,6 +27,7 @@ from ..facade.enums import (
     RoutingMode,
     RoutingOwnerOutcome,
     RoutingOwnerReason,
+    RoutingRunOrdering,
     RoutingScope,
     RoutingStatus,
 )
@@ -1049,6 +1050,55 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     created_before = serializers.DateTimeField(
         required=False, help_text="Keep only runs created before this time (ISO 8601)."
     )
+    latest_per_pr = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Keep only the newest run of each pull request. The newest run is picked over the pull request's whole "
+            "history first, and every other filter then applies to it: a pull request whose newest run fails a "
+            "filter drops out and is never replaced by an older run. With this flag, `count` counts pull requests."
+        ),
+    )
+    merged = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open "
+            "ones and ones closed without merging, because stamphog does not record a close. Omit for both."
+        ),
+    )
+    merged_after = serializers.DateTimeField(
+        required=False,
+        help_text="Keep only runs of pull requests merged at or after this time (ISO 8601). Implies merged.",
+    )
+    merged_before = serializers.DateTimeField(
+        required=False,
+        help_text="Keep only runs of pull requests merged before this time (ISO 8601). Implies merged.",
+    )
+    ordering = serializers.ChoiceField(
+        choices=RoutingRunOrdering.choices,
+        required=False,
+        help_text=(
+            "'-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, "
+            "then the newest run, with unmerged pull requests last."
+        ),
+    )
+
+
+@extend_schema_serializer(component_name="StamphogRoutingPullRequest")
+class RoutingPullRequestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = contracts.RoutingPullRequestDTO
+        extra_kwargs = {
+            "title": {"help_text": "The pull request title, as stamphog last saw it."},
+            "author": {"help_text": "The GitHub login of the pull request author."},
+            "url": {"help_text": "Link to the pull request on GitHub."},
+            "merged_at": {"help_text": "When the pull request merged. Null when it is not merged."},
+            "additions": {"help_text": "Added lines. 0 until the pull request merges."},
+            "deletions": {"help_text": "Deleted lines. 0 until the pull request merges."},
+            "changed_files": {"help_text": "Changed files. 0 until the pull request merges."},
+        }
 
 
 @extend_schema_serializer(component_name="StamphogRoutingPin")
@@ -1169,6 +1219,10 @@ class RoutingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Why the cut step made no model call. Null when it made one.",
     )
+    pull_request = RoutingPullRequestSerializer(
+        read_only=True,
+        help_text="The pull request the run routed, as stamphog last saw it rather than as it was at the run.",
+    )
 
     class Meta:
         dataclass = contracts.RoutingRunDTO
@@ -1176,6 +1230,7 @@ class RoutingRunSerializer(DataclassSerializer):
             "id",
             "repository",
             "pr_number",
+            "pull_request",
             "head_sha",
             "mode",
             "trigger",

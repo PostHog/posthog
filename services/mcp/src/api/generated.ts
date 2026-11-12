@@ -79042,6 +79042,26 @@ export namespace Schemas {
       results: StamphogRepoConfig[];
     }
 
+    export interface StamphogRoutingPullRequest {
+      /** The pull request title, as stamphog last saw it. */
+      title: string;
+      /** The GitHub login of the pull request author. */
+      author: string;
+      /** Link to the pull request on GitHub. */
+      url: string;
+      /**
+         * When the pull request merged. Null when it is not merged.
+         * @nullable
+         */
+      merged_at?: string | null;
+      /** Added lines. 0 until the pull request merges. */
+      additions?: number;
+      /** Deleted lines. 0 until the pull request merges. */
+      deletions?: number;
+      /** Changed files. 0 until the pull request merges. */
+      changed_files?: number;
+    }
+
     /**
      * * `requested` - Requested
      * * `labeled` - Labeled
@@ -79153,6 +79173,8 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
+      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      readonly pull_request: StamphogRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
       /** The repository's routing_mode when the run made its requests.
@@ -114217,6 +114239,8 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
+      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      readonly pull_request: StamphogRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
       /** The repository's routing_mode when the run made its requests.
@@ -140752,13 +140776,38 @@ export namespace Schemas {
      */
     head_sha?: string;
     /**
+     * Keep only the newest run of each pull request. The newest run is picked over the pull request's whole history first, and every other filter then applies to it: a pull request whose newest run fails a filter drops out and is never replaced by an older run. With this flag, `count` counts pull requests.
+     */
+    latest_per_pr?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
     /**
+     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because stamphog does not record a close. Omit for both.
+     * @nullable
+     */
+    merged?: boolean | null;
+    /**
+     * Keep only runs of pull requests merged at or after this time (ISO 8601). Implies merged.
+     */
+    merged_after?: string;
+    /**
+     * Keep only runs of pull requests merged before this time (ISO 8601). Implies merged.
+     */
+    merged_before?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * '-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, then the newest run, with unmerged pull requests last.
+     *
+     * * `-created_at` - Newest run first
+     * * `-merged_at` - Newest merge first
+     * @minLength 1
+     */
+    ordering?: StamphogRoutingRunsListOrdering;
     /**
      * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
      *
@@ -140800,6 +140849,14 @@ export namespace Schemas {
      */
     repository?: string;
     };
+
+    export type StamphogRoutingRunsListOrdering = typeof StamphogRoutingRunsListOrdering[keyof typeof StamphogRoutingRunsListOrdering];
+
+
+    export const StamphogRoutingRunsListOrdering = {
+      CreatedAt: '-created_at',
+      MergedAt: '-merged_at',
+    } as const;
 
     export type StamphogRoutingRunsListOutcome = typeof StamphogRoutingRunsListOutcome[keyof typeof StamphogRoutingRunsListOutcome];
 

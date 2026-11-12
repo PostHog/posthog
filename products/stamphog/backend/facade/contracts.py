@@ -210,6 +210,20 @@ class RoutingRunOwnerDTO:
 
 
 @dataclass(frozen=True)
+class RoutingPullRequestDTO:
+    """The pull request a routing run routed, as stamphog last saw it rather than as it was at the run."""
+
+    title: str
+    author: str
+    url: str
+    merged_at: datetime | None = None
+    # GitHub reports the size only in the merge event, so these stay 0 until the pull request merges.
+    additions: int = 0
+    deletions: int = 0
+    changed_files: int = 0
+
+
+@dataclass(frozen=True)
 class RoutingRunDTO:
     """One reviewer routing run that made its GitHub writes, with its decision for every owner."""
 
@@ -217,6 +231,7 @@ class RoutingRunDTO:
     team_id: int
     repository: str
     pr_number: int
+    pull_request: RoutingPullRequestDTO
     head_sha: str
     mode: RoutingMode
     trigger: str
