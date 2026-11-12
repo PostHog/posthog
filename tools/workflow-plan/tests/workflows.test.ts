@@ -593,6 +593,68 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        ['success', 'true', 'success', 0],
+        ['success', 'true', 'skipped', 1],
+        ['success', 'true', 'failure', 1],
+        ['success', 'true', 'cancelled', 1],
+        ['success', 'false', 'skipped', 0],
+        ['success', '', 'skipped', 1],
+        ['success', '', 'success', 1],
+        ['success', 'unknown', 'success', 1],
+        ['failure', 'false', 'skipped', 1],
+        ['cancelled', '', 'skipped', 1],
+        ['skipped', '', 'skipped', 0],
+    ])('OAuth proxy gate handles detector=%s output=%s build=%s', (detector, changed, build, exitCode) => {
+        const script = evaluateValue(
+            workflow('ci-oauth-proxy.yml').jobs.oauth_proxy_tests?.steps?.[0]?.run,
+            {
+                needs: {
+                    changes: { result: detector, outputs: { 'oauth-proxy': changed } },
+                    'build-and-test': { result: build },
+                },
+            },
+            planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        )
+        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+        expect(gate.error).toBeUndefined()
+        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+    })
+
+    it.each([
+        ['unrelated master push', push(), 'false', false],
+        ['changed master push', push(), 'true', true],
+        ['missing filter output', push(), '', true],
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['changed fork PR', pullRequest({ fork: true }), 'true', true],
+        ['unrelated merge queue', mergeQueue(), 'false', false],
+    ])('OAuth proxy build follows the input filter (%s)', (name, github, changed, runs) => {
+        const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { 'oauth-proxy': changed } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(true)
+        expect(plan.jobs['build-and-test']?.result).toBe(runs ? 'success' : 'skipped')
+        expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+    })
+
+    it.each(['', '0000000000000000000000000000000000000000'])(
+        'OAuth proxy runs the full build without a push base (%s)',
+        (before) => {
+            const github = push()
+            const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+                name: 'missing push base',
+                github: { ...github, event: { ...(github.event as object), before } },
+            })
+            expect(plan.errors).toEqual([])
+            expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(false)
+            expect(plan.jobs['build-and-test']?.result).toBe('success')
+            expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+        }
+    )
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', '2', 2, false],
         ['unrelated fork PR', pullRequest({ fork: true }), 'false', '2', 2, false],
         ['Markdown inputs changed', pullRequest(), 'true', '2', 2, true],

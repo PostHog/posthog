@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
+    AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordCreateRequestApi,
     AEOKeywordCreateResultApi,
@@ -76,6 +77,7 @@ import type {
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedAEOBrandUpdateRequestApi,
+    PatchedAEOEngineSettingUpdateRequestApi,
     PatchedAEOPromptUpdateRequestApi,
     PatchedContentAutopilotSiteProfileApi,
     PatchedHeatmapCaptureSettingsRequestApi,
@@ -208,6 +210,43 @@ export const aeoBrandsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
+
+export const getAeoEnginesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_engines/`
+}
+
+/**
+ * Lists every answer engine the product can run, in display order, with whether the project runs it and how often. The no-search engines answer from training data alone and start off.
+ * @summary List AEO answer engines
+ */
+export const aeoEnginesList = async (projectId: string, options?: RequestInit): Promise<AEOEngineSettingApi[]> => {
+    return apiMutator<AEOEngineSettingApi[]>(getAeoEnginesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoEnginesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_engines/${id}/`
+}
+
+/**
+ * Turns an answer engine on or off for the project, or sets how often it checks each prompt. The next daily run uses the change. Each check on an engine is a paid model call.
+ * @summary Update an AEO answer engine
+ */
+export const aeoEnginesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAEOEngineSettingUpdateRequestApi?: PatchedAEOEngineSettingUpdateRequestApi,
+    options?: RequestInit
+): Promise<AEOEngineSettingApi> => {
+    return apiMutator<AEOEngineSettingApi>(getAeoEnginesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAEOEngineSettingUpdateRequestApi),
     })
 }
 
@@ -556,7 +595,7 @@ export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsO
 }
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
  * @summary Get the AEO prompt set overview
  */
 export const aeoPromptsOverview = async (

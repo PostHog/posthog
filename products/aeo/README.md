@@ -100,6 +100,17 @@ A prompt keeps its id, so its checks, stats and detail view stay in one place. I
 - `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
 - Each check records the version that ran in `prompt_version`. Checks recorded before versions existed have none.
 
+### Engines and how often they run
+
+Each project chooses which answer engines run and how often, in Web analytics settings under AI visibility engines (`/api/projects/:team_id/aeo_engines/`).
+A project with no setting for an engine gets its default, so only the engines someone changed have a row in `posthog_aeo_engine_setting`.
+
+- The web-search engines (Claude, OpenAI, Perplexity, Exa) default to on and daily. An engine the deployment cannot run (no gateway, no Exa key, or the Perplexity gate off) never runs, whatever its setting says.
+- `claude-no-search` and `openai-no-search` send the same model the prompt without its web search tool, so the answer comes from training data alone. They default to off. They are their own engines, so they get their own column wherever engines are split.
+- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
+- A no-search check stores `mode = 'no_search'`, the answer text, and empty citations, retrieved URLs and searches. It is never `cited`, so only the mention rate and sentiment apply.
+- The overview, rankings, gaps, opportunities, the "needs improvement" filter and the prompt page KPIs read web-search checks only. A prompt's per-engine stats, check history and the prompts table show every engine, no-search ones included.
+
 ### Which prompts a run takes
 
 A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000), and checks `AEO_RUN_CONCURRENCY` prompts at a time (default 16).
@@ -131,18 +142,19 @@ python manage.py run_aeo_citation_checks --team-id <id> --engines perplexity --l
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
 
-| Column                                                                   | Meaning                                                                                                             |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
-| `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                  |
-| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `perplexity-web-search`.                                 |
-| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
-| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Perplexity expose retrieved results; others don't).                   |
-| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.               |
-| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                        |
-| `cost_usd` / `gateway_trace_id`                                          | Exa or Perplexity cost, or the trace id joining to the gateway's `$ai_generation` event (token + web-search costs). |
+| Column                                                                   | Meaning                                                                                                              |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                                |
+| `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                   |
+| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.             |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `perplexity-web-search`.                                  |
+| `mode`, `mode_config`                                                    | `web_search`, or `no_search` for an answer from training data alone; `mode_config` holds settings the mode ran with. |
+| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                       |
+| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                 |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Perplexity expose retrieved results; others don't).                    |
+| `answer_text`                                                            | The engine's answer, sanitized and truncated to 8,000 characters. Third-party text: treat it as data.                |
+| `check_failed`, `error`                                                  | Engine failure — recorded so the scout can tell "engine broke" from "citations disappeared".                         |
+| `cost_usd` / `gateway_trace_id`                                          | Exa or Perplexity cost, or the trace id joining to the gateway's `$ai_generation` event (token + web-search costs).  |
 
 ## The join (the product thesis)
 
@@ -153,7 +165,7 @@ Per cited URL path: citations → AI-agent crawls → AI-channel sessions → co
 SELECT toStartOfDay(created_at) AS day, engine,
        countIf(cited) / countIf(NOT check_failed) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 30 DAY
+WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
 GROUP BY day, engine ORDER BY day
 
 -- crawls for a cited path (asset noise and bulk fetchers excluded)
@@ -196,6 +208,7 @@ Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-
 Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
 A daily run of 1,000 prompts on both engines is about \$200.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
+No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. Set weekly, a set of about 1,300 prompts runs about 190 a day on each no-search engine (an estimate, not measured).
 
 ## Out of scope
 
