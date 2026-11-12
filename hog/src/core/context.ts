@@ -9,7 +9,7 @@ import {
     type CredentialOptions,
     type Credentials,
 } from '@/posthog/credentials'
-import { parseHost, type Host } from '@/posthog/host'
+import { parseHost, REGIONS, type Host } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
 import type { LoginQuery } from '@/posthog/login/choose'
@@ -96,18 +96,17 @@ export class Context {
         return this.loaded
     }
 
-    apiTools(options: { refresh?: boolean } = {}): Promise<ApiToolLibrary> {
-        if (options.refresh) {
-            this.tools = undefined
+    apiTools({ refresh = false }: { refresh?: boolean } = {}): Promise<ApiToolLibrary> {
+        if (refresh || !this.tools) {
+            this.tools = this.loadApiTools(refresh)
         }
-        this.tools ??= this.loadApiTools(options.refresh === true)
         return this.tools
     }
 
     catalog: ResolvedCatalog | undefined
 
     private async loadApiTools(refresh: boolean): Promise<ApiToolLibrary> {
-        const resolved = await resolveCatalog(this.runtime, { host: await this.apiHost(), refresh })
+        const resolved = await resolveCatalog(this.runtime, { host: (await this.apiHost()) ?? REGIONS.us, refresh })
         this.catalog = resolved
         const library = await this.runtime.loadApiTools(resolved.catalog ? { catalog: resolved.catalog } : {})
 
@@ -118,6 +117,14 @@ export class Context {
                     ? `${status.tools} tools from the ${resolved.origin === 'network' ? 'downloaded' : 'saved'} catalog`
                     : `the tools built into hog, because ${status.rejected ?? resolved.reason}`
             this.runtime.writeStderr(`[debug] api catalog: ${source}\n`)
+            if (resolved.retryAfter !== null) {
+                const when = new Date(resolved.retryAfter).toISOString()
+                this.runtime.writeStderr(
+                    resolved.downloadSkipped
+                        ? `[debug] api catalog: skipped the download until ${when}, because the last one failed\n`
+                        : `[debug] api catalog: the download failed, so hog tries again after ${when}\n`
+                )
+            }
             for (const dropped of status.dropped) {
                 const action = dropped.builtIn ? 'kept the built-in' : 'left out'
                 this.runtime.writeStderr(`[debug] api catalog: ${action} ${dropped.name}, because ${dropped.reason}\n`)
@@ -131,6 +138,13 @@ export class Context {
         const requested = await this.requestedCredentials?.catch(() => undefined)
         if (requested) {
             return requested.key.host
+        }
+        // A key in the environment or --dotenv-file carries its own host, and reading it needs no keychain.
+        const fromEnv = await this.credentialOptions()
+            .then((options) => resolveCredentials(this.runtime, { ...options, envOnly: true }))
+            .catch(() => undefined)
+        if (fromEnv) {
+            return fromEnv.key.host
         }
         const configHost = (await this.config().catch(() => undefined))?.config.host
         const raw = this.globals.host ?? configHost

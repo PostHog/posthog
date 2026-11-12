@@ -9,7 +9,6 @@ import type {
     ApiToolSummary,
 } from '@posthog/mcp/src/cli/library-types'
 
-import { CATALOG_URL } from '@/posthog/api-catalog'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 const tool = (
@@ -362,8 +361,18 @@ function catalog(names: string[], extra: Record<string, unknown> = {}): Record<s
     }
 }
 
+const US = 'https://us.posthog.com'
+const CATALOG_URL = `${US}/api/cli/catalog.json`
+
 function cached(names: string[], ageMs: number, extra: Record<string, unknown> = {}): Record<string, string> {
-    return { [CACHE]: JSON.stringify({ fetchedAt: NOW - ageMs, etag: '"v1"', catalog: catalog(names, extra) }) }
+    const entry = {
+        fetchedAt: NOW - ageMs,
+        etag: '"v1"',
+        catalog: catalog(names, extra),
+        retryAfter: null,
+        failure: null,
+    }
+    return { [CACHE]: JSON.stringify({ hosts: { [US]: entry } }) }
 }
 
 function catalogLibrary(dropped: ApiCatalogDroppedTool[] = []): {
@@ -393,7 +402,8 @@ function catalogLibrary(dropped: ApiCatalogDroppedTool[] = []): {
     }
 }
 
-const catalogRequests = (result: HogRun): number => result.requests.filter((r) => r.url === CATALOG_URL).length
+const catalogRequests = (result: HogRun, url = CATALOG_URL): number =>
+    result.requests.filter((r) => r.url === url).length
 
 describe('hog api tool catalog', () => {
     test('downloads the catalog once a day and runs the tools it describes', async () => {
@@ -451,6 +461,97 @@ describe('hog api tool catalog', () => {
         expect(library.received()).toEqual(expected === undefined ? undefined : expect.objectContaining(expected))
     })
 
+    test('waits an hour after a failed download before it tries again, and --debug says so', async () => {
+        const library = catalogLibrary()
+        const failed = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            respond: () => ({ status: 503, body: {} }),
+        })
+        const waiting = await runHog(['api', 'groups', '--debug'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: failed.files,
+            now: NOW + 30 * 60 * 1000,
+            respond: () => ({ status: 200, body: catalog(['flag-list']) }),
+        })
+        const retried = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: failed.files,
+            now: NOW + 61 * 60 * 1000,
+            respond: () => ({ status: 200, body: catalog(['flag-list']) }),
+        })
+
+        expect(catalogRequests(failed)).toBe(1)
+        expect(catalogRequests(waiting)).toBe(0)
+        expect(waiting.stderr).toContain(
+            '[debug] api catalog: the tools built into hog, because https://us.posthog.com answered 503'
+        )
+        expect(waiting.stderr).toContain(
+            '[debug] api catalog: skipped the download until 2026-01-01T01:00:00.000Z, because the last one failed'
+        )
+        expect(catalogRequests(retried)).toBe(1)
+        expect(library.received()).toMatchObject({ tools: [{ name: 'flag-list' }] })
+    })
+
+    const DOTENV = {
+        '/work/p.env': 'HOG_PERSONAL_API_KEY=phx_test\nHOG_PROJECT_ID=7\nHOG_HOST=https://eu.posthog.com\n',
+    }
+
+    test.each([
+        ['an EU host', [], { HOG_HOST: 'https://eu.posthog.com' }, {}, 'https://eu.posthog.com/api/cli/catalog.json'],
+        [
+            'a Cloud ingestion host',
+            [],
+            { HOG_HOST: 'https://eu.i.posthog.com' },
+            {},
+            'https://eu.posthog.com/api/cli/catalog.json',
+        ],
+        [
+            'a self-hosted host',
+            [],
+            { HOG_HOST: 'https://ph.example.com/posthog' },
+            {},
+            'https://ph.example.com/posthog/api/cli/catalog.json',
+        ],
+        ['a key in the environment', [], TEST_CREDENTIALS, {}, 'https://ph.example.com/api/cli/catalog.json'],
+        [
+            'a key in --dotenv-file',
+            ['--dotenv-file', '/work/p.env'],
+            {},
+            DOTENV,
+            'https://eu.posthog.com/api/cli/catalog.json',
+        ],
+    ])('downloads the catalog from the app of %s', async (_name, flags, env, files, url) => {
+        const library = catalogLibrary()
+        const result = await runHog([...flags, 'api', 'groups'], {
+            env: { CLAUDECODE: '1', ...env },
+            files,
+            apiTools: library.build,
+            respond: (requested) =>
+                requested === url ? { status: 200, body: catalog(['flag-list']) } : { status: 500, body: {} },
+        })
+
+        expect(catalogRequests(result, url)).toBe(1)
+        expect(library.received()).toMatchObject({ tools: [{ name: 'flag-list' }] })
+    })
+
+    test('a host that serves no catalog runs the built-in tools, and --debug says why', async () => {
+        const library = catalogLibrary()
+        const result = await runHog(['api', 'groups', '--debug'], {
+            env: { CLAUDECODE: '1', HOG_HOST: 'https://ph.example.com' },
+            apiTools: library.build,
+            respond: () => ({ status: 404, body: { detail: 'Not found' } }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(library.received()).toBeUndefined()
+        expect(result.stderr).toContain(
+            "[debug] api catalog: the tools built into hog, because https://ph.example.com doesn't serve a tool catalog"
+        )
+    })
+
     test.each([
         [
             'a catalog that needs a newer hog',
@@ -459,7 +560,6 @@ describe('hog api tool catalog', () => {
             1,
         ],
         ['HOG_API_CATALOG=bundled', { HOG_API_CATALOG: 'bundled' }, catalog(['flag-list']), 0],
-        ['a self-hosted host', { HOG_HOST: 'https://ph.example.com' }, catalog(['flag-list']), 0],
     ])('runs the built-in tools for %s', async (_name, env, served, downloads) => {
         const library = catalogLibrary()
         const result = await runHog(['api', 'groups'], {
@@ -569,7 +669,7 @@ describe('hog api tool catalog', () => {
 
             expect(result.exitCode).toBe(1)
             expect(result.error().code).toBe(code)
-            expect(result.files[CACHE]).toBe(files[CACHE])
+            expect(JSON.parse(result.files[CACHE] ?? '{}').hosts[US].catalog).toEqual(catalog(['flag-list']))
         })
     })
 })

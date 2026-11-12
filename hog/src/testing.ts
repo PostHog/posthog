@@ -25,6 +25,8 @@ export interface FakeRuntimeOptions {
     cwd?: string
     files?: Record<string, string>
     stdin?: string
+    // Milliseconds since the epoch when the run starts. Defaults to 2026-01-01.
+    now?: number
     // Read files from disk instead of `files`, for commands that scan real build output.
     useDisk?: boolean
     // Links from a path to the absolute path they point to, which `realPath` follows.
@@ -158,7 +160,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const opened: string[] = []
     const tls = { verify: true }
     const keychain = { ...options.keychain }
-    const clock = fakeClock(Date.UTC(2026, 0, 1))
+    const clock = fakeClock(options.now ?? Date.UTC(2026, 0, 1))
     const runtime: FakeRuntime = {
         env: options.env ?? {},
         platform: options.platform ?? 'linux',

@@ -6,12 +6,12 @@ import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { VERSION } from '@/version'
 
-import { type Host, regionOf } from './host'
+import { type Host, hostKey, hostUrl, INGESTION_HOSTS, REGION_IDS, REGIONS, sameHost } from './host'
 
-export const CATALOG_URL = 'https://mcp.posthog.com/cli/catalog.json'
-
+const CATALOG_PATH = 'api/cli/catalog.json'
 const CACHE_FILE = 'api-catalog.json'
 const DAY_MS = 24 * 60 * 60 * 1000
+const RETRY_AFTER_MS = 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 5000
 
 const CatalogEnvelopeSchema = z.object({
@@ -23,17 +23,29 @@ const CatalogEnvelopeSchema = z.object({
 
 type CatalogEnvelope = z.output<typeof CatalogEnvelopeSchema>
 
-const CacheSchema = z.object({
-    fetchedAt: z.number(),
+const HostCacheSchema = z.object({
+    fetchedAt: z.number().nullable(),
     etag: z.string().nullable(),
-    catalog: CatalogEnvelopeSchema,
+    catalog: CatalogEnvelopeSchema.nullable(),
+    retryAfter: z.number().nullable(),
+    failure: z.object({ reason: z.string(), notServed: z.boolean() }).nullable(),
 })
+
+type HostCache = z.output<typeof HostCacheSchema>
+
+const CacheSchema = z.object({ hosts: z.record(z.string(), HostCacheSchema) })
 
 type Cache = z.output<typeof CacheSchema>
 
+// Each PostHog serves the catalog of the code it runs, and a Cloud region serves it from its app host.
+export function catalogUrl(host: Host): string {
+    const region = REGION_IDS.find((id) => sameHost(INGESTION_HOSTS[id], host))
+    return hostUrl(region ? REGIONS[region] : host, CATALOG_PATH).toString()
+}
+
 export type CatalogOrigin = 'network' | 'cache' | 'bundled'
 
-export type BundledReason = 'pinned' | 'self_hosted' | 'needs_newer_hog' | 'no_folder' | 'unreachable'
+export type BundledReason = 'pinned' | 'needs_newer_hog' | 'no_folder' | 'unreachable' | 'not_served'
 
 export interface ResolvedCatalog {
     origin: CatalogOrigin
@@ -42,6 +54,9 @@ export interface ResolvedCatalog {
     reason: string | null
     reasonCode: BundledReason | null
     previous: CatalogEnvelope | undefined
+    // Set while hog waits to download again after a failed download.
+    retryAfter: number | null
+    downloadSkipped: boolean
 }
 
 function parseVersion(version: string): { core: number[]; pre: string[] } | undefined {
@@ -92,11 +107,11 @@ function incompatibility(catalog: CatalogEnvelope): string | null {
     return null
 }
 
-async function readCache(runtime: Runtime, path: string): Promise<Cache | undefined> {
+async function readCache(runtime: Runtime, path: string): Promise<Cache> {
     try {
-        return parseJsonOrUndefined(await runtime.readFile(path), CacheSchema)
+        return parseJsonOrUndefined(await runtime.readFile(path), CacheSchema) ?? { hosts: {} }
     } catch {
-        return undefined
+        return { hosts: {} }
     }
 }
 
@@ -111,11 +126,12 @@ async function writeCache(runtime: Runtime, path: string, cache: Cache): Promise
 type Download =
     | { kind: 'catalog'; catalog: CatalogEnvelope; etag: string | null }
     | { kind: 'unchanged' }
-    | { kind: 'failed'; reason: string }
+    | { kind: 'failed'; reason: string; notServed: boolean }
 
-async function download(runtime: Runtime, etag: string | null): Promise<Download> {
+async function download(runtime: Runtime, url: string, etag: string | null): Promise<Download> {
+    const origin = new URL(url).origin
     try {
-        const response = await runtime.fetch(CATALOG_URL, {
+        const response = await runtime.fetch(url, {
             headers: etag ? { 'If-None-Match': etag } : {},
             timeoutMs: FETCH_TIMEOUT_MS,
             skipRateLimit: true,
@@ -123,21 +139,24 @@ async function download(runtime: Runtime, etag: string | null): Promise<Download
         if (response.status === 304) {
             return { kind: 'unchanged' }
         }
+        if (response.status === 404) {
+            return { kind: 'failed', reason: `${origin} doesn't serve a tool catalog`, notServed: true }
+        }
         if (!response.ok) {
-            return { kind: 'failed', reason: `the MCP server answered ${response.status}` }
+            return { kind: 'failed', reason: `${origin} answered ${response.status}`, notServed: false }
         }
         const catalog = parseJsonOrUndefined(await response.text(), CatalogEnvelopeSchema)
         if (!catalog) {
-            return { kind: 'failed', reason: 'the MCP server sent a catalog hog could not read' }
+            return { kind: 'failed', reason: `${origin} sent a catalog hog can't read`, notServed: true }
         }
         return { kind: 'catalog', catalog, etag: response.headers.get('ETag') }
     } catch (error) {
-        return { kind: 'failed', reason: error instanceof Error ? error.message : String(error) }
+        return { kind: 'failed', reason: error instanceof Error ? error.message : String(error), notServed: false }
     }
 }
 
 export interface CatalogOptions {
-    host: Host | undefined
+    host: Host
     refresh?: boolean
 }
 
@@ -149,13 +168,12 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
         reason,
         reasonCode,
         previous,
+        retryAfter: null,
+        downloadSkipped: false,
     })
 
     if (runtime.env.HOG_API_CATALOG === 'bundled') {
         return bundled('pinned', 'HOG_API_CATALOG is set to bundled')
-    }
-    if (options.host !== undefined && regionOf(options.host) === undefined) {
-        return bundled('self_hosted', 'the tool catalog describes PostHog Cloud, and this host is self-hosted')
     }
 
     let path: string
@@ -165,38 +183,84 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
         return bundled('no_folder', 'hog has no folder to keep the catalog in')
     }
     const cache = await readCache(runtime, path)
-    const adopt = (origin: CatalogOrigin, catalog: CatalogEnvelope, fetchedAt: number): ResolvedCatalog => {
+    const key = hostKey(options.host)
+    const entry = cache.hosts[key]
+    const saved = entry?.catalog ?? undefined
+    const save = (next: HostCache): Promise<void> =>
+        writeCache(runtime, path, { hosts: { ...cache.hosts, [key]: next } })
+    const adopt = (origin: CatalogOrigin, catalog: CatalogEnvelope, fetchedAt: number | null): ResolvedCatalog => {
         const reason = incompatibility(catalog)
         return reason
-            ? { ...bundled('needs_newer_hog', reason, cache?.catalog), fetchedAt }
-            : { origin, catalog, fetchedAt, reason: null, reasonCode: null, previous: cache?.catalog }
+            ? { ...bundled('needs_newer_hog', reason, saved), fetchedAt }
+            : {
+                  origin,
+                  catalog,
+                  fetchedAt,
+                  reason: null,
+                  reasonCode: null,
+                  previous: saved,
+                  retryAfter: null,
+                  downloadSkipped: false,
+              }
+    }
+    const fallBack = (
+        failure: string,
+        notServed: boolean,
+        retryAfter: number,
+        downloadSkipped: boolean
+    ): ResolvedCatalog => ({
+        ...(saved
+            ? adopt('cache', saved, entry?.fetchedAt ?? null)
+            : bundled(notServed ? 'not_served' : 'unreachable', failure)),
+        retryAfter,
+        downloadSkipped,
+    })
+
+    if (!options.refresh && saved && entry?.fetchedAt != null && runtime.now() - entry.fetchedAt < DAY_MS) {
+        return adopt('cache', saved, entry.fetchedAt)
+    }
+    if (!options.refresh && entry?.retryAfter != null && runtime.now() < entry.retryAfter) {
+        return fallBack(
+            entry.failure?.reason ?? 'the last download failed',
+            entry.failure?.notServed ?? false,
+            entry.retryAfter,
+            true
+        )
     }
 
-    if (cache && !options.refresh && runtime.now() - cache.fetchedAt < DAY_MS) {
-        return adopt('cache', cache.catalog, cache.fetchedAt)
-    }
-
-    const result = await download(runtime, cache?.etag ?? null)
+    const result = await download(runtime, catalogUrl(options.host), saved ? (entry?.etag ?? null) : null)
     if (result.kind === 'catalog') {
         const fetchedAt = runtime.now()
-        await writeCache(runtime, path, { fetchedAt, etag: result.etag, catalog: result.catalog })
+        await save({ fetchedAt, etag: result.etag, catalog: result.catalog, retryAfter: null, failure: null })
         return adopt('network', result.catalog, fetchedAt)
     }
-    if (result.kind === 'unchanged' && cache) {
+    if (result.kind === 'unchanged' && entry && saved) {
         const fetchedAt = runtime.now()
-        await writeCache(runtime, path, { ...cache, fetchedAt })
-        return adopt('network', cache.catalog, fetchedAt)
+        await save({ ...entry, fetchedAt, retryAfter: null, failure: null })
+        return adopt('network', saved, fetchedAt)
+    }
+
+    const failure = result.kind === 'failed' ? result.reason : `${new URL(options.host).origin} sent no catalog`
+    const notServed = result.kind === 'failed' && result.notServed
+    const retryAfter = runtime.now() + RETRY_AFTER_MS
+    await save({
+        fetchedAt: entry?.fetchedAt ?? null,
+        etag: entry?.etag ?? null,
+        catalog: entry?.catalog ?? null,
+        retryAfter,
+        failure: { reason: failure, notServed },
+    })
+    if (options.refresh && notServed) {
+        return { ...bundled('not_served', failure, saved), retryAfter }
     }
     if (options.refresh) {
         throw new HogError(
             'catalog_unreachable',
-            `hog couldn't download the API tool catalog: ${result.kind === 'failed' ? result.reason : 'the MCP server sent no catalog'}.`,
-            cache
+            `hog couldn't download the API tool catalog: ${failure}.`,
+            saved
                 ? 'hog keeps using the catalog it has. Check your network connection, then run `hog api refresh` again.'
                 : 'hog keeps using the tools built into it. Check your network connection, then run `hog api refresh` again.'
         )
     }
-    return cache
-        ? adopt('cache', cache.catalog, cache.fetchedAt)
-        : bundled('unreachable', "the catalog couldn't be downloaded")
+    return fallBack(failure, notServed, retryAfter, false)
 }
