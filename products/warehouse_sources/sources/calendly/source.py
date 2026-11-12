@@ -89,7 +89,7 @@ class CalendlySource(
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Calendly personal access token to pull your Calendly data into the PostHog Data warehouse.
 
-You can create a personal access token in Calendly under **Integrations → API & Webhooks**. A personal access token requires a paid Calendly plan.""",
+Create a token in Calendly under **Profile → Developer → Personal access tokens**, or under **Integrations → API and webhooks** if your account has no Developer menu. Give the token read scopes for the data you want to sync. Tokens work on every Calendly plan, including Free. See [Calendly's guide](https://developer.calendly.com/docs/authentication/how-to-authenticate-with-personal-access-tokens) for the full steps.""",
             iconPath="/static/services/calendly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/calendly",
             fields=cast(
@@ -105,7 +105,7 @@ You can create a personal access token in Calendly under **Integrations → API 
                     ),
                 ],
             ),
-            webhookSetupCaption="""PostHog registers an organization-wide webhook subscription with your personal access token, using a generated signing key to verify every delivery. Webhooks need a Calendly Standard plan or higher, and an organization-wide subscription needs an admin or owner token.
+            webhookSetupCaption="""PostHog registers an organization-wide webhook subscription with your personal access token, using a generated signing key to verify every delivery. An organization-wide subscription needs a token from a Calendly admin or owner.
 
 **Manual setup** (only needed if automatic registration failed):
 
@@ -169,7 +169,7 @@ Paste the same signing key into the field below so PostHog can verify deliveries
             return (
                 False,
                 "Calendly rejected your personal access token. Create a new token under "
-                "Integrations → API & Webhooks, then reconnect.",
+                "Profile → Developer → Personal access tokens, then reconnect.",
             )
         # The probe reads `/users/me`, which every token may call, so a 403 is an account-wide
         # restriction rather than a table the token was not scoped for.

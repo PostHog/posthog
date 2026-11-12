@@ -455,7 +455,7 @@ def create_webhook(token: str, webhook_url: str, api_version: str = CALENDLY_API
             timeout=REQUEST_TIMEOUT,
         )
         if response.status_code not in (200, 201):
-            detail = "Webhooks need a Standard plan or higher, and organization-wide subscriptions need an admin or owner token."
+            detail = "Organization-wide subscriptions need a token from an admin or owner."
             return WebhookCreationResult(
                 success=False,
                 error=(

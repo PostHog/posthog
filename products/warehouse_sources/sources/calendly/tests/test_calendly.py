@@ -432,7 +432,7 @@ class TestCreateWebhook:
 
         assert result.success is False
         assert result.error is not None
-        assert "Standard plan" in result.error
+        assert "admin or owner" in result.error
         assert network.requests_log[2].path == "/webhook_subscriptions"
 
     def test_network_failure_is_reported_rather_than_raised(self) -> None:
