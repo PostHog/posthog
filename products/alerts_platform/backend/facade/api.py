@@ -746,8 +746,11 @@ def destination_hears_kind(
     )
 
 
-def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
-    """Deletes the named destinations of one alert. An id of another alert is left alone."""
+def delete_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
+) -> dict[UUID, str]:
+    """Deletes the named destinations of one alert, and returns the type of each one it deleted, by id.
+    An id of another alert is left alone."""
     return alert_destinations.delete_alert_destinations(
         team_id=team_id, configuration_id=configuration_id, destination_ids=destination_ids
     )

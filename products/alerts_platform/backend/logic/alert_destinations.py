@@ -119,16 +119,20 @@ def destination_types_by_configuration(
     return {configuration_id: tuple(found) for configuration_id, found in types.items()}
 
 
-def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
-    """Deletes the named destinations of one configuration, and returns how many it deleted.
+def delete_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
+) -> dict[UUID, str]:
+    """Deletes the named destinations of one configuration, and returns the type of each one it deleted, by id.
 
     An id of another configuration is left alone, so a caller cannot reach past the alert it checked access to.
+    The rows are locked before the delete, so of two concurrent deletes only the first returns a row.
     """
-    deleted, _ = (
-        AlertDestination.objects.for_team(team_id)
-        .filter(configuration_id=configuration_id, id__in=destination_ids)
-        .delete()
-    )
+    with transaction.atomic():
+        named = AlertDestination.objects.for_team(team_id).filter(
+            configuration_id=configuration_id, id__in=destination_ids
+        )
+        deleted = dict(named.select_for_update().values_list("id", "type"))
+        named.filter(id__in=deleted).delete()
     return deleted
 
 

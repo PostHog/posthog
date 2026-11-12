@@ -194,6 +194,6 @@ class TestAlertDestinations(BaseTest):
             team_id=self.team.id, configuration_id=self.configuration.id, destination_ids=[mine.id, theirs.id]
         )
 
-        assert deleted == 1
+        assert deleted == {mine.id: WEBHOOK["type"]}
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
         assert list_alert_destinations(team_id=self.team.id, configuration_id=other.id) == (theirs,)

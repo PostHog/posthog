@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from functools import cache, cached_property
@@ -57,7 +57,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertNotEditable,
     SourceConfigSpec,
     SourceKind,
-    StoredAlertDestination,
     UnknownPlatformAlertGroup,
 )
 from products.alerts_platform.backend.facade.enums import (
@@ -1166,7 +1165,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
-        self._log_destination_activity(configuration, "created", [created])
+        self._log_destination_activity(configuration, "created", {created.id: data["type"]})
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(
             lambda: self._track_destination(
@@ -1199,25 +1198,23 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer = PlatformAlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         destination_ids: list[UUID] = serializer.validated_data["destination_ids"]
-        removed = [
-            destination
-            for destination in platform_api.list_alert_destinations(
-                team_id=self._canonical_team_id(), configuration_id=configuration.id
-            )
-            if destination.id in destination_ids
-        ]
         # The resolve for an open incident goes to the destinations that remain when the firing ends,
         # so a removed incident manager would keep its incident open for good.
         if any(alert.state == PlatformAlertState.FIRING.value for alert in configuration.alerts) and any(
-            destination.enabled and destination.data["type"] == DestinationType.PAGERDUTY for destination in removed
+            destination.id in destination_ids
+            and destination.enabled
+            and destination.data["type"] == DestinationType.PAGERDUTY
+            for destination in platform_api.list_alert_destinations(
+                team_id=self._canonical_team_id(), configuration_id=configuration.id
+            )
         ):
             raise Conflict("This PagerDuty destination has an open incident. Remove it once the alert resolves.")
         deleted = platform_api.delete_alert_destinations(
             team_id=self._canonical_team_id(), configuration_id=configuration.id, destination_ids=destination_ids
         )
-        self._log_destination_activity(configuration, "deleted", removed)
+        self._log_destination_activity(configuration, "deleted", deleted)
         transaction.on_commit(
-            lambda: self._track_destination("deleted", configuration, {"count": deleted}), robust=True
+            lambda: self._track_destination("deleted", configuration, {"count": len(deleted)}), robust=True
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1225,13 +1222,16 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         self,
         configuration: PlatformAlertConfigurationView,
         action: Literal["created", "deleted"],
-        destinations: Sequence[StoredAlertDestination],
+        destination_types: Mapping[UUID, str],
     ) -> None:
         # The model's activity diff leaves destinations out, so their changes are logged here. The entry
         # names each destination by id and type only, because its data holds webhook URLs and routing keys.
-        if not destinations:
+        summaries = [
+            {"id": str(destination_id), "type": destination_type}
+            for destination_id, destination_type in destination_types.items()
+        ]
+        if not summaries:
             return
-        summaries = [{"id": str(destination.id), "type": destination.data["type"]} for destination in destinations]
         log_activity(
             organization_id=self.team.organization_id,
             team_id=self._canonical_team_id(),
