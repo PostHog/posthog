@@ -11,6 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
@@ -88,14 +89,23 @@ _TOO_EXPENSIVE_ERRORS = (
 )
 
 
-def _exposed_error(exc: Exception) -> str:
+class AutoresearchValidationErrorCode(LabeledStrEnum):
+    # The definition itself is wrong, so the same request fails the same way.
+    INVALID_DEFINITION = "invalid_definition", "Invalid definition"
+    # The definition reads more data than an interactive query may, so a retry fails the same way.
+    TOO_EXPENSIVE = "too_expensive", "Too expensive"
+    # Anything else, which a retry can fix.
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
+def _exposed_error(exc: Exception) -> tuple[AutoresearchValidationErrorCode, str]:
     # Exposed errors describe the caller's own definition, so anything else is our infrastructure and stays in the log.
     if isinstance(exc, ExposedHogQLError | ExposedCHQueryError):
-        return str(exc)
+        return AutoresearchValidationErrorCode.INVALID_DEFINITION, str(exc)
     # A definition that reads too much data is one the caller can narrow. Cluster memory pressure is transient.
     if isinstance(exc, _TOO_EXPENSIVE_ERRORS) and not isinstance(exc, ClickHouseClusterMemoryLimitExceeded):
-        return _TOO_EXPENSIVE_ERROR
-    return _GENERIC_ERROR
+        return AutoresearchValidationErrorCode.TOO_EXPENSIVE, _TOO_EXPENSIVE_ERROR
+    return AutoresearchValidationErrorCode.UNAVAILABLE, _GENERIC_ERROR
 
 
 @frozen
@@ -116,6 +126,7 @@ class ValidationResult:
     inference_population_size: Optional[int]
     warnings: list[ValidationWarning] = field(default_factory=list)
     error: Optional[str] = None
+    error_code: Optional[AutoresearchValidationErrorCode] = None
 
 
 def validate_pipeline_definition(
@@ -148,7 +159,10 @@ def validate_pipeline_definition(
             user=user,
         )
     except Exception as exc:
-        logger.exception("autoresearch_validation_error", team_id=team.pk, target_event=target_event)
+        error_code, error = _exposed_error(exc)
+        logger.exception(
+            "autoresearch_validation_error", team_id=team.pk, target_event=target_event, error_code=error_code
+        )
         return ValidationResult(
             can_proceed=False,
             requires_acknowledgement=False,
@@ -157,7 +171,8 @@ def validate_pipeline_definition(
             negative_count=None,
             base_rate=None,
             inference_population_size=None,
-            error=_exposed_error(exc),
+            error=error,
+            error_code=error_code,
         )
 
 
