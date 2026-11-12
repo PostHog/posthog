@@ -1096,9 +1096,19 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(tools).toContain('notebooks-list-frames')
         expect(tools).toContain('notebooks-configure-compute')
         expect(tools).not.toContain('notebooks-create')
-        expect(tools).not.toContain('notebooks-retrieve')
+        expect(tools).toContain('notebooks-retrieve')
 
         expect(tools).not.toContain('notebook-edit')
+    })
+
+    it.each([false, true])('keeps notebook documents readable with query access=%s', async (queryAccess) => {
+        const tools = await getToolsFromContext(
+            createMockContext(['notebook:read', ...(queryAccess ? ['query:read'] : [])])
+        )
+        const names = tools.map((tool) => tool.name)
+
+        expect(names).toContain('notebooks-retrieve')
+        expect(names.includes('notebooks-get')).toBe(queryAccess)
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {

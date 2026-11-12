@@ -213,6 +213,33 @@ tools:
         superseded_by:
             - notebooks-update-cell
             - notebooks-add-cell
+    notebooks-retrieve:
+        operation: notebooks_retrieve
+        enabled: true
+        scopes:
+            - notebook:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Get notebook document
+        description: >
+            Get a notebook's document by short_id: title, content (markdown or legacy ProseMirror JSON), version,
+            and creation/modification metadata. This document-only view requires notebook:read, without query:read.
+            Use notebooks-get for cell dependencies, run status, and kernel state; that view also requires query:read.
+            Find the short_id with notebooks-list when you only know the title. The version is required by
+            notebooks-partial-update for optimistic concurrency.
+        param_overrides:
+            short_id:
+                description: >
+                    The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that
+                    `notebooks-list` returns; not the notebook's UUID `id`.
+                aliases:
+                    - notebook_id
+                    - notebookId
+                    - shortId
+                    - notebook_short_id
     notebooks-run-cell-interrupt:
         operation: notebooks_sql_v2_runs_interrupt_create
         enabled: true

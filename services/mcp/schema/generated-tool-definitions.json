@@ -11579,6 +11579,21 @@
         "feature_flag_behavior": "disable",
         "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"]
     },
+    "notebooks-retrieve": {
+        "description": "Get a notebook's document by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. This document-only view requires notebook:read, without query:read. Use notebooks-get for cell dependencies, run status, and kernel state; that view also requires query:read. Find the short_id with notebooks-list when you only know the title. The version is required by notebooks-partial-update for optimistic concurrency.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook document",
+        "title": "Get notebook document",
+        "required_scopes": ["notebook:read"],
+        "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "notebooks-run-cell-interrupt": {
         "description": "Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.",
         "category": "Notebooks",
