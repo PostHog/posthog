@@ -329,12 +329,12 @@ tools:
             idempotent: false
         title: Run AI citation checks now
         description: >
-            Start a citation run for the project's active prompts not yet checked in the current run day, which starts at
-            07:00 UTC. It is the same run the daily schedule starts. Each prompt gets one web-search call per enabled
-            engine, which costs money, so run it only when the user asks for fresh results or has added prompts since the
-            last run. Returns `queued`, or `already_running` when a run is queued or in progress. A run takes minutes to
-            hours; read the results with `aeo-prompts-checks`. Each project can start a few runs a day; requests that
-            start nothing don't count.
+            Start a citation run for the project's active prompts not yet checked in the current run day, which starts
+            at 07:00 UTC. It is the same run the daily schedule starts. Each prompt gets one web-search call per enabled
+            engine, which costs money, so run it only when the user asks for fresh results or has added prompts since
+            the last run. Returns `queued`, or `already_running` when a run is queued or in progress. A run takes
+            minutes to hours; read the results with `aeo-prompts-checks`. Each project can start a few runs a day;
+            requests that start nothing don't count.
         feature_flag: aeo-citation-tracking
     aeo-prompts-score-sentiment:
         operation: aeo_prompts_score_sentiment
