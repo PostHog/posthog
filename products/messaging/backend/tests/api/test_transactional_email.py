@@ -2,11 +2,13 @@ import re
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, _Call, call, patch
 
@@ -39,6 +41,7 @@ from products.messaging.backend.models.transactional_email_key import Transactio
 from products.messaging.backend.presentation.views.message_templates import CODE_SEND_FIELDS
 from products.messaging.backend.presentation.views.transactional_email_access import (
     EMAIL_FROM_CODE_FLAG,
+    EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
@@ -276,7 +279,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert {stage: stages_after[stage] - stages_before[stage] for stage in stages_after} == dict.fromkeys(
             stages_after, 1
         )
-        assert response.json() == {"message_id": "invocation-1", "replayed": False}
+        assert response.json() == {
+            "message_id": "invocation-1",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": False,
+        }
         assert capture.call_args.kwargs["properties"]["route"] == route.removesuffix("_nested")
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
@@ -310,7 +318,12 @@ class TestTransactionalEmail(APIBaseTest):
         response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset:user-1:42"})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert response.json() == {
+            "message_id": "first-send",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": True,
+        }
         assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "reset:user-1:42"
         assert capture.call_args.kwargs["properties"]["outcome"] == "replayed"
         assert capture.call_args.kwargs["properties"]["has_idempotency_key"] is True
@@ -659,7 +672,12 @@ class TestTransactionalEmail(APIBaseTest):
         second = psak.post(self.send_email_url, self._code_send(template_key=key, subject="Again"), format="json")
 
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
-        assert first.json() == {"message_id": "invocation-1", "replayed": False}
+        assert first.json() == {
+            "message_id": "invocation-1",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": False,
+        }
         assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
         first_url, second_url = (call.args[0] for call in mock_post.call_args_list)
         assert first_url == second_url
@@ -866,6 +884,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
                 None,
             ),
+            ("scheduled_at_without_an_offset", {"scheduled_at": "2026-11-20T09:00:00"}, "scheduled_at"),
             ("field_this_server_lacks", {"tags": ["welcome"]}, "tags"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "tags": ["welcome"]}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -926,13 +945,14 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("template_route", "template"),
-            ("template_id", "send_email"),
-            ("nested_template_id", "send_email_nested"),
-            ("template_key", "code"),
+            ("the_template_route", "template", set()),
+            ("template_id_while_scheduled_sends_are_off", "send_email", {EMAIL_SCHEDULED_SENDS_FLAG}),
+            ("nested_template_id_while_scheduled_sends_are_off", "send_email_nested", {EMAIL_SCHEDULED_SENDS_FLAG}),
+            ("template_key_while_scheduled_sends_are_off", "code", {EMAIL_SCHEDULED_SENDS_FLAG}),
         ]
     )
-    def test_every_send_surface_refuses_scheduled_at(self, mock_post, _flag, _capture, _name, route):
+    def test_refuses_scheduled_at_where_it_cannot_schedule(self, mock_post, flag, _capture, _name, route, flags_off):
+        flag.side_effect = lambda key, *_args, **_kwargs: key not in flags_off
         psak = self._psak_client(["hog_flow:write"])
         scheduled_at = {"scheduled_at": "2026-11-20T09:00:00Z"}
 
@@ -948,6 +968,68 @@ class TestTransactionalEmail(APIBaseTest):
             "attr": "scheduled_at",
         }
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "template_id_in_another_offset",
+                "send_email",
+                "2026-11-13T09:00:00+02:00",
+                (202, {"invocation_id": "i-1", "status": "scheduled", "scheduled_at": "2026-11-13T07:00:00.000Z"}),
+                {"status": "scheduled", "scheduled_at": "2026-11-13T07:00:00Z"},
+                "1h_to_24h",
+            ),
+            (
+                "template_key",
+                "code",
+                "2026-11-20T09:00:00Z",
+                (202, {"invocation_id": "i-1", "status": "scheduled", "scheduled_at": "2026-11-20T09:00:00.000Z"}),
+                {"status": "scheduled", "scheduled_at": "2026-11-20T09:00:00Z"},
+                "7d_to_30d",
+            ),
+            # The CDP service owns the time rules, so a time that passed goes out now.
+            (
+                "a_time_that_passed",
+                "send_email",
+                "2026-11-12T11:00:00Z",
+                (202, {"invocation_id": "i-1", "status": "queued", "scheduled_at": None}),
+                {"status": "queued", "scheduled_at": None},
+                "now",
+            ),
+            (
+                "more_than_30_days_ahead",
+                "code",
+                "2026-12-31T09:00:00Z",
+                (400, {"error": "invalid_scheduled_at", "reason": "too_far"}),
+                {
+                    "code": "invalid_scheduled_at",
+                    "attr": "scheduled_at",
+                    "why": "scheduled_at is more than 30 days after the email was created.",
+                },
+                "over_30d",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-11-12T12:00:00Z", tick=False)
+    def test_schedules_a_send_for_the_time_it_names(
+        self, mock_post, _flag, capture, _name, route, scheduled_at, cdp_answer, expected, lead_time_bucket
+    ):
+        cdp_status, cdp_body = cdp_answer
+        mock_post.return_value = MagicMock(status_code=cdp_status, json=lambda: cdp_body)
+        psak = self._psak_client(["transactional_email:write"])
+
+        if route == "code":
+            response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
+            posted = json.loads(mock_post.call_args.kwargs["data"])
+        else:
+            response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
+            posted = mock_post.call_args.kwargs["json"]
+
+        assert response.status_code == cdp_status, response.json()
+        assert {key: response.json()[key] for key in expected} == expected
+        assert posted["scheduled_at"] == datetime.fromisoformat(scheduled_at).astimezone(UTC).isoformat()
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["scheduled"], reported["lead_time_bucket"]) == (lead_time_bucket != "now", lead_time_bucket)
 
     @parameterized.expand(
         [
@@ -1111,7 +1193,12 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == 202, response.json()
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
-        assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert response.json() == {
+            "message_id": "first-send",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": True,
+        }
 
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)

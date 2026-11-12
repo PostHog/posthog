@@ -326,6 +326,9 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.reply_to !== undefined) {
             body['reply_to'] = params.reply_to
         }
+        if (params.scheduled_at !== undefined) {
+            body['scheduled_at'] = params.scheduled_at
+        }
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }

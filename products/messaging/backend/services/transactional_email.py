@@ -6,12 +6,13 @@ import json
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from django.db import connection, transaction
+from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
@@ -42,6 +43,7 @@ from products.messaging.backend.facade.contracts import (
     InvalidIdempotencyKey,
     InvalidRecipient,
     InvalidRequest,
+    InvalidScheduledAt,
     MarketingTemplate,
     MessageTooLarge,
     NamedSenderNotVerified,
@@ -182,6 +184,10 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         RecipientUnreachable,
         "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
         "so the email would bounce. Check the address for a typo.",
+    ),
+    "invalid_scheduled_at": (
+        InvalidScheduledAt,
+        "PostHog sends an email at most 30 days after the request, so it didn't send the email.",
     ),
     "not_sendable": (TransactionalEmailPaused, "This email's workflow isn't active. Turn it back on to send."),
     "invalid_request": (
@@ -549,6 +555,7 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    scheduled_at: datetime | None = None,
     timeout: float = 10,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
@@ -559,7 +566,7 @@ def send_transactional_email(
             hog_flow_id = _transactional_workflow_id(team.id, model)
         else:
             hog_flow_id = _transactional_workflow_id(team.id, template)
-    payload = _send_payload(to, distinct_id, message_data, idempotency_key)
+    payload = _send_payload(to, distinct_id, message_data, idempotency_key, scheduled_at)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
 
@@ -570,12 +577,13 @@ def send_code_email(
     to: str,
     distinct_id: str | None,
     idempotency_key: str | None = None,
+    scheduled_at: datetime | None = None,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send = _accepted_send(team.id, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
-    payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
+    payload = {**_send_payload(to, distinct_id, {}, idempotency_key, scheduled_at), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
@@ -592,7 +600,11 @@ def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str,
 
 
 def _send_payload(
-    to: str, distinct_id: str | None, message_data: dict[str, Any], idempotency_key: str | None
+    to: str,
+    distinct_id: str | None,
+    message_data: dict[str, Any],
+    idempotency_key: str | None,
+    scheduled_at: datetime | None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "to": to,
@@ -603,6 +615,9 @@ def _send_payload(
     if idempotency_key is not None:
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
+    if scheduled_at is not None:
+        # The CDP service fingerprints the time for the Idempotency-Key, so one instant always sends as one string.
+        payload["scheduled_at"] = scheduled_at.astimezone(UTC).isoformat()
     return payload
 
 
@@ -721,7 +736,16 @@ def _queue(
         message_id=str(answer["invocation_id"]),
         replayed=bool(answer.get("replayed", False)),
         attachment_bytes=_attachment_bytes(answer),
+        scheduled_at=_scheduled_at(answer),
     )
+
+
+def _scheduled_at(answer: dict[str, Any]) -> datetime | None:
+    value = answer.get("scheduled_at")
+    try:
+        return parse_datetime(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
 
 
 def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:

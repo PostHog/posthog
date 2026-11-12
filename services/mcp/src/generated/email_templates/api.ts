@@ -68,6 +68,12 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
+    scheduled_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out to send now.'
+        ),
     capture_engagement: zod
         .boolean()
         .optional()

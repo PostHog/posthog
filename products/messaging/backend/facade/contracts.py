@@ -200,6 +200,13 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+class InvalidScheduledAt(TransactionalEmailError):
+    code = "invalid_scheduled_at"
+    attr = "scheduled_at"
+    why = "scheduled_at is more than 30 days after the email was created."
+    fix = "Pick a time within 30 days. To send later than that, send the email again closer to the time."
+
+
 @frozen
 class CodeEmail:
     key: str
@@ -218,6 +225,11 @@ class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
 
+class QueuedEmailStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    SCHEDULED = "scheduled", "Scheduled"
+
+
 @frozen
 class QueuedEmail:
     message_id: str
@@ -225,6 +237,12 @@ class QueuedEmail:
     replayed: bool = False
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    # When the CDP service holds the email until. None when it goes out now, also for a time that already passed.
+    scheduled_at: datetime | None = None
+
+    @property
+    def status(self) -> QueuedEmailStatus:
+        return QueuedEmailStatus.SCHEDULED if self.scheduled_at else QueuedEmailStatus.QUEUED
 
 
 class SupabaseEmailActionType(LabeledStrEnum):

@@ -1,6 +1,7 @@
 from typing import Any
 
 import posthoganalytics
+from rest_framework import serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.throttling import BaseThrottle
 
@@ -10,6 +11,7 @@ from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, Projec
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 
 # LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
 TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
@@ -31,6 +33,17 @@ def require_email_from_code(team: Any) -> None:
 def require_email_status_read(team: Any) -> None:
     if not (_flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG) or email_from_code_enabled(team)):
         raise NotFound()
+
+
+def require_scheduled_sends(team: Any) -> None:
+    # A field error, not a 404: the route works, and the same email goes out once it leaves out `scheduled_at`.
+    if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
+        raise serializers.ValidationError(
+            {
+                "scheduled_at": "Scheduled sends aren't on for this project, so PostHog didn't send the email. Leave "
+                "out `scheduled_at` to send it now."
+            }
+        )
 
 
 def email_from_code_enabled(team: Any) -> bool:
