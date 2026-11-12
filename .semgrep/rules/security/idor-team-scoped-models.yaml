@@ -292,6 +292,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSigningSecret
                               |LogsView
                               |Loop
                               |LoopFire
@@ -1273,6 +1274,7 @@ rules:
                         |LogsAlertConfiguration
                         |LogsExclusionRule
                         |LogsRetentionRule
+                        |LogsSigningSecret
                         |LogsView
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot
