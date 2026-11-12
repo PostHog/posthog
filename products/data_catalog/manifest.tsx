@@ -56,6 +56,7 @@ export const manifest: ProductManifest = {
             path: 'Data catalog',
             intents: [ProductKey.DATA_CATALOG],
             category: ProductItemCategory.DATA,
+            type: 'data_catalog',
             iconType: 'data_catalog',
             iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
             href: urls.dataCatalog(),

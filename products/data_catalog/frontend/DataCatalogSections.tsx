@@ -27,11 +27,11 @@ import { QuillModelsLineageTab } from 'products/data_modeling/frontend/lineage/Q
 
 import { CatalogOverview } from './CatalogOverview'
 import { CatalogUsageSection } from './CatalogUsageSection'
+import { dataCatalogAttentionLogic } from './dataCatalogAttentionLogic'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
 import { CatalogMetricsSection } from './metrics/CatalogMetricsSection'
 import { CatalogRelationshipsSection } from './relationships/CatalogRelationshipsSection'
-import { relationshipsLogic } from './relationshipsLogic'
 import { CatalogTablesSection } from './tables/CatalogTablesSection'
 import { WarehouseAccessGate } from './WarehouseAccessGate'
 
@@ -56,6 +56,8 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
 
 const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage']
 
+const FAILURE_SECTIONS: DataCatalogTab[] = ['overview', 'data-quality']
+
 const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
     tables: CatalogTablesSection,
@@ -64,6 +66,13 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     relationships: CatalogRelationshipsSection,
     'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
+}
+
+function SectionCount({ tab, count }: { tab: DataCatalogTab; count: number | undefined }): JSX.Element | null {
+    if (!count) {
+        return null
+    }
+    return <Badge variant={FAILURE_SECTIONS.includes(tab) ? 'destructive' : 'default'}>{count}</Badge>
 }
 
 function SceneActions(): JSX.Element {
@@ -95,7 +104,7 @@ function SceneActions(): JSX.Element {
 
 export function DataCatalogSections(): JSX.Element {
     const { activeTab, availableTabs, defaultTab, lineageVisited } = useValues(dataCatalogSceneLogic)
-    const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
+    const { tabCounts } = useValues(dataCatalogAttentionLogic)
     const moreSections = availableTabs.filter((tab) => !VISIBLE_SECTIONS.includes(tab))
     const inactiveMoreSections = moreSections.filter((tab) => tab !== activeTab)
     const lastInactiveMoreIndex = moreSections.findLastIndex((tab) => tab !== activeTab)
@@ -118,6 +127,7 @@ export function DataCatalogSections(): JSX.Element {
                         {VISIBLE_SECTIONS.map((tab) => (
                             <TabsTrigger key={tab} value={tab} data-attr={`data-catalog-section-${tab}`}>
                                 {SECTION_LABELS[tab]}
+                                <SectionCount tab={tab} count={tabCounts[tab]} />
                             </TabsTrigger>
                         ))}
                         {moreSections.map((tab, index) => (
@@ -128,7 +138,7 @@ export function DataCatalogSections(): JSX.Element {
                                 data-attr={`data-catalog-section-${tab}`}
                             >
                                 {SECTION_LABELS[tab]}
-                                {tab === 'relationships' && proposedJoins > 0 && <Badge>{proposedJoins}</Badge>}
+                                <SectionCount tab={tab} count={tabCounts[tab]} />
                             </TabsTrigger>
                         ))}
                     </TabsList>
@@ -155,7 +165,7 @@ export function DataCatalogSections(): JSX.Element {
                                         data-attr={`data-catalog-section-${tab}`}
                                     >
                                         {SECTION_LABELS[tab]}
-                                        {tab === 'relationships' && proposedJoins > 0 && <Badge>{proposedJoins}</Badge>}
+                                        <SectionCount tab={tab} count={tabCounts[tab]} />
                                     </DropdownMenuItem>
                                 ))}
                             </DropdownMenuContent>
