@@ -19,7 +19,6 @@ defs = dagster.Definitions(
         geoip_backfill.geoip_backfill_staging_job,
         geoip_backfill.cleanup_geoip_backfill_staging,
         geoip_backfill_resend.geoip_backfill_resend_job,
-        geoip_backfill_resend.cleanup_geoip_backfill_resend,
         geoip_backfill_verify.geoip_backfill_verify_job,
     ],
     schedules=[

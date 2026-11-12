@@ -10,18 +10,16 @@ query without FINAL counts the event twice. The MVs on `sharded_events` fire on 
 - `events_recent` sorts on `inserted_at`, so its copy of the staged row never collapses with the
   original. That table keeps both until its TTL drops them.
 
-`events_json` reads Kafka, not `sharded_events`, so this job does not repair it.
+`events_json` and `sharded_ai_events` read Kafka, not `sharded_events`, so this job does not repair them.
+`sharded_ai_events` is a plain MergeTree, where only a mutation could replace a row. Its rows drop
+after the team's AI events retention, 30 days by default.
 """
 
 import time
 import uuid
-from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime, timedelta
-from functools import partial
 from typing import Any
-
-from django.conf import settings
 
 import dagster
 import pydantic
@@ -29,41 +27,21 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole, Workload
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
-from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.dags.common import dagster_tags
-from posthog.dags.common.dictionaries import Dictionary
-from posthog.dags.common.staged_dictionary import (
-    StagedDictionary,
-    create_on_every_cluster,
-    load_and_verify_on_every_cluster,
-)
 from posthog.dags.flag_evaluations_backfill import (
     BlockingRunCheck,
     blocking_runs_started_since,
     shard_workload,
     wait_for_blocking_runs,
 )
-from posthog.dags.geoip_backfill import (
-    OWNER_TAG,
-    EventColumn,
-    GeoipStagingTable,
-    on_shard_host,
-    staged_team_ids,
-    tagged,
-)
+from posthog.dags.geoip_backfill import OWNER_TAG, EventColumn, GeoipStagingTable, on_shard_host, staged_team_ids
 from posthog.dataclasses import frozen
-from posthog.models.ai_events.sql import (
-    DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE,
-    _strip_heavy_properties_sql,
-)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.raw_sessions.sessions_v3 import GET_NUM_RAW_SESSIONS_ACTIVE_PARTS
 
 GIB = 1024**3
-
-_AI_EVENT_FILTER = "startsWith(event, '$ai_')"
 
 
 class GeoipResendConfig(dagster.Config):
@@ -73,9 +51,6 @@ class GeoipResendConfig(dagster.Config):
     )
     dry_run: bool = pydantic.Field(
         default=True, description="Count the rows each team chunk would write, and write nothing."
-    )
-    include_ai_events: bool = pydantic.Field(
-        default=False, description="Also rewrite the properties of the staged AI events in sharded_ai_events."
     )
     team_chunk_size: int = pydantic.Field(default=50, ge=1, description="Teams per insert.")
     max_unmerged_parts: int = pydantic.Field(
@@ -315,206 +290,11 @@ def resend_shard(
     return totals.written
 
 
-@frozen
-class AiEventsPatchTable:
-    """The new and original properties of the staged AI events, on every host of the AI events cluster.
-
-    The AI events table shards on the trace, not the distinct ID, so its rows sit on other shards than
-    their events copies. The patch rows therefore go to one replicated table that every host reads.
-    """
-
-    id: uuid.UUID
-
-    @property
-    def name(self) -> str:
-        # Matches the "tmp_*" glob in posthog/clickhouse/hcl/exclude.hcl.
-        return f"tmp_geoip_backfill_ai_{self.id.hex}"
-
-    @property
-    def qualified_name(self) -> str:
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
-
-    def create(self, client: Client) -> None:
-        engine = ReplacingMergeTree(self.name, ver="version", replication_scheme=ReplicationScheme.REPLICATED)
-        client.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {self.qualified_name} (
-                team_id Int64,
-                uuid UUID,
-                properties String,
-                original_properties String,
-                version UInt64
-            )
-            ENGINE = {engine}
-            ORDER BY (team_id, uuid)
-            """
-        )
-
-    def insert(self, rows: Sequence[tuple[Any, ...]], client: Client) -> None:
-        client.execute(
-            f"INSERT INTO {self.qualified_name} (team_id, uuid, properties, original_properties, version) VALUES",
-            [(*row, 0) for row in rows],
-        )
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
-
-    def sync(self, client: Client) -> None:
-        client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
-
-
-@frozen
-class AiEventsPatchDictionary(Dictionary):
-    source: AiEventsPatchTable
-
-    @property
-    def name(self) -> str:
-        return f"{self.source.name}_dictionary"
-
-    @property
-    def schema(self) -> str:
-        return "team_id Int64, uuid UUID, properties String, original_properties String"
-
-    @property
-    def primary_key(self) -> str:
-        return "team_id, uuid"
-
-    @property
-    def query(self) -> str:
-        return f"SELECT team_id, uuid, properties, original_properties FROM {self.source.qualified_name} FINAL"
-
-    def staged(self) -> StagedDictionary:
-        return StagedDictionary(
-            key=f"{self.name}.parquet",
-            columns="team_id, uuid, properties, original_properties",
-            structure=self.schema,
-        )
-
-    def update_command(self) -> str:
-        # Only a row that still holds the properties its events copy had at staging changes, so a re-run
-        # changes nothing and a row that a deletion request rewrote since keeps that rewrite.
-        return (
-            "UPDATE properties = dictGetString(%(name)s, 'properties', (team_id, uuid)) "
-            "WHERE team_id IN %(team_ids)s AND dictHas(%(name)s, (team_id, uuid)) "
-            "AND properties = dictGetString(%(name)s, 'original_properties', (team_id, uuid))"
-        )
-
-
-def ai_events_patch_rows(table: GeoipStagingTable, team_ids: tuple[int, ...], client: Client) -> list[tuple[Any, ...]]:
-    """The properties the AI events MV would write for each staged AI event, before and after the repair."""
-    return client.execute(
-        f"""
-        SELECT team_id, uuid, {_strip_heavy_properties_sql("properties")}, {_strip_heavy_properties_sql("original_properties")}
-        FROM {table.qualified_name} FINAL
-        WHERE team_id IN %(team_ids)s AND {_AI_EVENT_FILTER}
-        """,
-        {"team_ids": team_ids},
-    )
-
-
-@dagster.op(tags=OWNER_TAG)
-def repair_ai_events(
-    context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    plan: ResendPlan,
-    resent_shards: list[int],
-) -> None:
-    """Rewrite the properties of the staged AI events in place.
-
-    `sharded_ai_events` is a plain MergeTree, so an insert would keep both copies. A mutation rewrites
-    the parts that hold the rows instead. TODO(team-clickhouse): confirm a mutation is acceptable on
-    `sharded_ai_events`, and grant dagster_dict_reader SELECT on `tmp_geoip_backfill_ai_*` on the AI events
-    cluster, which the dictionary reads.
-    """
-    if not plan.config.include_ai_events:
-        context.log.info("include_ai_events is off: leaving sharded_ai_events unchanged")
-        return
-    query_tags = dagster_tags(context)
-    rows: list[tuple[Any, ...]] = []
-    for shard_rows in (
-        cluster.map_one_host_per_shard(tagged(query_tags, partial(ai_events_patch_rows, plan.table, plan.team_ids)))
-        .result()
-        .values()
-    ):
-        rows.extend(shard_rows)
-    per_team = Counter(row[0] for row in rows)
-    context.add_output_metadata(
-        {
-            "ai_events": dagster.MetadataValue.int(len(rows)),
-            "teams": dagster.MetadataValue.int(len(per_team)),
-            "dry_run": dagster.MetadataValue.bool(plan.config.dry_run),
-        }
-    )
-    if plan.config.dry_run or not rows:
-        context.log.info(f"Would rewrite {len(rows)} AI event(s) in {len(per_team)} team(s)")
-        return
-
-    ai_cluster = cluster.sibling(settings.CLICKHOUSE_AI_EVENTS_CLUSTER)
-    patch_table = AiEventsPatchTable(id=uuid.UUID(context.run_id))
-    dictionary = AiEventsPatchDictionary(source=patch_table)
-    ai_cluster.map_all_hosts(patch_table.create).result()
-    ai_cluster.any_host(partial(patch_table.insert, rows)).result()
-    ai_cluster.map_all_hosts(patch_table.sync).result()
-    create_on_every_cluster(context, [ai_cluster], dictionary, shards=1, max_execution_time=0, max_memory_usage=0)
-    load_and_verify_on_every_cluster([ai_cluster], dictionary)
-    AlterTableMutationRunner(
-        table=AI_EVENTS_DATA_TABLE,
-        commands={dictionary.update_command()},
-        parameters={"name": dictionary.qualified_name, "team_ids": tuple(per_team)},
-    ).run_on_shards(ai_cluster)
-    ai_cluster.map_all_hosts(dictionary.drop).result()
-    ai_cluster.map_all_hosts(patch_table.drop).result()
-    context.log.info(f"Rewrote up to {len(rows)} AI event(s) in {len(per_team)} team(s)")
-
-
 @dagster.job(tags=OWNER_TAG)
 def geoip_backfill_resend_job() -> None:
-    """Insert the staged GeoIP-enriched rows into sharded_events, and optionally rewrite the AI events.
+    """Insert the staged GeoIP-enriched rows into sharded_events.
 
     Defaults to a dry run. Safe to re-run: a row is written only while its original still holds what staging read.
     """
     plan = plan_geoip_resend()
-    resent = get_resend_shards(plan).map(lambda shard_num: resend_shard(shard_num, plan))
-    repair_ai_events(plan, resent.collect())
-
-
-class ResendRunConfig(dagster.Config):
-    resend_run_id: str = pydantic.Field(description="The ID of the geoip_backfill_resend_job run to clean up after.")
-
-
-@dagster.op(tags=OWNER_TAG)
-def drop_ai_events_patch(cluster: dagster.ResourceParam[ClickhouseCluster], config: ResendRunConfig) -> None:
-    """Drop the AI events patch dictionary and table of a resend run, once no mutation reads them."""
-    ai_cluster = cluster.sibling(settings.CLICKHOUSE_AI_EVENTS_CLUSTER)
-    patch_table = AiEventsPatchTable(id=uuid.UUID(config.resend_run_id))
-    dictionary = AiEventsPatchDictionary(source=patch_table)
-
-    def running(client: Client) -> int:
-        [[count]] = client.execute(
-            """
-            SELECT count() FROM system.mutations
-            WHERE database = %(database)s AND table = %(table)s AND NOT is_done AND NOT is_killed
-                AND position(command, %(name)s) > 0
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": AI_EVENTS_DATA_TABLE,
-                "name": dictionary.qualified_name,
-            },
-        )
-        return count
-
-    hosts = [host.connection_info.host for host, count in ai_cluster.map_all_hosts(running).result().items() if count]
-    if hosts:
-        raise dagster.Failure(
-            description=f"A mutation that reads {dictionary.qualified_name} is unfinished on {', '.join(hosts)}. "
-            "Wait for it to finish, or stop it with KILL MUTATION, then run the cleanup again."
-        )
-    ai_cluster.map_all_hosts(dictionary.drop).result()
-    ai_cluster.map_all_hosts(patch_table.drop).result()
-
-
-@dagster.job(tags=OWNER_TAG)
-def cleanup_geoip_backfill_resend() -> None:
-    """Drop what a failed geoip_backfill_resend_job run left on the AI events cluster."""
-    drop_ai_events_patch()
+    get_resend_shards(plan).map(lambda shard_num: resend_shard(shard_num, plan))
