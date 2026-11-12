@@ -103,8 +103,9 @@ WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value.
-_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent"}
+# The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
+# sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
+_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
 
 
 def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
@@ -136,6 +137,16 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
     else:
         source = None
     return (source,) if source is not None else ()
+
+
+def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
+    """Whether a read of this stored column masks to NULL because a property it copies is restricted."""
+    source_properties = mirrored_properties_for_column(table_type, column_name, context)
+    if not source_properties:
+        return False
+    restricted_keys = restricted_property_keys_for_table_type(table_type, context)
+    # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+    return any(key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties)
 
 
 def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
