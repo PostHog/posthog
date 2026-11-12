@@ -758,6 +758,10 @@ class CitationRunStart:
     status: CitationRunStatus
 
 
+class CitationRunQuotaExceededError(Exception):
+    """The project has used its manual runs for the day. The message is safe to show the user."""
+
+
 class CitationTrackingDisabledError(Exception):
     """The project is not set up for citation runs. The message is safe to show the user."""
 

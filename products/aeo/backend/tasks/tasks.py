@@ -37,6 +37,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
 )
 from products.aeo.backend.runner import run_citation_checks
+from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
 logger = structlog.get_logger(__name__)
 
@@ -123,6 +124,25 @@ def run_aeo_citation_checks_task() -> None:
         run_aeo_citation_checks_for_team_task.delay(team.id)
 
 
+@shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
+def score_aeo_sentiment_backlog_task() -> None:
+    """Beat entrypoint: scores each enabled team's unscored answers, so answers that no run's scoring
+    covered (a failed pass, or ones recorded before scoring existed) don't wait for the next run."""
+    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
+        try:
+            team = Team.objects.get(id=int(raw_team_id))
+        except (Team.DoesNotExist, ValueError):
+            logger.warning("aeo_sentiment_backlog_unknown_team", team_id=raw_team_id)
+            continue
+        if not citation_tracking_enabled(team):
+            continue
+        try:
+            start_backlog_sentiment_scoring(team.id)
+        except Exception:
+            logger.exception("aeo_sentiment_backlog_start_failed", team_id=team.id)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
@@ -136,15 +156,19 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     except Team.DoesNotExist:
         logger.warning("aeo_citation_task_unknown_team", team_id=team_id)
         return
-    clear_citation_run_queued(team_id)
     # Re-check the gate here too, so this task fails closed even if it is queued
     # outside the dispatcher (which already checks before fan-out).
     if not citation_tracking_enabled(team):
+        clear_citation_run_queued(team_id)
         logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
         return
     # thread_local=False: the renewal thread must see the token the task thread acquired.
     lease = get_client().lock(_run_lease_key(team_id), timeout=RUN_LEASE_SECONDS, thread_local=False)
-    if not lease.acquire(blocking=False):
+    acquired = lease.acquire(blocking=False)
+    # Cleared only once a lease is held, here or by the run that refused this one, so a request in
+    # between still sees a run in progress.
+    clear_citation_run_queued(team_id)
+    if not acquired:
         logger.info("aeo_citation_task_already_running", team_id=team_id)
         return
     stop_renewing = threading.Event()

@@ -785,15 +785,6 @@ class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
-# Each manual AEO run holds a long-running worker; the runner skips prompts already checked that day,
-# so repeat runs add little engine cost.
-class AEOCitationRunRateThrottle(_TeamBucketRateThrottle):
-    scope = "aeo_citation_run"
-
-    def get_rate(self) -> str:
-        return f"{settings.AEO_MANUAL_RUNS_PER_DAY}/day"
-
-
 class AEOSentimentScoringRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_sentiment_scoring"
     rate = "10/hour"

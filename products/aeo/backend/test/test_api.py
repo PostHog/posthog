@@ -1516,12 +1516,14 @@ class TestAEOPromptAPI(APIBaseTest):
             assert response.json() == {"status": expected_run_status}
         assert task.delay.call_count == expected_queued
 
-    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_run_cap_counts_only_runs_it_queues(self, _rate_limit_enabled: MagicMock) -> None:
-        cache.clear()
-        self.addCleanup(cache.clear)
+    def test_run_allowance_is_spent_only_on_runs_that_get_queued(self) -> None:
         queued_key = f"aeo_citation_run_queued:{self.team.id}"
         self.addCleanup(get_client().delete, queued_key)
+        for key in get_client().keys(f"aeo_manual_runs:{self.team.id}:*"):
+            get_client().delete(key)
+        self.addCleanup(
+            lambda: [get_client().delete(key) for key in get_client().keys(f"aeo_manual_runs:{self.team.id}:*")]
+        )
 
         settings_override, flag = self._enabled()
         statuses = []
@@ -1531,20 +1533,22 @@ class TestAEOPromptAPI(APIBaseTest):
             self.settings(AEO_MANUAL_RUNS_PER_DAY=2),
             patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
         ):
-            for finish_previous in (False, False, True, True):
-                if finish_previous:
+            # broker_down: the broker refuses the task, so the allowance comes back.
+            for step in ("first", "while_queued", "broker_down", "second", "over_cap"):
+                if step != "while_queued":
                     get_client().delete(queued_key)
+                task.delay.side_effect = RuntimeError("broker down") if step == "broker_down" else None
                 response = self.client.post(f"{self.url}run/")
-                statuses.append((response.status_code, response.json().get("status")))
+                body = response.json() if response.status_code < 500 else {}
+                statuses.append((step, response.status_code, body.get("status")))
 
-        # The second request finds the first run still queued, so it starts nothing and costs nothing.
         assert statuses == [
-            (status.HTTP_202_ACCEPTED, "queued"),
-            (status.HTTP_202_ACCEPTED, "already_running"),
-            (status.HTTP_202_ACCEPTED, "queued"),
-            (status.HTTP_429_TOO_MANY_REQUESTS, None),
+            ("first", status.HTTP_202_ACCEPTED, "queued"),
+            ("while_queued", status.HTTP_202_ACCEPTED, "already_running"),
+            ("broker_down", status.HTTP_500_INTERNAL_SERVER_ERROR, None),
+            ("second", status.HTTP_202_ACCEPTED, "queued"),
+            ("over_cap", status.HTTP_429_TOO_MANY_REQUESTS, None),
         ]
-        assert task.delay.call_count == 2
         assert not get_client().exists(queued_key), "a refused run must not leave the queued marker behind"
 
     def test_score_sentiment_reuses_the_running_job_on_the_aeo_queue(self) -> None:
@@ -1559,8 +1563,10 @@ class TestAEOPromptAPI(APIBaseTest):
             second = self.client.post(f"{self.url}score_sentiment/")
 
         assert (first.status_code, second.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
-        assert first.json() == second.json() == {"workflow_id": f"aeo-brand-sentiment-{self.team.id}-manual"}
-        kwargs = connect.return_value.start_workflow.call_args.kwargs
+        assert first.json() == second.json() == {"workflow_id": f"aeo-brand-sentiment-{self.team.id}-backlog"}
+        start = connect.return_value.start_workflow.call_args
+        assert start.args[1].run_id is None, "a backlog pass must not filter on a run id"
+        kwargs = start.kwargs
         assert (kwargs["task_queue"], kwargs["id_conflict_policy"]) == (
             settings.AEO_TASK_QUEUE,
             WorkflowIDConflictPolicy.USE_EXISTING,

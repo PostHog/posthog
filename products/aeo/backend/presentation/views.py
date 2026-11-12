@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,7 +22,6 @@ from posthog.permissions import (
     posthog_feature_flag_enabled,
 )
 from posthog.rate_limit import (
-    AEOCitationRunRateThrottle,
     AEOPromptSuggestionsBurstRateThrottle,
     AEOPromptSuggestionsSustainedRateThrottle,
     AEOSentimentScoringRateThrottle,
@@ -76,6 +75,7 @@ from products.aeo.backend.facade.contracts import (
     BrandStatus,
     BrandUpdate,
     CheckFrequency,
+    CitationRunQuotaExceededError,
     CitationRunStart,
     CitationTrackingDisabledError,
     EngineNotFoundError,
@@ -1396,17 +1396,12 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"])
     def run(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
-            started = start_citation_run(
-                self.team_id, user_id=cast(User, request.user).pk, charge=lambda: self._charge_run(request)
-            )
+            started = start_citation_run(self.team_id, user_id=cast(User, request.user).pk)
         except CitationTrackingDisabledError as error:
             raise PermissionDenied(str(error))
+        except CitationRunQuotaExceededError as error:
+            raise Throttled(detail=str(error))
         return Response(AEOCitationRunStartSerializer(started).data, status=status.HTTP_202_ACCEPTED)
-
-    def _charge_run(self, request: Request) -> None:
-        throttle = AEOCitationRunRateThrottle()
-        if not throttle.allow_request(request, self):
-            self.throttled(request, throttle.wait())
 
     @validated_request(
         operation_id="aeo_prompts_score_sentiment",

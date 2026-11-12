@@ -81,7 +81,7 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -1430,5 +1430,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="AEO citation checks",
         # Under the dispatch interval, so a backed-up queue drops the stale dispatch
         # instead of the next one finding it still queued.
+        expires_seconds=50 * 60,
+    )
+    # Each pass scores at most one capped slice per team, and a pass still running absorbs the next one.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="45"),
+        score_aeo_sentiment_backlog_task.s(),
+        name="AEO sentiment backlog",
         expires_seconds=50 * 60,
     )

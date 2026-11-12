@@ -134,6 +134,27 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) -> None:
+    team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
+    _, checks = await sync_to_async(_seed_run)(team)
+    await sync_to_async(_age)(checks["other_run"], 10)
+    await sync_to_async(_age)(checks["too_old"], 31)
+    classify = MagicMock(return_value=[_result(positive=0.6, neutral=0.3, negative=0.1)] * 4)
+
+    with patch("posthog.temporal.ai_observability.sentiment.model.classify", classify):
+        result = await ActivityEnvironment().run(
+            classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
+        )
+
+    assert result == {"scored": 3, "answers": 3}
+    classify.assert_called_once_with(
+        ["Example elsewhere.", "Example is fast.", "Example is slow.", "Still, Example is cheap."]
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_activity_drops_scores_of_checks_re_keyed_while_the_model_ran(settings) -> None:
     team = await sync_to_async(_team)()
     await sync_to_async(create_own_brand)(team, "example.com")

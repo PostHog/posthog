@@ -8,6 +8,7 @@ sentences that name the brand, and writes the label and score to the check rows.
 
 from __future__ import annotations
 
+import uuid
 import asyncio
 import datetime as dt
 import dataclasses
@@ -45,14 +46,13 @@ CLASSIFY_BATCH = 32
 # this far back, which matches the window the prompt report shows.
 BACKLOG_WINDOW = dt.timedelta(days=30)
 MAX_ROWS_PER_RUN = 2000
-# A manual request has no citation run of its own, so it only scores the backlog.
-MANUAL_RUN_ID = "manual"
 
 
 @dataclasses.dataclass(frozen=True)
 class AEOBrandSentimentInputs:
     team_id: int
-    run_id: str
+    # None scores only the backlog, for passes that no citation run started.
+    run_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,10 +87,13 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> _PendingBatch:
     unscored = AEOCitationCheck.objects.for_team(inputs.team_id).filter(
         check_failed=False, brand_sentiment__isnull=True, own_domains_key=key, answer_text__iregex=regex
     )
-    own_rows = list(unscored.filter(run_id=inputs.run_id).order_by("created_at").values_list("id", "answer_text"))
+    own_rows: list[tuple[uuid.UUID, str | None]] = []
+    backlog = unscored
+    if inputs.run_id:
+        own_rows = list(unscored.filter(run_id=inputs.run_id).order_by("created_at").values_list("id", "answer_text"))
+        backlog = unscored.exclude(run_id=inputs.run_id)
     backlog_rows = list(
-        unscored.exclude(run_id=inputs.run_id)
-        .filter(created_at__gte=timezone.now() - BACKLOG_WINDOW)
+        backlog.filter(created_at__gte=timezone.now() - BACKLOG_WINDOW)
         .order_by("created_at")
         .values_list("id", "answer_text")[: max(0, MAX_ROWS_PER_RUN - len(own_rows))]
     )
@@ -180,12 +183,12 @@ class AEOBrandSentimentWorkflow(PostHogWorkflow):
 
 def _start(
     team_id: int,
-    run_id: str,
+    run_id: str | None,
+    workflow_id: str,
     *,
     id_reuse_policy: WorkflowIDReusePolicy,
     id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.UNSPECIFIED,
 ) -> str:
-    workflow_id = f"{WORKFLOW_NAME}-{team_id}-{run_id}"
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
@@ -200,12 +203,13 @@ def _start(
     return workflow_id
 
 
-def start_manual_brand_sentiment_scoring(team_id: int) -> str:
-    """Scores the team's backlog. A request while one is still scoring gets that workflow back, so
-    repeated requests never classify the same answers in parallel."""
+def start_backlog_sentiment_scoring(team_id: int) -> str:
+    """Scores the team's unscored backlog. A request while a pass is still scoring gets that workflow
+    back, so repeated requests never classify the same answers in parallel."""
     return _start(
         team_id,
-        MANUAL_RUN_ID,
+        None,
+        f"{WORKFLOW_NAME}-{team_id}-backlog",
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
     )
@@ -215,7 +219,12 @@ def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
     """Fire-and-forget: the citation run is already recorded, so a Temporal outage only means
     this run's answers stay unscored."""
     try:
-        _start(team_id, run_id, id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+        _start(
+            team_id,
+            run_id,
+            f"{WORKFLOW_NAME}-{team_id}-{run_id}",
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        )
     except WorkflowAlreadyStartedError:
         logger.info("aeo_brand_sentiment_already_started", team_id=team_id, run_id=run_id)
     except Exception as error:

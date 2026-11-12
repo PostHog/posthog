@@ -10,10 +10,11 @@ import re
 import uuid
 import datetime as dt
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import (
@@ -75,6 +76,7 @@ from products.aeo.backend.facade.contracts import (
     BrandUpdate,
     CheckMode,
     CitationGap,
+    CitationRunQuotaExceededError,
     CitationRunStart,
     CitationRunStatus,
     CitationRunSummary,
@@ -121,7 +123,7 @@ from products.aeo.backend.facade.contracts import (
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
-from products.aeo.backend.runner import run_citation_checks
+from products.aeo.backend.runner import run_citation_checks, run_day_start
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.tasks.tasks import (
     citation_run_in_progress,
@@ -133,22 +135,31 @@ from products.aeo.backend.tasks.tasks import (
     suggest_aeo_keywords_task,
     suggest_aeo_prompts_task,
 )
-from products.aeo.backend.temporal.brand_sentiment import start_manual_brand_sentiment_scoring
+from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
 logger = structlog.get_logger(__name__)
 
+# Outlives the run day the key is named after.
+MANUAL_RUN_ALLOWANCE_TTL_SECONDS = 2 * 24 * 60 * 60
 
-def start_citation_run(team_id: int, *, user_id: int, charge: Callable[[], None]) -> CitationRunStart:
-    """Queues a run of the prompts not yet checked this run day, as the scheduled dispatch does.
 
-    `charge` spends one of the project's manual runs and raises when none are left. It is called only
-    when a run is about to be queued, so a request that starts nothing costs nothing."""
+def start_citation_run(team_id: int, *, user_id: int) -> CitationRunStart:
+    """Queues a run of the prompts not yet checked this run day, as the scheduled dispatch does. Only a
+    run that gets queued spends one of the project's manual runs for the day."""
     _require_citation_tracking(team_id)
     if citation_run_in_progress(team_id) or not mark_citation_run_queued(team_id):
         return CitationRunStart(status=CitationRunStatus.ALREADY_RUNNING)
+    allowance = _manual_run_allowance_key(team_id)
     try:
-        charge()
-        run_aeo_citation_checks_for_team_task.delay(team_id)
+        if not _reserve_manual_run(allowance):
+            raise CitationRunQuotaExceededError(
+                "This project has used its manual runs for today. Scheduled runs continue as usual."
+            )
+        try:
+            run_aeo_citation_checks_for_team_task.delay(team_id)
+        except Exception:
+            get_client().decr(allowance)
+            raise
     except Exception:
         clear_citation_run_queued(team_id)
         raise
@@ -156,10 +167,25 @@ def start_citation_run(team_id: int, *, user_id: int, charge: Callable[[], None]
     return CitationRunStart(status=CitationRunStatus.QUEUED)
 
 
+def _manual_run_allowance_key(team_id: int) -> str:
+    return f"aeo_manual_runs:{team_id}:{run_day_start(timezone.now()).date().isoformat()}"
+
+
+def _reserve_manual_run(key: str) -> bool:
+    client = get_client()
+    used = client.incr(key)
+    if used == 1:
+        client.expire(key, MANUAL_RUN_ALLOWANCE_TTL_SECONDS)
+    if used > settings.AEO_MANUAL_RUNS_PER_DAY:
+        client.decr(key)
+        return False
+    return True
+
+
 def start_sentiment_scoring(team_id: int, *, user_id: int) -> SentimentScoringStart:
     _require_citation_tracking(team_id)
     try:
-        workflow_id = start_manual_brand_sentiment_scoring(team_id)
+        workflow_id = start_backlog_sentiment_scoring(team_id)
     except Exception as error:
         logger.exception("aeo_manual_sentiment_scoring_start_failed", team_id=team_id, error=str(error)[:300])
         raise SentimentScoringUnavailableError("Sentiment scoring is unavailable. Try again in a moment.") from error
