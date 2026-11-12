@@ -1993,14 +1993,13 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self._grant_to_user("dashboard", str(unchecked.pk), "viewer")
         retargeted: list[str] = []
 
-        def retarget_after_the_check(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
-            result = execute(sql, params, many, context)
+        def retarget_before_the_lock(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
             if not retargeted and 'FROM "posthog_filesystem"' in sql and "FOR UPDATE" in sql:
                 retargeted.append(sql)
                 FileSystem.objects.filter(pk=entry.pk).update(ref=str(unchecked.pk))
-            return result
+            return execute(sql, params, many, context)
 
-        with connection.execute_wrapper(retarget_after_the_check):
+        with connection.execute_wrapper(retarget_before_the_lock):
             response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{self.folder.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)

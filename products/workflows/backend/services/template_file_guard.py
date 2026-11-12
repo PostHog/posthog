@@ -87,10 +87,10 @@ def require_linked_workflow_editor(
         raise PermissionDenied(denied)
 
 
-def lock_template_for_delete(template: Model) -> None:
+def lock_templates_for_delete(templates: "QuerySet[Any]") -> list[Model]:
     try:
         with transaction.atomic():
-            template.refresh_from_db(from_queryset=type(template)._base_manager.select_for_update(nowait=True))
+            return list(templates.select_for_update(nowait=True))
     except OperationalError as error:
         if not isinstance(error.__cause__, LockNotAvailable):
             raise

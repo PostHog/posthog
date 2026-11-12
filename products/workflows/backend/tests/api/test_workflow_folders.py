@@ -508,12 +508,13 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("folder_move", "post", "{folder_id}/move/", {"new_path": "Archive/Inbox"}),
-            ("file", "post", "", {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"}),
+            ("folder_move", "post", "{folder_id}/move/", {"new_path": "Archive/Inbox"}, 0),
+            ("file", "post", "", {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"}, 0),
+            ("folder_delete", "delete", "{folder_id}/?recursive=true", {}, 1),
         ]
     )
     def test_a_template_file_check_reads_only_the_template_access_fields(
-        self, _name: str, method: str, suffix: str, payload: dict
+        self, _name: str, method: str, suffix: str, payload: dict, template_locks: int
     ) -> None:
         template_id = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
@@ -533,11 +534,18 @@ class TestWorkflowFolders(APIBaseTest):
             )
 
         self.assertIn(response.status_code, (200, 201), response.content)
-        template_reads = [
-            query["sql"] for query in queries.captured_queries if 'FROM "posthog_messagetemplate"' in query["sql"]
+        template_queries = [
+            query["sql"] for query in queries.captured_queries if '"posthog_messagetemplate"' in query["sql"]
         ]
-        self.assertTrue(template_reads)
-        self.assertFalse([sql for sql in template_reads if '"content"' in sql], template_reads)
+        self.assertTrue(template_queries)
+        self.assertFalse(
+            [sql for sql in template_queries if '"content"' in sql or '"draft_content"' in sql], template_queries
+        )
+        self.assertEqual(
+            len([sql for sql in template_queries if sql.startswith("SELECT") and "FOR UPDATE" in sql]),
+            template_locks,
+            template_queries,
+        )
 
     @parameterized.expand(
         [
@@ -1324,3 +1332,85 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
 
         self.assertEqual(statuses, [200, 204])
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).exists())
+
+    @parameterized.expand([("move_and_folder_delete",), ("parent_and_child_folder_delete",)])
+    def test_two_folder_writes_that_share_rows_both_finish(self, scenario: str) -> None:
+        dashboard_ids = sorted(
+            (
+                str(self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": name}).json()["id"])
+                for name in ["X", "Y", "Z"]
+            ),
+        )
+        for dashboard_id in dashboard_ids:
+            FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+        first_ref, middle_ref, last_ref = dashboard_ids
+
+        def file_row(path: str, ref: str) -> FileSystem:
+            return FileSystem.objects.create(
+                team=self.team, path=path, depth=path.count("/") + 1, type="dashboard", ref=ref, shortcut=False
+            )
+
+        first: tuple[str, str, dict[str, str] | None]
+        second: tuple[str, str, dict[str, str] | None]
+        if scenario == "move_and_folder_delete":
+            moved = FileSystem.objects.create(team=self.team, path="Move", depth=1, type="folder")
+            low, middle, high = sorted((file_row(f"Move/{n}", first_ref) for n in "abc"), key=lambda row: row.id)
+            for row, ref in [(low, last_ref), (middle, middle_ref), (high, first_ref)]:
+                FileSystem.objects.filter(pk=row.pk).update(ref=ref)
+            deleted = FileSystem.objects.create(team=self.team, path="Delete", depth=1, type="folder")
+            for ref in dashboard_ids:
+                file_row(f"Delete/{ref}", ref)
+            held = middle
+            first = ("post", f"{moved.id}/move/", {"new_path": "Archive/Move"})
+            second = ("delete", f"{deleted.id}/?recursive=true", None)
+        else:
+            parent = FileSystem.objects.create(team=self.team, path="Parent", depth=1, type="folder")
+            child = FileSystem.objects.create(team=self.team, path="Parent/Child", depth=2, type="folder")
+            held = file_row("Parent/Child/Report", first_ref)
+            first = ("delete", f"{parent.id}/?recursive=true", None)
+            second = ("delete", f"{child.id}/?recursive=true", None)
+        held_locked = Event()
+        release_held = Event()
+
+        def hold_the_shared_row() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_filesystem WHERE id = %s FOR UPDATE", [held.id])
+                    held_locked.set()
+                    release_held.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        def send(request: tuple[str, str, dict | None]) -> Any:
+            close_old_connections()
+            try:
+                method, suffix, payload = request
+                return getattr(self.client, method)(
+                    f"/api/projects/{self.team.id}/file_system/{suffix}", payload, format="json"
+                )
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            holder = executor.submit(hold_the_shared_row)
+            self.assertTrue(held_locked.wait(timeout=5))
+            try:
+                sending_first = executor.submit(send, first)
+                self._wait_for_blocked_backends(1)
+                sending_second = executor.submit(send, second)
+                self._wait_for_blocked_backends(2)
+            finally:
+                release_held.set()
+            holder.result(timeout=15)
+            statuses = [sending_first.result(timeout=15).status_code, sending_second.result(timeout=15).status_code]
+
+        if scenario == "move_and_folder_delete":
+            self.assertEqual(statuses, [200, 204])
+            self.assertEqual(
+                sorted(FileSystem.objects.filter(team=self.team, type="dashboard").values_list("path", flat=True)),
+                ["Archive/Move/a", "Archive/Move/b", "Archive/Move/c"],
+            )
+        else:
+            self.assertEqual(statuses, [200, 404])
+            self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Parent").exists())

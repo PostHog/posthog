@@ -7,7 +7,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Optional, cast
-from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.apps import apps
@@ -56,6 +55,7 @@ from posthog.api.file_system.deletion import (
     file_system_object_creator_ids,
     get_restorable_object,
     is_file_system_type_registered,
+    lock_file_system_objects,
     prepare_file_system_objects,
     undo_delete as undo_delete_object,
 )
@@ -435,13 +435,6 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
-CheckedRow = tuple[UUID, str, Optional[str]]
-
-
-def _checked_row(entry: FileSystem) -> CheckedRow:
-    return (entry.id, entry.type, entry.ref)
-
-
 @dataclass(frozen=True)
 class WorkflowFileTarget:
     """A workflow or template file row as it will be after a write."""
@@ -593,21 +586,33 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         an object into a folder gets the service's answer from `resolved_workflows_list_v2` before its
         transaction starts.
         """
-        locked = (
-            list(
-                FileSystem.objects.select_for_update(of=("self",))
-                .filter(rows, team__project_id=self.team.project_id)
-                .order_by("id")
-            )
-            if rows is not None
-            else []
-        )
+        locked = self._lock_file_rows(rows) if rows is not None else []
         targets = {target for row in locked for target in writes(row) if target is not None}
         targets |= {target for target in new_files if target is not None}
         denied = self._denied_workflow_files(targets)
         if denied and not skip_denied:
             raise next(iter(denied.values()))
         return locked, set(denied)
+
+    def _lock_file_rows(self, rows: Q) -> builtins.list[FileSystem]:
+        """The only row lock a file system write takes on file rows, so every write locks in one order.
+
+        A write collects every file row it changes or counts first, and locks them here in one statement in
+        id order, which is also the order the file sync updates rows in. It locks the objects behind the rows
+        only after this, with `lock_file_system_objects`, which never waits for a lock. A save of an object
+        locks the object first and its file rows second, so a write that waited for the object while it held
+        the rows could deadlock with it.
+        """
+        return list(
+            FileSystem.objects.select_for_update(of=("self",))
+            .filter(rows, team__project_id=self.team.project_id)
+            .order_by("id")
+        )
+
+    def _authorize_workflow_files(self, targets: Iterable[WorkflowFileTarget | None]) -> None:
+        denied = self._denied_workflow_files({target for target in targets if target is not None})
+        if denied:
+            raise next(iter(denied.values()))
 
     def _denied_workflow_files(self, targets: set[WorkflowFileTarget]) -> dict[WorkflowFileTarget, APIException]:
         denied: dict[WorkflowFileTarget, APIException] = {}
@@ -1240,250 +1245,164 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
-    def _ensure_can_delete(self, entry: FileSystem) -> dict[CheckedRow, bool]:
-        """Decide, and authorize, which of `entry`'s leaf rows carry the delete through to their
-        backing object - and lock that decision so a concurrent request can't change it before
-        `_delete_file_system_entry` acts on it (see the locking note below).
+    def _delete_files(
+        self, instance: FileSystem, *, recursive: bool
+    ) -> tuple[FileSystem, builtins.list[dict[str, Any]]]:
+        """Deletes `instance`, every file under it when `recursive` is set, and the object of each file that
+        was the last reference to it. Returns the reloaded `instance` and the deleted objects.
 
-        Returns a `{(row_id, type, ref): reaches_backing_object}` map that `destroy()` passes straight into
-        `_delete_file_system_entry`, so the actual delete reuses this locked decision instead of
-        recomputing an unlocked count of its own - two independent unlocked counts would let a
-        second concurrent delete of a sibling row change the answer in between, deleting the
-        backing object without ever having been through the editor check above.
+        The rows are read first without a lock: the target, the files under it, and every row that references
+        the same objects. Then `_lock_file_rows` locks all of them in one statement, and the objects are
+        locked after that without waiting. A row that changed after it was read stays where it is, and so
+        does a row filed under the target after the lock.
         """
-        stack: list[FileSystem] = [entry]
-        seen: set[str] = set()
-        entries_to_check: list[FileSystem] = []
-        shortcuts_to_check: list[FileSystem] = []
-
-        while stack:
-            current = stack.pop()
-            key = f"{current.id}"
-            if key in seen:
-                continue
-            seen.add(key)
-
-            if current.shortcut:
-                shortcuts_to_check.append(current)
-                continue
-
-            if current.type == "folder":
-                descendants = FileSystem.objects.filter(path__startswith=f"{current.path}/")
-                descendants = self._scope_by_project_and_environment(descendants)
-                descendants = self._filter_by_access_control(descendants)
-                stack.extend(descendants)
-                continue
-
-            # A retired row has no backing object to authorize or lock.
-            if current.type in RETIRED_FILE_SYSTEM_TYPES:
-                continue
-
-            entries_to_check.append(current)
-
-        if not entries_to_check and not shortcuts_to_check:
-            return {}
-
-        ids_to_remove = {entry.id for entry in entries_to_check}
-
-        # Several leaf rows can share one (team, type, ref) - that's the "last reference" case
-        # this whole check exists for - and a folder cascade can span several distinct objects.
-        # Group first so each distinct object is locked and counted exactly once, however many
-        # rows in this batch reference it.
-        # A ref-less row references no object, so it has no siblings to share a count with. It is
-        # keyed by its own id rather than pooled with every other ref-less row of its type, which
-        # would treat unrelated rows as references to one object.
-        entries_by_group: dict[tuple[int, str, Optional[str], str], list[FileSystem]] = {}
-        for current in entries_to_check:
-            ref = canonical_file_system_ref(current.type, current.ref) if current.ref else current.ref
-            group_key = (current.team_id, current.type, ref, "" if current.ref else str(current.id))
-            entries_by_group.setdefault(group_key, []).append(current)
-
-        refs_by_type: dict[tuple[int, str], set[str]] = {}
-        for team_id, file_type, ref, _row_key in entries_by_group:
-            if ref:
-                refs_by_type.setdefault((team_id, file_type), set()).add(ref)
-        prepare_file_system_objects(self.request, refs_by_type)
-        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {key[0] for key in refs_by_type}}
-        # A row filed on a surface the team never used before is missed by the sampled surface
-        # list. Sample again after the locks and repeat them until the list stays the same, so
-        # every sibling committed before the last lock is counted.
-        while True:
-            spellings_by_type = {
-                key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
-                for key, refs in sorted(refs_by_type.items())
-            }
-
-            objects_to_delete: builtins.list[tuple[str, str, int]] = []
-            reaches_backing_object: dict[CheckedRow, bool] = dict.fromkeys(map(_checked_row, shortcuts_to_check), False)
-
-            # Sorted so concurrent requests whose cascades overlap on more than one object always
-            # acquire the per-object locks in the same order - locking in traversal order (DFS over
-            # an unordered queryset) could have two such requests lock the same two objects in
-            # opposite order and deadlock, same failure mode `.order_by("id")` below prevents within
-            # one object's sibling set.
-            for (team_id, file_type, ref, _row_key), group in sorted(
-                entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
-            ):
-                if not ref:
-                    # No ref means no shared backing object, so there is no sibling set to count and
-                    # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
-                    # would instead row-lock every ref-less row of this type in the team for the rest
-                    # of the transaction, serializing unrelated deletes behind this one.
-                    remaining = 0
-                else:
-                    # Lock every row referencing this object (not just the ones outside ids_to_remove)
-                    # so a concurrent request deleting a sibling row locks the same row set in the
-                    # same order and blocks on it, rather than each request locking a different subset
-                    # and deadlocking against the other.
-                    spellings = spellings_by_type[(team_id, file_type)][ref] | {row.ref for row in group if row.ref}
-                    sibling_ids = {
-                        row.id
-                        for row in FileSystem.objects.select_for_update()
-                        .filter(any_surface_by_team[team_id], team_id=team_id, type=file_type, shortcut=False)
-                        .filter(ref__in=spellings)
-                        .order_by("id")
-                    }
-                    remaining = len(sibling_ids - ids_to_remove)
-                # When several rows in this batch reference the same object, only one of them may
-                # actually carry the deletion through - otherwise every row in the group would call
-                # delete_file_system_object independently, running its hooks and activity logging
-                # once per row instead of once for the object.
-                for current in group:
-                    reaches_backing_object[_checked_row(current)] = False
-                reaches_backing_object[_checked_row(group[0])] = remaining == 0
-
-                if not is_file_system_type_registered(file_type):
-                    continue
-
-                if remaining == 0 and not ref:
-                    # A registered-type row with no ref is a data-integrity error we refuse to delete.
-                    raise serializers.ValidationError(
-                        {"detail": f"Cannot delete type '{file_type}' without a reference."}
+        read = [instance]
+        if instance.type == "folder" and recursive:
+            read += list(
+                self._filter_by_access_control(
+                    self._scope_by_project_and_environment(
+                        FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                     )
+                )
+            )
+        read_as = {row.pk: (row.type, row.ref, bool(row.shortcut)) for row in read}
+        refs_by_type: dict[tuple[int, str], set[str]] = {}
+        for row in read:
+            if not row.shortcut and row.ref and row.type != "folder" and row.type not in RETIRED_FILE_SYSTEM_TYPES:
+                refs_by_type.setdefault((row.team_id, row.type), set()).add(
+                    canonical_file_system_ref(row.type, row.ref)
+                )
+        prepare_file_system_objects(self.request, refs_by_type)
 
-                # Only the last row referencing an object carries the deletion through to the object
-                # itself; removing one of several rows leaves it untouched.
-                if remaining == 0 and ref:
-                    objects_to_delete.append((file_type, ref, team_id))
-            resampled_surfaces = {team_id: _any_surface_q(team_id) for team_id in any_surface_by_team}
-            if resampled_surfaces == any_surface_by_team:
+        # A row filed on a surface the team never used before is missed by the sampled surface list. Sample
+        # again after the lock and lock again until the list stays the same. Such a row is new, so its uuid7
+        # id sorts after the rows the first statement locked.
+        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _ in refs_by_type}
+        while True:
+            rows = Q(pk=instance.pk) | Q(pk__in=list(read_as), path__startswith=f"{instance.path}/")
+            for (team_id, file_type), refs in sorted(refs_by_type.items()):
+                any_surface = any_surface_by_team[team_id]
+                spellings = {row.ref for row in read if (row.team_id, row.type) == (team_id, file_type) and row.ref}
+                for stored in _stored_spellings(team_id, file_type, refs, any_surface).values():
+                    spellings |= stored
+                rows |= Q(any_surface, team_id=team_id, type=file_type, shortcut=False, ref__in=spellings)
+            locked = self._lock_file_rows(rows)
+            resampled = {team_id: _any_surface_q(team_id) for team_id in any_surface_by_team}
+            if resampled == any_surface_by_team:
                 break
-            any_surface_by_team = resampled_surfaces
+            any_surface_by_team = resampled
+
+        target = next((row for row in locked if row.pk == instance.pk), None)
+        if target is None:
+            raise NotFound()
+        if (target.type, target.ref, bool(target.shortcut), target.path) != (*read_as[instance.pk], instance.path):
+            self._authorize_workflow_files({_row_target(target)})
+            raise Conflict("This item changed while you were deleting it. Refresh and try again.", code="file_changed")
+        under_target = sorted(
+            (
+                row
+                for row in locked
+                if row.pk != target.pk
+                and row.pk in read_as
+                and (row.type, row.ref, bool(row.shortcut)) == read_as[row.pk]
+                and row.path.startswith(f"{target.path}/")
+            ),
+            key=lambda row: (row.depth is None, row.depth or 0, row.path),
+        )
+        removed = [*under_target, target]
+        removed_ids = {row.pk for row in removed}
+
+        # Several rows can reference one object, and only the last one carries the delete through to it. When
+        # several of them go in this request, the first one carries it, so the object's hooks run once.
+        groups: dict[tuple[int, str, str], list[FileSystem]] = {}
+        for row in removed:
+            if row.shortcut or row.type == "folder" or row.type in RETIRED_FILE_SYSTEM_TYPES:
+                continue
+            if not is_file_system_type_registered(row.type):
+                raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{row.type}'."})
+            if not row.ref:
+                raise serializers.ValidationError({"detail": f"Cannot delete type '{row.type}' without a reference."})
+            groups.setdefault((row.team_id, row.type, canonical_file_system_ref(row.type, row.ref)), []).append(row)
+        carriers: list[FileSystem] = []
+        objects_to_delete: list[FileObjectRef] = []
+        for (team_id, file_type, ref), group in sorted(groups.items()):
+            remaining = any(
+                row.pk not in removed_ids
+                and row.team_id == team_id
+                and row.type == file_type
+                and row.shortcut is False
+                and row.ref
+                and canonical_file_system_ref(file_type, row.ref) == ref
+                for row in locked
+            )
+            if not remaining:
+                carriers.append(group[0])
+                objects_to_delete.append(FileObjectRef(team_id=team_id, type=file_type, ref=ref))
 
         # Every other type's object needs the same editor access as through its own API.
-        other_objects = [entry for entry in objects_to_delete if entry[0] not in WORKFLOW_FILE_SYSTEM_TYPES]
+        other_objects = [
+            (entry.type, entry.ref, entry.team_id)
+            for entry in objects_to_delete
+            if entry.type not in WORKFLOW_FILE_SYSTEM_TYPES
+        ]
         if (
             other_objects
             and self.user_access_control
             and entries_missing_access_level(other_objects, self.user_access_control, self.team.project_id, "editor")
         ):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
-        # The sibling locks above already hold every non-shortcut row with a ref, so this lock waits only on
-        # ref-less rows and shortcuts.
-        # A row that was retargeted or deleted before its lock drops out of the map, and the delete leaves it.
-        locked, _ = self._lock_and_authorize_workflow_files(
-            Q(pk__in=ids_to_remove | {row.id for row in shortcuts_to_check}),
-            new_files=[
-                _workflow_target(file_type, ref, team_id, False) for file_type, ref, team_id in objects_to_delete
-            ],
+        self._authorize_workflow_files(
+            {_row_target(row) for row in removed}
+            | {_workflow_target(entry.type, entry.ref, entry.team_id, False) for entry in objects_to_delete}
         )
-        locked_rows = {_checked_row(row) for row in locked}
-        return {row: reaches for row, reaches in reaches_backing_object.items() if row in locked_rows}
 
-    def _delete_file_system_entry(
-        self, entry: FileSystem, reaches_backing_object: dict[CheckedRow, bool]
-    ) -> builtins.list[dict[str, Any]]:
+        locked_objects = lock_file_system_objects(
+            FileObjectRef(team_id=row.team_id, type=row.type, ref=row.ref) for row in carriers if row.ref
+        )
+        carrier_ids = {row.pk for row in carriers}
         deleted_objects: list[dict[str, Any]] = []
-
-        # A workflow shortcut that arrived after _ensure_can_delete was never authorized, so it stays.
-        if entry.shortcut:
-            if _row_target(entry) is None or _checked_row(entry) in reaches_backing_object:
-                entry.delete()
-            return deleted_objects
-
-        if entry.type == "folder":
-            descendants = FileSystem.objects.filter(path__startswith=f"{entry.path}/")
-            descendants = self._scope_by_project_and_environment(descendants)
-            descendants = self._filter_by_access_control(descendants)
-            for child in descendants.order_by("depth", "path"):
-                deleted_objects.extend(self._delete_file_system_entry(child, reaches_backing_object))
-            entry.delete()
-            return deleted_objects
-
-        if entry.type in RETIRED_FILE_SYSTEM_TYPES:
-            entry.delete()
-            return deleted_objects
-
-        # The map is keyed by the type and ref the check saw, so a row that arrived or was
-        # retargeted after _ensure_can_delete misses it. Such a workflow or template row stays in
-        # place, and the folder repair in destroy() gives it a folder again.
-        if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and _checked_row(entry) not in reaches_backing_object:
-            return deleted_objects
-
-        if not is_file_system_type_registered(entry.type):
-            raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
-
-        # Reuses the locked decision from _ensure_can_delete rather than recounting - a row this
-        # method discovers on its own (e.g. created after that pass ran) defaults to "leave the
-        # backing object alone", the same safe outcome an unauthorized delete would get.
-        if not reaches_backing_object.get(_checked_row(entry), False):
-            entry.delete()
-            return deleted_objects
-
-        if not entry.ref:
-            raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
-
-        entry_path = entry.path
-        result = delete_file_system_object(
-            entry,
-            user=self.request.user,
-            request=self.request,
-            team=self.team,
-            organization=getattr(self, "organization", None),
-        )
-
-        deleted_objects.append(
-            {
-                "type": result.type,
-                "ref": result.ref,
-                "mode": result.mode,
-                "undo": result.undo,
-                "path": entry_path,
-                "can_undo": result.can_undo and bool(result.ref),
-            }
-        )
-        return deleted_objects
-
-    def _lock_delete_target(self, instance: FileSystem) -> FileSystem:
-        rows = Q(pk=instance.pk)
-        if instance.ref and not instance.shortcut and instance.type != "folder":
-            # _ensure_can_delete locks every row of the target's object in id order. Locking the target
-            # alone first would let two deletes of rows for one object each hold one row and wait for
-            # the other, so lock the target together with those rows in the same order.
-            ref = canonical_file_system_ref(instance.type, instance.ref)
-            any_surface = _any_surface_q(instance.team_id)
-            spellings = _stored_spellings(instance.team_id, instance.type, {ref}, any_surface)[ref] | {instance.ref}
-            rows |= Q(any_surface, team_id=instance.team_id, type=instance.type, shortcut=False, ref__in=spellings)
-        locked, _ = self._lock_and_authorize_workflow_files(
-            rows, writes=lambda row: [_row_target(row)] if row.pk == instance.pk else []
-        )
-        target = next((row for row in locked if row.pk == instance.pk), None)
-        if target is None:
-            raise NotFound()
-        return target
+        for row in removed:
+            if row.pk not in carrier_ids:
+                row.delete()
+                continue
+            row_path = row.path
+            result = delete_file_system_object(
+                row,
+                user=self.request.user,
+                request=self.request,
+                team=self.team,
+                organization=getattr(self, "organization", None),
+                locked_objects=locked_objects,
+            )
+            deleted_objects.append(
+                {
+                    "type": result.type,
+                    "ref": result.ref,
+                    "mode": result.mode,
+                    "undo": result.undo,
+                    "path": row_path,
+                    "can_undo": result.can_undo and bool(result.ref),
+                }
+            )
+        return target, deleted_objects
 
     @extend_schema(parameters=[FileSystemDeleteQuerySerializer])
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = FileSystemDeleteQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         instance = self.get_object()
-        deleted_objects: list[dict[str, Any]]
+        deleted_objects: list[dict[str, Any]] = []
 
         with transaction.atomic():
-            instance = self._lock_delete_target(instance)
-            original_path = instance.path
-            instance_created_by = instance.created_by
             if instance.type == "folder" and not query.validated_data["recursive"]:
+                locked, _ = self._lock_and_authorize_workflow_files(Q(pk=instance.pk))
+                if not locked:
+                    raise NotFound()
+                if (locked[0].type, locked[0].path) != (instance.type, instance.path):
+                    raise Conflict(
+                        "This item changed while you were deleting it. Refresh and try again.", code="file_changed"
+                    )
+                instance = locked[0]
                 descendants = self._scope_by_project_and_environment(
                     FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 )
@@ -1499,10 +1418,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     raise Conflict("Folder is not empty.", code="directory_not_empty")
                 # The tree hides these rows, so a folder that holds only them looks empty to the user.
                 hidden_descendants.delete()
-                deleted_objects = []
             else:
-                reaches_backing_object = self._ensure_can_delete(instance)
-                deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
+                instance, deleted_objects = self._delete_files(instance, recursive=query.validated_data["recursive"])
+            original_path = instance.path
+            instance_created_by = instance.created_by
 
         if instance.type == "folder":
             # The tree hides retired rows, so a retired leftover needs no folder to sit in.
@@ -1640,27 +1559,32 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
         new_path = validate_file_system_path(new_path)
+        if instance.type == "folder" and is_path_under(new_path, instance.path):
+            return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            locked, _ = self._lock_and_authorize_workflow_files(Q(pk=instance.pk))
-            if not locked:
-                raise NotFound()
-            instance = locked[0]
-            old_path = instance.path
-            if instance.type == "folder" and is_path_under(new_path, instance.path):
-                return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+            # Lock and authorize the moved row and, for a folder, the exact rows under it this move saves, in
+            # one statement. A row filed into the folder after the read is not locked and stays where it is.
+            rows = Q(pk=instance.pk)
             if instance.type == "folder":
-                # Lock and authorize the exact rows this move saves, so a row filed into the folder
-                # after the check is never moved without passing it. Lock in id order, the order
-                # create_or_update_file writes rows in, so the two never wait on each other in a cycle.
                 visible = self._filter_by_access_control(
                     self._scope_by_project_and_environment(
                         FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                     )
                 )
-                children, _ = self._lock_and_authorize_workflow_files(
-                    Q(path__startswith=f"{instance.path}/", pk__in=list(visible.values_list("pk", flat=True)))
+                rows |= Q(path__startswith=f"{instance.path}/", pk__in=list(visible.values_list("pk", flat=True)))
+            locked, _ = self._lock_and_authorize_workflow_files(rows)
+            moved = next((row for row in locked if row.pk == instance.pk), None)
+            if moved is None:
+                raise NotFound()
+            if (moved.type, moved.path) != (instance.type, instance.path):
+                raise Conflict(
+                    "This item changed while you were moving it. Refresh and try again.", code="file_changed"
                 )
+            instance = moved
+            old_path = instance.path
+            if instance.type == "folder":
+                children = [row for row in locked if row.pk != instance.pk]
                 self._assure_parent_folders(new_path, cast(User, request.user))
                 for file in children:
                     old_child_path = file.path

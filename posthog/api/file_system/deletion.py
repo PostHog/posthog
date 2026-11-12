@@ -99,6 +99,7 @@ class FileObjectRef:
 
 
 PrepareDeleteHook = Callable[[Any | None, int, Any], None]
+DeleteLock = Callable[[Any], list[Any]]
 FileChangeCheck = Callable[[FileChangeContext, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
 PostDeleteHook = Callable[[DeletionContext, Any], None]
@@ -109,6 +110,7 @@ _MODEL_REGISTRY: dict[str, ModelRegistration] = {}
 _PREPARE_DELETE_HOOKS: dict[str, PrepareDeleteHook] = {}
 _PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
 _FILE_CHANGE_CHECKS: dict[str, tuple[FileChangeCheck, tuple[str, ...]]] = {}
+_DELETE_LOCKS: dict[str, tuple[DeleteLock, tuple[str, ...]]] = {}
 _POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
 _PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
 _POST_RESTORE_HOOKS: dict[str, PostRestoreHook] = {}
@@ -169,6 +171,41 @@ def register_pre_delete_hook(type_string: str, hook: PreDeleteHook) -> None:
 # gets each object with only `fields` loaded, so a type lists the fields its check reads.
 def register_file_change_check(type_string: str, check: FileChangeCheck, *, fields: tuple[str, ...]) -> None:
     _FILE_CHANGE_CHECKS[type_string] = (check, fields)
+
+
+# A type registered here has its objects locked before a delete changes them. The lock gets one queryset per
+# type and team, ordered by primary key and loading only `fields`. It must not wait for a lock, because the
+# file system delete calls it while it holds the file rows, and a save of the object locks the object first
+# and the file rows second. The soft delete saves only `fields`, so they must hold every field it writes and
+# every field the save signals read.
+def register_delete_lock(type_string: str, lock: DeleteLock, *, fields: tuple[str, ...]) -> None:
+    _DELETE_LOCKS[type_string] = (lock, fields)
+
+
+def lock_file_system_objects(refs: Iterable[FileObjectRef]) -> dict[FileObjectRef, Any]:
+    refs_by_type: dict[tuple[str, int], set[str]] = {}
+    for object_ref in refs:
+        if object_ref.type in _DELETE_LOCKS and object_ref.type in _MODEL_REGISTRY:
+            refs_by_type.setdefault((object_ref.type, object_ref.team_id), set()).add(object_ref.ref)
+    locked: dict[FileObjectRef, Any] = {}
+    for (type_string, team_id), type_refs in sorted(refs_by_type.items()):
+        registration = _MODEL_REGISTRY[type_string]
+        lock, fields = _DELETE_LOCKS[type_string]
+        refs_by_value = _lookup_values(registration, type_refs)
+        if not refs_by_value:
+            continue
+        objects = (
+            _get_queryset(registration)
+            .only(*fields)
+            .filter(
+                **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": list(refs_by_value)}
+            )
+            .order_by("pk")
+        )
+        for instance in lock(objects):
+            for ref in refs_by_value.get(getattr(instance, registration.lookup_field), []):
+                locked[FileObjectRef(team_id=team_id, type=type_string, ref=ref)] = instance
+    return locked
 
 
 def register_post_delete_hook(type_string: str, hook: PostDeleteHook) -> None:
@@ -391,7 +428,11 @@ def delete_file_system_object(
     request: Any | None = None,
     team: Any | None = None,
     organization: Any | None = None,
+    locked_objects: Mapping[FileObjectRef, Any] | None = None,
 ) -> DeletionResult:
+    """Deletes the object of `entry` and the row. `locked_objects` holds the objects the caller already locked
+    with `lock_file_system_objects`, keyed by the row's ref. Without it, a type with a delete lock locks its
+    object here."""
     type_string = entry.type
     ref = entry.ref
 
@@ -409,7 +450,15 @@ def delete_file_system_object(
     context = _build_deletion_context(entry, user=user, request=request, team=team, organization=organization)
 
     try:
-        instance = _get_object(registration, ref=ref, team_id=entry.team_id)
+        if type_string in _DELETE_LOCKS:
+            key = FileObjectRef(team_id=entry.team_id, type=type_string, ref=ref)
+            if locked_objects is None:
+                locked_objects = lock_file_system_objects([key])
+            if key not in locked_objects:
+                raise ObjectDoesNotExist
+            instance = locked_objects[key]
+        else:
+            instance = _get_object(registration, ref=ref, team_id=entry.team_id)
     except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
         # A ref the lookup field can't hold (`FileSystem.ref` is a plain CharField, set by the
         # caller when the row is created) is the same situation as one that resolves to nothing:
