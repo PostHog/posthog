@@ -125,7 +125,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                         const key = rowKey(row, index)
                         return (
                             <div className="flex flex-col items-start gap-0.5 py-1">
-                                <span>{row.action}</span>
+                                <span className="text-pretty">{row.action}</span>
                                 <span className="text-xs text-secondary">{row.reason}</span>
                                 <RecommendationCpa recommendation={row} />
                                 {!!row.steps?.length && (

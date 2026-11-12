@@ -36,6 +36,9 @@ def test_detect_property_type_expression(cluster: ClickhouseCluster) -> None:
                 PropertyTypeTestData('{"utm_source": 123}', [("utm_source", "String")]),
                 PropertyTypeTestData('{"$feature/a": false}', [("$feature/a", "String")]),
                 PropertyTypeTestData(
+                    '{"$feature_flag_variant_key": "true"}', [("$feature_flag_variant_key", "String")]
+                ),
+                PropertyTypeTestData(
                     '{"$survey_response": 1, "$survey_response_2": 2}',
                     [("$survey_response", "String"), ("$survey_response_2", "String")],
                 ),

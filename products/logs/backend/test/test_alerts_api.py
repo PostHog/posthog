@@ -2836,52 +2836,65 @@ class TestLogsAlertAPI(APIBaseTest):
         created = self._owned_by_the_platform()
         url = f"{self.base_url}{created['id']}/"
 
-        labelled = self.client.patch(url, {"labels": {"team": "checkout"}}, format="json")
+        annotations = {"summary": "Owned by {{ $labels.team }}"}
+        labelled = self.client.patch(url, {"labels": {"team": "checkout"}, "annotations": annotations}, format="json")
         unrelated = self.client.patch(url, {"threshold_count": 50}, format="json")
 
         assert labelled.status_code == status.HTTP_200_OK, labelled.json()
-        assert created["labels"] == {}
+        assert (created["labels"], created["annotations"]) == ({}, {})
         assert unrelated.json()["labels"] == {"team": "checkout"}
+        assert unrelated.json()["annotations"] == annotations
+        assert self._copy_view(created["id"]).annotations == annotations
         assert self._copy_labels(created["id"]) == {"team": "checkout"}
         assert self.client.get(self.base_url).json()["results"][0]["labels"] == {"team": "checkout"}
 
     @parameterized.expand(
         [
-            ("cut_over", True, {"team": "checkout"}, status.HTTP_201_CREATED),
-            ("not_cut_over", False, {"team": "checkout"}, status.HTTP_400_BAD_REQUEST),
-            ("not_cut_over_empty", False, {}, status.HTTP_201_CREATED),
-            ("cut_over_reserved_name", True, {"alertname": "mine"}, status.HTTP_400_BAD_REQUEST),
+            ("cut_over", True, "labels", {"team": "checkout"}, status.HTTP_201_CREATED),
+            ("not_cut_over", False, "labels", {"team": "checkout"}, status.HTTP_400_BAD_REQUEST),
+            ("not_cut_over_empty", False, "labels", {}, status.HTTP_201_CREATED),
+            ("cut_over_reserved_name", True, "labels", {"alertname": "mine"}, status.HTTP_400_BAD_REQUEST),
+            ("annotated_cut_over", True, "annotations", {"summary": "Checkout errors"}, status.HTTP_201_CREATED),
+            ("annotated_not_cut_over", False, "annotations", {"summary": "x"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "annotated_cut_over_insecure_link",
+                True,
+                "annotations",
+                {"runbook_url": "http://example.com/runbook"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
-    def test_creating_a_labelled_alert(
-        self, _name: str, cut_over: bool, labels: dict[str, str], expected_status: int
+    def test_creating_a_labelled_or_annotated_alert(
+        self, _name: str, cut_over: bool, field: str, value: dict[str, str], expected_status: int
     ) -> None:
         self._keep_the_team_on_logs()
         if cut_over:
             self._owned_by_the_platform()
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
-        response = self.client.post(self.base_url, self._valid_payload(name="Labelled", labels=labels), format="json")
+        response = self.client.post(
+            self.base_url, self._valid_payload(name="Labelled", **{field: value}), format="json"
+        )
 
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_201_CREATED:
-            assert response.json()["labels"] == labels
+            assert response.json()[field] == value
             if cut_over:
-                assert self._copy_labels(response.json()["id"]) == labels
+                assert getattr(self._copy_view(response.json()["id"]), field) == value
         else:
-            assert response.json()["attr"] == "labels"
+            assert response.json()["attr"] == field
             assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
 
-    def test_a_source_owned_alert_rejects_labels(self) -> None:
+    @parameterized.expand([("labels",), ("annotations",)])
+    def test_a_source_owned_alert_rejects(self, field: str) -> None:
         self._keep_the_team_on_logs()
         created = self._create_via_api()
 
-        response = self.client.patch(
-            f"{self.base_url}{created['id']}/", {"labels": {"team": "checkout"}}, format="json"
-        )
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {field: {"team": "checkout"}}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "labels"
+        assert response.json()["attr"] == field
 
     def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
         created = self._owned_by_the_platform()
