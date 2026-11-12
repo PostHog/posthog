@@ -6,7 +6,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
-import { SEND_NEEDS_FILES_FOR_MS } from './attachment-horizon'
+import { sendNeedsFilesUntil } from './attachment-horizon'
 import {
     AttachmentRef,
     AttachmentStore,
@@ -152,7 +152,8 @@ export class AttachmentUploads {
         teamId: number,
         refs: AttachmentRef[],
         sizeMessageBodies: (deadline: AbortSignal) => Promise<MessageBodySizing>,
-        deadline: AbortSignal
+        deadline: AbortSignal,
+        dueAt?: Date
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         const store = this.store
         if (!store) {
@@ -161,7 +162,7 @@ export class AttachmentUploads {
         try {
             return await settleBeforeAbortEvenWhileCredentialsStall(
                 deadline,
-                this.verifySend(store, teamId, refs, sizeMessageBodies, deadline)
+                this.verifySend(store, teamId, refs, sizeMessageBodies, deadline, dueAt)
             )
         } catch (error) {
             if (deadline.aborted) {
@@ -176,13 +177,13 @@ export class AttachmentUploads {
         teamId: number,
         refs: AttachmentRef[],
         sizeMessageBodies: (deadline: AbortSignal) => Promise<MessageBodySizing>,
-        deadline: AbortSignal
+        deadline: AbortSignal,
+        dueAt: Date | undefined
     ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
         deadline.throwIfAborted()
         let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
         try {
-            const needsUntil = new Date(Date.now() + SEND_NEEDS_FILES_FOR_MS)
-            verified = await store.acceptForSend(teamId, refs, needsUntil, deadline)
+            verified = await store.acceptForSend(teamId, refs, sendNeedsFilesUntil(dueAt), deadline)
         } catch (error) {
             deadline.throwIfAborted()
             if (error instanceof AttachmentStoreUnavailableError) {

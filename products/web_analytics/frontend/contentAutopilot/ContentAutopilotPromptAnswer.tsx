@@ -4,7 +4,10 @@ import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotAnswerMentionList } from './ContentAutopilotAnswerMentionList'
+import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { checkPromptVersion, engineLabel } from './utils'
 
@@ -12,8 +15,19 @@ import { checkPromptVersion, engineLabel } from './utils'
 const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
 
 export const ContentAutopilotPromptAnswer = (): JSX.Element => {
-    const { engines, activeEngine, shownCheck, selectedCheck, latestChecksLoading, latestChecksFailed, promptId } =
-        useValues(contentAutopilotPromptDetailLogic)
+    const {
+        engines,
+        activeEngine,
+        shownCheck,
+        shownAnswerMentions,
+        competitorBrands,
+        competitorBrandsLoading,
+        competitorBrandsFailed,
+        selectedCheck,
+        latestChecksLoading,
+        latestChecksFailed,
+        promptId,
+    } = useValues(contentAutopilotPromptDetailLogic)
     const { selectEngine, loadAeoPromptLatestChecks } = useActions(contentAutopilotPromptDetailLogic)
 
     return (
@@ -23,7 +37,10 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                     size="small"
                     value={selectedCheck ? undefined : (activeEngine ?? undefined)}
                     onChange={selectEngine}
-                    options={engines.map((engine) => ({ value: engine, label: engineLabel(engine) }))}
+                    options={engines.map((engine) => ({
+                        value: engine,
+                        label: <ContentAutopilotEngineLabel engine={engine} />,
+                    }))}
                     data-attr="content-autopilot-prompt-answer-engine"
                 />
                 {selectedCheck ? (
@@ -41,11 +58,15 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
             {shownCheck ? (
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                        <ContentAutopilotCheckResultTag
-                            cited={shownCheck.cited}
-                            checkFailed={shownCheck.check_failed}
-                            position={shownCheck.target_best_position}
-                        />
+                        {shownCheck.mode === 'no_search' && !shownCheck.check_failed ? (
+                            <LemonTag type="muted">No search</LemonTag>
+                        ) : (
+                            <ContentAutopilotCheckResult
+                                cited={shownCheck.cited}
+                                checkFailed={shownCheck.check_failed}
+                                position={shownCheck.target_best_position}
+                            />
+                        )}
                         <span>
                             {selectedCheck ? 'Older answer' : 'Latest answer'} from {engineLabel(shownCheck.engine)},{' '}
                             <TZLabel time={shownCheck.created_at} />
@@ -60,8 +81,21 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             {shownCheck.error ? ` Error: ${shownCheck.error}` : ''}
                         </p>
                     ) : (
-                        <div className="whitespace-pre-wrap break-words text-sm bg-surface-secondary rounded p-3 max-h-96 overflow-y-auto">
-                            {shownCheck.answer_text || 'The engine returned an empty answer.'}
+                        <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
+                            <ContentAutopilotAnswerText
+                                text={shownCheck.answer_text ?? ''}
+                                mentions={shownAnswerMentions}
+                            />
+                            <ContentAutopilotAnswerMentionList
+                                mentions={shownAnswerMentions?.mentions ?? []}
+                                competitors={
+                                    competitorBrands !== null
+                                        ? 'ready'
+                                        : competitorBrandsFailed && !competitorBrandsLoading
+                                          ? 'failed'
+                                          : 'loading'
+                                }
+                            />
                         </div>
                     )}
 

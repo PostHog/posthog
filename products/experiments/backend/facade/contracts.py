@@ -320,6 +320,7 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
     END_EXPERIMENT = "end_experiment"
     FREEZE_EXPOSURE = "freeze_exposure"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -656,6 +657,8 @@ class CreateExperimentInput:
     filters: dict | None = None
     scheduling_config: dict | None = None
     create_in_folder: str | None = None
+    # The experiment rule to link when feature_flag_key names an existing flag with rules.
+    feature_flag_rule_id: "UUID | None" = None
 
     # Internal flags
     allow_unknown_events: bool = False
