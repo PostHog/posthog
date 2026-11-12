@@ -48,6 +48,8 @@ function statusDetail(status: ScannerStatus, resetsOn: string | null): React.Rea
             return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
         case 'filter_error':
             return `The filters can't run, so no new recordings are scanned. ${status.message}`
+        case 'paused':
+            return "Not checking for new recordings because the scanner can't scan right now, for example because its experiment isn't running. Checks resume within a few hours, or right away when you edit the scanner."
         case 'starting':
             return 'The first scan is running. Results usually appear within 15 minutes.'
         case 'delayed':
@@ -71,15 +73,16 @@ function statusDetail(status: ScannerStatus, resetsOn: string | null): React.Rea
             return (
                 <>
                     Its filters read a lot of data, so it checks for new recordings every{' '}
-                    {formatInterval(status.intervalMinutes)} instead of every {formatInterval(SWEEP_INTERVAL_MINUTES)}.
-                    Last checked <TZLabel time={status.lastCheckedAt} />.
+                    {formatInterval(status.intervalMinutes)}. Last checked <TZLabel time={status.lastCheckedAt} />.
                 </>
             )
         case 'running':
             return (
                 <>
-                    Checks for new recordings every {formatInterval(status.intervalMinutes)}. Last checked{' '}
-                    <TZLabel time={status.lastCheckedAt} />.
+                    Checks for new recordings every {formatInterval(status.intervalMinutes)}.
+                    {status.intervalMinutes > SWEEP_INTERVAL_MINUTES &&
+                        " It hasn't found recordings recently, so it checks less often until it finds some."}{' '}
+                    Last checked <TZLabel time={status.lastCheckedAt} />.
                 </>
             )
     }

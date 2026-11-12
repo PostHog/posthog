@@ -33,6 +33,7 @@ const STATUS_LABEL: Record<Exclude<ScannerStatus['kind'], 'off'>, StatusLabel> =
     quota_exhausted: { label: 'Stopped', tone: 'danger' },
     filter_error: { label: 'Filter error', tone: 'danger' },
     starting: { label: 'Starting', tone: 'warning' },
+    paused: { label: 'Paused', tone: 'muted' },
     delayed: { label: 'Delayed', tone: 'warning' },
     no_matches: { label: 'No matches', tone: 'warning' },
     throttled: { label: 'Throttled', tone: 'warning' },
