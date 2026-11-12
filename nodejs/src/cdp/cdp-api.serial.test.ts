@@ -1393,7 +1393,7 @@ describe('CDP API', () => {
         expect(res.body).toMatchObject({
             status: 'success',
             nextActionId: 'fetch_node',
-            execResult: { conditionResult: { nextActionId: 'fetch_node' } },
+            execResult: { conditionResult: { nextAction: { id: 'fetch_node' } } },
         })
         expect(JSON.stringify(res.body)).not.toContain(SECRET_TOKEN)
     })
