@@ -43,6 +43,7 @@ const CREATED_CONFIG: IdentityProviderConfigApi = {
     scim_base_url: 'https://example.com/scim/v2/config',
     scim_bearer_token: null,
     has_id_jag: false,
+    id_jag_registered_by_application_name: null,
 }
 
 describe('identityProviderConfigLogic', () => {

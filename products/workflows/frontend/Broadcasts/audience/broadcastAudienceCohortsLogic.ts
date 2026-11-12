@@ -3,7 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 
@@ -12,6 +12,7 @@ import {
     type AudienceCohortLaunchError,
     audienceCohortIds,
     audienceCohortLaunchError,
+    isCohortInclusion,
     toAudienceCohort,
 } from './audienceList'
 
@@ -37,6 +38,7 @@ export interface broadcastAudienceCohortsLogicValues {
     currentProjectId: number | null // projectLogic
     audienceCohorts: Record<number, AudienceCohort | null>
     cohortIds: number[]
+    includedCohortIds: number[]
     nonCohortAudience: AnyPropertyFilter[]
 }
 
@@ -60,6 +62,7 @@ export interface broadcastAudienceCohortsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         nonCohortAudience: (audienceProperties: AnyPropertyFilter[]) => AnyPropertyFilter[]
         cohortIds: (audienceProperties: AnyPropertyFilter[]) => number[]
+        includedCohortIds: (audienceProperties: AnyPropertyFilter[]) => number[]
     }
 }
 
@@ -91,15 +94,23 @@ export const broadcastAudienceCohortsLogic = kea<broadcastAudienceCohortsLogicTy
         ],
     }),
     selectors({
-        // The audience's other conditions. The cohorts in it are shown as cards with a link instead.
+        // The audience's other conditions. The cohorts it sends to are shown as cards with a link instead, and an
+        // excluded cohort stays here so the summary reads "not in" rather than listing it as recipients.
         nonCohortAudience: [
             (s) => [s.audienceProperties],
             (audienceProperties: AnyPropertyFilter[]): AnyPropertyFilter[] =>
-                audienceProperties.filter((filter) => filter.type !== PropertyFilterType.Cohort),
+                audienceProperties.filter((filter) => !isCohortInclusion(filter)),
         ],
+        // Every cohort, excluded ones too, because an excluded cohort that is still calculating also changes who
+        // the send reaches.
         cohortIds: [
             (s) => [s.audienceProperties],
             (audienceProperties: AnyPropertyFilter[]): number[] => audienceCohortIds(audienceProperties),
+        ],
+        includedCohortIds: [
+            (s) => [s.audienceProperties],
+            (audienceProperties: AnyPropertyFilter[]): number[] =>
+                audienceCohortIds(audienceProperties.filter(isCohortInclusion)),
         ],
     }),
     listeners(({ actions, values }) => ({

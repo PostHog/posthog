@@ -43,6 +43,7 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         limit_from_free_credits: false,
         limit_reached: false,
         sweep_throttle_factor: 1,
+        sweep_interval_minutes: 5,
         dashboard_id: null,
         dashboard_suggested: false,
         filter_error: null,

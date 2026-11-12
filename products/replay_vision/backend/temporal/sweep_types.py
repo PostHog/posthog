@@ -78,3 +78,31 @@ class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):
     new_last_deep_swept_at: dt.datetime | None = None
     # Only read when the deep watermark moves; empty clears the deep keyset tiebreaker.
     new_last_deep_seen_session_id: str = ""
+
+
+class SweepScannerTickOutput(BaseModel, frozen=True):
+    # None when the tick already finished inside the activity: gated, or nothing to dispatch.
+    dispatch: FindScannerCandidatesOutput | None = None
+
+
+def watermark_advance(scanner_id: UUID, found: FindScannerCandidatesOutput) -> AdvanceScannerWatermarkInputs | None:
+    if found.keyset_end is not None:
+        # The fetched batch's last row, which sits ahead of the dispatched candidates whenever
+        # exclusion dropped some, so dropping rows cannot stall the walk.
+        swept_at = found.keyset_end
+        # Always carried: the keyset compares the whole tuple, so keeping the tiebreaker cannot
+        # skip anything, while dropping it hides any session tied at that exact end_time.
+        last_seen_session_id = found.keyset_session_id
+    elif found.swept_through is not None:
+        # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
+        # instead of freezing on low-yield scanners.
+        swept_at, last_seen_session_id = found.swept_through, ""
+    else:
+        return None
+    return AdvanceScannerWatermarkInputs(
+        scanner_id=scanner_id,
+        new_last_swept_at=swept_at,
+        new_last_seen_session_id=last_seen_session_id,
+        new_last_deep_swept_at=found.deep_swept_through,
+        new_last_deep_seen_session_id=found.deep_keyset_session_id,
+    )
