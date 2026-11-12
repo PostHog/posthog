@@ -172,6 +172,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # never by user-supplied CommentSlackThread id through an API. Fail-closed via
         # TeamScopedManager (TeamScopedRootMixin) on top.
         "CommentSlackThread",
+        # Watch rows for a DAG node. The watch and unwatch actions resolve the node from the URL
+        # first and write the row through it, and no endpoint takes a user-supplied row id.
+        # Fail-closed via TeamScopedManager (TeamScopedRootMixin) on top.
+        "NodeSubscription",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
@@ -334,6 +338,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DevStackImageTarget",
         "DevStackImageAttempt",
         "License",
+        "SandboxSenderTenantState",
         # --- Deprecated ---
         "Prompt",
         "PromptSequence",

@@ -2060,6 +2060,26 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         if entry_type == "insight":
             self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], "hog")
 
+    def test_undo_delete_with_a_non_canonical_ref_restores_one_file_at_the_sent_path(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="restored-flag", name="Restored flag", created_by=self.user
+        )
+        flag.deleted = True
+        flag.save()
+        FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.pk)).delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": f"+{flag.pk}", "path": "Launches/Restored flag"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            list(FileSystem.objects.filter(team=self.team, type="feature_flag").values_list("ref", "path", "shortcut")),
+            [(str(flag.pk), "Launches/Restored flag", False)],
+        )
+
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
             team=self.team,

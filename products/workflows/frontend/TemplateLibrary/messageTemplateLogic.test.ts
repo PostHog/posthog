@@ -482,6 +482,9 @@ describe('messageTemplateLogic', () => {
                         new URL(request.url).searchParams.get('ref') === 'existing-id'
                             ? [200, { results: [treeEntry('Renamed')], count: 1 }]
                             : [200, { results: [], count: 0 }],
+                    '/api/projects/:team_id/messaging_templates/:id/placement/': {
+                        path: 'Unfiled/Email templates/Existing',
+                    },
                 },
                 patch: {
                     '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Renamed' },
@@ -619,32 +622,49 @@ describe('messageTemplateLogic', () => {
             expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
         })
 
-        it('keeps a deleted template out of the tree when the refresh from its last save lands late', async () => {
-            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
-            let releaseTree: () => void = () => {}
-            const treeHeld = new Promise<void>((resolve) => {
-                releaseTree = resolve
-            })
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/file_system/': async () => {
-                        await treeHeld
-                        return [200, { results: [treeEntry('Renamed')], count: 1 }]
+        it.each([
+            ['from the editor', 'editor'],
+            ['through its tree entry', 'tree entry'],
+            ['through its tree folder', 'tree folder'],
+        ])(
+            'keeps a template deleted %s out of the tree when the refresh from its last save lands late',
+            async (_name, via) => {
+                projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+                let releaseTree: () => void = () => {}
+                const treeHeld = new Promise<void>((resolve) => {
+                    releaseTree = resolve
+                })
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/file_system/': async () => {
+                            await treeHeld
+                            return [200, { results: [treeEntry('Renamed')], count: 1 }]
+                        },
                     },
-                },
-            })
+                })
 
-            await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
-            }).toDispatchActions(['saveTemplateSuccess'])
-            logic.actions.deleteTemplate()
-            await waitFor(() =>
+                await expectLogic(logic, () => {
+                    logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+                }).toDispatchActions(['saveTemplateSuccess'])
+                if (via === 'editor') {
+                    logic.actions.deleteTemplate()
+                } else if (via === 'tree entry') {
+                    projectTreeDataLogic.actions.deleteSavedItem(treeEntry('Existing') as any)
+                } else {
+                    projectTreeDataLogic.actions.deleteSavedItem({
+                        id: 'folder-1',
+                        path: 'Unfiled/Email templates',
+                        type: 'folder',
+                    } as any)
+                }
+                await waitFor(() =>
+                    expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
+                )
+                releaseTree()
+                await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
                 expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
-            )
-            releaseTree()
-            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-
-            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
-        })
+            }
+        )
     })
 })

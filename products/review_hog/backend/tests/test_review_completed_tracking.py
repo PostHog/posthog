@@ -753,7 +753,11 @@ class TestTrackReviewCompleted(BaseTest):
             _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_STAMPHOG))
             _track_review_failed(
                 TrackReviewFailedInput(
-                    team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source=TRIGGER_INBOX
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    turn_trigger_source=TRIGGER_INBOX,
+                    turn_trigger_action="synchronize",
                 )
             )
             _track_review_started(
@@ -763,6 +767,7 @@ class TestTrackReviewCompleted(BaseTest):
                     head_sha="sha1",
                     run_index=1,
                     turn_trigger_source=TRIGGER_INBOX,
+                    turn_trigger_action="opened",
                 )
             )
 
@@ -785,6 +790,9 @@ class TestTrackReviewCompleted(BaseTest):
         assert completed.kwargs["properties"]["turn_trigger_source"] == "stamphog"
         assert failed.kwargs["properties"]["turn_trigger_source"] == "inbox"
         assert started.kwargs["properties"]["turn_trigger_source"] == "inbox"
+        assert completed.kwargs["properties"]["turn_trigger_action"] is None
+        assert failed.kwargs["properties"]["turn_trigger_action"] == "synchronize"
+        assert started.kwargs["properties"]["turn_trigger_action"] == "opened"
         # No snapshot for this head, so the draft state is unknown on both events that carry it.
         assert completed.kwargs["properties"]["pr_draft"] is None
         assert started.kwargs["properties"]["pr_draft"] is None

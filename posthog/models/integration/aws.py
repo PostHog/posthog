@@ -6,8 +6,6 @@ import secrets
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
-from django.db import transaction
-
 import structlog
 from rest_framework.exceptions import ValidationError
 
@@ -15,12 +13,11 @@ from posthog.credentials import AWSKeyPair
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.models.user import User
-from posthog.models.utils import IntegrityError
 from posthog.security.url_validation import is_url_allowed
 
-from . import common, model
+from . import common, model, row_writes
 from .postgres import RedshiftIntegration
 
 _AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
@@ -48,7 +45,7 @@ def _create_unique_aws_integration(
     credentials: AWSKeyPair,
     created_by: "User | None",
     **extra,
-) -> model.Integration:
+) -> IntegrationRecord:
     """Create an AWS integration from credentials and an account."""
     return _create_unique_named_integration(
         team_id=team_id,
@@ -75,7 +72,7 @@ def _create_unique_named_integration(
     config: dict[str, str],
     sensitive_config: dict[str, str],
     created_by: "User | None",
-) -> model.Integration:
+) -> IntegrationRecord:
     """Create an integration, rejecting a name already taken for this team and kind.
 
     Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
@@ -83,18 +80,15 @@ def _create_unique_named_integration(
     rather than upsert and raise a 400 error, on conflicts.
     """
     try:
-        # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
-        # surrounding transaction (e.g. the test wrapper, or any outer atomic block).
-        with transaction.atomic():
-            return model.Integration.objects.create(
-                team_id=team_id,
-                kind=kind,
-                integration_id=name,
-                config=config,
-                sensitive_config=sensitive_config,
-                created_by=created_by,
-            )
-    except IntegrityError:
+        # The SDK creates the row in a savepoint, so a conflict does not abort the surrounding transaction.
+        return row_writes.creator_accessor(kind).create(
+            team_id,
+            external_id=name,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
+        )
+    except IntegrationConflict:
         raise DuplicateNameError(f"An integration named '{name}' already exists")
 
 
@@ -285,7 +279,7 @@ class AWSRoleBasedIntegration:
         organization_id: str,
         created_by: "User | None" = None,
         **config,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         name = _return_non_empty_str_from_config_for_aws(config, "name", "A name")
         aws_role_arn = _return_non_empty_str_from_config_for_aws(config, "aws_role_arn", "A valid role ARN")
 
@@ -500,7 +494,7 @@ class AWSCredentialsIntegration:
         team_id: int,
         created_by: "User | None" = None,
         **config,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         name = _return_non_empty_str_from_config_for_aws(config, "name", "A name")
         aws_access_key_id = _return_non_empty_str_from_config_for_aws(
             config,
@@ -625,7 +619,7 @@ class S3CompatibleIntegration:
         team_id: int,
         created_by: "User | None" = None,
         **config,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         name = _return_non_empty_str_from_config_for_s3_compatible(
             config,
             "name",

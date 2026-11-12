@@ -315,6 +315,10 @@ export interface PatchedEarlyAccessFeatureApi {
 
 export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated early access feature IDs, at most 200.
+     */
+    ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number

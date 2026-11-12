@@ -69,6 +69,7 @@ from products.messaging.backend.facade.templates import (
     list_templates,
     save_template_draft,
     team_category_id,
+    template_file_path,
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
@@ -411,6 +412,13 @@ class MessageTemplateSerializer(serializers.Serializer):
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data
+
+
+class MessageTemplatePlacementSerializer(serializers.Serializer):
+    path = serializers.CharField(
+        allow_null=True,
+        help_text="Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.",
+    )
 
 
 class DesignPatchSerializer(serializers.Serializer):
@@ -1208,6 +1216,16 @@ class MessageTemplatesViewSet(
             )
         except Exception as e:
             logger.warning("Failed to publish message template edited event", error=str(e))
+
+    @extend_schema(
+        responses={200: MessageTemplatePlacementSerializer},
+        description="Read where the template sits in the project tree, so an undo of its delete can put it back.",
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, required_scopes=["hog_flow:read"])
+    def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        template = self.get_object()
+        path = template_file_path(self.team_id, template.id)
+        return Response(MessageTemplatePlacementSerializer({"path": path}).data)
 
     @extend_schema(
         request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]

@@ -341,3 +341,40 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+@frozen
+class TransactionalEmailActivityEvent:
+    uuid: str
+    event: str
+    timestamp: datetime
+    current_url: str | None
+    pathname: str | None
+    session_id: str | None
+    # Set on autocaptured events, such as `click` or `submit`.
+    event_type: str | None
+    # The clicked element and its parents, empty unless the event is autocaptured.
+    elements_chain: str
+
+
+@frozen
+class TransactionalEmailActivitySession:
+    session_id: str
+    first_event_at: datetime
+    last_event_at: datetime
+    event_count: int
+    # True when none of the session's events came before the send, so the person started it after the email.
+    started_after_send: bool
+
+
+@frozen
+class TransactionalEmailActivity:
+    distinct_id: str
+    sent_at: datetime
+    # Oldest first, ending just before the send.
+    before: list[TransactionalEmailActivityEvent]
+    # Oldest first, starting at the send.
+    after: list[TransactionalEmailActivityEvent]
+    has_more_before: bool
+    has_more_after: bool
+    sessions: list[TransactionalEmailActivitySession]

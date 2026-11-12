@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.wordpress.settings import ENDPOINTS, INC
 from products.warehouse_sources.sources.wordpress.wordpress import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    TLS_CERTIFICATE_ERROR,
     WordpressResumeConfig,
     validate_credentials as validate_wordpress_credentials,
     wordpress_source,
@@ -125,6 +126,12 @@ To sync private content or authenticate, create an [Application Password](https:
             # exception class name that `ssl_match_hostname.match_hostname` raises, not the hostname
             # or cert names that follow it in the message.
             "CertificateError": "The WordPress site's TLS certificate doesn't match its domain. This is often caused by a hosting platform's default certificate not covering a custom domain. Ask your hosting provider to install a certificate for this domain, then try again.",
+            # Raised by OpenSSL for any failed chain-of-trust check (self-signed, expired, untrusted
+            # CA) once get_rows()'s own retries on requests.exceptions.ConnectionError (SSLError's
+            # base class) are exhausted. The cert is wrong every time, not just this request, so
+            # retrying can't help. Match the stable OpenSSL error code, not the reason text that
+            # varies per cause.
+            "CERTIFICATE_VERIFY_FAILED": TLS_CERTIFICATE_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:

@@ -8,11 +8,14 @@ import { serve } from '@hono/node-server'
 import type { Hono } from 'hono'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { Pool } from 'pg'
 
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
+import { createPool, pingDatabase } from './db/pool'
+import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
 import { createApp } from './http/app'
-import type { Config } from './lib/config'
+import type { Config, DatabaseConfig } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
 import { SecretMount } from './mount'
@@ -21,6 +24,9 @@ import type { Lifecycle } from './types'
 
 /** How long a drain may take once the prestop window has passed. */
 const DRAIN_TIMEOUT_MS = 10_000
+
+/** How often to try the database again when it was unreachable at boot. */
+const DATABASE_RETRY_MS = 5_000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -60,6 +66,10 @@ export class CredentialsServer {
     private source: SecretSource | undefined
     private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
+    private pool: Pool | undefined
+    private secretsReady = false
+    private databaseReady = false
+    private databaseRefused = false
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -111,7 +121,64 @@ export class CredentialsServer {
                 revision: snapshot?.revision ?? null,
             })
         }
-        this.lifecycle.ready = after != null && this.signingKeys?.isLoaded === true
+        this.secretsReady = after != null && this.signingKeys?.isLoaded === true
+        this.updateReadiness()
+    }
+
+    // The database gates readiness only until it first answers. After that, an outage must not
+    // take the platform secrets down with it: those do not need the database.
+    private updateReadiness(): void {
+        this.lifecycle.ready =
+            this.secretsReady && (!this.config.database || this.databaseReady || this.databaseRefused)
+    }
+
+    /** The pool, once the database answered and the runtime role passed the production check. */
+    integrationsPool(): Pool | undefined {
+        return this.databaseReady ? this.pool : undefined
+    }
+
+    // True when the database answered. A refused role counts as settled: the integration
+    // features stay off, and the platform secrets keep serving.
+    private async admitDatabase(pool: Pool, config: DatabaseConfig): Promise<boolean> {
+        if (!(await pingDatabase(pool))) {
+            return false
+        }
+        if (isProductionEnv(this.config.env)) {
+            let refusal: string | null
+            try {
+                refusal = await runtimeRoleRefusal(pool, config)
+            } catch (err) {
+                logger.error('startup:database_role_check_failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                })
+                return false
+            }
+            if (refusal) {
+                logger.error('startup:database_role_refused', { reason: refusal, env: this.config.env })
+                this.databaseRefused = true
+                this.pool = undefined
+                await pool.end().catch(() => undefined)
+                this.updateReadiness()
+                return true
+            }
+        }
+        this.databaseReady = true
+        logger.info('db:connected', {})
+        this.updateReadiness()
+        return true
+    }
+
+    private async connectDatabase(pool: Pool, config: DatabaseConfig): Promise<void> {
+        if (await this.admitDatabase(pool, config)) {
+            return
+        }
+        logger.error('startup:database_unreachable', {})
+        const cancel = every(DATABASE_RETRY_MS, async () => {
+            if (!this.databaseReady && !this.databaseRefused && (await this.admitDatabase(pool, config))) {
+                cancel()
+            }
+        })
+        this.cancelTimers.push(cancel)
     }
 
     async start(): Promise<void> {
@@ -133,13 +200,18 @@ export class CredentialsServer {
         }
         this.applySecrets(source, first)
 
+        if (config.database) {
+            this.pool = createPool(config.database)
+            await this.connectDatabase(this.pool, config.database)
+        }
+
         const app = createApp({
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
         })
 
-        if (!this.lifecycle.ready) {
+        if (!this.secretsReady) {
             logger.error('startup:no_secrets_on_mount', { source: source.description })
         }
 
@@ -201,6 +273,9 @@ export class CredentialsServer {
             await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
         }
         this.metricsServer?.close()
+        await this.pool?.end().catch((err: unknown) => {
+            logger.warn('shutdown:pool_end_failed', { error: err instanceof Error ? err.message : String(err) })
+        })
 
         logger.info('shutdown:complete', {})
         const exit = this.overrides.exit ?? process.exit

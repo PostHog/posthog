@@ -65,6 +65,9 @@ const decoderFactories: Record<string, () => Transform> = {
     zstd: createZstdDecompress,
 }
 
+/** The longest signature `imageBytesMatchMediaType` and `isFontFile` read, which is WebP's. */
+export const SIGNATURE_BYTES = 12
+
 function parseContentEncodings(contentEncoding: string | undefined): string[] {
     if (contentEncoding === undefined) {
         return []
@@ -259,7 +262,7 @@ function isSvgDocument(bytes: Buffer): boolean {
 /** WOFF2, WOFF, OpenType with CFF outlines, TrueType (two signatures) and a TrueType or OpenType collection. */
 const FONT_SIGNATURES = ['wOF2', 'wOFF', 'OTTO', '\x00\x01\x00\x00', 'true', 'ttcf']
 
-function isFontFile(bytes: Buffer): boolean {
+export function isFontFile(bytes: Buffer): boolean {
     return FONT_SIGNATURES.includes(bytes.toString('latin1', 0, 4))
 }
 

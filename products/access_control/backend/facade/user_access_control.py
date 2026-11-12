@@ -1110,13 +1110,25 @@ class UserAccessControl:
         Returns None if the user has no access context.
         """
         resource = resource or model_to_resource(obj)
+        if not resource:
+            return None
+        return self._access_source(resource, str(obj.id), getattr(obj, "created_by_id", None))  # type: ignore[attr-defined]
+
+    def get_access_source_for_ref(self, ref: ObjectAccessRef) -> Optional[AccessSource]:
+        """`get_access_source_for_object` for an object held only as a reference."""
+        target = self._target_for_ref(ref)
+        return self._access_source(target.resource, target.object_id, target.created_by_id)
+
+    def _access_source(
+        self, resource: APIScopeObject, object_id: str, created_by_id: Optional[int]
+    ) -> Optional[AccessSource]:
         org_membership = self._organization_membership
 
-        if not resource or not org_membership:
+        if not org_membership:
             return None
 
         # Check if user is the creator
-        if self._is_creator(obj):
+        if self._is_creator_id(created_by_id):
             return AccessSource.CREATOR
 
         # Check if user is org admin
@@ -1128,7 +1140,7 @@ class UserAccessControl:
             return AccessSource.DEFAULT
 
         # Get cached access controls for this object
-        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        filters = self._access_controls_filters_for_object(resource, object_id)
         cached_controls = self._get_access_controls(filters)
 
         # Check for explicit member access

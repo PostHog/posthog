@@ -311,6 +311,19 @@ class TestInstanceDictionaries:
         assert api.params_for("get_statuses") == [{}]
 
 
+class TestProjectDictionaries:
+    def test_templates_shared_across_projects_are_yielded_once(self, monkeypatch: Any) -> None:
+        api = _FakeApi(
+            {
+                ("get_projects", None): _bulk("projects", [{"id": 1}, {"id": 2}]),
+                ("get_templates", 1): [{"id": 1, "name": "Test Case (Text)"}, {"id": 2, "name": "Test Case (Steps)"}],
+                ("get_templates", 2): [{"id": 2, "name": "Test Case (Steps)"}, {"id": 5, "name": "AI Evaluation"}],
+            }
+        )
+        rows = _collect(api, "templates", monkeypatch)
+        assert [row["id"] for row in rows] == [1, 2, 5]
+
+
 class TestTestrailSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:

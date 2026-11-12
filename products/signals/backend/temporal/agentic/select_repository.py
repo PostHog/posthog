@@ -74,10 +74,7 @@ def _pilot_code_availability(team_id: int) -> ReportResearchContext:
     adapters = [
         GitHubIntegration(item, source="signals_report_research", priority=Priority.NORMAL) for item in integrations
     ]
-    if all(
-        adapter.integration.repository_cache_updated_at and adapter.integration.repository_cache == []
-        for adapter in adapters
-    ):
+    if all(adapter.repository_cache_confirmed_empty() for adapter in adapters):
         return ReportResearchContext(mode="data_only", repository_status="no_repositories")
     if not team_has_code_access(team_id):
         return ReportResearchContext(mode="data_only", repository_status="github_unavailable")

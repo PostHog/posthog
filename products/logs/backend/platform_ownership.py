@@ -154,8 +154,9 @@ def on_updated(
     )
 
 
-def on_deleted(*, team_id: int, alert_id: UUID) -> None:
-    delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+def on_deleted(*, team_id: int, alert_id: UUID) -> bool:
+    """Deletes the alert's copy. True when the copy was the platform's, whose destinations went with it."""
+    return delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
 def platform_edit_of(
