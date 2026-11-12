@@ -77,7 +77,7 @@ function safeImage(url: unknown): string {
     return STARTS_WITH_LIQUID.test(trimmed) || SAFE_IMAGE.test(trimmed) ? trimmed : ''
 }
 
-function safeColor(color: unknown, fallback = ''): string {
+export function safeColor(color: unknown, fallback = ''): string {
     return typeof color === 'string' && SAFE_COLOR.test(color.trim()) ? color.trim() : fallback
 }
 
@@ -113,8 +113,76 @@ function css(properties: Record<string, string | number | undefined | null | fal
         .join(';')
 }
 
+const STYLE_COLORS = ['color', 'backgroundColor', 'borderColor', 'linkColor'] as const
+const STYLE_NUMBERS = [
+    'fontSize',
+    'lineHeight',
+    'letterSpacing',
+    'fontWeight',
+    'borderRadius',
+    'borderWidth',
+    'width',
+    'columnGap',
+    'listIndent',
+    'listItemGap',
+    'lineWidth',
+    'buttonWidth',
+    'innerPaddingX',
+    'innerPaddingY',
+] as const
+const STYLE_FLAGS = ['uppercase', 'linkUnderline', 'inheritText'] as const
+
+function safeSides(value: unknown): EmailSides | undefined {
+    if (!value || typeof value !== 'object') {
+        return undefined
+    }
+    const sides = value as Record<string, unknown>
+    return { top: px(sides.top), right: px(sides.right), bottom: px(sides.bottom), left: px(sides.left) }
+}
+
+/**
+ * Keeps only the block style values the editor itself can write. A style can arrive from a paste or another writer,
+ * and the canvas puts it straight into the app page, so nothing else may get through.
+ */
+export function safeEmailStyle(value: unknown): EmailBlockStyle | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null
+    }
+    const raw = value as Record<string, unknown>
+    const style: Record<string, unknown> = {}
+    for (const key of STYLE_COLORS) {
+        const color = safeColor(raw[key])
+        if (color) {
+            style[key] = color
+        }
+    }
+    for (const key of STYLE_NUMBERS) {
+        if (raw[key] !== undefined && raw[key] !== null && Number.isFinite(Number(raw[key]))) {
+            style[key] = Number(raw[key])
+        }
+    }
+    for (const key of STYLE_FLAGS) {
+        if (typeof raw[key] === 'boolean') {
+            style[key] = raw[key]
+        }
+    }
+    if (typeof raw.fontFamily === 'string') {
+        style.fontFamily = safeFont(raw.fontFamily).replace(/[()\\]/g, '')
+    }
+    if (typeof raw.fontUrl === 'string' && /^https:\/\/[^\s"'()<>]+$/i.test(raw.fontUrl)) {
+        style.fontUrl = raw.fontUrl
+    }
+    if (raw.textAlign === 'left' || raw.textAlign === 'center' || raw.textAlign === 'right') {
+        style.textAlign = raw.textAlign
+    }
+    if (safeSides(raw.padding)) {
+        style.padding = safeSides(raw.padding)
+    }
+    return style as EmailBlockStyle
+}
+
 function styleOf(node: JSONContent): EmailBlockStyle {
-    return (node.attrs?.emailStyle as EmailBlockStyle | null | undefined) ?? {}
+    return safeEmailStyle(node.attrs?.emailStyle) ?? {}
 }
 
 interface RenderContext {

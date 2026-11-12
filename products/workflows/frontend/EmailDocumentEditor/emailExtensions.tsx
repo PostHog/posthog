@@ -13,7 +13,7 @@ import { EmailImageBlockView } from './components/EmailImageBlockView'
 import { EmailVariableChip } from './components/EmailVariableChip'
 import { EmailBlockStyle } from './emailDocument'
 import { parseLiquidOutput } from './emailVariables'
-import { safeEmailLink } from './renderEmailHtml'
+import { safeColor, safeEmailLink, safeEmailStyle } from './renderEmailHtml'
 
 const COLUMN_BLOCKS =
     '(paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml)+'
@@ -35,7 +35,8 @@ function sidesCss(sides: EmailBlockStyle['padding']): string | undefined {
 }
 
 /** How a block's style looks on the canvas. The email itself comes from `renderEmailHtml`. */
-export function blockStyleToCanvasCss(style: EmailBlockStyle | null | undefined, typeName: string): string {
+export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefined, typeName: string): string {
+    const style = safeEmailStyle(rawStyle)
     if (!style) {
         return ''
     }
@@ -79,7 +80,7 @@ function emailStyleAttribute(keepOnSplit: boolean): Record<string, any> {
             parseHTML: (element: HTMLElement) => {
                 const raw = element.getAttribute('data-email-style')
                 try {
-                    return raw ? JSON.parse(raw) : null
+                    return raw ? safeEmailStyle(JSON.parse(raw)) : null
                 } catch {
                     return null
                 }
@@ -237,7 +238,7 @@ export const EmailSpacer = Node.create({
             },
             backgroundColor: {
                 default: null,
-                parseHTML: (element) => element.getAttribute('data-background-color'),
+                parseHTML: (element) => safeColor(element.getAttribute('data-background-color')) || null,
                 renderHTML: (attributes) =>
                     attributes.backgroundColor ? { 'data-background-color': attributes.backgroundColor } : {},
             },

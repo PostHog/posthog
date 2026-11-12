@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 
+import { blockStyleToCanvasCss } from './emailExtensions'
 import { renderEmailHtml, renderEmailText, withoutLiquidBetweenRows } from './renderEmailHtml'
 
 function doc(...content: JSONContent[]): JSONContent {
@@ -74,6 +75,25 @@ describe('renderEmailHtml', () => {
 
         expect(renderEmailHtml(doc(spacer('#ff0000'), paragraph('x')))).toContain('bgcolor="#ff0000"')
         expect(renderEmailHtml(doc(spacer('red"><script>'), paragraph('x')))).not.toContain('<script>')
+    })
+
+    it('drops block style values the editor could not have written, in the email and on the canvas', () => {
+        const forged = {
+            color: 'red;position:fixed;inset:0',
+            fontFamily: 'x;background:url(https://example.com/beacon)',
+            textAlign: 'left" onclick="x',
+            padding: { top: '1px;background:url(x)' },
+            fontSize: 18,
+        }
+        const html = renderEmailHtml(
+            doc({ type: 'paragraph', attrs: { emailStyle: forged }, content: [{ type: 'text', text: 'x' }] })
+        )
+        const canvas = blockStyleToCanvasCss(forged as any, 'paragraph')
+
+        for (const output of [html, canvas]) {
+            expect(output).not.toMatch(/position:fixed|url\(|onclick/)
+        }
+        expect(canvas).toContain('font-size:18px')
     })
 
     it('leaves out the empty line the editor keeps at the end', () => {
