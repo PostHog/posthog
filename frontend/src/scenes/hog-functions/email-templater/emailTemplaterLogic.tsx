@@ -838,6 +838,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // While this is pending, the canvas may hold an edit the parent hasn't seen yet, so
             // propsChanged must not load an external design over it (the flag below guards that).
             cache.pendingDesignEdit = true
+            cache.designEdits = (cache.designEdits ?? 0) + 1
             await breakpoint(500)
             if (!cache.pendingDesignEdit) {
                 return
@@ -953,25 +954,30 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         flushPendingDesignEdit: async () => {
-            if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
-                const editor = values.emailEditorRef?.editor
-                if (editor) {
-                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                        await Promise.all([
-                            exportEditorHtml(editor),
-                            new Promise<any>((res) => editor.exportPlainText(res)),
-                        ])
-                    cache.pendingDesignEdit = false
-                    if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
-                        cache.lastEditorDesign = htmlData.design
-                        cache.lastLoadedExternalDesign = null
-                        props.onChange({
-                            ...values.emailTemplate,
-                            html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                            text: textData.text,
-                            design: htmlData.design,
-                        })
-                    }
+            const editor = values.emailEditorRef?.editor
+            if (!props.liveChanges || !values.isEmailEditorReady || !editor) {
+                return
+            }
+            while (cache.pendingDesignEdit) {
+                const editsBeforeExport = cache.designEdits
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        exportEditorHtml(editor),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
+                if (cache.designEdits !== editsBeforeExport) {
+                    continue
+                }
+                cache.pendingDesignEdit = false
+                if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                    cache.lastEditorDesign = htmlData.design
+                    cache.lastLoadedExternalDesign = null
+                    props.onChange({
+                        ...values.emailTemplate,
+                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
+                        text: textData.text,
+                        design: htmlData.design,
+                    })
                 }
             }
         },
