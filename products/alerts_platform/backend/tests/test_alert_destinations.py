@@ -3,7 +3,6 @@ from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from django.db import connection
 
@@ -39,7 +38,10 @@ SLACK = cast(
     AlertDestinationData,
     {"type": DestinationType.SLACK, "slack_workspace_id": 7, "slack_channel_id": "C1", "slack_channel_name": "a"},
 )
-EVENT_IDS = ("$logs_alert_firing",)
+UNLABELED_SLACK = cast(
+    AlertDestinationData, {key: value for key, value in SLACK.items() if key != "slack_channel_name"}
+)
+EDITED_SLACK = cast(AlertDestinationData, {**UNLABELED_SLACK, "slack_channel_id": "C2"})
 
 
 class TestAlertDestinations(BaseTest):
@@ -223,16 +225,6 @@ class TestSourceDestinations(BaseTest):
             legacy_configuration_id=self.legacy_id,
         )
         self.groups: list[AlertDestinationGroup] = []
-        resolver = patch(
-            "products.alerts_platform.backend.logic.alert_destinations.list_alert_destination_groups",
-            side_effect=self._groups,
-        )
-        resolver.start()
-        self.addCleanup(resolver.stop)
-
-    def _groups(self, *, team_id: int, alert_id: str, allowed_event_ids: Any) -> list[AlertDestinationGroup]:
-        assert alert_id == str(self.legacy_id) and list(allowed_event_ids) == list(EVENT_IDS)
-        return self.groups
 
     def _hog_functions(self, data: AlertDestinationData, count: int = 2) -> tuple[UUID, ...]:
         ids = tuple(uuid4() for _ in range(count))
@@ -246,22 +238,28 @@ class TestSourceDestinations(BaseTest):
             data=data,
             event_kinds=FIRING,
             hog_function_ids=hog_function_ids,
-            hog_function_event_ids=EVENT_IDS,
+            hog_function_groups=self.groups,
         )
 
     def _listed(self) -> tuple[SourceDestination, ...]:
-        return list_source_destinations(
-            team_id=self.team.id, public_id=self.legacy_id, hog_function_event_ids=EVENT_IDS
-        )
+        return list_source_destinations(team_id=self.team.id, public_id=self.legacy_id, hog_function_groups=self.groups)
 
-    def test_a_row_that_copies_its_hog_functions_lists_once_with_both_ids(self) -> None:
-        hog_function_ids = self._hog_functions(SLACK)
-
+    @parameterized.expand(
+        [
+            ("keeps_the_rows_label", UNLABELED_SLACK, SLACK),
+            ("shows_where_an_edited_hog_function_sends", EDITED_SLACK, EDITED_SLACK),
+        ]
+    )
+    def test_a_row_that_copies_its_hog_functions_lists_once_with_both_ids(
+        self, _name: str, live: AlertDestinationData, listed: AlertDestinationData
+    ) -> None:
+        hog_function_ids = self._hog_functions(UNLABELED_SLACK)
         created = self._record(SLACK, hog_function_ids)
+        self.groups[0] = AlertDestinationGroup(hog_function_ids=hog_function_ids, data=live, fully_enabled=True)
 
         assert created.legacy_hog_function_ids == hog_function_ids
         assert self._listed() == (
-            SourceDestination(destination_id=created.id, hog_function_ids=hog_function_ids, data=SLACK, enabled=True),
+            SourceDestination(destination_id=created.id, hog_function_ids=hog_function_ids, data=listed, enabled=True),
         )
 
     @parameterized.expand(
@@ -324,7 +322,7 @@ class TestSourceDestinations(BaseTest):
             data=SLACK,
             event_kinds=FIRING,
             hog_function_ids=(uuid4(),),
-            hog_function_event_ids=EVENT_IDS,
+            hog_function_groups=(),
         )
 
         assert created is None
