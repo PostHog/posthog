@@ -332,8 +332,7 @@ def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
 def _cache_key(experiment: Experiment, start_date: datetime) -> str:
     flag = experiment.feature_flag
     team = experiment.team
-    # Every input of the query except the end of the window, which moves with the clock. A reader who edits the filter
-    # for internal and test users, as the forced-variant finding advises, gets a new scan on the next load.
+    # Every input of the query except the end of the window, which moves with the clock.
     inputs = json.dumps(
         [
             _ANSWER_SHAPE,

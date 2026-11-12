@@ -44,7 +44,11 @@ PAST_THE_DAILY_CALCULATION: dict[str, Any] = {
     "hours_since_start": DAILY_CALCULATION_DAYS * 24 + 1,
 }
 NO_HISTORY = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    denied_person_properties=frozenset(),
+    denied_group_properties=frozenset(),
 )
 READS_HISTORY = replace(NO_HISTORY, can_read_flag_history=True)
 NOW = datetime(2026, 11, 10, 12, tzinfo=UTC)

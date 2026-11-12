@@ -36,7 +36,11 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 Status = ExperimentHealthCheckStatus
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    denied_person_properties=frozenset(),
+    denied_group_properties=frozenset(),
 )
 READS_HISTORY = replace(NO_QUERIES, can_read_flag_history=True)
 LAUNCHED_AT = datetime(2026, 10, 1, 12, tzinfo=UTC)

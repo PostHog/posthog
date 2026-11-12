@@ -348,11 +348,14 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             # The exposure answer must not fail for the history that only explains one finding.
             capture_exception(error)
             return None
+        restricted = split_restricted_property_names(restrictions)
         reader_access = ExperimentHealthReaderAccess(
             can_read_flag_history=self._can_read_flag_history(),
             # The reader is already querying the exposure events.
             can_query_events=True,
-            denied_event_properties=split_restricted_property_names(restrictions).event,
+            denied_event_properties=restricted.event,
+            denied_person_properties=restricted.person,
+            denied_group_properties=frozenset().union(*restricted.group.values()),
         )
         return load_split_history(self.experiment, reader_access=reader_access)
 
