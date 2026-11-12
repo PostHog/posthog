@@ -18,7 +18,6 @@ from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api_keys_for_user
-from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
@@ -303,25 +302,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         personal_api_key = super().update(personal_api_key, updates)
         personal_api_key._value = value  # type: ignore
         return personal_api_key
-
-    def get_scoped_organization_ids(self, personal_api_key: PersonalAPIKey) -> list[str]:
-        """Get organization IDs that should receive activity logs for this API key."""
-        org_ids = []
-
-        if personal_api_key.scoped_organizations:
-            org_ids = personal_api_key.scoped_organizations
-        elif personal_api_key.scoped_teams:
-            # `organization_id` is a column on the team row, so no organization join is needed.
-            org_ids = list(
-                Team.objects.filter(pk__in=personal_api_key.scoped_teams)
-                .values_list("organization_id", flat=True)
-                .distinct()
-            )
-        else:
-            user_permissions = UserPermissions(personal_api_key.user)
-            org_ids = list(user_permissions.organization_memberships.keys())
-
-        return [str(org_id) for org_id in org_ids]
 
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
