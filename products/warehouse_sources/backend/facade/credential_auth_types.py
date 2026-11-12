@@ -1368,7 +1368,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "wikipedia-pageviews": "credentials",
     "windmill": "credentials",
     "windsor-ai": "credentials",
-    "wise": "credentials",
+    "wise": "token",
     "wispr-flow": "credentials",
     "wistia": "credentials",
     "wix": "credentials",

@@ -1359,7 +1359,7 @@ Whop,api_key company_id,,,,,whop
 WikipediaPageviews,,,,project access agent article_names countries start_date,,wikipedia-pageviews
 Windmill,host workspace api_token,,,,,windmill
 WindsorAi,,,,,,windsor-ai
-Wise,,,,,,wise
+Wise,api_token,,,,,wise
 WisprFlow,,,,,,wispr-flow
 Wistia,,,,,,wistia
 Wix,api_key site_id,,,,,wix
