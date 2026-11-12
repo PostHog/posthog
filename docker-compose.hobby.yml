@@ -23,8 +23,8 @@ x-logging: &default-logging
 # credentials after start and rejects them until then.
 x-hypercache-s3: &hypercache-s3
     OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
-    AWS_ACCESS_KEY_ID: 'object_storage_root_user'
-    AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+    AWS_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+    AWS_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
 
 # Hobby runs one temporal-django-worker, and a worker polls one task queue. The services that
 # start workflows and the worker that runs them collapse every Temporal task queue onto that
@@ -146,8 +146,8 @@ services:
             # Celery tasks run here, so without it the opt-out never reaches them.
             # Same default as web, so web and both workers make the same capture decision.
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
@@ -229,8 +229,8 @@ services:
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -292,8 +292,8 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             # Django's TEMPORAL_SECRET_KEY defaults to SECRET_KEY, so the evaluation scheduler must encrypt with the same value.
             TEMPORAL_SECRET_KEY: $POSTHOG_SECRET
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             OBJECT_STORAGE_ENABLED: true
@@ -335,6 +335,9 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # The base service sets the dev keys for AI blob offload to objectstorage.
+            AI_BLOB_S3_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            AI_BLOB_S3_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
             # The combined-mode AI consumer reads persons through PersonHog
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
@@ -460,8 +463,8 @@ services:
             - web
             - livestream
     objectstorage:
-        # SeaweedFS on the same objectstorage:19000 endpoint and credentials this service
-        # served when it ran MinIO, so no other service in this file changes.
+        # SeaweedFS on the same objectstorage:19000 endpoint this service served when it ran
+        # MinIO.
         extends:
             file: docker-compose.base.yml
             service: objectstorage
@@ -471,8 +474,12 @@ services:
         # Admin rights. Hobby must not, because Caddy proxies /posthog/* straight to this
         # service: an anonymous identity opens every object to the internet. With only the
         # posthog identity, SeaweedFS rejects unsigned requests and the presigned URLs
-        # Django hands out keep working. There is no duckgres here, so there is no
-        # ducklake-dev bucket either. The loop holds no shell variables on purpose:
+        # Django hands out keep working. Caddy forwards signed requests as well, so the
+        # posthog identity uses the install's own keys from .env. SeaweedFS keeps identities
+        # on the data volume, so each start also deletes the dev key that older installs
+        # registered, and the service reports ready only after that key is gone. There is no
+        # duckgres here, so there is no ducklake-dev bucket either. The loop holds no shell
+        # variables on purpose:
         # bin/upgrade-hobby pipes this file through envsubst, which collapses a
         # doubled-dollar variable reference to a bare dollar sign.
         entrypoint:
@@ -481,10 +488,11 @@ services:
             - |
                 (
                     while true; do
-                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ai-blobs\n' \
+                        printf 's3.configure -access_key=${OBJECT_STORAGE_ACCESS_KEY_ID:?} -secret_key=${OBJECT_STORAGE_SECRET_ACCESS_KEY:?} -user=posthog -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ai-blobs\ns3.configure -access_key=object_storage_root_user -user=posthog -delete -apply\n' \
                                 | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
                         if echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q ai-blobs \
-                                && echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q object_storage_root_user; then
+                                && echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q '${OBJECT_STORAGE_ACCESS_KEY_ID:?}' \
+                                && ! echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null | grep -q object_storage_root_user; then
                             touch /tmp/objectstorage-ready
                             echo "Objectstorage SeaweedFS ready with required buckets and identities"
                             break
@@ -548,6 +556,9 @@ services:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
+            # Replaces the dev object storage keys that .env.services sets.
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
 
     # Temporal containers
     temporal:
@@ -607,6 +618,10 @@ services:
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
+            # .env.services, which the base worker loads, carries the dev object storage keys.
+            # Exports and the other activities here need the install's own keys.
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?}
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             <<: *single-temporal-queue

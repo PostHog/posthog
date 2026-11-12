@@ -10,8 +10,12 @@ set -o pipefail
 
 MINIO_IMAGE="quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
 SOURCE_CONTAINER="posthog-legacy-minio"
+# The temporary MinIO source keeps the fixed keys it ran with. The SeaweedFS destinations use
+# this install's keys from .env.
 S3_KEY="object_storage_root_user"
 S3_SECRET="object_storage_root_password"
+DEST_KEY=$(sed -n 's/^OBJECT_STORAGE_ACCESS_KEY_ID=//p' .env 2>/dev/null | tail -1 || true)
+DEST_SECRET=$(sed -n 's/^OBJECT_STORAGE_SECRET_ACCESS_KEY=//p' .env 2>/dev/null | tail -1 || true)
 
 OBJECTSTORAGE_ENDPOINT="http://objectstorage:19000"
 SEAWEEDFS_ENDPOINT="http://seaweedfs:8333"
@@ -182,6 +186,12 @@ start_source() {
 run_service() {
     local service="$1" endpoint="$2"
 
+    if [ -z "$DEST_KEY" ] || [ -z "$DEST_SECRET" ]; then
+        echo "❌ .env has no OBJECT_STORAGE_ACCESS_KEY_ID or OBJECT_STORAGE_SECRET_ACCESS_KEY."
+        echo "   Run bin/upgrade-hobby first, then run this script from the same directory."
+        exit 1
+    fi
+
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "🔄 $service → $endpoint"
@@ -193,8 +203,8 @@ run_service() {
         -e OBJECT_STORAGE_ACCESS_KEY_ID="$S3_KEY" \
         -e OBJECT_STORAGE_SECRET_ACCESS_KEY="$S3_SECRET" \
         -e SESSION_RECORDING_V2_S3_ENDPOINT="$endpoint" \
-        -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID="$S3_KEY" \
-        -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY="$S3_SECRET" \
+        -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID="$DEST_KEY" \
+        -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY="$DEST_SECRET" \
         plugins \
         node nodejs/bin/migrate-minio-to-seaweedfs.js --service "$service" --mode migrate "${EXTRA_ARGS[@]}"
 }

@@ -9,9 +9,17 @@ import (
 	"time"
 )
 
-// Service-to-service secrets that each get their own random value, so a leak from one
-// container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY.
-var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"}
+// Secrets that each get their own random value. A leak of a service-to-service secret from
+// one container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY. The object storage
+// keys sign requests that Caddy forwards from the internet to objectstorage, so every install
+// needs keys of its own.
+var dedicatedSecretKeys = []string{
+	"INTERNAL_REQUEST_TOKEN",
+	"BROWSERLESS_SECRET",
+	"RECORDING_API_JWT_SECRET",
+	"OBJECT_STORAGE_ACCESS_KEY_ID",
+	"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+}
 
 type EnvConfig struct {
 	PosthogSecret        string

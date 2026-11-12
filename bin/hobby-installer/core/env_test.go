@@ -7,7 +7,13 @@ import (
 )
 
 func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
-	for _, key := range []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"} {
+	for _, key := range []string{
+		"INTERNAL_REQUEST_TOKEN",
+		"BROWSERLESS_SECRET",
+		"RECORDING_API_JWT_SECRET",
+		"OBJECT_STORAGE_ACCESS_KEY_ID",
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+	} {
 		cases := []struct {
 			name      string
 			existing  string

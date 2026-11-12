@@ -161,10 +161,13 @@ else
     fi
 fi
 
-# Service-to-service secrets that each get their own random value, so a leak from one container
-# cannot yield POSTHOG_SECRET (Django's SECRET_KEY). Installs from before a secret existed have
-# none, so add it. Keep this list in step with dedicatedSecretKeys in bin/hobby-installer.
-for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET; do
+# Secrets that each get their own random value. A leak of a service-to-service secret from one
+# container cannot yield POSTHOG_SECRET (Django's SECRET_KEY). The object storage keys sign
+# requests that Caddy forwards from the internet to objectstorage, so every install needs keys of
+# its own. Installs from before a secret existed have none, so add it. Keep this list in step with
+# dedicatedSecretKeys in bin/hobby-installer.
+for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET \
+    OBJECT_STORAGE_ACCESS_KEY_ID OBJECT_STORAGE_SECRET_ACCESS_KEY; do
     if ! grep -qE "^$key=.+" .env; then
         echo "$key=$(openssl rand -hex 32)" >> .env
         echo "Added missing $key to .env file"
