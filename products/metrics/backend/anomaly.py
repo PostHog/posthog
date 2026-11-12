@@ -35,6 +35,7 @@ from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
     _interval_step,
     _pick_interval,
+    _resolve_interval,
     time_range_expr,
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
@@ -160,7 +161,11 @@ def characterize_anomaly(
     # One query over the combined window keeps baseline and anomaly on a
     # single grid. Buckets between baseline_to and anomaly_from (the gap, for
     # an explicit faraway baseline) are plotted but excluded from the stats.
-    interval = _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
+    # The runner coarsens any interval past its own bucket cap, so resolve it the same way here: the
+    # partial-bucket cutoff below needs the step the query actually buckets by.
+    interval = _resolve_interval(
+        baseline_from, anomaly_to, _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
+    )
 
     def _run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
         return build_metric_query_runner(
@@ -190,6 +195,8 @@ def characterize_anomaly(
     complete = [(p, t) for p, t in zip(points, point_times) if not _is_partial(t)]
     baseline_values = [p.value for p, t in complete if baseline_from <= t < baseline_to and p.value is not None]
     anomaly_values = [p.value for p, t in complete if t >= anomaly_from and p.value is not None]
+    if not anomaly_values and partial_bucket_time is not None:
+        raise ValueError(f"the anomaly window has no complete {interval} bucket yet; widen it or move anomaly_to later")
 
     baseline_mean = _mean(baseline_values)
     baseline_stddev = statistics.pstdev(baseline_values) if len(baseline_values) > 1 else 0.0

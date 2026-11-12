@@ -183,6 +183,33 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(report.anomaly_mean, 60.0)
         self.assertEqual(report.direction, "flat")
 
+    def test_partial_cutoff_uses_the_interval_the_runner_coarsens_to(self):
+        # A 10-hour baseline makes the combined pick 30 s buckets, which the runner coarsens to 5 minutes.
+        # The window ends 2.5 minutes into a 5-minute bucket, so that bucket must count as partial.
+        last_bucket = (self.anomaly_from + dt.timedelta(minutes=12)).replace(
+            minute=(self.anomaly_from + dt.timedelta(minutes=12)).minute // 5 * 5
+        )
+        report = self._characterize(
+            anomaly_to=last_bucket + dt.timedelta(minutes=2, seconds=30),
+            baseline_from=self.anomaly_from - dt.timedelta(hours=10),
+            candidate_keys=("shard",),
+        )
+
+        self.assertEqual(report.interval, "minute_5")
+        assert report.partial_bucket_time is not None
+        self.assertEqual(dt.datetime.fromisoformat(report.partial_bucket_time), last_bucket)
+
+    def test_window_without_a_complete_bucket_is_rejected(self):
+        bucket = self.anomaly_from + dt.timedelta(seconds=15)
+        seed_metric(team_id=self.team.id, metric_name="queue_depth", metric_type="gauge", points=[(bucket, 10.0)])
+
+        with self.assertRaisesMessage(ValueError, "no complete second_15 bucket"):
+            self._characterize(
+                anomaly_from=self.anomaly_from + dt.timedelta(seconds=10),
+                anomaly_to=self.anomaly_from + dt.timedelta(seconds=20),
+                baseline_from=self.anomaly_from - dt.timedelta(minutes=1),
+            )
+
     def test_characterize_via_api(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/characterize",
