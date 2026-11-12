@@ -377,11 +377,12 @@
     }
 
     & > .react-resizable-handle.react-resizable-handle-e {
-        // Starts below the header so it doesn't cover the tile's "more" button.
-        top: 3rem;
+        top: 0;
         bottom: 2rem;
         height: auto;
         cursor: ew-resize;
+        // Notch out the tile's "more" button so it gets the pointer, while the outer strip still resizes up to the corner.
+        clip-path: polygon(0.75rem 0, 100% 0, 100% 100%, 0 100%, 0 3rem, 0.75rem 3rem);
     }
 
     & > .react-resizable-handle.react-resizable-handle-s {
