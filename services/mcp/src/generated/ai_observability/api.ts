@@ -2668,7 +2668,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = () => zod.object({
         .max(llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax)
         .optional()
         .describe(
-            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.'
         ),
     daily_run_cap: zod
         .number()
@@ -2762,7 +2762,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = () => zod.object({
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax)
         .optional()
         .describe(
-            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.'
         ),
     daily_run_cap: zod
         .number()

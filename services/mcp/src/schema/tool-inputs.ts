@@ -541,6 +541,13 @@ export const ExperimentResultsGetSchema = z.preprocess(
     })
 )
 
+export const ExperimentHealthGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+    z.object({
+        id: z.preprocess(castStringToInt, z.number().describe('The ID of the experiment to check')),
+    })
+)
+
 // Accept the identifier under the aliases agents reach for (`insight-get` &
 // friends return the insight under `id`; UI URLs surface `short_id`), and
 // accept a numeric id — production traces show both mistakes are common.

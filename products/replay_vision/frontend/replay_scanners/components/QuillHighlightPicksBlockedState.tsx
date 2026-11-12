@@ -16,9 +16,9 @@ import { formatCreditsMaybeUsd } from '../../utils/credits'
 import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPicksStaleLogic } from '../highlightPicksStaleLogic'
 import { stoppedByFreeCredits } from '../scannerCopy'
+import { suggestedCreditLimit } from '../suggestedCreditLimit'
 import { QuillHighlightPicksStateFrame } from './QuillHighlightPicksStateFrame'
 
-const RAISE_FACTOR = 1.5
 const HedgehogAsleep = pngHoggie(asleepPng)
 
 export function QuillHighlightPicksBlockedState({
@@ -110,8 +110,7 @@ export function QuillHighlightPicksBlockedState({
                     )}
                 </span>
                 {capped.map((scanner) => {
-                    const current = scanner.credit_limit ?? 0
-                    const next = Math.ceil((current * RAISE_FACTOR) / 100) * 100 || 500
+                    const next = suggestedCreditLimit(scanner)
                     const freeOnly = stoppedByFreeCredits(scanner)
                     return (
                         <div key={scanner.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
