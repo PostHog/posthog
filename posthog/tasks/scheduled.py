@@ -14,11 +14,7 @@ from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
-from posthog.tasks.email import (
-    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_hog_functions_daily_digest,
-    send_matview_failure_digest,
-)
+from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
@@ -99,6 +95,7 @@ from products.customer_analytics.backend.facade.tasks import schedule_task_diges
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
+    send_matview_failure_digest,
 )
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
