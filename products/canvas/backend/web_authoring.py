@@ -18,8 +18,8 @@ SESSION_BLOCKED_ACTIONS = frozenset(
         "patch_layout",
         "request_fix",
         "request_agent",
-        # Every build action is closed, not only retry. Pin, unpin and cancel change which build
-        # the viewer serves, which is part of managing a canvas.
+        # Every build action, not only retry: cancel fails an author's queued publish, and pin and
+        # unpin decide which builds survive pruning.
         "build_action",
     }
 )
