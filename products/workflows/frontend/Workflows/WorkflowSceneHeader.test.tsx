@@ -166,6 +166,7 @@ describe('WorkflowSceneHeader', () => {
     it.each([
         [AccessControlLevel.Viewer, false],
         [AccessControlLevel.Editor, true],
+        [undefined, true],
     ])('lets a workflow %s rename it by clicking the name: %s', async (userAccessLevel, canRename) => {
         useMocks(serveWorkflow({ user_access_level: userAccessLevel }))
         await reloadWorkflow()

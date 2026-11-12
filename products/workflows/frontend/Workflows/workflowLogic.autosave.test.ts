@@ -877,39 +877,89 @@ describe('workflowLogic auto-save', () => {
 
         it.each([
             {
+                case: 'a workflow edited by a viewer',
+                served: { user_access_level: AccessControlLevel.Viewer },
+                reason: /^You don't have sufficient permissions for this workflow\. Your access level \(viewer\)/,
+            },
+            {
+                case: 'a workflow served without an access level',
+                served: { user_access_level: undefined },
+                reason: /^You don't have sufficient permissions for this workflow\. Your access level \(none\)/,
+            },
+            { case: 'a disabled workflow', served: { status: 'draft' as const }, reason: /^Must enable workflow/ },
+            { case: 'unsaved edits', served: {}, edit: true, reason: /^Save changes first$/ },
+        ])('blocks the trigger for $case', async ({ served, edit, reason }) => {
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': { ...activeWorkflow(), ...served } } })
+            await mountLoaded()
+            if (edit) {
+                logic.actions.setWorkflowValue('name', 'Unsaved edit')
+            }
+
+            expect(logic.values.manualTriggerDisabledReason).toMatch(reason)
+        })
+
+        it.each([
+            {
                 case: 'reports a run the API queued',
+                id: WORKFLOW_ID,
                 status: 200,
                 body: { status: 'queued', invocation_id: 'run-1' },
-                shown: 'Workflow triggered',
-                kind: 'success-toast',
+                toasts: { 'Triggering workflow...': 'info-toast', 'Workflow triggered': 'success-toast' },
                 absent: /^Error triggering workflow/,
+                runs: [{ variables: { plan: 'paid' } }],
             },
             {
                 case: 'reports a refused trigger instead of claiming the workflow ran',
+                id: WORKFLOW_ID,
                 status: 403,
                 body: { detail: 'No access' },
-                shown: 'Error triggering workflow: No access',
-                kind: 'error-toast',
+                toasts: {
+                    'Triggering workflow...': 'info-toast',
+                    'Error triggering workflow: No access': 'error-toast',
+                },
                 absent: /^Workflow triggered$/,
+                runs: [{ variables: { plan: 'paid' } }],
             },
-        ])('$case', async ({ status, body, shown, kind, absent }) => {
+            {
+                case: 'refuses to run a workflow that was never saved',
+                id: 'new',
+                status: 200,
+                body: {},
+                toasts: { 'You need to save the workflow before triggering it manually.': 'error-toast' },
+                absent: /^Triggering workflow/,
+                runs: [],
+            },
+        ])('$case', async ({ id, status, body, toasts, absent, runs }) => {
+            const posted: Record<string, any>[] = []
             useMocks({
                 get: { '/api/environments/:team_id/hog_flows/:id/': activeWorkflow() },
                 post: {
-                    '/api/projects/:team_id/hog_flows/:id/run/': ({ params }: MockResolverInfo) =>
-                        params.id === WORKFLOW_ID ? [status, body] : [404, { detail: 'Not found.' }],
+                    '/api/projects/:team_id/hog_flows/:id/run/': async ({ params, request }: MockResolverInfo) => {
+                        posted.push((await request.json()) as Record<string, any>)
+                        return params.id === WORKFLOW_ID ? [status, body] : [404, { detail: 'Not found.' }]
+                    },
                 },
             })
-            await mountLoaded()
+            initKeaTests()
+            logic = workflowLogic({ id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
             showToasts()
 
             await expectLogic(logic, () => {
-                logic.actions.triggerManualWorkflow({})
+                logic.actions.triggerManualWorkflow({ plan: 'paid' })
             }).toFinishAllListeners()
 
-            expect(await toastShown('Triggering workflow...')).toBe('info-toast')
-            expect(await toastShown(shown)).toBe(kind)
+            for (const [shown, kind] of Object.entries(toasts)) {
+                expect(await toastShown(shown)).toBe(kind)
+            }
             expect(screen.queryByText(absent)).toBeNull()
+            expect(posted).toEqual(runs)
+            if (runs.length) {
+                await act(async () => fireEvent.click(await screen.findByText('View logs')))
+                expect(router.values.location.pathname).toBe(`/project/997${urls.workflow(WORKFLOW_ID, 'logs')}`)
+            }
+            cleanup()
         })
     })
 
