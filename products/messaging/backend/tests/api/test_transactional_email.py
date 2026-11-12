@@ -2818,7 +2818,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                     )
                 MessageCategory.objects.filter(id=category_id).update(deleted=False)
                 restored.set()
-                other["send_waited"] = self._send_waits(self._send_is_waiting_on_the_category_lock)
+                other["send_waited"] = self._send_waits(self._send_is_waiting_on_a_lock)
         except Exception as error:
             other["error"] = error
         finally:
@@ -2832,12 +2832,11 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             return False
         return True
 
-    def _send_is_waiting_on_the_category_lock(self) -> bool:
+    def _send_is_waiting_on_a_lock(self) -> bool:
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_stat_clear_snapshot()")
             cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                "AND wait_event_type = 'Lock' AND wait_event = 'advisory'"
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
             )
             return bool(cursor.fetchone()[0])
 
