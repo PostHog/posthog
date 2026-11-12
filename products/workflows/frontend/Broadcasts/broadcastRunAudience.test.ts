@@ -3,7 +3,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { describeRunAudience, getRunAudience } from './broadcastRunAudience'
 
 describe('broadcastRunAudience', () => {
-    const started = '2026-11-25T18:00:00Z'
+    const lastActivity = '2026-11-25T18:00:00Z'
     const soon = dayjs('2026-11-25T22:00:00Z')
 
     it.each<{ name: string; totals: Record<string, number>; now: Dayjs; text: string; stillSending: boolean }>([
@@ -57,6 +57,13 @@ describe('broadcastRunAudience', () => {
             stillSending: false,
         },
         {
+            name: 'people the email step filtered out or the exit condition removed',
+            totals: { triggered: 100, email_sent: 70, filtered: 20, early_exit: 10 },
+            now: soon,
+            text: "100 in audience: 70 sent, 20 skipped by the email step's filters, 10 left early because of the exit condition",
+            stillSending: false,
+        },
+        {
             name: 'people still held when the run is too old to send them',
             totals: { triggered: 100, email_sent: 60, message_frequency_cap_held: 40 },
             now: dayjs('2026-12-05T18:00:00Z'),
@@ -64,7 +71,7 @@ describe('broadcastRunAudience', () => {
             stillSending: false,
         },
     ])('describes $name', ({ totals, now, text, stillSending }) => {
-        const run = getRunAudience(totals, started, now)
+        const run = getRunAudience(totals, lastActivity, now)
         expect(run && describeRunAudience(run)).toEqual(text)
         expect(run?.stillSending).toEqual(stillSending)
     })
@@ -72,7 +79,7 @@ describe('broadcastRunAudience', () => {
     it.each<[Record<string, number> | null]>([[null], [{}], [{ triggered: 0, email_sent: 3 }]])(
         'has nothing to say without an audience: %j',
         (totals) => {
-            expect(getRunAudience(totals, started, soon)).toBeNull()
+            expect(getRunAudience(totals, lastActivity, soon)).toBeNull()
         }
     )
 })

@@ -276,9 +276,18 @@ function RunsTable({
 }
 
 /** A completed run only queued its audience, so people can still be waiting to be sent to. */
-function RunStatusTag({ job, channel }: { job: HogFlowBatchJobApi; channel: BroadcastChannel }): JSX.Element {
+function RunStatusTag({
+    job,
+    channel,
+    isLatest,
+}: {
+    job: HogFlowBatchJobApi
+    channel: BroadcastChannel
+    isLatest: boolean
+}): JSX.Element {
     const status = getRunStatus(job.status)
-    return status === 'sent' && channel === 'email' && canStillBeSending(job.created_at) ? (
+    // Older runs skip their metrics queries, but the latest one can still be pacing its sends.
+    return status === 'sent' && channel === 'email' && (isLatest || canStillBeSending(job.created_at)) ? (
         <SentBroadcastStatusTag job={job} />
     ) : (
         <BroadcastStatusTag status={status} />
@@ -383,7 +392,7 @@ export function BroadcastSummary(): JSX.Element {
         {
             title: 'Status',
             key: 'status',
-            render: (_, job) => <RunStatusTag job={job} channel={channel} />,
+            render: (_, job) => <RunStatusTag job={job} channel={channel} isLatest={job.id === latestBatchJobId} />,
         },
         {
             title: 'Started by',

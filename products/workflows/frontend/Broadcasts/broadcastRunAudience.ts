@@ -15,11 +15,13 @@ export const RUN_AUDIENCE_METRICS = [
     'email_bounce_prevented',
     'message_frequency_cap_held',
     'message_frequency_capped',
+    'filtered',
+    'early_exit',
 ]
 
-/** Runs older than this can't have anyone left to send to, so they never need their metrics to show a status. */
-export function canStillBeSending(runStartedAt: string, now: Dayjs = dayjs()): boolean {
-    return now.diff(dayjs(runStartedAt), 'day', true) <= STILL_SENDING_WINDOW_DAYS
+/** A run with no send activity for this long has nobody left to send to. */
+export function canStillBeSending(lastActivityAt: string, now: Dayjs = dayjs()): boolean {
+    return now.diff(dayjs(lastActivityAt), 'day', true) <= STILL_SENDING_WINDOW_DAYS
 }
 
 export interface RunAudience {
@@ -33,12 +35,14 @@ export interface RunAudience {
     skippedAtCap: number
     noEmail: number
     failed: number
+    filteredOut: number
+    exitedEarly: number
     stillSending: boolean
 }
 
 export function getRunAudience(
     totals: Record<string, number> | null | undefined,
-    runStartedAt: string,
+    lastActivityAt: string,
     now: Dayjs = dayjs()
 ): RunAudience | null {
     if (!totals || !(totals.triggered > 0)) {
@@ -53,8 +57,13 @@ export function getRunAudience(
     const noEmail = count('email_missing_recipient') + count('email_bounce_prevented')
     // A send that errors can record both metrics for one person.
     const failed = Math.max(count('email_failed'), count('failed'))
-    const unfinished = Math.max(audience - sent - optedOut - suppressed - skippedAtCap - noEmail - failed, 0)
-    const withinWindow = canStillBeSending(runStartedAt, now)
+    const filteredOut = count('filtered')
+    const exitedEarly = count('early_exit')
+    const unfinished = Math.max(
+        audience - sent - optedOut - suppressed - skippedAtCap - noEmail - failed - filteredOut - exitedEarly,
+        0
+    )
+    const withinWindow = canStillBeSending(lastActivityAt, now)
     // The held count never goes down, so someone who was held and later sent is only out of `unfinished`.
     const waitingOnCap = withinWindow ? Math.min(unfinished, count('message_frequency_cap_held')) : 0
     const remaining = unfinished - waitingOnCap
@@ -69,6 +78,8 @@ export function getRunAudience(
         skippedAtCap,
         noEmail,
         failed,
+        filteredOut,
+        exitedEarly,
         stillSending: withinWindow && (waitingOnCap > 0 || remaining > 0),
     }
 }
@@ -82,6 +93,8 @@ export function describeRunAudience(run: RunAudience): string {
         [run.suppressed, 'on the suppression list'],
         [run.skippedAtCap, 'skipped by the frequency cap'],
         [run.noEmail, 'with no usable email address'],
+        [run.filteredOut, "skipped by the email step's filters"],
+        [run.exitedEarly, 'left early because of the exit condition'],
         [run.failed, 'failed'],
     ]
     const shown = parts.filter(([count]) => count > 0).map(([count, label]) => `${humanFriendlyNumber(count)} ${label}`)
