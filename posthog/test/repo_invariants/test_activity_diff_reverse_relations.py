@@ -6,7 +6,6 @@ from posthog.models.activity_logging.activity_log import common_field_exclusions
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import TeamScopedManager
 
-# Shrink-only. Exclude each in field_exclusions, then drop it here.
 KNOWN_UNSAFE = frozenset(
     {
         "DataQualityCheck.runs",
