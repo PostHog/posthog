@@ -1,3 +1,5 @@
+import { waitFor } from '@testing-library/react'
+
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 
@@ -92,13 +94,17 @@ describe('workflowLogic analytics', () => {
         respond({ subject: 'Written by AI', preheader: '', html: '<p>AI</p>', text: 'AI', generated_by: 'ai' })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(sentEvents.filter(({ event }) => event === 'email draft prefilled').map((e) => e.properties)).toEqual([
-            expect.objectContaining({
-                surface: 'workflow',
-                source: 'error_tracking',
-                generated_by: 'ai',
-                ...expected,
-            }),
-        ])
+        await waitFor(() =>
+            expect(
+                sentEvents.filter(({ event }) => event === 'email draft prefilled').map((e) => e.properties)
+            ).toEqual([
+                expect.objectContaining({
+                    surface: 'workflow',
+                    source: 'error_tracking',
+                    generated_by: 'ai',
+                    ...expected,
+                }),
+            ])
+        )
     })
 })
