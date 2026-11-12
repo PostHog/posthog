@@ -548,7 +548,10 @@ class GitLabProjectsQuerySerializer(serializers.Serializer):
 class GitLabProjectsResponseSerializer(serializers.Serializer):
     projects = GitLabProjectSerializer(
         many=True,
-        help_text="Projects where the token has the Developer role or higher, most recently active first, up to 1,000.",
+        help_text=(
+            "The connected project, when the token has the Developer role or higher on it. "
+            "Empty when it does not, or when it does not match the search."
+        ),
     )
     missing_scopes = serializers.ListField(
         child=serializers.CharField(),
@@ -2975,9 +2978,13 @@ class IntegrationViewSet(
         if instance.kind != "gitlab":
             raise ValidationError("gitlab_projects endpoint is only supported for GitLab integrations")
         gitlab = GitLabIntegration(instance)
+        search = query_serializer.validated_data["search"].strip().lower()
         try:
+            # A connection covers the project it was set up for. A broader token must not let every
+            # project member see the other private projects it can reach.
             deadline = time.monotonic() + 10.0
-            projects = gitlab.list_projects(query_serializer.validated_data["search"], deadline=deadline)
+            project = gitlab.get_pushable_project(gitlab.project_path) if gitlab.project_path else None
+            projects = [project] if project and search in project.path_with_namespace.lower() else []
             remaining = deadline - time.monotonic()
             token_info = gitlab.credentials.describe(timeout=remaining) if remaining > 0 else None
         except GitLabIntegrationError as error:

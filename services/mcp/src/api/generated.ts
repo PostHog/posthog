@@ -54282,7 +54282,7 @@ export namespace Schemas {
     }
 
     export interface GitLabProjectsResponse {
-      /** Projects where the token has the Developer role or higher, most recently active first, up to 1,000. */
+      /** The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search. */
       projects: GitLabProject[];
       /** Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes. */
       missing_scopes: string[];

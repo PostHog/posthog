@@ -81,6 +81,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
+from posthog.models.integration.gitlab import GitLabProject
 from posthog.models.integration.model import integration_model
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -2188,9 +2189,32 @@ class TestIntegrationAPIKeyAccess:
         mock_ensure_token_valid.assert_called_once_with(linear_integration)
         mock_list_teams.assert_called_once_with()
 
-    @patch("posthog.api.integration.GitLabIntegration.list_projects", side_effect=requests.Timeout())
-    def test_gitlab_projects_transport_failure(self, _mock_list_projects, client: HttpClient):
-        integration = Integration.objects.create(team=self.team, kind="gitlab", config={}, sensitive_config={})
+    @pytest.mark.parametrize(
+        "lookup, expected_status, expected_body",
+        [
+            (requests.Timeout(), status.HTTP_400_BAD_REQUEST, "Could not connect to GitLab. Try again."),
+            (
+                GitLabProject(
+                    id=7, path_with_namespace="acme/app", web_url="https://gitlab.com/acme/app", default_branch="main"
+                ),
+                status.HTTP_200_OK,
+                "acme/app",
+            ),
+        ],
+        ids=["transport_failure", "connected_project_only"],
+    )
+    @patch("posthog.api.integration.GitLabIntegration.get_pushable_project")
+    def test_gitlab_projects(self, mock_get_project, lookup, expected_status, expected_body, client: HttpClient):
+        if isinstance(lookup, Exception):
+            mock_get_project.side_effect = lookup
+        else:
+            mock_get_project.return_value = lookup
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/app"},
+            sensitive_config={"access_token": "token123"},
+        )
         key_value = "test_key_gitlab_projects"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -2199,13 +2223,16 @@ class TestIntegrationAPIKeyAccess:
             scopes=["integration:read"],
         )
 
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{integration.id}/gitlab_projects/",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
+        with patch("posthog.api.integration.GitLabIntegration.list_projects") as mock_list_projects:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{integration.id}/gitlab_projects/",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Could not connect to GitLab. Try again." in str(response.json())
+        assert response.status_code == expected_status
+        assert expected_body in str(response.json())
+        mock_get_project.assert_called_once_with("acme/app")
+        mock_list_projects.assert_not_called()
 
     @pytest.mark.parametrize(
         "kind,url_suffix,list_method,expected_call",

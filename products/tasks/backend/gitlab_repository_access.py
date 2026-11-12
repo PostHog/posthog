@@ -16,6 +16,11 @@ def gitlab_repository_error(integration: IntegrationRecord, repository: str) -> 
     gitlab = GitLabIntegration(integration)
     if gitlab.hostname.rstrip("/").lower() != GITLAB_COM:
         return "Coding tasks work with projects on gitlab.com only. Connect a gitlab.com project to continue."
+    # The person who connected GitLab shared one project, even when the token can reach more.
+    if repository.strip().lower() != (gitlab.project_path or "").lower():
+        return (
+            f"This GitLab connection covers {gitlab.project_path} only. Connect {repository} as its own GitLab project."
+        )
     try:
         token_info = gitlab.credentials.describe()
         if token_info is not None and token_info.missing_task_scopes:
