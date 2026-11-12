@@ -12,8 +12,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
-from products.signals.backend.temporal.grouping import GenerateEmbeddingInput, GenerateEmbeddingOutput
-from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
+from products.signals.backend.temporal.grouping import (
+    GenerateEmbeddingInput,
+    GenerateEmbeddingOutput,
+    SignalGroupingCompletion,
+)
+from products.signals.backend.temporal.grouping_v2 import MAX_BATCH_ATTEMPTS, TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ReadSignalsFromS3Input,
@@ -22,13 +26,13 @@ from products.signals.backend.temporal.types import (
 )
 
 TASK_QUEUE = "test-grouping-v2-queue"
-ROUNDS = 3
 
 
 def _signal(source_id: str) -> EmitSignalInputs:
     # A source match skips the type-example and query-generation steps, so the embedding is the first batch activity.
     return EmitSignalInputs(
         team_id=1,
+        signal_id=str(uuid.uuid5(uuid.NAMESPACE_URL, source_id)),
         source_product="error_tracking",
         source_type="issue_created",
         source_id=source_id,
@@ -53,17 +57,22 @@ BATCHES = {
         (["batch-a", "batch-b"], {"batch-a": 2}, 3),
     ],
 )
-async def test_failed_batch_retries_report_each_attempt(
+async def test_failed_batch_retries_until_attempt_limit(
     pending_keys: list[str], failed_rounds_by_batch_key: dict[str, int], failed_consent_attempts: int, ai_approved: bool
 ) -> None:
-    expected_drops = sorted(
-        (signal.source_id, failed_rounds_by_batch_key.get(key, 0) + round_index + 1)
-        for round_index in range(ROUNDS)
+    expected_prep_drops = sorted(
+        (signal.source_id, attempt)
         for key in pending_keys
+        for attempt in range(failed_rounds_by_batch_key.get(key, 0) + 1, MAX_BATCH_ATTEMPTS + 1)
         for signal in BATCHES[key]
     )
-    last_attempt = dict(expected_drops)
-    drops: list[tuple[str, int | None]] = []
+    expected_limit_drops = sorted(
+        (signal.source_id, MAX_BATCH_ATTEMPTS) for key in pending_keys for signal in BATCHES[key]
+    )
+    expected_reads = sum(MAX_BATCH_ATTEMPTS - failed_rounds_by_batch_key.get(key, 0) for key in pending_keys)
+    all_signal_ids = {signal.signal_id for key in pending_keys for signal in BATCHES[key]}
+    drops: list[tuple[str, str, int | None]] = []
+    completed_signal_ids: set[str | None] = set()
     read_keys: list[str] = []
     discarded_keys: list[str] = []
     rounds_done = asyncio.Event()
@@ -89,8 +98,12 @@ async def test_failed_batch_retries_report_each_attempt(
 
     @activity.defn(name="capture_signal_dropped_activity")
     async def fake_capture(input: CaptureSignalDroppedInput) -> None:
-        drops.append((input.source_id, input.attempt))
-        if len(drops) >= len(expected_drops):
+        drops.append((input.stage, input.source_id, input.attempt))
+
+    @activity.defn(name="complete_signal_grouping_activity")
+    async def fake_complete(signals: list[SignalGroupingCompletion]) -> None:
+        completed_signal_ids.update(signal.signal_id for signal in signals)
+        if completed_signal_ids == all_signal_ids:
             rounds_done.set()
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -98,7 +111,7 @@ async def test_failed_batch_retries_report_each_attempt(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[TeamSignalGroupingV2Workflow],
-            activities=[fake_consent, fake_discard, fake_read, fake_embedding, fake_capture],
+            activities=[fake_consent, fake_discard, fake_read, fake_embedding, fake_capture, fake_complete],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -126,9 +139,17 @@ async def test_failed_batch_retries_report_each_attempt(
                     break
                 await env.sleep(timedelta(seconds=10))
             assert rounds_done.is_set()
+            # Step past another backoff and collection window to show that the dropped batches are not read again.
+            for _ in range(6):
+                await env.sleep(timedelta(seconds=10))
             with suppress(RPCError):
                 await env.client.get_workflow_handle(handle.id).terminate()
 
-    # The workflow keeps retrying until it is terminated, so ignore any round that started after the last checked one.
-    assert sorted(drop for drop in drops if drop[1] is None or drop[1] <= last_attempt[drop[0]]) == expected_drops
+    def drops_at(stage: str) -> list[tuple[str, int | None]]:
+        return sorted((source_id, attempt) for drop_stage, source_id, attempt in drops if drop_stage == stage)
+
+    assert drops_at("grouping_prep") == expected_prep_drops
+    assert drops_at("grouping_retry_limit") == expected_limit_drops
+    assert len(read_keys) == expected_reads
+    assert completed_signal_ids == all_signal_ids
     assert discarded_keys == []

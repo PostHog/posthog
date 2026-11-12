@@ -22,9 +22,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.spend import complete_signal_pipeline
 from products.signals.backend.spend_billing import system_source_exempt
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
+    _complete_signal_batch,
     _process_signal_batch,
 )
 from products.signals.backend.temporal.types import (
@@ -41,12 +43,15 @@ PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
 RETRY_BACKOFF = timedelta(seconds=10)
+# A batch that fails this many rounds is dropped, so one bad batch cannot block the team's grouping.
+MAX_BATCH_ATTEMPTS = 5
 
 # Patch ID for the multi-batch collection change. Once all in-flight workflows
 # that recorded history under the old single-batch code have drained (they
 # continue_as_new every iteration, so this is fast), replace this
 # workflow.patched() call with workflow.deprecate_patch() and eventually remove.
 _PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
+_PATCH_BATCH_RETRY_LIMIT = "grouping-v2-batch-retry-limit-v1"
 
 
 @dataclass(frozen=False)
@@ -55,9 +60,11 @@ class CollectedBatch:
 
     signals: list[EmitSignalInputs] = field(default_factory=list)
     object_keys: list[str] = field(default_factory=list)
-    # Processing attempt of each signal, aligned with `signals`. A failed batch is retried with no
-    # limit, so the attempt lets drop telemetry tell a retry storm apart from new lost signals.
+    # Processing attempt of each signal, aligned with `signals`. A failed batch is retried up to
+    # MAX_BATCH_ATTEMPTS, so the attempt lets drop telemetry tell retries apart from new lost signals.
     attempts: list[int] = field(default_factory=list)
+    # Object key each signal came from, aligned with `signals`.
+    signal_object_keys: list[str] = field(default_factory=list)
 
 
 @activity.defn
@@ -193,6 +200,7 @@ class TeamSignalGroupingV2Workflow:
             collected.signals.extend(read_result.signals)
             attempt = self._failed_rounds_by_batch_key.get(object_key, 0) + 1
             collected.attempts.extend([attempt] * len(read_result.signals))
+            collected.signal_object_keys.extend([object_key] * len(read_result.signals))
 
         return collected
 
@@ -265,18 +273,21 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "Failed to process signal batch",
                 team_id=input.team_id,
                 batch_size=len(collected.signals),
                 batch_keys=collected.object_keys,
             )
-            # Stash keys back so they're retried after continue_as_new.
-            # Sleep first to avoid hot-looping on deterministic failures.
-            self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
             for key in collected.object_keys:
                 self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
+            retry_keys = collected.object_keys
+            if workflow.patched(_PATCH_BATCH_RETRY_LIMIT):
+                retry_keys = await self._drop_exhausted_batches(input, collected, e)
+            # Stash keys back so they're retried after continue_as_new.
+            # Sleep first to avoid hot-looping on deterministic failures.
+            self._batch_key_buffer = retry_keys + self._batch_key_buffer
             if self._batch_buffer_size_gauge is not None:
                 self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
             await workflow.sleep(RETRY_BACKOFF)
@@ -284,6 +295,41 @@ class TeamSignalGroupingV2Workflow:
         # continue_as_new after each processing round to keep history bounded.
         # Carry over any pending keys that arrived while we were processing.
         self._continue_as_new(input)
+
+    async def _drop_exhausted_batches(
+        self, input: TeamSignalGroupingV2Input, collected: CollectedBatch, error: Exception
+    ) -> list[str]:
+        """Drop the batches that reached MAX_BATCH_ATTEMPTS and return the keys left to retry."""
+        exhausted_keys = [
+            key for key in collected.object_keys if self._failed_rounds_by_batch_key[key] >= MAX_BATCH_ATTEMPTS
+        ]
+        if not exhausted_keys:
+            return collected.object_keys
+
+        dropped = [
+            (signal, attempt)
+            for signal, attempt, key in zip(
+                collected.signals, collected.attempts, collected.signal_object_keys, strict=True
+            )
+            if key in exhausted_keys
+        ]
+        workflow.logger.warning(
+            "signals_grouping_batch_dropped",
+            extra={
+                "team_id": input.team_id,
+                "batch_keys": exhausted_keys,
+                "signal_count": len(dropped),
+                "max_attempts": MAX_BATCH_ATTEMPTS,
+            },
+        )
+        for signal, attempt in dropped:
+            await capture_signal_dropped(signal, error, stage="grouping_retry_limit", attempt=attempt)
+        await _complete_signal_batch([signal for signal, _ in dropped], {})
+        if self._signals_dropped_counter is not None:
+            self._signals_dropped_counter.add(len(dropped))
+        for key in exhausted_keys:
+            del self._failed_rounds_by_batch_key[key]
+        return [key for key in collected.object_keys if key not in exhausted_keys]
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingV2Input) -> None:

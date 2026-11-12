@@ -1,5 +1,6 @@
 import uuid
 import random
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -318,6 +319,45 @@ async def test_potential_promotes_when_weight_crosses_threshold(ateam):
     assert refreshed.signal_count == 2
     assert refreshed.promoted_at is not None
     assert str(refreshed.triggering_signal_id) == input_.signal_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("existing_report", [False, True])
+@pytest.mark.parametrize("research_started", [False, True])
+async def test_retried_assignment_does_not_count_the_signal_again(
+    ateam, patch_side_effects, existing_report, research_started
+):
+    match: ExistingReportMatch | NewReportMatch = _new_match()
+    weight = WEIGHT_THRESHOLD
+    if existing_report:
+        report = await SignalReport.objects.acreate(
+            team=ateam, status=SignalReport.Status.POTENTIAL, total_weight=WEIGHT_THRESHOLD * 0.6, signal_count=1
+        )
+        match = _existing_match(str(report.id))
+        weight = WEIGHT_THRESHOLD * 0.6
+    input_ = _build_input(ateam.id, match, weight=weight)
+
+    first = await assign_and_emit_signal_activity(input_)
+    if research_started:
+        await SignalReport.objects.filter(id=first.report_id).aupdate(status=SignalReport.Status.IN_PROGRESS)
+    assigned = await SignalReport.objects.aget(id=first.report_id)
+    # The retried batch matches the signal again, and the new match can disagree with the first one.
+    second = await assign_and_emit_signal_activity(replace(input_, match_result=_new_match("Another title")))
+
+    retried = await SignalReport.objects.aget(id=first.report_id)
+    assert first.promoted is True
+    assert second.report_id == first.report_id
+    assert second.promoted is not research_started
+    assert (retried.signal_count, retried.total_weight, retried.status, retried.promoted_at) == (
+        assigned.signal_count,
+        assigned.total_weight,
+        assigned.status,
+        assigned.promoted_at,
+    )
+    assert await SignalReport.objects.filter(team=ateam).acount() == 1
+    assert patch_side_effects["emit"].call_args.kwargs["timestamp"] == first.timestamp
+    assert patch_side_effects["emit"].call_args.kwargs["metadata"]["report_id"] == first.report_id
 
 
 @pytest.mark.asyncio
