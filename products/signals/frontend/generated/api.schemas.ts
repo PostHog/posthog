@@ -9960,7 +9960,7 @@ export interface ScoutReportDiscussionApi {
      * @nullable
      */
     question: string | null
-    /** The member who started the discussion: who opened Ask AI on an `inbox` discussion, or whose message started a `slack` discussion. Other people may have replied in a Slack thread, so this member did not necessarily shape everything the summary reflects. Null when the discussion has no creator, or when the creator no longer has access to this project. */
+    /** The member who opened the discussion: who opened Ask AI on an `inbox` discussion, or whose message started a `slack` discussion. Not the author of `task_summary`: any project member can rewrite an `inbox` summary, and others in a Slack thread can shape a `slack` one. Null when the discussion has no creator, or when the creator no longer has access to this project. */
     started_by: ScoutDiscussionStarterApi | null
 }
 
