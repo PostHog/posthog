@@ -179,7 +179,7 @@ import {
 import { createDashboardWidgetTileRefreshScheduler } from 'products/dashboards/frontend/widgetTileRefreshScheduler'
 import type { ZoomRange } from 'products/dashboards/frontend/zoomPreview'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
+import { rangeReachesBefore } from 'products/product_analytics/frontend/insights/dataRetention/rangeReachesBefore'
 
 import type { DashboardSharingDebugApi } from '../../../../products/dashboards/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -212,7 +212,6 @@ import {
     withCompactMetricVariables,
     encodeURLVariables,
     getDashboardWidgetType,
-    getEffectiveDateOverride,
     getInsightQueryError,
     getInsightWithRetry,
     isRefreshRejectionStub,
@@ -773,9 +772,8 @@ function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTi
 export interface dashboardLogicValues {
     internetConnectionIssue: boolean // apiStatusLogic
     tileGroupChoices: TileGroupChoices // dashboardTileGroupChoicesLogic
-    retentionMonths: number | null // dataRetentionBannerLogic
-    retentionPeriodLabel: string | null // dataRetentionBannerLogic
-    warningEligible: boolean // dataRetentionBannerLogic
+    deletionCutoff: Dayjs | null // dataRetentionBannerLogic
+    dismissed: boolean // dataRetentionBannerLogic
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
@@ -788,7 +786,7 @@ export interface dashboardLogicValues {
     addWidgetModalOpen: boolean
     addWidgetSelectedTypes: string[]
     addWidgetTileLoading: boolean
-    anyInsightExceedsRetention: boolean
+    anyInsightReachesDeletion: boolean
     apiUrl: (
         refresh?: RefreshType | undefined,
         filtersOverride?: DashboardFilter | undefined,
@@ -1908,14 +1906,10 @@ export interface dashboardLogicMeta {
             currentDashboardSettings: DashboardSettings,
             variables: Variable[]
         ) => DashboardSettingsChange[]
-        anyInsightExceedsRetention: (
-            insightTiles: DashboardTile[],
-            effectiveEditBarFilters: DashboardFilter,
-            retentionMonths: number | null
-        ) => boolean
+        anyInsightReachesDeletion: (insightTiles: DashboardTile[], deletionCutoff: Dayjs | null) => boolean
         showRetentionBanner: (
-            warningEligible: boolean,
-            anyInsightExceedsRetention: boolean,
+            dismissed: boolean,
+            anyInsightReachesDeletion: boolean,
             placement: DashboardPlacement
         ) => boolean
         effectiveRefreshFilters: (
@@ -2248,7 +2242,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
             dataRetentionBannerLogic,
-            ['warningEligible', 'retentionMonths', 'retentionPeriodLabel'],
+            ['deletionCutoff', 'dismissed'],
             apiStatusLogic,
             ['internetConnectionIssue'],
             dashboardTileGroupChoicesLogic,
@@ -4069,34 +4063,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ]
             },
         ],
-        // Does any tile on this dashboard reach past the team's events retention window? Runs the same date
-        // precedence and the same rule the tiles do, so the banner and a tile's icon can't disagree.
-        anyInsightExceedsRetention: [
-            (s) => [s.insightTiles, s.effectiveEditBarFilters, s.retentionMonths],
-            (
-                insightTiles: DashboardTile[],
-                dashboardFilters: DashboardFilter,
-                retentionMonths: number | null
-            ): boolean =>
+        anyInsightReachesDeletion: [
+            (s) => [s.insightTiles, s.deletionCutoff],
+            (insightTiles: DashboardTile[], deletionCutoff: Dayjs | null): boolean =>
                 (insightTiles || []).some((tile) =>
-                    exceedsRetention({
+                    rangeReachesBefore({
                         query: tile.insight?.query,
-                        dateFromOverride: getEffectiveDateOverride(
-                            tile.insight?.filter_override_context,
-                            dashboardFilters,
-                            tile.filters_overrides
-                        ).dateFromOverride,
                         resolvedDateFrom: tile.insight?.resolved_date_range?.date_from,
-                        retentionMonths,
+                        cutoff: deletionCutoff,
                     })
                 ),
         ],
         showRetentionBanner: [
-            (s) => [s.warningEligible, s.anyInsightExceedsRetention, s.placement],
-            (warningEligible: boolean, anyInsightExceedsRetention: boolean, placement: DashboardPlacement): boolean =>
-                warningEligible &&
-                anyInsightExceedsRetention &&
-                // Shared and exported views have no upgrade path for the viewer, and a public viewer isn't our customer.
+            (s) => [s.dismissed, s.anyInsightReachesDeletion, s.placement],
+            (dismissed: boolean, anyInsightReachesDeletion: boolean, placement: DashboardPlacement): boolean =>
+                !dismissed &&
+                anyInsightReachesDeletion &&
+                // Shared and exported viewers can't change the retention period, and a public viewer isn't our customer.
                 placement !== DashboardPlacement.Public &&
                 placement !== DashboardPlacement.Export,
         ],
