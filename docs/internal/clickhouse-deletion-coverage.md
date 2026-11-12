@@ -165,7 +165,35 @@ Coordinator totals include successful child workflow results. Failed teams log t
 Temporal adds workflow IDs, run IDs, and attempt numbers to the logs and suppresses workflow logs during replay.
 
 Discovery does not change existing person or group deletion processes.
-Membership erasure requires a separate deletion job that rechecks saved candidates before it deletes rows.
+The `customer-analytics-membership-deletion` schedule owns erasure and runs independently of discovery.
+It starts paused in dry-run mode. Deletion also requires an explicit team list.
+It selects candidates missing for at least 24 hours and repeats identity checks before each deletion batch.
+Recovered identities clear their candidates. Failed lookups or erasure verification keep work pending.
+Deletion never discovers new candidates.
+
+Both jobs use the same per-team lease. Each schedule has its own batch, team-page, and time limits.
+Deletion keeps its coordinator cursor in team row `-1`, separate from discovery's row `0`.
+Neither coordinator row starts a project sweep.
+Deletion preserves the key held in a discovery cursor until discovery advances past it.
+Its coordinator selects teams from overdue candidates and deleted-team scan state, without scanning membership.
+
+The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
+Deletion predicates use bounded raw-key filters for index pruning and SHA-256 digests for exact matching.
+Keys above 400 characters use prefix filters, so large stored values do not expand query text or erase rows that share a prefix.
+Topology discovery, shard queries, and verification apply per-team query settings and kill-switch ceilings alongside the remaining batch deadline.
+It checks for pending mutations before retrying and skips shards where matching rows are already absent.
+Each deletion resolves fresh shard topology, including sibling clusters.
+Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.
+Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
+Query failure logs include the team, stage, and error code, without database exception text or membership keys.
+Candidates are removed only after verified erasure.
+Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
+Live-team erasure keeps eligibility config and unrelated membership.
+The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.
+Step timings also cover storage resolution, pending mutation checks, per-shard deletes, erasure verification, and checkpoint cleanup.
+Deletion batch logs include `dry_run`, `deletion_enabled`, and a `skip_reason` for dry runs or teams outside the allowlist.
+Team and coordinator summaries include `failed_batches`. A caught deletion failure produces a `partial_failure` summary even when the workflow completes.
+The `deleted` count measures membership keys confirmed erased, not physical ClickHouse rows.
 Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
 
 ## Tables on TTL alone

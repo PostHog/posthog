@@ -276,7 +276,10 @@ async def test_temporal_discovery_preserves_membership(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("execution_budget", [TEAM_RUN_BUDGET, timedelta(minutes=5)])
+@pytest.mark.parametrize(
+    "execution_budget",
+    [TEAM_RUN_BUDGET, timedelta(minutes=5), timedelta(minutes=5, microseconds=1), timedelta(minutes=5, microseconds=2)],
+)
 async def test_team_reserves_time_for_retries(execution_budget: timedelta) -> None:
     now = timezone.now()
     execute = AsyncMock(return_value=MembershipDiscoveryCounts())

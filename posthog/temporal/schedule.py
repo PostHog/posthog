@@ -101,6 +101,7 @@ from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_membership_coordinator_schedule,
+    create_membership_deletion_schedule,
     create_membership_discovery_schedule,
     create_ownership_claims_coordinator_schedule,
 )
@@ -1015,6 +1016,7 @@ schedules = [
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_membership_discovery_schedule,
+    create_membership_deletion_schedule,
     create_ownership_claims_coordinator_schedule,
     create_membership_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
