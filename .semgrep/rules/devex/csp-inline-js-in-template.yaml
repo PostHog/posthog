@@ -8,7 +8,7 @@ rules:
 
           Make it a real link to a URL. If the action needs script, render a `<button type="button">`
           and bind its handler with `addEventListener` inside `<script nonce="{{ request.csp_nonce }}">`.
-          `posthog/templates/admin/deletion_button.html` shows the pattern.
+          `posthog/templates/admin/base_site.html` shows the pattern.
 
           See "Content Security Policy" in `.agents/security.md`.
       severity: ERROR
@@ -42,7 +42,7 @@ rules:
           makes this work. The browser drops the handler, and the user sees no error.
 
           Give the element an `id` or a class, and bind the handler with `addEventListener` inside
-          `<script nonce="{{ request.csp_nonce }}">`. `posthog/templates/admin/deletion_button.html`
+          `<script nonce="{{ request.csp_nonce }}">`. `posthog/templates/admin/base_site.html`
           shows the pattern.
 
           See "Content Security Policy" in `.agents/security.md`.

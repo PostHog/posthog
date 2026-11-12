@@ -2,8 +2,8 @@
 
 The staff back office at `/admin/console/`.
 It replaces custom Django admin views and templates for staff workflows.
-The semgrep rules in `.semgrep/rules/devex/no-new-custom-admin-views.yaml` and `no-new-custom-admin-templates.yaml` block new ones (admin views, URLs under `/admin/`, save hooks, workflow actions, and any file under `templates/admin/` or `static/admin/`), and the program ends when their findings reach zero.
-The Django admin stays for plain CRUD on models.
+The semgrep rules in `.semgrep/rules/devex/no-new-custom-admin-views.yaml` and `no-new-custom-admin-templates.yaml` block new ones (admin views, URLs under `/admin/`, save hooks, workflow actions, admin templates and scripts, and any file under `templates/admin/` or `static/admin/`), and the program ends when their findings reach zero.
+The Django admin stays for plain CRUD on models, with the Python tweaks that the "Django admin" section of [`.agents/architecture.md`](../../../.agents/architecture.md) allows. Read it when you decide whether a change stays in the admin.
 Before you add or change a panel, operation or tool, invoke `/extending-the-admin-console`. It holds the judgment calls: where a change goes, copy, how to classify an operation, and the checks before done.
 
 ## Invariants

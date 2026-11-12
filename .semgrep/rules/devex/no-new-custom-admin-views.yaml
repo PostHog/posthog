@@ -6,7 +6,8 @@ rules:
           check and OAuth step-up apply, and its pages do not break when Django changes admin
           internals. Add a Panel in products/<product>/backend/console.py; see
           posthog/admin/console/AGENTS.md. Django admin stays for plain CRUD: list_display,
-          search_fields, readonly_fields and inlines are fine. For a changelist action,
+          search_fields, readonly_fields and inlines are fine, and so is a Python tweak of a field
+          or form; see "Django admin" in .agents/architecture.md. For a changelist action,
           see /extending-the-admin-console.
           Pre-existing findings are grandfathered; only newly introduced findings block CI.
       languages: [python]
@@ -36,6 +37,18 @@ rules:
                       metavariable: $TEMPLATE
                       regex: ^(change_form_template|change_list_template|add_form_template|delete_confirmation_template|delete_selected_confirmation_template|object_history_template|popup_response_template)$
           - pattern: $SITE.admin_view(...)
+          # An inline's own template and a Media class bring a template or a script in from Python.
+          - patterns:
+                - pattern-inside: |
+                      class $CLASS(...):
+                          ...
+                - pattern-not-inside: |
+                      def $FUNC(...):
+                          ...
+                - pattern: template = $VALUE
+          - pattern: |
+                class Media:
+                    ...
       paths:
           include:
               - '**/admin.py'
