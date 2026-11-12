@@ -7878,7 +7878,7 @@ class HogFlowViewSet(
                 cache.delete(cache_key)
             if trigger_type == "manual":
                 return _manual_run_refusal(response)
-            return Response({"detail": response.text}, status=response.status_code)
+            return Response({"detail": _cdp_error_detail(response)}, status=response.status_code)
 
         result = response.json()
         if cache_key:
@@ -7888,13 +7888,17 @@ class HogFlowViewSet(
         return Response(HogFlowRunResponseSerializer(result).data)
 
 
-def _manual_run_refusal(response: requests.Response) -> Response:
-    """Turn CDP's refusal of a manual run into a message for the editor's toast."""
+def _cdp_error_detail(response: requests.Response) -> str:
     try:
         body = response.json()
     except ValueError:
         body = None
-    detail = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else response.text
+    return body["error"] if isinstance(body, dict) and isinstance(body.get("error"), str) else response.text
+
+
+def _manual_run_refusal(response: requests.Response) -> Response:
+    """Turn CDP's refusal of a manual run into a message for the editor's toast."""
+    detail = _cdp_error_detail(response)
     if response.status_code == 429:
         return Response(
             {"detail": "This workflow was disabled after too many failed or slow runs. Check its logs."}, status=429
