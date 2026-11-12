@@ -60,6 +60,7 @@ EVENT_PROPERTIES: dict[str, object] = {
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
     label="Blocks checkout",
+    description="The error stops a user from paying.",
     question_version=2,
     enabled_flag="error-tracking-issue-tags",
     taggers=(JevTaggerConfig(instructions="Does this error stop a user from paying?", yes_at=0.8, no_at=0.2),),
@@ -67,6 +68,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
 RETRIES_ITSELF = IssueTagDefinition(
     key="retries_itself",
     label="Retries itself",
+    description="The application retries the failed call by itself.",
     question_version=1,
     enabled_flag="error-tracking-issue-tags",
     taggers=(
@@ -194,6 +196,7 @@ class TestRunIssueTaggers(BaseTest):
         definition = IssueTagDefinition(
             key="cause_in_trace",
             label="Cause in trace",
+            description="The stack trace shows where in your code the error starts.",
             question_version=1,
             enabled_flag="error-tracking-issue-tags",
             taggers=(

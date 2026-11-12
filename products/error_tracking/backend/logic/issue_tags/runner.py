@@ -8,7 +8,8 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.error_tracking.backend.logic.issue_tags import registry
-from products.error_tracking.backend.logic.issue_tags.gate import ISSUE_TAGS_FLAG, issue_tags_enabled
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagContext, Tagger
 from products.error_tracking.backend.logic.issue_tags.taggers.jev import JevTagger
