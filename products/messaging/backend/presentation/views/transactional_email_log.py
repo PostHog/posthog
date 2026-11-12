@@ -34,7 +34,7 @@ from products.messaging.backend.facade.transactional_email_log import (
     transactional_email_stats_over_time,
 )
 from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.presentation.views.transactional_email_access import require_transactional_email_api
 from products.workflows.backend.facade.api import get_workflow_view_access
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 

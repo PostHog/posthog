@@ -15,7 +15,7 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key, leg
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.messaging.backend.facade.preferences import TopicsNotFound, set_preferences
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.presentation.views.transactional_email_access import require_transactional_email_api
 
 logger = structlog.get_logger(__name__)
 

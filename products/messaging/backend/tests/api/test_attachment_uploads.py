@@ -25,7 +25,7 @@ from products.messaging.backend.presentation.views.attachment_uploads import (
     AttachmentUploadsRequestSerializer,
     AttachmentUploadTeamBurstThrottle,
 )
-from products.messaging.backend.presentation.views.message_templates import (
+from products.messaging.backend.presentation.views.transactional_email_access import (
     TransactionalEmailBurstThrottle,
     TransactionalEmailTeamBurstThrottle,
 )
