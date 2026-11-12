@@ -465,6 +465,37 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         target.refresh_from_db()
         assert target.conditions[0]["properties"][0]["value"] == ["signals"]
 
+    @parameterized.expand(
+        [
+            ("editor_of_the_target_applies_it", True, status.HTTP_200_OK, "signals_scout"),
+            ("editor_of_another_evaluation_cannot", False, status.HTTP_403_FORBIDDEN, "signals"),
+        ]
+    )
+    def test_fix_needs_edit_access_to_its_target_only(
+        self, _name: str, grant_on_target: bool, expected_status: int, expected_product: str
+    ) -> None:
+        target = _evaluation(self.team)
+        other = _evaluation(self.team, name="Another evaluation")
+        self._grant("viewer")
+        self._grant("editor", target if grant_on_target else other)
+        suggestion = EvalSuggestion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            run=self.suggestion_run,
+            kind=EvalSuggestionKind.FIX_EVAL,
+            dedupe_key="fix:one",
+            headline="Suggestion",
+            reason="Reason",
+            draft={"conditions": _conditions("signals_scout")},
+            target_evaluation=target,
+        )
+        self.client.force_login(self.member)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/evaluation_suggestions/{suggestion.id}/apply_fix/")
+
+        assert response.status_code == expected_status, response.json()
+        target.refresh_from_db()
+        assert target.conditions[0]["properties"][0]["value"] == [expected_product]
+
     @parameterized.expand([("target_evaluation",), ("similar_evaluation",)])
     @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_member_sees_no_suggestion_naming_an_evaluation_hidden_from_them(

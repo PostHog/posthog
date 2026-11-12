@@ -238,9 +238,13 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "evaluation"
     scope_object_read_actions = ["list", "retrieve", "accept_estimate"]
     scope_object_write_actions = ["accept", "dismiss", "apply_fix"]
-    # Suggestions are not evaluation objects: the list names any evaluation and accept creates new ones,
-    # so a grant on one evaluation must not open them. Fixes also check the evaluation they change.
-    requires_resource_level_access = True
+
+    @property
+    def requires_resource_level_access(self) -> bool:
+        # Suggestions are not evaluation objects: the list names any evaluation and accept creates new ones, so a
+        # grant on one evaluation must not open them. A fix changes one evaluation, and its edit access is enough.
+        return self.action != "apply_fix"
+
     # `objects` is fail-closed; every action reads through `for_team` with the request team.
     queryset = EvalSuggestion.objects.unscoped()
     serializer_class = EvalSuggestionSerializer
