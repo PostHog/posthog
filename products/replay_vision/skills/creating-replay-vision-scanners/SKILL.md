@@ -61,7 +61,7 @@ default — unknown keys are rejected too).
 
 If the user's intent makes the type and prompt obvious, just proceed — don't interrogate them.
 When they only have a goal ("find where users get stuck in onboarding"), `vision-scanners-draft` drafts the type, config, query, model and sampling for you to review; it saves nothing.
-Ask the user how much it should use, and offer both choices: free (`free_only: true`, runs only on the organization's free monthly credits and never adds to the bill) or a monthly credit budget they name. Never invent a budget. Pass the draft's `free_only` and `credit_limit` on to `vision-scanners-create`.
+Ask the user how much it should use, and offer both choices: free (`free_only: true`, runs only on the organization's free monthly credits and never adds to the bill, and stops when they run out) or a monthly credit budget they name. Never invent a budget. Pass the draft's `free_only` and `credit_limit` on to `vision-scanners-create`.
 
 ### Step 2: Which sessions?
 
