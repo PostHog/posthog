@@ -142,6 +142,8 @@ from products.alerts.backend.facade.platform import (
     native_insight_alert_views,
     platform_subscriber_ids,
     platform_takes_new_alert_with,
+    set_native_subscribers,
+    subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
     write_moved_alert_edit,
     write_native_alert_edit,
@@ -1129,7 +1131,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     def _update_native(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:
         """`update` for an alert with no insight row. It runs the same checks, then writes the edit to
-        the platform, which keeps the alert. The alert has no subscriptions, so it takes none."""
+        the platform, which keeps the alert and its subscribers."""
         target_insight = validated_data.get("insight")
         insight_ids = {instance.insight_id, target_insight.id if target_insight else instance.insight_id}
         # The lock order of `update`: insights, then the alert, which the platform locks as its copy.
@@ -1143,14 +1145,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if locked.insight_id != instance.insight_id:
             raise ValidationError({"insight": ["The alert's insight changed. Retry the update."]})
         instance = locked
+        locked_insight_id = locked.insight_id
         if target_insight:
             target_insight.refresh_from_db()
             _reject_deleted_insight(target_insight)
-        if validated_data.get("subscribed_users"):
-            raise ValidationError(
-                {"subscribed_users": ["This alert can't email subscribers yet. Add a destination instead."]}
-            )
-        validated_data.pop("subscribed_users", None)
+        subscribed_users = validated_data.pop("subscribed_users", None)
         self.instance = instance
         validated_data = self.validate(validated_data)
         resulting_enabled = validated_data.get("enabled", instance.enabled) is True
@@ -1214,7 +1213,18 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         updated = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
         if updated is None:
             raise Http404
+        # The insight names the in-app destination's resource, so moving the alert rewrites its subscribers too.
+        if subscribed_users is not None or updated.insight_id != locked_insight_id:
+            set_native_subscribers(
+                team_id=updated.team_id,
+                alert_id=updated.id,
+                user_ids=[user.id for user in subscribed_users]
+                if subscribed_users is not None
+                else platform_subscriber_ids(team_id=updated.team_id, alert_ids=[updated.id]).get(updated.id, ()),
+                insight_short_id=updated.insight.short_id,
+            )
         _show_platform_status([updated], now=timezone.now())
+        _show_platform_subscribers([updated])
         updated.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
@@ -1731,6 +1741,23 @@ class AlertDeleteDestinationSerializer(serializers.Serializer):
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
+
+
+def _subscriber_emails(alert: AlertConfiguration) -> list[str]:
+    """`get_subscribed_users_emails`, read from the subscriber destinations of an alert with no insight row.
+    Only subscribers who can still view its insight, as a delivery reaches."""
+    if not alert.has_no_insight_row:
+        return alert.get_subscribed_users_emails()
+    user_ids = subscribers_with_insight_access(
+        team_id=alert.team_id,
+        configuration_id=alert.id,
+        user_ids=platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ()),
+    )
+    return list(
+        User.objects.filter(
+            id__in=user_ids, organization_membership__organization_id=alert.team.organization_id
+        ).values_list("email", flat=True)
+    )
 
 
 def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
@@ -2338,7 +2365,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id=str(alert.id),
             allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
         )
-        email_targets = alert.get_subscribed_users_emails()
+        email_targets = _subscriber_emails(alert)
         if destination_count == 0 and not email_targets:
             return Response(
                 {"detail": "Add an email recipient or active destination before sending a test."},

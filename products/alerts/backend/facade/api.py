@@ -501,8 +501,7 @@ WATCHED_ROWS_PER_INSIGHT = 4
 
 
 def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> list[str]:
-    """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first.
-    An alert with no insight row has no subscribers, so only its creator watches it."""
+    """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
     follows = AlertSubscription.objects.filter(alert_configuration=OuterRef("pk"), user_id=user_id, subscribed=True)
     rows = (
         AlertConfiguration.objects.filter(team_id=team_id, enabled=True, insight__deleted=False)
@@ -510,12 +509,16 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
         .order_by("-created_at")
         .values_list("created_at", "insight__short_id")[: limit * WATCHED_ROWS_PER_INSIGHT]
     )
-    native = [
-        (configuration.created_at, insight.short_id)
-        for configuration, insight in _native_enabled_alerts(
-            team_id=team_id, created_by_id=user_id, limit=limit * WATCHED_ROWS_PER_INSIGHT
-        )
-    ]
+    candidates = limit * WATCHED_ROWS_PER_INSIGHT
+    created = _native_enabled_alerts(team_id=team_id, created_by_id=user_id, limit=candidates)
+    # An alert with no insight row keeps its subscribers in encrypted destination configs, which the
+    # database cannot filter on, so only the newest alerts are checked for them.
+    newest = _native_enabled_alerts(team_id=team_id, limit=candidates)
+    subscribers = platform_subscribers.platform_subscriber_ids(
+        team_id=team_id, alert_ids=[configuration.id for configuration, _ in newest]
+    )
+    subscribed = [pair for pair in newest if user_id in subscribers.get(pair[0].id, ())]
+    native = [(configuration.created_at, insight.short_id) for configuration, insight in [*created, *subscribed]]
     newest_first = sorted([*rows, *native], key=lambda row: row[0], reverse=True)
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]
 
