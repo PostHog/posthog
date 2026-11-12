@@ -2,7 +2,17 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -69,13 +79,66 @@ function RunRecipients({
                 <BroadcastRunAudience runId={runId} runStartedAt={runCreatedAt} channel={channel} />
             ) : null}
             <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId, runCreatedAt }}>
-                <BroadcastRunNotSent runFinished={runFinished && !audience?.stillSending} />
-                <RunRecipientsTable
+                <RunRecipientsViews
                     workflowId={workflowId}
                     runFinished={runFinished && !audience?.stillSending}
                     sent={sendCounts?.sent ?? null}
                 />
             </BindLogic>
+        </div>
+    )
+}
+
+/** Switches one run between who it sent to and who it missed. Reads the bound broadcastSentLogic. */
+function RunRecipientsViews({
+    workflowId,
+    runFinished,
+    sent,
+}: {
+    workflowId: string
+    runFinished: boolean
+    sent: number | null
+}): JSX.Element {
+    const { runView, notSentCount } = useValues(broadcastSentLogic)
+    const { setRunView, watchNotSent } = useActions(broadcastSentLogic)
+
+    useEffect(() => {
+        watchNotSent(runFinished)
+    }, [watchNotSent, runFinished])
+
+    if (runView === null) {
+        return <LemonSkeleton className="h-8" />
+    }
+    return (
+        <div className="flex flex-col gap-3">
+            <LemonSegmentedButton
+                size="small"
+                value={runView}
+                onChange={setRunView}
+                options={[
+                    {
+                        value: 'sent',
+                        label: sent === null ? 'Sent' : `Sent (${humanFriendlyNumber(sent)})`,
+                        'data-attr': 'broadcast-run-view-sent',
+                    },
+                    {
+                        value: 'notSent',
+                        label: notSentCount === null ? 'Not sent' : `Not sent (${humanFriendlyNumber(notSentCount)})`,
+                        disabledReason:
+                            notSentCount === 0
+                                ? runFinished
+                                    ? 'Everyone in this run was sent to'
+                                    : 'No one in this run has been missed so far'
+                                : undefined,
+                        'data-attr': 'broadcast-run-view-not-sent',
+                    },
+                ]}
+            />
+            {runView === 'notSent' ? (
+                <BroadcastRunNotSent />
+            ) : (
+                <RunRecipientsTable workflowId={workflowId} runFinished={runFinished} sent={sent} />
+            )}
         </div>
     )
 }

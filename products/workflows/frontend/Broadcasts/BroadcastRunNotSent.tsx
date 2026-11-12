@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -18,13 +17,9 @@ const KIND_TAG: Record<NotSentKind, { label: string; type: LemonTagType }> = {
 }
 
 /** People in a run who got no message, with the reason. Reads the bound broadcastSentLogic. */
-export function BroadcastRunNotSent({ runFinished }: { runFinished: boolean }): JSX.Element | null {
-    const { notSent, notSentLoading, notSentFailed } = useValues(broadcastSentLogic)
-    const { watchNotSent, loadNotSent } = useActions(broadcastSentLogic)
-
-    useEffect(() => {
-        watchNotSent(runFinished)
-    }, [watchNotSent, runFinished])
+export function BroadcastRunNotSent(): JSX.Element | null {
+    const { notSent, notSentLoading, notSentFailed, notSentSearch } = useValues(broadcastSentLogic)
+    const { loadNotSent, setNotSentSearch } = useActions(broadcastSentLogic)
 
     if (notSentLoading && notSent === null) {
         return <LemonSkeleton className="h-8" />
@@ -57,16 +52,26 @@ export function BroadcastRunNotSent({ runFinished }: { runFinished: boolean }): 
 
     return (
         <div className="flex flex-col gap-2" data-attr="broadcast-run-not-sent">
-            <div className="flex flex-wrap items-baseline gap-x-2">
-                <h3 className="m-0 text-sm font-semibold">{`Not sent (${humanFriendlyNumber(total)})`}</h3>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search by person or reason"
+                    value={notSentSearch}
+                    onChange={setNotSentSearch}
+                    className="w-full min-w-40 max-w-64 flex-1"
+                    data-attr="broadcast-run-not-sent-search"
+                />
                 <span className="text-xs text-muted">{breakdown}</span>
-                {total > notSent.rows.length ? (
+                {notSent.rows.length >= NOT_SENT_ROW_LIMIT ? (
                     <span className="text-xs text-muted">{`Showing the latest ${NOT_SENT_ROW_LIMIT}`}</span>
                 ) : null}
             </div>
             <LemonTable
                 size="small"
                 dataSource={notSent.rows}
+                loading={notSentLoading}
+                emptyState="No one in this run matches this search."
                 rowKey="invocationId"
                 columns={[
                     {

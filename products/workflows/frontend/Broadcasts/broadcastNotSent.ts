@@ -35,8 +35,27 @@ export function notSentTotal(counts: NotSentCounts): number {
 }
 
 /** One row per person in the run who got no message: a failed or canceled run, or a run that logged an error. */
-function notSentInvocations(flowId: string, runId: string, runCreatedAt: string): ReturnType<typeof hogql.raw> {
+function notSentInvocations(
+    flowId: string,
+    runId: string,
+    runCreatedAt: string,
+    search = ''
+): ReturnType<typeof hogql.raw> {
     const flow = escapeHogQLString(flowId)
+    // ILIKE treats % and _ as wildcards, so they are escaped to match a search term literally.
+    const like = escapeHogQLString(`%${search.replace(/[\\%_]/g, '\\$&')}%`)
+    // A skipped person's reason is only in the run log, so the search reads the log too.
+    const searchClause = search
+        ? `AND (
+               distinct_id ILIKE ${like}
+               OR error_message ILIKE ${like}
+               OR invocation_id IN (
+                   SELECT DISTINCT instance_id FROM log_entries
+                   WHERE log_source = 'hog_flow' AND log_source_id = ${flow}
+                     AND lower(level) = 'error' AND message ILIKE ${like}
+               )
+           )`
+        : ''
     // A run can be older than a day, so the window opens a day before it started.
     const from = escapeHogQLString(dayjs.utc(runCreatedAt).subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'))
     return hogql.raw(`
@@ -64,19 +83,23 @@ function notSentInvocations(flowId: string, runId: string, runCreatedAt: string)
                    )
                )
            )
+           ${searchClause}
     `)
 }
 
+/** The counts always cover the whole run. `search` narrows only the listed people. */
 export async function loadBroadcastNotSent(
     flowId: string,
     runId: string,
-    runCreatedAt: string
+    runCreatedAt: string,
+    search = ''
 ): Promise<BroadcastNotSent> {
     const invocations = notSentInvocations(flowId, runId, runCreatedAt)
+    const listed = search ? notSentInvocations(flowId, runId, runCreatedAt, search) : invocations
     const tags = { scene: 'Broadcast', productKey: 'workflows' }
     const [rowsResponse, countsResponse] = await Promise.all([
         api.queryHogQL(
-            hogql`SELECT invocation_id, status, error_message, distinct_id, person_id FROM (${invocations}) ORDER BY latest_scheduled_at DESC LIMIT ${NOT_SENT_ROW_LIMIT}`,
+            hogql`SELECT invocation_id, status, error_message, distinct_id, person_id FROM (${listed}) ORDER BY latest_scheduled_at DESC LIMIT ${NOT_SENT_ROW_LIMIT}`,
             tags,
             { refresh: 'force_blocking' }
         ),
