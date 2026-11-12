@@ -137,17 +137,17 @@ def replaces_stored_value(value: Any, stored: Any) -> bool:
 
 # Fields the serializer computes from what the user saved. Each sits at a fixed place, never inside a value, so a
 # value that holds a key with one of these names still counts.
-_DERIVED_FIELDS = frozenset({"bytecode", "bytecode_contract", "bytecode_error", "input_deps", "order", "transpiled"})
+DERIVED_FIELDS = frozenset({"bytecode", "bytecode_contract", "bytecode_error", "input_deps", "order", "transpiled"})
 
 
-def _without_derived_fields(entry: Any) -> Any:
+def without_derived_fields(entry: Any) -> Any:
     if not isinstance(entry, dict):
         return entry
-    return {key: value for key, value in entry.items() if key not in _DERIVED_FIELDS}
+    return {key: value for key, value in entry.items() if key not in DERIVED_FIELDS}
 
 
 def _authored_input(item: Any, secret: bool) -> Any:
-    authored = _without_derived_fields(item)
+    authored = without_derived_fields(item)
     if not isinstance(authored, dict):
         return authored
     # The worker evaluates an input without templating as Hog.
@@ -158,19 +158,19 @@ def _authored_input(item: Any, secret: bool) -> Any:
     return authored
 
 
-def _authored_inputs(inputs: Any, secret_keys: set[str]) -> Any:
+def authored_inputs(inputs: Any, secret_keys: set[str]) -> Any:
     if not isinstance(inputs, dict):
         return inputs
     return {str(key): _authored_input(item, key in secret_keys) for key, item in inputs.items()}
 
 
-def _authored_mapping(mapping: Any) -> Any:
+def authored_mapping(mapping: Any) -> Any:
     if not isinstance(mapping, dict):
         return mapping
     return {
         **mapping,
-        "inputs": _authored_inputs(mapping.get("inputs"), set()),
-        "filters": _without_derived_fields(mapping.get("filters")),
+        "inputs": authored_inputs(mapping.get("inputs"), set()),
+        "filters": without_derived_fields(mapping.get("filters")),
     }
 
 
@@ -183,8 +183,8 @@ def guarded_content(hog: Optional[str], inputs: Any, inputs_schema: Any, mapping
             # The serializer trims the code it saves.
             "hog": (hog or "").strip(),
             "inputs_schema": inputs_schema or [],
-            "inputs": _authored_inputs(inputs, secret_keys),
-            "mappings": [_authored_mapping(mapping) for mapping in mappings or []],
+            "inputs": authored_inputs(inputs, secret_keys),
+            "mappings": [authored_mapping(mapping) for mapping in mappings or []],
         },
         default=str,
         sort_keys=True,
