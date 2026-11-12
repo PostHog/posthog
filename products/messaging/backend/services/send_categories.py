@@ -110,5 +110,7 @@ def _require_room_for(team_id: int, key: str) -> None:
 def _restore(team_id: int, category: MessageCategory) -> None:
     with transaction.atomic():
         _lock_categories(team_id)
-        _require_room_for(team_id, category.key)
-        MessageCategory.objects.filter(team_id=team_id, pk=category.pk).update(deleted=False, updated_at=timezone.now())
+        archived = MessageCategory.objects.filter(team_id=team_id, pk=category.pk, deleted=True)
+        if archived.exists():
+            _require_room_for(team_id, category.key)
+            archived.update(deleted=False, updated_at=timezone.now())
