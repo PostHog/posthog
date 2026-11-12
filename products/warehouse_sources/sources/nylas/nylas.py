@@ -354,9 +354,7 @@ class _UpdateFilterTooOld(Exception):
 
 
 def _update_filter_too_old(error: requests.HTTPError) -> bool:
-    if error.response is None:
-        return False
-    return GOOGLE_UPDATED_FILTER_TOO_OLD in error.response.text
+    return GOOGLE_UPDATED_FILTER_TOO_OLD in (error.response.text if error.response is not None else "")
 
 
 @dataclasses.dataclass(frozen=True)
