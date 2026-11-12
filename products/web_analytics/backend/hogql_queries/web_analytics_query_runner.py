@@ -37,7 +37,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, apply_path_cleaning, get_property_type, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    apply_path_cleaning,
+    get_property_key,
+    get_property_type,
+    property_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -789,6 +795,12 @@ WHERE and(
             for step in self._conversion_goal_action.steps:
                 filters.extend(step.properties or [])
         if any(get_property_type(prop) not in _POSTHOG_TABLE_PROPERTY_TYPES for prop in filters):
+            return False
+        # A saved expression can add a custom field to sessions, and only the full database loads it.
+        session_fields = self._posthog_tables_database.get_table("sessions").fields
+        if any(
+            get_property_type(prop) == "session" and get_property_key(prop) not in session_fields for prop in filters
+        ):
             return False
         # The built-in-only database carries no per-user access control.
         return not team_has_property_access_rules(team_id=self.team.pk)

@@ -18,6 +18,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -26,8 +27,10 @@ from posthog.schema import (
 from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.models.scoping import team_scope
 
 from products.actions.backend.facade.testing import create_action
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
@@ -252,11 +255,34 @@ class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
             ("overview_with_custom_event_goal", "overview", [], [], "custom_event", False),
             ("stats_table_with_person_action_goal", "stats_table", [], [], PERSON_FILTER, False),
             ("stats_table_with_hogql_action_goal", "stats_table", [], [], HOGQL_FILTER, True),
+            (
+                "stats_table_with_built_in_session_filter",
+                "stats_table",
+                [SessionPropertyFilter(key="$entry_pathname", value="/", operator=PropertyOperator.EXACT)],
+                [],
+                None,
+                False,
+            ),
+            (
+                "stats_table_with_saved_session_expression_filter",
+                "stats_table",
+                [SessionPropertyFilter(key="is_long_session", value="1", operator=PropertyOperator.EXACT)],
+                [],
+                None,
+                True,
+            ),
         ]
     )
     def test_full_database_is_built_only_when_a_filter_can_read_the_warehouse(
         self, _name, kind, properties, test_account_filters, goal, builds_full_database
     ):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="sessions",
+                field_name="is_long_session",
+                expression="$session_duration > 60",
+            )
         self.team.test_account_filters = test_account_filters
         self.team.save()
         conversion_goal: ActionConversionGoal | CustomEventConversionGoal | None = None
