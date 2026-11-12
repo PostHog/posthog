@@ -2,6 +2,7 @@ from typing import Any
 
 from asgiref.sync import sync_to_async
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.models.team import Team
 
 from products.workflows.backend.facade.contracts import WorkflowSummary
@@ -18,6 +19,7 @@ def create_workflow_for_test(
     trigger: dict[str, Any] | None = None,
     actions: list[dict[str, Any]] | None = None,
     edges: list[dict[str, Any]] | None = None,
+    tags: list[str] | None = None,
 ) -> WorkflowSummary:
     """Seed a workflow row. Fields left as None take the model defaults."""
     optional = {"name": name, "trigger": trigger, "actions": actions, "edges": edges}
@@ -27,6 +29,8 @@ def create_workflow_for_test(
         created_by_id=created_by_id,
         **{field: value for field, value in optional.items() if value is not None},
     )
+    if tags:
+        set_tags_on_object(tags, flow)
     return WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
 
 

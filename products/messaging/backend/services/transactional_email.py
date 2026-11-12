@@ -36,6 +36,7 @@ from products.messaging.backend.facade.contracts import (
     ContentTooLarge,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailTracking,
     FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
@@ -60,6 +61,7 @@ from products.messaging.backend.facade.contracts import (
     SendingSuspended,
     SendWarning,
     SendWarningCode,
+    SensitiveTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
     TooManyKeys,
@@ -482,9 +484,14 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
-def _code_email_workflow_id(team_id: int, key: str) -> UUID:
+def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
     template = _template_for_key(team_id, key)
     if template is not None:
+        if sensitive is False and template.sensitive:
+            raise SensitiveTemplate(
+                "This email's template is marked sensitive, so `sensitive` can't be false. "
+                "Leave `sensitive` out, or unmark the template."
+            )
         return _transactional_workflow_id(team_id, template)
     hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
@@ -606,7 +613,7 @@ def send_code_email(
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send, sandbox_warning = _accepted_send(team, email)
-        hog_flow_id = _code_email_workflow_id(team.id, email.key)
+        hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
 
@@ -645,8 +652,10 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(sender),
-        "tracking": {"captureEngagement": email.capture_engagement},
+        "tracking": _accepted_tracking(email.tracking),
     }
+    if email.sensitive is not None:
+        accepted["sensitive"] = email.sensitive
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
     if email.cc:
@@ -656,6 +665,15 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted, sandbox_warning
+
+
+def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
+    accepted = {"captureEngagement": tracking.engagement}
+    if not tracking.opens:
+        accepted["opens"] = False
+    if tracking.clicks is not None:
+        accepted["clicks"] = tracking.clicks
+    return accepted
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
@@ -840,7 +858,11 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     except ValueError:
         return None
     for issue in issues if isinstance(issues, list) else []:
-        if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
+        if not isinstance(issue, dict) or issue.get("code") != "unrecognized_keys":
+            continue
+        if issue.get("path") == ["send", "tracking"]:
+            return "tracking"
+        if issue.get("path") == ["send"]:
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
                 return keys[0]

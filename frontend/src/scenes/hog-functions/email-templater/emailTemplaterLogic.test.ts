@@ -574,12 +574,15 @@ describe('emailTemplaterLogic', () => {
         let loadDesign: jest.Mock
         let editorListeners: Record<string, () => void>
         let editorDesign: Record<string, any>
+        let holdNextExport: boolean
+        let releaseHeldExport: (() => void) | null
 
         const DESIGN_STORED = { body: { id: 'stored', rows: [{ id: 'r1' }] } }
         // What unlayer exports after normalizing DESIGN_STORED (it rewrites ids/defaults on load).
         const DESIGN_NORMALIZED = { body: { id: 'stored', rows: [{ id: 'r1' }], values: { normalized: true } } }
         const DESIGN_EDITED = { body: { id: 'edited', rows: [{ id: 'r2' }] } }
         const DESIGN_EXTERNAL = { body: { id: 'external', rows: [{ id: 'r3' }] } }
+        const DESIGN_EDITED_AGAIN = { body: { id: 'edited-again', rows: [{ id: 'r4' }] } }
 
         const value = (overrides?: Partial<EmailTemplate>): EmailTemplate => ({
             ...DEFAULT_EMAIL_TEMPLATE,
@@ -594,8 +597,15 @@ describe('emailTemplaterLogic', () => {
                     addEventListener: (event: string, callback: () => void) => {
                         editorListeners[event] = callback
                     },
-                    exportHtml: (callback: (data: any) => void) =>
-                        callback({ html: '<p>edited</p>', design: editorDesign }),
+                    exportHtml: (callback: (data: any) => void) => {
+                        const exported = { html: '<p>edited</p>', design: editorDesign }
+                        if (holdNextExport) {
+                            holdNextExport = false
+                            releaseHeldExport = () => callback(exported)
+                            return
+                        }
+                        callback(exported)
+                    },
                     exportPlainText: (callback: (data: any) => void) => callback({ text: 'edited' }),
                 },
             }) as unknown as EditorRef
@@ -615,6 +625,8 @@ describe('emailTemplaterLogic', () => {
             loadDesign = jest.fn()
             editorListeners = {}
             editorDesign = DESIGN_NORMALIZED
+            holdNextExport = false
+            releaseHeldExport = null
             logic = emailTemplaterLogic(makeProps({ value: value(), onChange, liveChanges: true }))
             logic.mount()
             logic.actions.setIsModalOpen(true)
@@ -667,6 +679,24 @@ describe('emailTemplaterLogic', () => {
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+        })
+
+        it('switching the sender keeps a canvas edit made while the flush is exporting', async () => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            holdNextExport = true
+            const flushed = logic.asyncActions.flushPendingDesignEdit()
+            editorDesign = DESIGN_EDITED_AGAIN
+            editorListeners['design:updated']()
+            releaseHeldExport?.()
+            await flushed
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED_AGAIN })
+
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it.each([
