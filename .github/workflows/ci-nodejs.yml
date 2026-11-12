@@ -475,6 +475,8 @@ jobs:
 
             - name: Check builds correctly
               run: pnpm --filter=@posthog/nodejs build
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
 
             - name: Sanity check output
               run: |
