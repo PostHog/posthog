@@ -14,13 +14,14 @@ environment's discussion stays out of the parent project's scouts. Only tasks th
 read qualify, and a summary the tasks facade keeps private comes back null.
 
 A summary is free text that reaches a scout holding privileged tools, so it has to clear the same
-bar as a scout note: whoever could have written it must be able to steer scouts. Nothing records who
-wrote a summary. The discussion agent writes it, but `set_summary` accepts any caller who controls
-the task, and a null-channel discussion task can be controlled by any member. So a summary is
-returned only when the task's creator alone controls it (`creator_controls_alone`) and that creator
-passes `user_can_steer_scouts`. Every other row keeps its report, status, and task id, with a null
-summary. The question itself is never returned: the discussion note already carries it behind the
-full steering gate, including the credential scopes this read cannot recover.
+bar as a scout note: the task's creator must pass `user_can_steer_scouts`. Every other row keeps its
+report, status, and task id, with a null summary. Nothing records who wrote a summary: the discussion
+agent writes it, but `set_summary` accepts any caller who controls the task, and any member controls
+a null-channel discussion task, which is the usual inbox case. So a member who may not steer scouts
+can write the summary on a discussion that a member who may steer scouts started. With default
+access that member can leave a scout note anyway, and the scout reads a summary as evidence, never
+as instructions. The question itself is never returned: the discussion note already carries it
+behind the full steering gate, including the credential scopes this read cannot recover.
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ def list_report_discussions(
     discussions: list[ReportDiscussion] = []
     for task in tasks:
         discussion_report_id = report_by_task[task.task_id]
-        summary = task.summary if task.creator_controls_alone and task.created_by_id in steering_creators else None
+        summary = task.summary if task.created_by_id in steering_creators else None
         discussions.append(
             ReportDiscussion(
                 report_id=discussion_report_id,
