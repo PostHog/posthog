@@ -135,6 +135,7 @@ export function QuillComment({ comment, isContinuation = false, children }: Quil
                         )}
                         <LemonMarkdown
                             lowKeyHeadings
+                            disableImages
                             className={cn('min-w-0 flex-1', isCompleted && 'text-muted-foreground line-through')}
                         >
                             {text}

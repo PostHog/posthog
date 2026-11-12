@@ -9,14 +9,9 @@ import { CommentType } from '~/types'
 import { LazyQuillCommentEditor } from './LazyQuillCommentEditor'
 
 export function QuillCommentEditForm({ comment }: { comment: CommentType }): JSX.Element {
-    const { editingComment, isSavingEditedComment, editingCommentRichContentEditor, isEditingCommentEmpty } =
-        useValues(commentsLogic)
-    const {
-        setEditingComment,
-        persistEditedComment,
-        setEditingCommentRichContentEditor,
-        onEditingCommentRichContentEditorUpdate,
-    } = useActions(commentsLogic)
+    const { editingComment, isSavingEditedComment, isEditingCommentEmpty } = useValues(commentsLogic)
+    const { setEditingComment, persistEditedComment, setEditingCommentRichContentEditor, syncEditingCommentDraft } =
+        useActions(commentsLogic)
 
     const cancel = (): void => {
         setEditingComment(null)
@@ -31,15 +26,7 @@ export function QuillCommentEditForm({ comment }: { comment: CommentType }): JSX
                 // Seeded from the edit in progress, so collapsing the thread mid-edit loses nothing.
                 initialContent={editingComment?.rich_content ?? comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
-                onUpdate={(isEmpty) => {
-                    if (editingCommentRichContentEditor && editingComment) {
-                        setEditingComment({
-                            ...editingComment,
-                            rich_content: editingCommentRichContentEditor.getJSON(),
-                        })
-                        onEditingCommentRichContentEditorUpdate(isEmpty)
-                    }
-                }}
+                onUpdate={syncEditingCommentDraft}
                 onPressCmdEnter={persistEditedComment}
                 disabled={isSavingEditedComment}
             />
