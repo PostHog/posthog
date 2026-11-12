@@ -32,9 +32,9 @@ import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
+import { v2JobToInvocation } from '~/cdp/services/cyclotron-v2/job-codec'
 import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -829,6 +829,18 @@ describe('EmailService', () => {
             it.each([
                 ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its scheduled time when it was scheduled',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                    },
+                    30_000,
+                    60_000,
+                ],
                 // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',
@@ -1444,10 +1456,54 @@ describe('EmailService', () => {
                 TRANSACTIONAL_EMAIL_EVENT,
                 { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
+            [
+                'a transactional email from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome_v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_key: 'welcome_v2',
+                },
+            ],
+            [
+                'a code send by a key longer than an SES tag allows',
+                { template_key: 'k'.repeat(257) },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id SES would reject',
+                { template_uuid: 'not a tag value' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id has a dot',
+                { template_uuid: 'template.v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a workflow email made from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                '$pageview',
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+            ],
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
-            const result = await service.executeSendEmail(invocation)
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1465,6 +1521,44 @@ describe('EmailService', () => {
                     from: '"Test User" <test@posthog-test.com>',
                 }),
             ])
+        })
+
+        it('names the template the email was rendered with, after its step moves to another template', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', template_uuid: 'template-2' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                template: { template_uuid: 'template-1' },
+            })
+
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toMatchObject({ ph_template_id: 'template-1' })
+            expect(result.capturedPostHogEvents[0].properties.$email_template_id).toEqual('template-1')
+        })
+
+        it('sends a transactional email without template tags for a team outside the template tags allowlist', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                template_key: 'welcome_v2',
+            }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+
+            const result = await createService({ templateTagsTeams: String(team.id + 1) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toEqual({
+                ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                ph_email_status: 'true',
+            })
+            expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                $email_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                $email_template_key: 'welcome_v2',
+            })
         })
 
         const sesAccepts = (): void => {}
@@ -3343,14 +3437,41 @@ describe('EmailService', () => {
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
-        it.each([
-            ['an ordinary template', {}, 'Test Subject', undefined, false],
-            ['a sensitive template', { sensitive: true }, undefined, undefined, false],
-            ['a workflow step', {}, 'Test Subject', 3, false],
-            ['a transactional email', {}, 'Test Subject', undefined, true],
+        it.each<
+            [string, Record<string, unknown>, string | undefined, number | undefined, boolean, Record<string, string>]
+        >([
+            ['an ordinary template', {}, 'Test Subject', undefined, false, {}],
+            ['a sensitive template', { sensitive: true }, undefined, undefined, false, {}],
+            ['a workflow step', {}, 'Test Subject', 3, false, {}],
+            ['a workflow email made from a template', { template_uuid: 'template-1' }, 'Test Subject', 3, false, {}],
+            ['a transactional email saved without a name', {}, 'Test Subject', undefined, true, {}],
+            [
+                'a transactional email from a template',
+                { template_uuid: 'template-1' },
+                'Test Subject',
+                undefined,
+                true,
+                { $email_template_id: 'template-1' },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome' },
+                'Test Subject',
+                undefined,
+                true,
+                { $email_template_key: 'welcome' },
+            ],
+            [
+                'a transactional step saved with names of the wrong type',
+                { template_uuid: 7, template_key: true },
+                'Test Subject',
+                undefined,
+                true,
+                {},
+            ],
         ])(
             'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
-            async (_name, extraMetadata, subject, workflowVersion, transactional) => {
+            async (_name, extraMetadata, subject, workflowVersion, transactional, identity) => {
                 await captureEngagementEvents()
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
@@ -3383,6 +3504,13 @@ describe('EmailService', () => {
                 ).toEqual(
                     workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
                 )
+                expect(
+                    Object.fromEntries(
+                        Object.entries(result.capturedPostHogEvents[0].properties).filter(([key]) =>
+                            key.startsWith('$email_template_')
+                        )
+                    )
+                ).toStrictEqual(identity)
             }
         )
 
