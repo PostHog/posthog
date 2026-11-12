@@ -1808,7 +1808,7 @@ class ReportQualityHintSerializer(serializers.Serializer):
 QUALITY_HINTS_HELP_TEXT = (
     "Quality checks the title or summary matched. A `repair` hint means the stored text differs from what "
     "you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: "
-    "correct it with edit_report if the hint applies. Empty when no check matched."
+    "follow its message, which names edit_report only when you can call it. Empty when no check matched."
 )
 
 

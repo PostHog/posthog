@@ -3118,7 +3118,7 @@ export interface EmitReportResponseApi {
     remediation: string | null
     /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
     idempotent_replay: boolean
-    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: follow its message, which names edit_report only when you can call it. Empty when no check matched. */
     quality_hints: ReportQualityHintApi[]
 }
 
@@ -10580,7 +10580,7 @@ export interface EditReportResponseApi {
     decision_fields_set: string[]
     /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
     warnings: EditReportWarningApi[]
-    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: follow its message, which names edit_report only when you can call it. Empty when no check matched. */
     quality_hints: ReportQualityHintApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean

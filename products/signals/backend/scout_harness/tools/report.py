@@ -509,8 +509,12 @@ def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints
             )
 
 
-def _repair_report_text(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
-    result = apply_report_quality_checks(title=kwargs.get("title"), summary=kwargs.get("summary"))
+def _repair_report_text(tool: str, kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
+    # The edit endpoint already passed its `edit_report` gate, so only an emit can come from a caller without it.
+    can_edit_report = tool == "edit_report" or cast(ReportAuthor, kwargs["author"]).can_edit_reports
+    result = apply_report_quality_checks(
+        title=kwargs.get("title"), summary=kwargs.get("summary"), can_edit_report=can_edit_report
+    )
     kwargs["title"], kwargs["summary"] = result.title, result.summary
     return result.hints
 
@@ -524,7 +528,7 @@ def _report_quality_checks(
     def decorator(function: Callable[_Parameters, _ReportResult]) -> Callable[_Parameters, _ReportResult]:
         @wraps(function)
         def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
-            hints = _repair_report_text(cast(dict[str, Any], kwargs))
+            hints = _repair_report_text(tool, cast(dict[str, Any], kwargs))
             result = function(*args, **kwargs)
             _capture_quality_hints(
                 team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
@@ -544,7 +548,7 @@ def _report_quality_checks_async(
     ) -> Callable[_Parameters, Awaitable[_ReportResult]]:
         @wraps(function)
         async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
-            hints = _repair_report_text(cast(dict[str, Any], kwargs))
+            hints = _repair_report_text(tool, cast(dict[str, Any], kwargs))
             result = await function(*args, **kwargs)
             if hints:
                 await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
