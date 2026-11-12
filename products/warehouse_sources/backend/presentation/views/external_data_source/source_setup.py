@@ -1185,6 +1185,20 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+# Inline payload keys that route a connection or secure it, dropped when a stored credential is used.
+# The SSH tunnel keys also come in flat form (`ssh_tunnel_host`), so they match by prefix.
+_CONNECTION_ROUTING_KEYS = frozenset(
+    {
+        *helpers._CONNECTION_TARGET_FIELDS,
+        "connection_string",
+        "verify_server_certificate",
+        "ca_certificate",
+        "client_certificate",
+        "client_key",
+    }
+)
+_SSH_TUNNEL_KEY_PREFIX = "ssh_tunnel"
+
 SETUP_400_DESCRIPTION = (
     "The source was not created. The body carries a human-readable `message` and, for most causes, a stable "
     "`code` such as `credential_expired`, `invalid_config` or `credential_validation_failed`."
@@ -1199,8 +1213,7 @@ def _reserved_name_response() -> Response:
 
 def _direct_query_unsupported_response() -> Response:
     return setup_error_response(
-        SourceSetupErrorCode.DIRECT_QUERY_UNSUPPORTED,
-        f"{helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE} Use access_method 'warehouse' for other sources.",
+        SourceSetupErrorCode.DIRECT_QUERY_UNSUPPORTED, helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE
     )
 
 
@@ -1280,8 +1293,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 ),
             )
         # Stored credentials win over inline keys so an agent can't override what the user entered.
+        # Inline keys that decide where the connection goes or how it is secured are dropped as well:
+        # a key the user left blank on the connect page is absent from the stored payload, so the merge
+        # alone would let an inline value reroute the stored secrets, for example through an SSH tunnel.
+        routing_keys = _CONNECTION_ROUTING_KEYS | set(
+            base.SourceRegistry.get_source(known_source_key(source_type)).connection_host_fields
+        )
+        inline_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in routing_keys and not key.startswith(_SSH_TUNNEL_KEY_PREFIX)
+        }
         return credential_store.ResolvedStoredCredential(
-            payload={**payload, **credential.payload}, credential=credential, error_response=None
+            payload={**inline_payload, **credential.payload}, credential=credential, error_response=None
         )
 
     @extend_schema(

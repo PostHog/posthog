@@ -78,11 +78,13 @@ class CdcPrerequisitesRequestSerializer(serializers.Serializer):
     cdc_slot_name = serializers.CharField(
         required=False,
         allow_null=True,
+        allow_blank=True,
         help_text="Self-managed replication slot name to check. Ignored in 'posthog' mode.",
     )
     cdc_publication_name = serializers.CharField(
         required=False,
         allow_null=True,
+        allow_blank=True,
         help_text="Self-managed publication name to check. Ignored in 'posthog' mode.",
     )
 
