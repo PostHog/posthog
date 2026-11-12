@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -38,9 +39,13 @@ export const ContentAutopilot = (): JSX.Element => {
         workspaceError,
         profileDataLoaded,
         visibleOpportunities,
+        draftingEnabled,
     } = useValues(contentAutopilotLogic)
     const { beginOnboarding, cancelRun, selectProfile, loadWorkspace, setWorkspaceTab } =
         useActions(contentAutopilotLogic)
+    // A link to a drafting tab still opens the page when drafting is off, on the overview instead.
+    const visibleTab =
+        !draftingEnabled && (workspaceTab === 'opportunities' || workspaceTab === 'drafts') ? 'overview' : workspaceTab
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
     const confirmCancelRun = (): void => {
@@ -83,6 +88,15 @@ export const ContentAutopilot = (): JSX.Element => {
                         <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={beginOnboarding}>
                             Add site
                         </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconGear />}
+                            active={workspaceTab === 'settings'}
+                            onClick={() => setWorkspaceTab('settings')}
+                            tooltip="Site settings"
+                            aria-label="Site settings"
+                            data-attr="content-autopilot-settings"
+                        />
                     </div>
                 ) : null}
             </div>
@@ -105,13 +119,23 @@ export const ContentAutopilot = (): JSX.Element => {
 
                     {promptId ? (
                         <ContentAutopilotPromptDetail />
+                    ) : workspaceTab === 'settings' && profile ? (
+                        <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
+                            <ContentAutopilotPageHeader
+                                title="Site settings"
+                                backLabel="Overview"
+                                backDataAttr="content-autopilot-settings-back"
+                                onBack={() => setWorkspaceTab('overview')}
+                            />
+                            <ContentAutopilotSetup />
+                        </div>
                     ) : (
                         <LemonTabs<ContentAutopilotWorkspaceTab>
-                            activeKey={workspaceTab}
+                            activeKey={visibleTab}
                             onChange={setWorkspaceTab}
                             data-attr="content-autopilot-workspace-tabs"
                             rightSlot={
-                                activeRun ? (
+                                activeRun && draftingEnabled ? (
                                     <LemonButton
                                         type="tertiary"
                                         status="danger"
@@ -145,35 +169,31 @@ export const ContentAutopilot = (): JSX.Element => {
                                     label: 'Keywords',
                                     content: <ContentAutopilotKeywords />,
                                 },
-                                {
-                                    key: 'opportunities',
-                                    label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
-                                    content: (
-                                        <ContentAutopilotSiteGate>
-                                            <ContentAutopilotOpportunities />
-                                        </ContentAutopilotSiteGate>
-                                    ),
-                                },
-                                profile
+                                draftingEnabled
                                     ? {
-                                          key: 'drafts',
-                                          label: readyDraftCount
-                                              ? `Drafts (${readyDraftCount} ready to review)`
-                                              : `Drafts (${draftRows.length})`,
+                                          key: 'opportunities',
+                                          label:
+                                              profile && visibleOpportunities.length
+                                                  ? `Opportunities (${visibleOpportunities.length})`
+                                                  : 'Opportunities',
                                           content: (
                                               <ContentAutopilotSiteGate>
-                                                  <ContentAutopilotDrafts />
+                                                  <ContentAutopilotOpportunities />
                                               </ContentAutopilotSiteGate>
                                           ),
                                       }
                                     : null,
-                                profile
+                                profile && draftingEnabled
                                     ? {
-                                          key: 'settings',
-                                          label: 'Settings',
+                                          key: 'drafts',
+                                          label: readyDraftCount
+                                              ? `Drafts (${readyDraftCount} ready to review)`
+                                              : draftRows.length
+                                                ? `Drafts (${draftRows.length})`
+                                                : 'Drafts',
                                           content: (
                                               <ContentAutopilotSiteGate>
-                                                  <ContentAutopilotSetup />
+                                                  <ContentAutopilotDrafts />
                                               </ContentAutopilotSiteGate>
                                           ),
                                       }

@@ -248,3 +248,120 @@ export async function lockIntegrationByKey(
     const row = result.rows[0]
     return row ? toRow(row) : null
 }
+
+/**
+ * Locks every live team row of one kind with this external id, in every team, until the
+ * transaction ends. Id order keeps two such transactions from deadlocking each other.
+ */
+export async function lockIntegrationsByExternalId(
+    db: Queryable,
+    kind: string,
+    externalId: string,
+    sourceRows: SourceRows
+): Promise<IntegrationRow[]> {
+    const conditions = new Conditions()
+    conditions.add(`owner_type = 'team'`)
+    conditions.add('deleted_at IS NULL')
+    conditions.add(`kind = ${conditions.bind(kind)}`)
+    conditions.add(`external_id = ${conditions.bind(externalId)}`)
+    if (sourceRows === 'exclude') {
+        conditions.add('NOT is_source_row')
+    } else if (sourceRows === 'only') {
+        conditions.add('is_source_row')
+    }
+    const result = await query<DbRow>(
+        db,
+        `SELECT ${COLUMNS} FROM integrations WHERE ${conditions.sql()} ORDER BY id FOR UPDATE`,
+        conditions.values
+    )
+    return result.rows.map(toRow)
+}
+
+/**
+ * Soft-deletes up to `limit` live rows of the owner, lowest ids first, and returns them. Run it in
+ * a transaction and repeat until it returns no rows.
+ */
+export async function softDeleteOwnerBatch(
+    db: Queryable,
+    owner: IntegrationOwner,
+    limit: number
+): Promise<IntegrationRow[]> {
+    const result = await query<DbRow>(
+        db,
+        `WITH batch AS (
+             SELECT id FROM integrations
+             WHERE owner_type = $1 AND owner_id = $2 AND deleted_at IS NULL
+             ORDER BY id
+             LIMIT $3
+             FOR UPDATE
+         )
+         UPDATE integrations
+         SET deleted_at = now(), updated_at = now(), version = version + 1
+         WHERE id IN (SELECT id FROM batch)
+         RETURNING ${COLUMNS}`,
+        [owner.type, owner.id, limit]
+    )
+    return result.rows.map(toRow)
+}
+
+/** A position in the change feed: the `updated_at` text Postgres printed, and the id. */
+export interface ChangeCursor {
+    updatedAt: string
+    id: string
+}
+
+export interface ChangeRequest {
+    /** Null selects every kind. */
+    kinds: readonly string[] | null
+    after: ChangeCursor | null
+    limit: number
+    /** Rows younger than this are not returned yet. See `listChangedIntegrations`. */
+    settleSeconds: number
+}
+
+export interface ChangedRow {
+    row: IntegrationRow
+    cursor: ChangeCursor
+}
+
+interface ChangedDbRow extends DbRow {
+    cursor_updated_at: string
+}
+
+/**
+ * Team rows changed after `after`, deleted rows included, oldest change first.
+ *
+ * `updated_at` is `now()` of the writing transaction, which is its start time. A transaction that
+ * started earlier can commit after a later one, so a reader that follows the cursor could pass
+ * a row that is not visible yet and never see it. The feed therefore holds back rows younger than
+ * `settleSeconds`: it is safe as long as no write transaction lasts that long. A statement timeout
+ * and the short write paths bound them far below the default window, and every integration write
+ * rolls back past `WRITE_DEADLINE_MS`. `statement_timestamp()` is stable within the
+ * query, so the cutoff is an upper bound of the index scan rather than a per-row filter.
+ */
+export async function listChangedIntegrations(db: Queryable, request: ChangeRequest): Promise<ChangedRow[]> {
+    const conditions = new Conditions()
+    conditions.add(`owner_type = 'team'`)
+    conditions.add(
+        `updated_at <= statement_timestamp() - make_interval(secs => ${conditions.bind(request.settleSeconds)}::double precision)`
+    )
+    if (request.kinds !== null) {
+        conditions.add(`kind = ANY(${conditions.bind(request.kinds)}::text[])`)
+    }
+    if (request.after) {
+        conditions.add(
+            `(updated_at, id) > (${conditions.bind(request.after.updatedAt)}::timestamptz, ${conditions.bind(request.after.id)}::uuid)`
+        )
+    }
+    const limit = conditions.bind(request.limit)
+    const result = await query<ChangedDbRow>(
+        db,
+        `SELECT ${COLUMNS}, updated_at::text AS cursor_updated_at
+         FROM integrations
+         WHERE ${conditions.sql()}
+         ORDER BY updated_at, id
+         LIMIT ${limit}`,
+        conditions.values
+    )
+    return result.rows.map((row) => ({ row: toRow(row), cursor: { updatedAt: row.cursor_updated_at, id: row.id } }))
+}

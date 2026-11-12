@@ -18,12 +18,24 @@ class ExperimentsConfig(AppConfig):
         from posthog.helpers.impersonation import is_impersonated  # noqa: PLC0415
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity  # noqa: PLC0415
         from posthog.models.file_system.unfiled_file_saver import register_mixin_model  # noqa: PLC0415
+        from posthog.models.resource_transfer.registered_models import register_model  # noqa: PLC0415
 
         import products.experiments.backend.activity_logging  # noqa: F401, PLC0415
         import products.experiments.backend.facade.change_signals  # noqa: F401, PLC0415
-        from products.experiments.backend.models.experiment import Experiment  # noqa: PLC0415
+        from products.experiments.backend.models.experiment import (  # noqa: PLC0415
+            Experiment,
+            ExperimentHoldout,
+            ExperimentSavedMetric,
+            ExperimentToSavedMetric,
+        )
 
+        # Core keeps per-model registries for unfiled items and resource transfer. Registering from here
+        # keeps those modules from importing this product's models.
         register_mixin_model("experiment", Experiment)
+        register_model("Experiment", Experiment)
+        register_model("ExperimentHoldout", ExperimentHoldout)
+        register_model("ExperimentSavedMetric", ExperimentSavedMetric)
+        register_model("ExperimentToSavedMetric", ExperimentToSavedMetric)
 
         register_file_system_type(
             "experiment",

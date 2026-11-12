@@ -212,6 +212,7 @@ const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
 const notebookConcurrencyController = new ConcurrencyController(4)
+const aiChatConcurrencyController = new ConcurrencyController(4)
 // The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
 let notebookLoadOrder = 0
 
@@ -238,6 +239,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.SavedInsights || activeScene === Scene.AnalyticsProductHome) {
         return productAnalyticsHomeConcurrencyController
+    }
+
+    if (activeScene === Scene.Max) {
+        return aiChatConcurrencyController
     }
 
     if (activeScene === Scene.Notebook) {
