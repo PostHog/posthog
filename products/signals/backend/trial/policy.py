@@ -201,12 +201,12 @@ class TrialPolicy:
             return grant
 
     def _pause_excess_scouts(self, grant: SignalTrialGrant, *, api_scopes: list[str] | None) -> None:
-        from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
         from products.signals.backend.scout_harness.lifecycle_lock import (
             user_holds_scout_lifecycle_claims,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
         )
-        from products.signals.backend.trial.scouts import (
-            trial_counted_scouts,  # noqa: PLC0415 -- the scout rules import this module
+        from products.signals.backend.trial.scouts import (  # noqa: PLC0415 -- the scout rules import this module
+            pause_for_trial_scout_limit,
+            trial_counted_scouts,
         )
 
         configs = list(trial_counted_scouts(self.team_id).order_by("created_at", "id"))
@@ -222,12 +222,7 @@ class TrialPolicy:
                     "Starting this trial would pause a locked scout. Only the person its runs act as or a project admin can do that."
                 )
         for config in excess:
-            config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-            config.enabled = False
-            config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
-            config.status_changed_at = timezone.now()
-            config.status_changed_by_id = None
-            config.save(update_fields=["status", "enabled", "pause_reason", "status_changed_at", "status_changed_by"])
+            pause_for_trial_scout_limit(config)
 
     @contextmanager
     def locked_grant(self, grant_id: UUID) -> Iterator[SignalTrialGrant]:

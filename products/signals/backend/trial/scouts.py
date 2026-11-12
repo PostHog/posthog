@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from django.db import transaction
+from django.utils import timezone
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.trial.billing import TrialContinuation, trial_billing_status
@@ -78,6 +79,40 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
                 config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
                 config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
         yield
+
+
+def pause_for_trial_scout_limit(config: "SignalScoutConfig") -> None:
+    from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
+
+    config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+    config.enabled = False
+    config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
+    config.status_changed_at = timezone.now()
+    config.status_changed_by_id = None
+    config.save(update_fields=["status", "enabled", "pause_reason", "status_changed_at", "status_changed_by"])
+
+
+def enforce_trial_slot_after_skill_change(team_id: int, skill_name: str) -> None:
+    """Pause an enabled scout whose skill change made it take a trial slot when no slot was free.
+
+    An edit to an operational scout makes it count against the trial without a config write, so
+    `scout_capacity` never sees it. `team_id` must be the parent project.
+    """
+    from posthog.models import Team  # noqa: PLC0415 -- avoid model registration cycle
+
+    team = Team.objects.filter(id=team_id).first()
+    if team is None or not TrialPolicy(team).enabled():
+        return
+    with transaction.atomic():
+        lock_organization_trial(team.organization_id)
+        grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).first()
+        if grant is None or trial_usage(grant).exhaustion_reason(grant):
+            return
+        counted = trial_counted_scouts(team_id)
+        config = counted.select_for_update().filter(skill_name=skill_name).first()
+        if config is None or counted.exclude(id=config.id).count() < grant.scout_limit:
+            return
+        pause_for_trial_scout_limit(config)
 
 
 def trial_scout_limit(team_id: int) -> int | None:

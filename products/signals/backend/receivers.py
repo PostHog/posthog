@@ -1221,6 +1221,33 @@ def requeue_report_checks_on_scout_resume(sender: Any, instance: Any, **kwargs: 
         )
 
 
+@receiver(post_save, sender="skills.LLMSkill")
+def enforce_trial_slot_on_operational_scout_edit(sender: Any, instance: Any, created: bool, **kwargs: Any) -> None:
+    """An edit to an operational scout makes it take a free trial slot, which can leave the trial over
+    its limit. A new version's files land after its row, so the check waits for the commit, when
+    the content hash is final."""
+    if not created or not instance.is_latest:
+        return
+    from products.signals.backend.scout_harness.lazy_seed import (
+        is_operational_scout,  # noqa: PLC0415 — keeps the canonical fleet off the django.setup() path
+    )
+
+    if not is_operational_scout(instance.name):
+        return
+    transaction.on_commit(partial(_enforce_trial_slot_after_skill_change, instance.team_id, instance.name))
+
+
+def _enforce_trial_slot_after_skill_change(team_id: int, skill_name: str) -> None:
+    try:
+        from products.signals.backend.trial.scouts import (
+            enforce_trial_slot_after_skill_change,  # noqa: PLC0415 — the trial rules import Signals models
+        )
+
+        enforce_trial_slot_after_skill_change(team_id, skill_name)
+    except Exception:
+        logger.exception("signals.trial.operational_edit_enforcement_failed", team_id=team_id, skill_name=skill_name)
+
+
 @receiver(post_save, sender=SignalReportArtefact)
 def sync_suggested_reviewer_index_on_save(
     sender: type[SignalReportArtefact],
