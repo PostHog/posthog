@@ -38,6 +38,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
@@ -55,10 +56,12 @@ from products.messaging.backend.services.imported_data import (
 from products.messaging.backend.services.message_templates import create_template
 from products.messaging.backend.services.postmark_client import (
     DUMP_TIMEOUT_SECONDS,
+    MAX_DUMP_BYTES,
     TEMPLATE_NOT_FOUND_CODE,
     PostmarkAPIError,
     PostmarkClient,
     PostmarkRateLimited,
+    PostmarkResponseTooLarge,
     PostmarkServer,
     PostmarkTokenCannotRead,
     PostmarkTokenRejected,
@@ -83,6 +86,11 @@ RATE_LIMITED_MESSAGE = "Postmark kept asking PostHog to slow down. Import again 
 TEST_TOKEN = "POSTMARK_API_TEST"
 IMPORT_TAG = "imported-from-postmark"
 SUPPRESSION_BATCH_SIZE = 500
+# Postmark sends each list whole, so the import holds every address at once. This keeps that within a worker's memory.
+MAX_SUPPRESSED_ADDRESSES = 500_000
+TOO_MANY_SUPPRESSIONS_MESSAGE = (
+    "This Postmark account has more suppressed addresses than PostHog can import at once. Contact support to import it."
+)
 TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,400}")
 CATEGORY_KEY_PREFIX = "postmark_"
 # The stream every server has for broadcasts. Mail on it is plain marketing email in PostHog, with no category.
@@ -405,7 +413,12 @@ class _Suppression:
 
 
 def _dump_rows(client: PostmarkClient, stream_id: str) -> list[dict[str, Any]]:
-    body = client.get(f"/message-streams/{stream_id}/suppressions/dump", timeout=DUMP_TIMEOUT_SECONDS)
+    try:
+        body = client.get(
+            f"/message-streams/{stream_id}/suppressions/dump", timeout=DUMP_TIMEOUT_SECONDS, max_bytes=MAX_DUMP_BYTES
+        )
+    except PostmarkResponseTooLarge as e:
+        raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE) from e
     rows = body.get("Suppressions")
     if not isinstance(rows, list):
         raise PostmarkAPIError("Postmark sent an unexpected response for a suppression list.")
@@ -423,6 +436,8 @@ def _fetch_suppressions(
         for stream in _sending_streams(server_client):
             rows = _dump_rows(server_client, str(stream.get("ID")))
             invalid += _merge(merged, rows, stream.get("MessageStreamType") == "Transactional")
+            if len(merged) > MAX_SUPPRESSED_ADDRESSES:
+                raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE)
 
     after = str(checkpoint.get("after_address", "")) if checkpoint else ""
     addresses = [address for address in sorted(merged) if address > after]

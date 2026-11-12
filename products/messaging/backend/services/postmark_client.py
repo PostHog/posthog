@@ -6,6 +6,7 @@ rate to leave room for the customer's live sending.
 """
 
 import enum
+import json
 import time
 from collections.abc import Iterator
 from dataclasses import field
@@ -24,6 +25,8 @@ MAX_RATE_LIMIT_WAIT_SECONDS = 60
 DEFAULT_TIMEOUT_SECONDS = 30
 # A suppression dump has no pages, so one response holds the whole list.
 DUMP_TIMEOUT_SECONDS = 120
+# The import worker is shared, so a list bigger than this stops the step instead of using up the worker's memory.
+MAX_DUMP_BYTES = 100 * 1024 * 1024
 USER_AGENT = "posthog-messaging-import/1.0"
 # Postmark's code for a token that can't use the message streams API.
 NO_STREAMS_PERMISSION_CODE = 1220
@@ -48,6 +51,10 @@ class PostmarkTokenCannotRead(PostmarkTokenRejected):
 
 class PostmarkRateLimited(PostmarkAPIError):
     """Postmark kept answering 429 after the client waited."""
+
+
+class PostmarkResponseTooLarge(PostmarkAPIError):
+    """The response was bigger than the caller allows."""
 
 
 class TokenKind(enum.Enum):
@@ -136,7 +143,13 @@ class PostmarkClient:
                 return
             offset = next_offset
 
-    def get(self, path: str, params: dict[str, Any] | None = None, timeout: int | None = None) -> dict[str, Any]:
+    def get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        timeout: int | None = None,
+        max_bytes: int | None = None,
+    ) -> dict[str, Any]:
         waits = 0
         while True:
             self._pace.wait()
@@ -151,7 +164,9 @@ class PostmarkClient:
                     },
                     timeout=timeout or self._timeout,
                     allow_redirects=False,
+                    stream=max_bytes is not None,
                 )
+                content = _read_capped(response, max_bytes) if max_bytes is not None else None
             except requests.RequestException as e:
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise PostmarkAPIError(f"Couldn't reach Postmark ({type(e).__name__}).") from None
@@ -161,7 +176,19 @@ class PostmarkClient:
                 time.sleep(_rate_limit_wait_seconds(response, waits))
                 waits += 1
                 continue
-            return _parse(response)
+            return _parse(response, content)
+
+
+def _read_capped(response: requests.Response, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    with response:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            size += len(chunk)
+            if size > max_bytes:
+                raise PostmarkResponseTooLarge("Postmark sent more data than PostHog reads in one response.")
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def identify_token(
@@ -210,9 +237,9 @@ def _rate_limit_wait_seconds(response: requests.Response, waits: int) -> float:
     return min(max(seconds, 0.0), MAX_RATE_LIMIT_WAIT_SECONDS)
 
 
-def _parse(response: requests.Response) -> dict[str, Any]:
+def _parse(response: requests.Response, content: bytes | None = None) -> dict[str, Any]:
     try:
-        body = response.json()
+        body = json.loads(content) if content is not None else response.json()
     except ValueError:
         body = None
     if not isinstance(body, dict):

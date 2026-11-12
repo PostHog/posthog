@@ -33,6 +33,7 @@ STEP_RETRY_POLICY = RetryPolicy(
         "ImportTooLarge",
         "ImportStepBlocked",
         "ImportRunClosed",
+        "ImportTooLarge",
         "StaleImportAttempt",
         "UnknownImportStep",
         "UnknownImportProvider",

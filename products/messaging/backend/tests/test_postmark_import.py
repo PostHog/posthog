@@ -22,10 +22,15 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
-from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.base import (
+    ImportCredentialsInvalid,
+    ImportProviderUnavailable,
+    ImportTooLarge,
+)
 from products.messaging.backend.provider_imports.postmark import _merge
 from products.messaging.backend.provider_imports.postmark_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.messaging.backend.temporal.workflow import STEP_RETRY_POLICY
 from products.messaging.backend.tests.postmark_fake_server import FIXTURE, FakePostmark, start_server
 
 ALL_STEPS = ["streams", "suppressions", "templates", "domains", "webhooks"]
@@ -496,6 +501,33 @@ class TestPostmarkImport(BaseTest):
         assert second.status == "completed"
         assert second.progress["suppressions"]["processed"] == 700
         assert len(self._sources()) == 1200
+
+    @parameterized.expand([("addresses", "MAX_SUPPRESSED_ADDRESSES", 1000), ("bytes", "MAX_DUMP_BYTES", 50_000)])
+    def test_a_suppression_list_over_the_budget_stops_without_a_retry(
+        self, _name: str, budget: str, limit: int
+    ) -> None:
+        data = json.loads(FIXTURE.read_text())
+        data["servers"] = data["servers"][:1]
+        data["servers"][0]["suppressions"] = {
+            "broadcast": [
+                {
+                    "EmailAddress": f"bulk-{index:04d}@example.com",
+                    "SuppressionReason": "HardBounce",
+                    "Origin": "Recipient",
+                    "CreatedAt": "2026-06-01T08:58:33-05:00",
+                }
+                for index in range(1200)
+            ]
+        }
+        self.fake.data = data
+        run = runs.start_run(self.team.id, "postmark", ["suppressions"], PRODUCTION_TOKEN, self.user.id)
+
+        with patch(f"products.messaging.backend.provider_imports.postmark.{budget}", limit):
+            with self.assertRaisesRegex(ImportTooLarge, "more suppressed addresses than PostHog can import"):
+                runs.run_step(self.team.id, run.id, "suppressions", attempt=1)
+
+        assert "ImportTooLarge" in STEP_RETRY_POLICY.non_retryable_error_types
+        assert self._sources() == {}
 
     def test_a_new_retry_of_the_same_run_continues_templates_from_the_saved_offset(self) -> None:
         data = json.loads(FIXTURE.read_text())
