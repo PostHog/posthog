@@ -1,5 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -33,6 +34,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
+import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -2011,6 +2013,58 @@ describe('CDP API', () => {
             } finally {
                 hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
                 produceSpy.mockRestore()
+            }
+        })
+
+        it('refuses to queue a run over the workflow quota without waiting on metrics Kafka', async () => {
+            const billableHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                billable_action_types: ['function'],
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            mockProducerObserver.resetKafkaProducer()
+            const kafka = mockProducer['producer'] as unknown as { produce: jest.Mock }
+            const stalledMetricAcks: (() => void)[] = []
+            kafka.produce.mockImplementation((topic: string, ...rest: any[]) => {
+                const ack = rest[rest.length - 1]
+                if (topic === 'clickhouse_app_metrics2_test') {
+                    stalledMetricAcks.push(() => ack?.())
+                } else {
+                    ack?.()
+                }
+            })
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${billableHogFlow.team_id}/hog_flows/${billableHogFlow.id}/scheduled_invocations`
+                    )
+                    .timeout(3000)
+                    .send({})
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(hogflowQueue.queued).toEqual([])
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .map((message) => message.value)
+                    expect(metrics).toContainEqual(
+                        expect.objectContaining({
+                            app_source_id: billableHogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        })
+                    )
+                })
+            } finally {
+                kafka.produce.mockImplementation((...args: any[]) => args[args.length - 1]?.())
+                stalledMetricAcks.forEach((ack) => ack())
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
             }
         })
 

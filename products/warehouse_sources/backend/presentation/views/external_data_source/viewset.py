@@ -87,6 +87,7 @@ class ExternalDataSourceViewSet(
         "refresh_schemas",
         "bulk_update_schemas",
         "database_schema",
+        "incremental_field_recommendations",
         "setup",
         "apply_migration_item",
         "store_credentials",
