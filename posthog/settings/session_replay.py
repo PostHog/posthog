@@ -37,6 +37,18 @@ LISTING_RATE_PAID_SUSTAINED = get_from_env("LISTING_RATE_PAID_SUSTAINED", "300/h
 LISTING_RATE_ENTERPRISE_BURST = get_from_env("LISTING_RATE_ENTERPRISE_BURST", "100/minute")
 LISTING_RATE_ENTERPRISE_SUSTAINED = get_from_env("LISTING_RATE_ENTERPRISE_SUSTAINED", "400/hour")
 
+# Cap on whole-recording raw snapshot streams. One stream reads every block of a recording, so these rates are far
+# below the per-request snapshot rates above. Each personal API key has its own bucket, and so does each user who
+# calls without one.
+RAW_SNAPSHOT_STREAM_RATE_FREE_BURST = get_from_env("RAW_SNAPSHOT_STREAM_RATE_FREE_BURST", "2/minute")
+RAW_SNAPSHOT_STREAM_RATE_FREE_SUSTAINED = get_from_env("RAW_SNAPSHOT_STREAM_RATE_FREE_SUSTAINED", "20/hour")
+RAW_SNAPSHOT_STREAM_RATE_PAID_BURST = get_from_env("RAW_SNAPSHOT_STREAM_RATE_PAID_BURST", "10/minute")
+RAW_SNAPSHOT_STREAM_RATE_PAID_SUSTAINED = get_from_env("RAW_SNAPSHOT_STREAM_RATE_PAID_SUSTAINED", "100/hour")
+RAW_SNAPSHOT_STREAM_RATE_ENTERPRISE_BURST = get_from_env("RAW_SNAPSHOT_STREAM_RATE_ENTERPRISE_BURST", "20/minute")
+RAW_SNAPSHOT_STREAM_RATE_ENTERPRISE_SUSTAINED = get_from_env(
+    "RAW_SNAPSHOT_STREAM_RATE_ENTERPRISE_SUSTAINED", "200/hour"
+)
+
 # Per-user cap on blob fetches from a browser session or an OAuth token. The tier rates above cover only personal
 # API keys, so without this a script, browser agent or MCP client can fetch snapshots with no limit at all.
 SNAPSHOT_USER_RATE_BURST = get_from_env("SNAPSHOT_USER_RATE_BURST", "200/minute")

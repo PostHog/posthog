@@ -17,11 +17,14 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
+from django.http.response import HttpResponseBase
 from django.utils import timezone
 
+import aiohttp
 import requests
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from openai.types.chat import (
@@ -37,11 +40,12 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.permissions import BasePermission
-from rest_framework.renderers import JSONRenderer
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
+from rest_framework.views import APIView
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
@@ -61,6 +65,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -72,10 +77,11 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.event_usage import report_user_action
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, PaidFeatureException
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_client import build_openai_client, openai_gateway_configured
@@ -90,6 +96,7 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
+    hashed_personal_api_key_for_throttling,
     is_rate_limit_enabled,
     team_is_allowed_to_bypass_throttle,
 )
@@ -109,6 +116,7 @@ from posthog.session_recordings.queries.session_replay_events import (
     get_latest_session_event_properties,
 )
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.raw_snapshot_stream import RawSnapshotStream, is_raw_snapshot_stream_enabled
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.recordings.replay_blocks_jwt import (
     ReplayBlocksToken,
@@ -116,7 +124,11 @@ from posthog.session_recordings.recordings.replay_blocks_jwt import (
     mint_replay_blocks_token,
 )
 from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
-from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
+from posthog.session_recordings.session_recording_v2_service import (
+    fetch_blocks_from_recording_api,
+    list_blocks,
+    list_blocks_async,
+)
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
@@ -342,6 +354,16 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
 
     encoder_class = SurrogatePairSafeJSONEncoder
+
+
+class JSONLinesRenderer(BaseRenderer):
+    """Lets a client ask for JSON Lines. The view builds the stream itself, so render() only gets error payloads."""
+
+    media_type = "application/jsonl"
+    format = "jsonl"
+
+    def render(self, data: Any, accepted_media_type: str | None = None, renderer_context: Any = None) -> bytes:
+        return json.dumps(data, cls=JSONEncoder).encode()
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -821,6 +843,26 @@ def listing_rates() -> dict[str, dict[str, str]]:
 LISTING_RATES = listing_rates()
 
 
+def raw_snapshot_stream_rates() -> dict[str, dict[str, str]]:
+    return {
+        "free": {
+            "raw_snapshot_stream_burst": settings.RAW_SNAPSHOT_STREAM_RATE_FREE_BURST,
+            "raw_snapshot_stream_sustained": settings.RAW_SNAPSHOT_STREAM_RATE_FREE_SUSTAINED,
+        },
+        "paid": {
+            "raw_snapshot_stream_burst": settings.RAW_SNAPSHOT_STREAM_RATE_PAID_BURST,
+            "raw_snapshot_stream_sustained": settings.RAW_SNAPSHOT_STREAM_RATE_PAID_SUSTAINED,
+        },
+        "enterprise": {
+            "raw_snapshot_stream_burst": settings.RAW_SNAPSHOT_STREAM_RATE_ENTERPRISE_BURST,
+            "raw_snapshot_stream_sustained": settings.RAW_SNAPSHOT_STREAM_RATE_ENTERPRISE_SUSTAINED,
+        },
+    }
+
+
+RAW_SNAPSHOT_STREAM_RATES = raw_snapshot_stream_rates()
+
+
 def get_cached_org_tier(team_id: int) -> str:
     # v2 cache key: classifier was widened to the full ENTERPRISE_FEATURES - SCALE_FEATURES
     # set plus ACCESS_CONTROL; keyed separately so stale pre-migration values don't serve.
@@ -852,15 +894,18 @@ class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
     def _is_personal_api_key_request(self, request) -> bool:
         return _request_auth_type(request) == "personal_api_key"
 
+    def _apply_tier_rates_for_view(self, view: APIView) -> None:
+        try:
+            team_id = self.safely_get_team_id_from_view(view)
+            tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
+            self._apply_tier_rates(tier)
+        except Exception:
+            logger.exception("replay_throttle_tier_lookup_failed")
+            self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
+
     def allow_request(self, request, view):
         if self._is_personal_api_key_request(request):
-            try:
-                team_id = self.safely_get_team_id_from_view(view)
-                tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
-                self._apply_tier_rates(tier)
-            except Exception:
-                logger.exception("replay_throttle_tier_lookup_failed")
-                self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
+            self._apply_tier_rates_for_view(view)
         return super().allow_request(request, view)
 
 
@@ -894,6 +939,33 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
 
     def _get_rates(self) -> dict[str, dict[str, str]]:
         return listing_rates()
+
+
+class _RawSnapshotStreamRateThrottle(_TierAwareReplayThrottle):
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return raw_snapshot_stream_rates()
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        # The other replay throttles limit only personal API keys. A stream reads a whole recording in one request,
+        # so this one limits every caller.
+        self._apply_tier_rates_for_view(view)
+        return self._allow_request_internal(request, view, personal_api_key_only=False)
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        # The inherited key puts every caller without a personal API key in one bucket per project, where one
+        # caller can use up the quota of all the others.
+        ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class RawSnapshotStreamBurstRateThrottle(_RawSnapshotStreamRateThrottle):
+    scope = "raw_snapshot_stream_burst"
+    rate = RAW_SNAPSHOT_STREAM_RATES[SNAPSHOT_DEFAULT_TIER]["raw_snapshot_stream_burst"]
+
+
+class RawSnapshotStreamSustainedRateThrottle(_RawSnapshotStreamRateThrottle):
+    scope = "raw_snapshot_stream_sustained"
+    rate = RAW_SNAPSHOT_STREAM_RATES[SNAPSHOT_DEFAULT_TIER]["raw_snapshot_stream_sustained"]
 
 
 def get_replay_listing_throttle_error(request, view) -> str | None:
@@ -1075,7 +1147,7 @@ class SessionRecordingViewSet(
     authentication_classes = [ExportRendererAuthentication]
     permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "console_logs"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "raw_snapshots", "console_logs"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -1668,28 +1740,7 @@ class SessionRecordingViewSet(
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        SNAPSHOT_SOURCE_REQUESTED.labels(
-            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower(), auth_type=auth_type
-        ).inc()
-
-        if is_personal_api_key:
-            personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
-            used_key = personal_api_authenticator.personal_api_key
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
-            # we want to track personal api key usage of this endpoint
-            # with better visibility than just the token in a counter
-            posthoganalytics.capture(
-                distinct_id=self._distinct_id_from_request(request),
-                event="snapshots_api_called_with_personal_api_key",
-                properties={
-                    "key_label": used_key.label,
-                    "key_scopes": used_key.scopes,
-                    "key_scoped_teams": used_key.scoped_teams,
-                    "session_requested": recording.session_id,
-                    "recording_start_time": recording.start_time,
-                    "source": source_log_label,
-                },
-            )
+        self._record_snapshots_request(request, recording, source_log_label)
 
         try:
             response: Response | HttpResponse
@@ -1715,22 +1766,7 @@ class SessionRecordingViewSet(
         except (NotFound, Throttled):
             raise
         except RecordingDeletedError as e:
-            logger.info(
-                "recording_permanently_deleted",
-                session_id=str(recording.session_id),
-                team_id=self.team.id,
-                deleted_at=e.deleted_at,
-                deleted_by=e.deleted_by,
-            )
-            return Response(
-                {
-                    "error": "recording_deleted",
-                    "message": "This recording has been permanently deleted",
-                    "deleted_at": e.deleted_at,
-                    "deleted_by": e.deleted_by,
-                },
-                status=status.HTTP_410_GONE,
-            )
+            return self._recording_deleted_response(recording, e)
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -1757,6 +1793,90 @@ class SessionRecordingViewSet(
             if isinstance(e, ClickHouseAtCapacity):
                 response["Retry-After"] = str(e.wait)
             return response
+
+    def _record_snapshots_request(
+        self, request: request.Request, recording: SessionRecording, source_log_label: str
+    ) -> None:
+        auth_type = _request_auth_type(request)
+        is_personal_api_key = auth_type == "personal_api_key"
+        SNAPSHOT_SOURCE_REQUESTED.labels(
+            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower(), auth_type=auth_type
+        ).inc()
+
+        if is_personal_api_key:
+            personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
+            used_key = personal_api_authenticator.personal_api_key
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
+            # we want to track personal api key usage of this endpoint
+            # with better visibility than just the token in a counter
+            posthoganalytics.capture(
+                distinct_id=self._distinct_id_from_request(request),
+                event="snapshots_api_called_with_personal_api_key",
+                properties={
+                    "key_label": used_key.label,
+                    "key_scopes": used_key.scopes,
+                    "key_scoped_teams": used_key.scoped_teams,
+                    "session_requested": recording.session_id,
+                    "recording_start_time": recording.start_time,
+                    "source": source_log_label,
+                },
+            )
+
+    def _recording_deleted_response(self, recording: SessionRecording, error: RecordingDeletedError) -> Response:
+        logger.info(
+            "recording_permanently_deleted",
+            session_id=str(recording.session_id),
+            team_id=self.team.id,
+            deleted_at=error.deleted_at,
+            deleted_by=error.deleted_by,
+        )
+        return Response(
+            {
+                "error": "recording_deleted",
+                "message": "This recording has been permanently deleted",
+                "deleted_at": error.deleted_at,
+                "deleted_by": error.deleted_by,
+            },
+            status=status.HTTP_410_GONE,
+        )
+
+    @tracer.start_as_current_span("replay_raw_snapshots_api")
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="raw_snapshots",
+        renderer_classes=[SurrogatePairSafeJSONRenderer, JSONLinesRenderer],
+        throttle_classes=[RawSnapshotStreamBurstRateThrottle, RawSnapshotStreamSustainedRateThrottle],
+    )
+    def raw_snapshots(self, request: request.Request, **kwargs: Any) -> HttpResponseBase:
+        if not is_raw_snapshot_stream_enabled(self.team_id):
+            raise exceptions.PermissionDenied("Raw snapshot streaming is not enabled for this project.")
+
+        # The app only lets a plan with file export download a recording, and this endpoint returns the same data.
+        if not is_impersonated(request) and not self.organization.is_feature_available(
+            AvailableFeature.RECORDINGS_FILE_EXPORT
+        ):
+            raise PaidFeatureException(AvailableFeature.RECORDINGS_FILE_EXPORT)
+
+        recording: SessionRecording = self.get_object()
+        session_id = str(recording.session_id)
+
+        try:
+            # Not list_blocks: it reports a failed recording-api call as an empty listing, which would turn an outage
+            # into a 404 for a recording that exists. It also caches, and a cached listing hides a deletion.
+            blocks = async_to_sync(fetch_blocks_from_recording_api)(session_id, self.team_id)
+            if not blocks:
+                raise exceptions.NotFound("Recording not found")
+            self._record_snapshots_request(request, recording, "raw_stream")
+            stream = RawSnapshotStream(session_id, self.team_id, blocks)
+            first_chunk = async_to_sync(stream.first_chunk)()
+        except RecordingDeletedError as e:
+            return self._recording_deleted_response(recording, e)
+        except (BlockFetchError, aiohttp.ClientError):
+            raise exceptions.APIException("Couldn't load the recording from storage. Try again in a few minutes.")
+
+        return streaming_response(stream.chunks_after(first_chunk), content_type="application/jsonl")
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
