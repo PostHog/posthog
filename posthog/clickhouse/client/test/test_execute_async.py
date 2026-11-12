@@ -24,7 +24,7 @@ from posthog.clickhouse.client import (
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
@@ -161,6 +161,27 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertIsInstance(result.result, ConcurrencyLimitExceeded)
         execute.assert_not_called()
         self.assertTrue(self.manager.get_query_status().complete)
+
+    def test_process_query_task_keeps_the_browser_session_of_the_request(self):
+        from posthog.tasks.tasks import process_query_task
+
+        self.manager.store_query_status(self.query_status)
+        with tags_context(browser_session=True):
+            request_tags = get_query_tags().model_dump()
+        sessions_at_execution: list[bool | None] = []
+        with (
+            patch(
+                "posthog.clickhouse.client.execute_process_query",
+                side_effect=lambda **_: sessions_at_execution.append(get_query_tags().browser_session),
+            ),
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                args=(self.team_id, None, self.query_id, build_query("SELECT 1"), request_tags, False), throw=False
+            )
+
+        self.assertTrue(result.successful())
+        self.assertEqual(sessions_at_execution, [True])
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}

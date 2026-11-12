@@ -34,8 +34,8 @@ RAW_QUERY_TABLE_DENIED_ERROR = (
 )
 
 RAW_QUERY_BROWSER_SESSION_ERROR = (
-    "Raw queries on the managed warehouse need a browser session. "
-    'To query with a token, turn off "Send raw query" and use HogQL.'
+    "Raw queries on the managed warehouse need a browser session in the app. "
+    'For API calls, exports, alerts and scheduled runs, turn off "Send raw query" and use HogQL.'
 )
 
 
@@ -47,8 +47,11 @@ def raw_query_uses_organization_grant(source: ExternalDataSource) -> bool:
 
 
 def require_browser_session_for_organization_grant() -> None:
-    # Token credentials can restrict projects while the warehouse grant spans the organization.
-    if get_query_tags().access_method is not None:
+    # Token credentials can restrict projects while the warehouse grant spans the organization. Background
+    # work, such as an export or an alert, runs with no request tags at all, so a missing token is not
+    # proof of a session. Only a positive session tag passes.
+    tags = get_query_tags()
+    if tags.access_method is not None or not tags.browser_session:
         raise ExposedHogQLError(RAW_QUERY_BROWSER_SESSION_ERROR)
 
 

@@ -402,6 +402,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             source.save(update_fields=["job_inputs"])
         query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
         mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(1,)], columns=["value"], types=[])
+        if credential_kind == "duckgres_service":
+            with self.assertRaisesMessage(ExposedHogQLError, "browser session"):
+                self._create_runner(query).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            mock_execute_hogql_query.assert_not_called()
+        self.enterContext(tags_context(browser_session=True))
 
         runner = self._create_runner(query)
         expected_query_status_labels = [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"]
@@ -475,6 +480,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
         )
         query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
+        self.enterContext(tags_context(browser_session=True))
 
         first_runner = self._create_runner(query)
         self.assertEqual(first_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])

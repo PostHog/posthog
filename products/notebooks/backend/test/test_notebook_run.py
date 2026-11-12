@@ -9,6 +9,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
@@ -412,6 +413,57 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert str(mock_enqueue.call_args.args[2].id) == str(orphan.id)
         # Still one row: resuming must not become a second execution.
         assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
+
+    @parameterized.expand(
+        [
+            ("editor_run", NotebookRun.Trigger.UI, False, True),
+            ("client_run", NotebookRun.Trigger.MCP, False, None),
+            ("resumed_editor_run", NotebookRun.Trigger.UI, True, True),
+        ]
+    )
+    def test_dispatched_cells_keep_the_browser_session_only_for_editor_runs(
+        self, mock_start: MagicMock, _name: str, trigger: str, resumed: bool, expected_session: bool | None
+    ) -> None:
+        with team_scope(self.team.id):
+            notebook_run = NotebookRun.objects.create(
+                team_id=self.team.id,
+                notebook=self.notebook,
+                user=self.user,
+                trigger=trigger,
+                cell_plan=[
+                    {
+                        "node_id": "s1",
+                        "cell_type": "sql",
+                        "dataframe_name": "first",
+                        "code": "select 1",
+                        "connection_id": str(UUIDT()),
+                        "send_raw_query": True,
+                    }
+                ],
+            )
+            if resumed:
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    notebook_run=notebook_run,
+                    node_id="s1",
+                    code="select 1",
+                    status=NotebookNodeRun.Status.RUNNING,
+                )
+        sessions_at_enqueue: list[bool | None] = []
+        with (
+            patch("products.notebooks.backend.sql_v2_dispatch.get_direct_connection_source"),
+            patch(
+                "products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run",
+                side_effect=lambda *args: sessions_at_enqueue.append(get_query_tags().browser_session),
+            ),
+        ):
+            dispatch_notebook_cell_activity(
+                NotebookRunCellInput(notebook_run_id=str(notebook_run.id), team_id=self.team.id, index=0)
+            )
+
+        assert sessions_at_enqueue == [expected_session]
+        assert get_query_tags().browser_session is None
 
     @patch("products.notebooks.backend.notebook_run.interrupt_sql_v2_run", return_value=False)
     def test_stopping_a_cell_the_kernel_never_received_still_cancels_it(self, _interrupt, _start) -> None:

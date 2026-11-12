@@ -11,12 +11,14 @@ between calls, so no worker slot is held while a cell works.
 """
 
 import asyncio
+from contextlib import AbstractContextManager, nullcontext
 from datetime import timedelta
 from typing import Any
 
 from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -126,6 +128,15 @@ def advance_notebook_run_activity(input: NotebookRunCellInput) -> None:
     NotebookRun.objects.for_team(input.team_id).filter(id=input.notebook_run_id).update(current_index=input.index)
 
 
+def _browser_session_of(notebook_run: NotebookRun) -> AbstractContextManager[None]:
+    # Cells dispatch from this worker, which has none of the request tags. A run started in the editor
+    # passed the browser-session check for raw organization-grant cells when it started, so its cells
+    # keep that session for the same check in the query runner.
+    if notebook_run.trigger == NotebookRun.Trigger.UI:
+        return tags_context(browser_session=True)
+    return nullcontext()
+
+
 @activity.defn(name="notebook-run-dispatch-cell")
 def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     """Start the cell at `index` and return its node run id."""
@@ -161,7 +172,7 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
         # happened — otherwise the orchestrator polls a cell nothing is running until the
         # cell budget expires. Repeating a handoff that did land is a no-op.
         user = notebook_run.user if isinstance(notebook_run.user, User) else None
-        with team_scope(notebook_run.team_id, canonical=True):
+        with team_scope(notebook_run.team_id, canonical=True), _browser_session_of(notebook_run):
             resume_node_run(
                 notebook_run.notebook,
                 user,
@@ -176,7 +187,7 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     try:
         # A Temporal activity has none of the request middleware's team scope, and the
         # dispatch writes a fail-closed NotebookNodeRun row.
-        with team_scope(notebook_run.team_id, canonical=True):
+        with team_scope(notebook_run.team_id, canonical=True), _browser_session_of(notebook_run):
             dispatch = dispatch_node_run(
                 notebook_run.notebook,
                 user,

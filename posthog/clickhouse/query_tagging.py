@@ -427,6 +427,9 @@ class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
+    # Only session authentication sets this. Celery query tasks restore it with the other request tags,
+    # so a missing value means the work has no browser session behind it.
+    browser_session: Optional[bool] = None
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
@@ -763,6 +766,11 @@ def tag_authentication(
         api_key_mask=api_key_mask,
         api_key_label=api_key_label,
     )
+
+
+def tag_browser_session_authentication() -> None:
+    """The session counterpart of `tag_authentication`, which session authentication calls once it accepts the request."""
+    tag_queries(browser_session=True)
 
 
 def tag_contains_user_hogql() -> None:
