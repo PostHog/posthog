@@ -162,21 +162,31 @@ describe('SegmentDestinationExecutorService', () => {
                 'fails the invocation when the destination throws on HTTP errors',
                 'segment-actions-amplitude',
                 amplitudeInputs,
+                { url: AMPLITUDE_URL, method: 'POST', headers: { 'Content-Type': 'application/json' } },
                 'Error executing function on event uuid: Request failed with status 403 ({"error":"Forbidden"})',
             ],
             [
                 'hands the response back when the destination turns off throwHttpErrors',
                 'segment-actions-gameball',
                 gameballInputs,
+                {
+                    url: 'https://api.gameball.co/api/v3.0/integrations/event',
+                    method: 'POST',
+                    headers: { APIKey: 'abc', 'Content-Type': 'application/json', 'x-gb-agent': 'GB/Segment' },
+                    body: {
+                        events: { $web_vitals: expect.objectContaining({ $geoip_city_name: 'Aylesbury' }) },
+                        playerUniqueId: expect.any(String),
+                    },
+                },
                 undefined,
             ],
-        ])('does not retry a 403 and %s', async (_name, templateId, inputs, expectedError) => {
+        ])('does not retry a 403 and %s', async (_name, templateId, inputs, expectedRequest, expectedError) => {
             const fn = createHogFunction({ name: 'Plugin test', template_id: templateId })
             const requests = fakeDestinationServer(403, { error: 'Forbidden' })
 
             const result = await service.execute(createExampleSegmentInvocation(fn, inputs))
 
-            expect(requests).toHaveLength(1)
+            expect(requests).toEqual([expect.objectContaining(expectedRequest)])
             expect(result.finished).toBe(true)
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.error?.message).toEqual(expectedError)
