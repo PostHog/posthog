@@ -11,6 +11,7 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import { urlForNewBroadcastWithAudience } from 'products/workflows/frontend/Broadcasts/broadcastAudiencePrefill'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
@@ -66,6 +67,8 @@ export interface ReleaseSuggestion {
     label: string
     to: string
 }
+
+export const releaseSourceRecord = (releaseId: string): string => `release:${releaseId}`
 
 export type ReleaseSpanTone = 'default' | 'info' | 'warning' | 'success'
 
@@ -999,7 +1002,7 @@ function releaseSuggestions(facts: ReleaseFacts, stage: ReleaseStage): ReleaseSu
         suggestions.push({
             key: 'broadcast',
             title: 'Tell users about it',
-            detail: 'Send a broadcast when the release reaches more users, then link it here to see it on the calendar.',
+            detail: 'Send a broadcast when the release reaches more users. It links to this release on its own.',
             label: 'New broadcast',
             to: urls.broadcastNew(),
         })
@@ -1129,7 +1132,19 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         lifecycle: releaseLifecycle(release, facts, stage),
         audiences: facts.audiences,
         events,
-        suggestions: releaseSuggestions(facts, stage),
+        suggestions: releaseSuggestions(facts, stage).map((suggestion) =>
+            suggestion.key === 'broadcast'
+                ? {
+                      ...suggestion,
+                      to: urlForNewBroadcastWithAudience({
+                          properties: [],
+                          name: release.name,
+                          source: 'release',
+                          sourceRecord: releaseSourceRecord(release.id),
+                      }),
+                  }
+                : suggestion
+        ),
         flags: facts.flags,
         experiments: facts.experiments,
         earlyAccess: facts.earlyAccess,

@@ -18,7 +18,7 @@ import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import { hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
+import { hogFlowsList, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { releasesBroadcastSearchRetrieve, releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
@@ -43,6 +43,7 @@ import {
     indexSchedules,
     nameTokens,
     rankLinkSuggestions,
+    releaseSourceRecord,
 } from './releaseUtils'
 
 interface ReleaseLogicValues {
@@ -163,6 +164,7 @@ interface ReleaseLogicActions {
     linkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     unlinkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
+    autoLinkBroadcasts: (id: string) => { id: string }
     unlinkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
     loadBroadcastSends: () => void
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
@@ -312,6 +314,7 @@ export const releaseLogic = kea<releaseLogicType>([
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
         linkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
+        autoLinkBroadcasts: (id: string) => ({ id }),
         addLink: (id: string, candidate: LinkCandidate) => ({ id, candidate }),
         unlinkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
     }),
@@ -914,6 +917,26 @@ export const releaseLogic = kea<releaseLogicType>([
                     id,
                     { broadcast_ids: [...release.broadcast_ids, broadcastId] },
                     'Broadcast linked to the release'
+                )
+            }
+        },
+        autoLinkBroadcasts: async ({ id }) => {
+            const release = values.releases.find((item) => item.id === id)
+            if (!release) {
+                return
+            }
+            const page = await hogFlowsList(String(values.currentProjectId), {
+                source_record: releaseSourceRecord(id),
+                limit: 20,
+            })
+            const missing = (page.results ?? []).filter((flow) => !release.broadcast_ids.includes(flow.id))
+            if (missing.length) {
+                actions.updateRelease(
+                    id,
+                    { broadcast_ids: [...release.broadcast_ids, ...missing.map((flow) => flow.id)] },
+                    missing.length === 1
+                        ? 'Linked the broadcast you started here'
+                        : 'Linked the broadcasts you started here'
                 )
             }
         },
