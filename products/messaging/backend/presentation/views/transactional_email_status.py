@@ -27,6 +27,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailNotFound,
     EmailSendStatus,
     EmailStatus,
+    OutcomePending,
     RescheduleTooFar,
     TransactionalEmailError,
     cancel_email,
@@ -101,6 +102,16 @@ class RescheduleEmailSerializer(serializers.Serializer):
                 }
             )
         return attrs
+
+    # drf-spectacular marks every PATCH body partial, which would make `scheduled_at` optional in the schema. A move
+    # always needs a time, so this serializer is never partial.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, value: bool) -> None:
+        pass
 
 
 class RescheduledEmailSerializer(serializers.Serializer):
@@ -263,7 +274,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
     @contextmanager
-    def _reporting_manage(self, request: Request, action: str, **properties: Any) -> Iterator[dict[str, Any]]:
+    def _reporting_manage(self, request: Request, action: str) -> Iterator[dict[str, Any]]:
         report: dict[str, Any] = {"outcome": "error"}
         try:
             yield report
@@ -283,6 +294,15 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except RescheduleTooFar as e:
             report["outcome"] = "invalid_scheduled_at"
             raise _explained(e, str(e), status_code=status.HTTP_400_BAD_REQUEST) from None
+        except OutcomePending:
+            report["outcome"] = "pending"
+            raise ExplainedRefusal(
+                "PostHog hasn't recorded yet what happened to this email.",
+                code="delivery_unavailable",
+                why="The email left the queue a moment ago, and its status hasn't caught up.",
+                fix="Try again in a few seconds. A retry is safe.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ) from None
         except DeliveryUnavailable:
             report["outcome"] = "unavailable"
             raise ExplainedRefusal(
@@ -299,7 +319,6 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {
                     "action": action,
                     **report,
-                    **properties,
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                 },
             )

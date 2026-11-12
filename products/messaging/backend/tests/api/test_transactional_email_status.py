@@ -287,11 +287,27 @@ class TestManageScheduledEmails(EmailsApiTestBase):
             ("a_repeat_after_the_job_is_gone", None, [("canceled", 60, "")], status.HTTP_200_OK, None, None),
             ("gone_after_it_went_out", None, [("sent", 60, "")], status.HTTP_404_NOT_FOUND, "not_found", None),
             (
-                "gone_before_its_status_landed",
+                "gone_before_its_cancel_status_landed",
                 None,
-                [("scheduled", 60, "")],
+                [("scheduled", 3590, "")],
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "delivery_unavailable",
+                None,
+            ),
+            (
+                "gone_before_its_send_status_landed",
+                None,
+                [("queued", 3590, "")],
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "delivery_unavailable",
+                None,
+            ),
+            (
+                "gone_with_its_last_status_lost",
+                None,
+                [("scheduled", 60, "")],
+                status.HTTP_404_NOT_FOUND,
+                "not_found",
                 None,
             ),
             ("unknown", None, [], status.HTTP_404_NOT_FOUND, "not_found", None),
@@ -311,6 +327,13 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         else:
             assert response.json() == {"id": self.message_id, "status": "canceled"}
         assert self.cdp.jobs.get((self.team.id, self.message_id)) == expected_job
+
+    def test_the_schema_requires_the_time_to_move_an_email(self, _mock_post, _flag):
+        schema = self.client.get("/api/schema/").data
+
+        move = schema["paths"]["/api/projects/{project_id}/messaging/emails/{id}/"]["patch"]["requestBody"]
+        body = schema["components"]["schemas"][move["content"]["application/json"]["schema"]["$ref"].rsplit("/", 1)[-1]]
+        assert (move.get("required"), body.get("required")) == (True, ["scheduled_at"])
 
     def test_a_cancel_right_after_the_send_asks_for_a_retry_until_its_status_lands(self, mock_post, _flag):
         self.message_id = self._message_id(datetime.now(UTC) - timedelta(seconds=10))
