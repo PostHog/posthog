@@ -173,7 +173,7 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
             return
         [row] = rows
         assert row["source"] == "slack"
-        assert row["task_summary"] is None
+        assert row["task_summary"] == (None if outsider else "Intended behavior.")
         assert row["question"] == (None if outsider else "Is this expected?")
 
     def test_since_keeps_a_discussion_that_concluded_after_it(self) -> None:

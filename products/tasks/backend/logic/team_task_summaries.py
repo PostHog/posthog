@@ -36,7 +36,8 @@ class TeamTaskSummary:
     # True when only the creator can drive the task or write its run summary. That holds for a task
     # filed into a channel. A null-channel task from a team-controlled origin can be driven by any
     # member, so its summary may be someone else's text. A Slack task never qualifies: other people in
-    # its thread can send it turns, and the thread itself reaches its agent as context.
+    # its thread can send it turns, and the thread itself reaches its agent as context. A caller that
+    # returns a Slack summary anyway decides that for itself.
     creator_controls_alone: bool
 
 

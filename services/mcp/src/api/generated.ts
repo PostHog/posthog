@@ -109568,7 +109568,7 @@ export namespace Schemas {
          */
       status: string | null;
       /**
-         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. Always null for a `slack` discussion, because other people in the thread can steer it.
+         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
          * @nullable
          */
       task_summary: string | null;
