@@ -14,7 +14,8 @@ class TestIsPoliteRequest(SimpleTestCase):
             ("thank you across a line break", "check signups thank\nyou", True),
             ("no polite phrase", "check signups for last week", False),
             ("please inside another word", "the app pleases nobody", False),
-            ("thanks is not thank you", "check signups, thanks", False),
+            ("thanks", "check signups, thanks", True),
+            ("thanks inside another word", "a thanksgiving recap", False),
             ("empty text", "", False),
             ("no text", None, False),
         ]

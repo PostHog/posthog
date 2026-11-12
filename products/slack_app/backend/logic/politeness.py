@@ -4,7 +4,7 @@ import re
 
 POLITE_REQUEST_REACTION = "orange_heart"
 
-_POLITE_PHRASE = re.compile(r"\b(please|thank\s+you)\b", re.IGNORECASE)
+_POLITE_PHRASE = re.compile(r"\b(please|thanks|thank\s+you)\b", re.IGNORECASE)
 
 
 def is_polite_request(text: str | None) -> bool:
