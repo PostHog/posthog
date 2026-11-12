@@ -1,5 +1,6 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -17,7 +18,11 @@ import {
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { createCrashGuardValkeyPool } from '../services/poison-batch/crash-guard'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
-import { CdpCyclotronDeadLetterWorker } from './cdp-cyclotron-dead-letter-worker.consumer'
+import {
+    CdpCyclotronDeadLetterWorker,
+    SKIPPED_FUNCTION_DISABLED_ERROR_KIND,
+} from './cdp-cyclotron-dead-letter-worker.consumer'
+import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)
 
@@ -53,6 +58,60 @@ describe('CdpCyclotronDeadLetterWorker', () => {
         const { hogFunction: _unloaded, ...rest } = createExampleInvocation(fn, globals)
         return { ...rest, queueSource: 'postgres' } as CyclotronJobInvocationHogFunction
     }
+
+    it.each([
+        ['skips a disabled function on the dead letter worker', true, HogWatcherState.disabled, false, true],
+        [
+            'skips a forcefully disabled function on the dead letter worker',
+            true,
+            HogWatcherState.forcefully_disabled,
+            false,
+            true,
+        ],
+        ['runs a disabled function on the hog worker', false, HogWatcherState.disabled, false, false],
+        [
+            'runs the invocation when the dead letter worker cannot read the function state',
+            true,
+            HogWatcherState.disabled,
+            true,
+            false,
+        ],
+    ] as const)('%s', async (_, deadLetter, state, watcherDown, skipped) => {
+        const deps = createCdpConsumerDeps(hub)
+        const worker = deadLetter
+            ? new CdpCyclotronDeadLetterWorker(hub, deps, createMockJobQueue())
+            : new CdpCyclotronWorker(hub, deps, createMockJobQueue(), 'hog')
+        await worker.hogWatcher.forceStateChange(fn, state)
+        await worker.hogWatcherMirror.forceStateChange(fn, state)
+        if (watcherDown) {
+            for (const watcher of [worker.hogWatcher, worker.hogWatcherMirror]) {
+                jest.spyOn(watcher, 'getEffectiveStates').mockRejectedValue(new Error('redis down'))
+            }
+        }
+        const invocation = queued()
+
+        const results = await worker.processInvocations([invocation])
+
+        const skippedRows = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            .map((x) => x.value)
+            .filter((row) => row.error_kind === SKIPPED_FUNCTION_DISABLED_ERROR_KIND)
+        if (skipped) {
+            expect(results).toEqual([])
+            expect(mockFetch).not.toHaveBeenCalled()
+            expect(skippedRows).toEqual([
+                expect.objectContaining({
+                    invocation_id: invocation.id,
+                    function_id: fn.id,
+                    team_id: team.id,
+                    status: 'failed',
+                }),
+            ])
+        } else {
+            expect(results).toEqual([expect.objectContaining({ finished: true })])
+            expect(skippedRows).toEqual([])
+        }
+    })
 
     it('disables the function once enough of its invocations are quarantined', async () => {
         const worker = new CdpCyclotronDeadLetterWorker(
