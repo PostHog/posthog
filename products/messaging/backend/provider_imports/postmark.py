@@ -443,23 +443,29 @@ def _merge(merged: dict[str, _Suppression], rows: list[dict[str, Any]], is_trans
     for row in rows:
         address = normalized_email(row.get("EmailAddress"))
         reason = str(row.get("SuppressionReason"))
+        origin = str(row.get("Origin"))
         if address is None or reason not in _REASON_RANK:
             invalid += 1
             continue
         current = merged.get(address)
         on_transactional_stream = is_transactional or (current is not None and current.on_transactional_stream)
-        if current is None or _REASON_RANK[reason] > _REASON_RANK[current.reason]:
+        if current is None or _rank(reason, origin) > _rank(current.reason, current.origin):
             merged[address] = _Suppression(
                 address=address,
                 original_address=str(row["EmailAddress"]).strip(),
                 reason=reason,
-                origin=str(row.get("Origin")),
+                origin=origin,
                 created_at=str(row.get("CreatedAt") or ""),
                 on_transactional_stream=on_transactional_stream,
             )
         else:
             merged[address] = replace(current, on_transactional_stream=on_transactional_stream)
     return invalid
+
+
+def _rank(reason: str, origin: str) -> tuple[int, int]:
+    # A block someone added outranks the recipient's own unsubscribe, whichever stream lists it first.
+    return _REASON_RANK[reason], 0 if origin == "Recipient" else 1
 
 
 def _save_suppressions(context: ImportContext, batch: list[_Suppression]) -> SavedPage:
@@ -614,7 +620,15 @@ def _save_templates(
         choice = _choose_key(key, server, taken)
         if choice.key is None:
             counts["already_present"] += 1
-            items.append(ImportItem(label=name, status="skipped", notes=(f"A template with the key {key} exists.",)))
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
             continue
         chosen, key_note = choice.key, choice.note
         taken[chosen] = {IMPORT_TAG, _server_tag(server)}

@@ -21,6 +21,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.postmark import _merge
 from products.messaging.backend.provider_imports.postmark_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.postmark_fake_server import FIXTURE, FakePostmark, start_server
@@ -29,6 +30,19 @@ ALL_STEPS = ["streams", "suppressions", "templates", "domains", "webhooks"]
 ACCOUNT_TOKEN = "account-token-1111"
 PRODUCTION_TOKEN = "server-token-production"
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "postmark_render_cases.json").read_text())
+
+
+class TestSuppressionMerge(SimpleTestCase):
+    @parameterized.expand([("unsubscribe_first", False), ("block_first", True)])
+    def test_a_team_block_beats_an_unsubscribe_on_another_stream(self, _name: str, block_first: bool) -> None:
+        unsubscribe = {"EmailAddress": "a@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient"}
+        block = {**unsubscribe, "Origin": "Customer"}
+        merged: dict[str, Any] = {}
+
+        for row in [block, unsubscribe] if block_first else [unsubscribe, block]:
+            _merge(merged, [row], is_transactional=False)
+
+        assert merged["a@example.com"].origin == "Customer"
 
 
 class TestMustachioToLiquid(SimpleTestCase):
