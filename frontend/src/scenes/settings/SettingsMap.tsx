@@ -59,6 +59,7 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
@@ -83,6 +84,8 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
+import { AiVisibilityBrandsSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityBrandsSetting'
+import { AiVisibilityEnginesSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityEnginesSetting'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
@@ -1650,6 +1653,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'conversations-ai',
+                title: (
+                    <>
+                        AI agent
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
+            },
+            {
+                id: 'conversations-learn-from-support',
+                title: 'Learn from support',
+                description:
+                    'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
+                component: <LearnFromSupportSection />,
+                flag: ['PRODUCT_SUPPORT_AI_SUGGESTION_ORGS', 'PRODUCT_BUSINESS_KNOWLEDGE'],
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['learn', 'support', 'ticket', 'resolved', 'business', 'knowledge', 'conversation'],
+            },
+            {
                 id: 'conversations-notifications',
                 title: 'Notifications',
                 description:
@@ -1668,32 +1698,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
-                id: 'conversations-ai',
-                title: (
-                    <>
-                        AI agent
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
-                component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
-            },
-            {
                 id: 'conversations-imports',
-                title: (
-                    <>
-                        Imports
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
+                title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
@@ -1892,6 +1898,26 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
+            },
+            {
+                id: 'ai-visibility-brands',
+                title: 'AI visibility brands',
+                description:
+                    'Label the companies behind the sites AI answers cite. The competitors you confirm are the ones AI visibility ranks you against.',
+                component: <AiVisibilityBrandsSetting />,
+                // The brands API answers only with the AEO flag on, so the setting needs it as well as the page flag.
+                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
+                keywords: ['competitors', 'brands', 'aeo', 'ai visibility', 'rankings'],
+            },
+            {
+                id: 'ai-visibility-engines',
+                title: 'AI visibility engines',
+                description:
+                    'Choose which AI engines answer your tracked prompts, and how often. Each engine gets its own column in AI visibility.',
+                component: <AiVisibilityEnginesSetting />,
+                // The engines API answers only with the AEO flag on, so the setting needs it as well as the page flag.
+                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
+                keywords: ['engines', 'models', 'no search', 'aeo', 'ai visibility', 'chatgpt', 'claude'],
             },
         ],
     },

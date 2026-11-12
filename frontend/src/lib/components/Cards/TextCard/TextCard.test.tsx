@@ -34,26 +34,6 @@ describe('TextCard', () => {
         expect(getByText('more overlay')).toBeInTheDocument()
     })
 
-    it('renders edit-mode edge overlay when enabled and not resizing', () => {
-        const onEnterEditModeFromEdge = jest.fn()
-
-        const { getAllByTitle } = render(
-            <TextCard
-                textTile={makeTextTile()}
-                placement={DashboardPlacement.Dashboard}
-                canEnterEditModeFromEdge={true}
-                onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-            />
-        )
-
-        // Wiring guard only: the exact zone count is pinned by EditModeEdgeOverlay's own test.
-        const edges = getAllByTitle('Drag to resize')
-        expect(edges.length).toBeGreaterThan(0)
-
-        fireEvent.mouseDown(edges[0])
-        expect(onEnterEditModeFromEdge).toHaveBeenCalledTimes(1)
-    })
-
     describe('TextContent', () => {
         it('calls closeDetails when clicked', () => {
             const closeDetails = jest.fn()

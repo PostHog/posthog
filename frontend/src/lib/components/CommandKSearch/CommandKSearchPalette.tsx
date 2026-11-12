@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect } from 'react'
-
-import { ScrollArea } from '@posthog/quill'
+import { useEffect, useRef } from 'react'
 
 import { CommandKSearchFooter } from './CommandKSearchFooter'
 import { COMMAND_K_LISTBOX_ID, CommandKSearchInput } from './CommandKSearchInput'
@@ -12,23 +10,25 @@ import { CommandKSearchSection } from './CommandKSearchSection'
 export function CommandKSearchPalette(): JSX.Element {
     const { sections, highlightedRow } = useValues(commandKSearchLogic)
     const highlightedKey = highlightedRow?.key ?? null
+    const scrollerRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         const row = highlightedKey ? document.getElementById(rowDomId(highlightedKey)) : null
-        const viewport = row?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')
-        if (!row || !viewport) {
+        const scroller = scrollerRef.current
+        if (!row || !scroller) {
             return
         }
         // scrollIntoView also scrolls the dialog, which clips the input, so scroll only the list.
-        // The sticky section header covers the top of the viewport, so keep rows below it.
-        const header = row.closest('[role="group"]')?.querySelector<HTMLElement>('[data-slot="menu-label"]')
-        const headerHeight = header?.offsetHeight ?? 0
+        // quill-scroll-fade's scroll padding keeps the row clear of the sticky header and both fades.
+        const style = getComputedStyle(scroller)
         const rowRect = row.getBoundingClientRect()
-        const viewportRect = viewport.getBoundingClientRect()
-        if (rowRect.top < viewportRect.top + headerHeight) {
-            viewport.scrollTop -= viewportRect.top + headerHeight - rowRect.top
-        } else if (rowRect.bottom > viewportRect.bottom) {
-            viewport.scrollTop += rowRect.bottom - viewportRect.bottom
+        const scrollerRect = scroller.getBoundingClientRect()
+        const top = scrollerRect.top + parseFloat(style.scrollPaddingTop)
+        const bottom = scrollerRect.bottom - parseFloat(style.scrollPaddingBottom)
+        if (rowRect.top < top) {
+            scroller.scrollTop -= top - rowRect.top
+        } else if (rowRect.bottom > bottom) {
+            scroller.scrollTop += rowRect.bottom - bottom
         }
     }, [highlightedKey])
 
@@ -39,23 +39,24 @@ export function CommandKSearchPalette(): JSX.Element {
             data-attr="command-k-search"
         >
             <CommandKSearchInput />
-            <ScrollArea
-                // Sticky section headers sit at z-10, so lift the scrollbar above them.
-                className="flex min-h-0 flex-1 flex-col border-t border-border [&>[data-slot=scroll-area-scrollbar]]:z-20"
-                viewportClassName="h-auto min-h-0 flex-1"
+            {/* The top fade starts below the 1.25rem sticky section header. quill-scroll-fade sets the
+                scroll padding from it, which the effect above reads. */}
+            <div
+                ref={scrollerRef}
+                className="quill-scroll-fade min-h-0 flex-1 overflow-y-auto border-t border-border bg-card [--quill-scroll-fade-top-offset:1.25rem] [scrollbar-gutter:stable]"
             >
                 <div
                     id={COMMAND_K_LISTBOX_ID}
                     role="listbox"
                     aria-label="Search results"
                     // The colorful-product-icons group turns on each product's brand color, as in the navbar.
-                    className="group/colorful-product-icons colorful-product-icons-true bg-card pb-1"
+                    className="group/colorful-product-icons colorful-product-icons-true pb-2"
                 >
                     {sections.map((section) => (
                         <CommandKSearchSection key={section.key} section={section} highlightedKey={highlightedKey} />
                     ))}
                 </div>
-            </ScrollArea>
+            </div>
             <CommandKSearchFooter />
         </div>
     )

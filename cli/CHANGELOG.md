@@ -1,38 +1,42 @@
 # posthog-cli
 
-## 0.19.5 — 2026-11-10
+## 0.20.0 — 2026-11-12
+
+### Minor changes
+
+- [174526c9f05](https://github.com/PostHog/posthog/commit/174526c9f0577b193f4e1391c8ec9fa45e49db20) Add `--sdk none` to `exp schema pull --language typescript`, which generates only the event types, with no posthog-js dependency, for posthog-react-native or any other SDK. `--language` picks the language without a prompt — Thanks @kyleswank!
+
+## 0.19.4 — 2026-11-12
 
 ### Patch changes
 
-- [b62c3c4dc0b](https://github.com/PostHog/posthog/commit/b62c3c4dc0bd20de54c86d320c3c5de2acd87153) Allow sourcemap uploads without a release when Git metadata cannot complete the release coordinates — Thanks @hpouillot!
-- [b9c0c35403e](https://github.com/PostHog/posthog/commit/b9c0c35403ed7979af7e6176ea5b681d7b79fbc7) Stop shipping an npm-shrinkwrap.json in the npm package, so installing `@posthog/cli` no longer adds its own `prettier` to the project's `node_modules` and `package-lock.json` — Thanks @rafaeelaudibert!
+- [390eab75e40](https://github.com/PostHog/posthog/commit/390eab75e40c02098a64e7df527e6cd39e08cdf7) Limit request diagnostics to metadata. Outside CI, API errors still show PostHog's error details and endpoint `--debug` still prints request and response bodies. In CI, both are hidden. — Thanks @marandaneto!
 
-## 0.19.4 — 2026-11-09
-
-### Patch changes
-
-- [38c2c033da4](https://github.com/PostHog/posthog/commit/38c2c033da4dd637440f7358c04fd271b3b0e79b) Remove the `--env-file` alias of `--dotenv-file`. Use `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` instead. `posthog-cli api` now starts the API tools with `node --`. — Thanks @JamesPatrickGill!
-- [52b6f99eb60](https://github.com/PostHog/posthog/commit/52b6f99eb60fd49f0ef248ddd272f3eaf6131f9f) Do not write through a symlink in the output directory of `symbol-sets extract` and `symbol-sets download` — Thanks @JamesPatrickGill!
-- [b3466117df4](https://github.com/PostHog/posthog/commit/b3466117df4358f432a725d46630714ca8ce6a78) Keep all files from `symbol-sets extract` and `symbol-sets download` inside the output directory — Thanks @JamesPatrickGill!
-- [dcc1bd9fe4c](https://github.com/PostHog/posthog/commit/dcc1bd9fe4ccb542b7fe98c78ff64673a0197b42) Open only http and https server URLs with expected characters, and open them on Windows without `cmd` — Thanks @JamesPatrickGill!
-
-## 0.19.3 — 2026-11-04
+## 0.19.3 — 2026-11-11
 
 ### Patch changes
 
-- [48fd6d2c7cc](https://github.com/PostHog/posthog/commit/48fd6d2c7cc202105e3af13f11008086ce1796d0) Stop reporting Next.js Turbopack server page stubs as a possible bundler misconfiguration when `sourcemap upload` skips their empty source maps — Thanks @JamesPatrickGill!
+- [83f1feb2b24](https://github.com/PostHog/posthog/commit/83f1feb2b2447410b3caed7c2c38df85f1e7e695) Keep presigned S3 credentials out of upload and download error logs — Thanks @jakesciotto!
 
-## 0.19.2 — 2026-11-03
-
-### Patch changes
-
-- [5d6bc49b864](https://github.com/PostHog/posthog/commit/5d6bc49b864253a8dbf7bab15cc1311ad08495cf) Return a credentials error that names `POSTHOG_HOME` and the env credential variables, instead of panicking, when no home directory can be found — Thanks @posthog[bot]!
-
-## 0.19.1 — 2026-11-02
+## 0.19.2 — 2026-11-10
 
 ### Patch changes
 
-- [e5ddfc79ecf](https://github.com/PostHog/posthog/commit/e5ddfc79ecff97716aa997879a6d49735aabc647) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @rafaeelaudibert!
+- [721abaaaaf9](https://github.com/PostHog/posthog/commit/721abaaaaf964528281ff5df90afd9a372d3e5b6) Update dependencies: `dirs` 7, `inquire` 0.8, `similar` 3 and `posthog-rs` 0.30 — Thanks @rnegron!
+
+## 0.19.1 — 2026-11-10
+
+### Patch changes
+
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Return a credentials error that names `POSTHOG_HOME` and the env credential variables, instead of panicking, when no home directory can be found — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Allow sourcemap uploads without a release when Git metadata cannot complete the release coordinates — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Remove the `--env-file` alias of `--dotenv-file`. Use `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` instead. `posthog-cli api` now starts the API tools with `node --`. — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Do not write through a symlink in the output directory of `symbol-sets extract` and `symbol-sets download` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Keep all files from `symbol-sets extract` and `symbol-sets download` inside the output directory — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Open only http and https server URLs with expected characters, and open them on Windows without `cmd` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Stop shipping an npm-shrinkwrap.json in the npm package, so installing `@posthog/cli` no longer adds its own `prettier` to the project's `node_modules` and `package-lock.json` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Stop reporting Next.js Turbopack server page stubs as a possible bundler misconfiguration when `sourcemap upload` skips their empty source maps — Thanks @ioannisj!
 
 ## 0.19.0 — 2026-10-28
 

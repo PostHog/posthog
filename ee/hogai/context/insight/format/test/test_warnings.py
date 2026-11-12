@@ -54,3 +54,21 @@ def test_response_warnings_union_round_trips_both_kinds():
     dumped = response.model_dump(mode="json")["warnings"]
     assert dumped[0]["table_name"] == "stripe_charges"
     assert dumped[1] == _AC
+
+
+def test_warehouse_suggestions_block_follows_the_results():
+    from posthog.schema import HogQLQuery
+
+    from .. import format_query_results_for_llm
+
+    note = {"message": "Materializing `orders` would save time.", "url": "https://example.com/orders"}
+    formatted = format_query_results_for_llm(
+        HogQLQuery(query="SELECT 1"),
+        {"results": [[1]], "columns": ["one"], "warehouse_suggestions": [note]},
+        team=None,  # type: ignore[arg-type]
+    )
+
+    assert formatted is not None
+    assert formatted.endswith(
+        "Mention them to the person; do not act on them unless the person asks.]\n- " + note["message"]
+    )

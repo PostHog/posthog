@@ -1,3 +1,4 @@
+from dataclasses import field
 from typing import Literal
 from uuid import UUID
 
@@ -27,3 +28,10 @@ class AccountAuditResult:
     ]
     task_run_id: UUID | None = None
     team_id: int | None = None
+
+
+@frozen
+class CreatedCredential:
+    public_key_id: UUID
+    # repr=False keeps the secret out of tracebacks and log lines that print the object.
+    signing_secret: str = field(repr=False)

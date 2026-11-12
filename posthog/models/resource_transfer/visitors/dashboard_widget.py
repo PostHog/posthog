@@ -4,10 +4,10 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 
-from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
+from products.dashboards.backend.facade.api import widget_type_label
 
 
 class DashboardWidgetVisitor(
@@ -19,7 +19,8 @@ class DashboardWidgetVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        return DashboardWidget
+        # The dashboards product registers its model from its AppConfig.ready().
+        return registered_model("DashboardWidget")
 
     @classmethod
     def get_display_name(cls, resource: Any) -> str:
@@ -28,9 +29,7 @@ class DashboardWidgetVisitor(
 
         widget_type = getattr(resource, "widget_type", None)
         if widget_type:
-            catalog_entry = WIDGET_CATALOG.get(str(widget_type))
-            if catalog_entry is not None:
-                return catalog_entry["label"]
-            return str(widget_type)
+            label = widget_type_label(str(widget_type))
+            return label if label is not None else str(widget_type)
 
         return super().get_display_name(resource)

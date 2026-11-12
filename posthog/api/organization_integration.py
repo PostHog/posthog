@@ -11,9 +11,9 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationRecord
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.permissions import OrganizationAdminWritePermissions
 
 logger = structlog.get_logger(__name__)
@@ -122,10 +122,16 @@ class OrganizationIntegrationViewSet(
                     error=str(e),
                 )
 
-        team_integrations_deleted, _ = Integration.objects.filter(
-            team__organization=instance.organization,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).delete()
+        team_integrations_deleted = 0
+        org_team_ids = Team.objects.filter(organization_id=instance.organization_id).values_list("id", flat=True)
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(org_team_ids))
+        ):
+            try:
+                IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+            except IntegrationNotFound:
+                continue  # Another request deleted the resource after the list.
+            team_integrations_deleted += 1
 
         logger.info(
             "organization_integration.deleted",
@@ -152,8 +158,6 @@ class OrganizationIntegrationViewSet(
         production_id = serializer.validated_data["production"]
         preview_id = serializer.validated_data.get("preview", production_id)
         development_id = serializer.validated_data.get("development", production_id)
-
-        from posthog.models.team import Team
 
         org = integration.organization
         for tid in {production_id, preview_id, development_id}:

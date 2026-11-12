@@ -43,6 +43,7 @@ from products.signals.backend.task_run_artefacts import (
     append_task_run_artefact,
     enforce_report_implementation_rerun_cap,
     enforce_report_task_cap,
+    implementation_in_flight_report_ids,
     record_implementation_task,
     release_quota_cancelled_implementation,
     signals_task_ids,
@@ -241,10 +242,74 @@ class TestTaskRunArtefacts(BaseTest):
         assert assignment is not None
         assert assignment.claim_id == task_claim.claim_id
 
-    def test_claimer_starts_implementation_under_their_own_claim(self):
+    @parameterized.expand(
+        [
+            ("settled_run_is_replaced", TaskRun.Status.FAILED, False),
+            ("running_run_blocks", TaskRun.Status.IN_PROGRESS, True),
+        ]
+    )
+    def test_rerun_over_another_tasks_claim(self, _name, holder_run_status, blocked):
+        report = self._report()
+        holder = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(holder.id))
+        TaskRun.objects.create(team=self.team, task=holder, status=holder_run_status)
+        holder_claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert holder_claim is not None
+        rerun = self._task(created_by=self.user)
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=rerun, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+
+        if blocked:
+            with transaction.atomic(), self.assertRaises(ReportTaskCapExceeded):
+                enforce_report_implementation_rerun_cap(
+                    team_id=self.team.id, report_id=str(report.id), task_id=str(rerun.id)
+                )
+        else:
+            with transaction.atomic():
+                enforce_report_implementation_rerun_cap(
+                    team_id=self.team.id, report_id=str(report.id), task_id=str(rerun.id)
+                )
+
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert (assignment.claim_id == holder_claim.claim_id) is blocked
+
+    @parameterized.expand(
+        [
+            ("running", TaskRun.Status.IN_PROGRESS, None, True),
+            ("settled", TaskRun.Status.FAILED, None, False),
+            ("shipped", TaskRun.Status.COMPLETED, "https://github.com/posthog/posthog/pull/1", False),
+        ]
+    )
+    def test_implementation_in_flight_report_ids(self, _name, run_status, pr_url, expected):
+        report = self._report()
+        idle_report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(
+            team=self.team, task=task, status=run_status, output={"pr_url": pr_url} if pr_url else None
+        )
+
+        in_flight = implementation_in_flight_report_ids(
+            team_id=self.team.id, report_ids=[str(report.id), str(idle_report.id)]
+        )
+
+        assert in_flight == ({str(report.id)} if expected else set())
+
+    @parameterized.expand(
+        [
+            ("direct_claim", SignalActorKind.USER),
+            ("agent_claim", SignalActorKind.AGENT),
+        ]
+    )
+    def test_claimer_starts_implementation_under_their_own_claim(self, _name, claim_kind):
         report = self._report()
         claimer = self._create_user("claimer@example.com")
-        create_claim(report, ArtefactAttribution.from_user(claimer.id))
+        if claim_kind == SignalActorKind.AGENT:
+            create_claim(report, ArtefactAttribution.from_agent(claimer.id, "codex"))
+        else:
+            create_claim(report, ArtefactAttribution.from_user(claimer.id))
 
         with transaction.atomic():
             enforce_report_task_cap(
@@ -267,7 +332,7 @@ class TestTaskRunArtefacts(BaseTest):
 
         assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
         assert assignment is not None
-        assert assignment.actor_kind == SignalActorKind.USER
+        assert assignment.actor_kind == claim_kind
         assert assignment.actor_user_id == claimer.id
         task_run = SignalReportArtefact.objects.get(report=report, type="task_run", task_id=task.id)
         assert task_run.claim_id == assignment.claim_id

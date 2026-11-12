@@ -22,7 +22,7 @@ export const getSentrySteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                npm install --save posthog-js @sentry/browser
+                                npm install --save posthog-js@1 @sentry/browser
                             `,
                             },
                         ]}

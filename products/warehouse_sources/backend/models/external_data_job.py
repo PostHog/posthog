@@ -98,6 +98,15 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Serves the "newest jobs of a schema" reads: equality on schema and team, ordered by
+            # created_at DESC with LIMIT. Without it Postgres reads every job the schema has run
+            # and sorts them. Team is in the key because the planner treats the schema filter and
+            # the team filter as independent. With team outside the key it expects almost no
+            # matching rows, and it keeps the bitmap scan of the full job history of the schema.
+            models.Index(
+                fields=["schema", "team", "-created_at"],
+                name="idx_extdatajob_schema_team",
+            ),
         ]
 
     @classmethod
