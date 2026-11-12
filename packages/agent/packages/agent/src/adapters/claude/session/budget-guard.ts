@@ -1,4 +1,5 @@
 import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
+import { isGitlabRun } from "@posthog/git/gitlab";
 import type { Logger } from "../../../utils/logger";
 
 export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
@@ -241,7 +242,7 @@ export class RunBudgetGuard {
       parseModelPricesJson(env[BUDGET_PRICES_ENV], logger) ??
       DEFAULT_MODEL_PRICES;
     const guard = new RunBudgetGuard(capUsd, prices, logger, mode);
-    guard.gitlab = env.POSTHOG_GIT_PROVIDER === "gitlab";
+    guard.gitlab = isGitlabRun(env);
     return guard;
   }
 

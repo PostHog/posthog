@@ -1,6 +1,6 @@
 // GitLab (gitlab.com) helpers for cloud runs that work in a GitLab project.
-// The backend starts such runs with POSTHOG_GIT_PROVIDER=gitlab, GITLAB_TOKEN
-// and GITLAB_HOST, and clones the repo with the token in the origin URL.
+// The backend starts such runs with POSTHOG_GIT_PROVIDER=gitlab and
+// GITLAB_TOKEN, and clones the repo with the token in the origin URL.
 
 export const GITLAB_DEFAULT_HOST = "gitlab.com";
 
@@ -26,7 +26,7 @@ export function resolveGitlabClient(
   if (!token) return null;
   return {
     token,
-    host: env.GITLAB_HOST?.trim() || GITLAB_DEFAULT_HOST,
+    host: GITLAB_DEFAULT_HOST,
   };
 }
 

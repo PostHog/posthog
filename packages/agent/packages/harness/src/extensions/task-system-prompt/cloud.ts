@@ -106,7 +106,7 @@ export class CloudTaskPrompt {
 This repository is on GitLab. \`gh\` and the GitHub signed-commit tools do not work here.
 - Commit with \`git commit\`. Push a new branch with \`git push -u origin <branch>\`.
 - After a rebase, push with \`git push --force-with-lease\`. Never use plain \`--force\`.
-- To update from the base branch: \`git fetch origin <base>\`, \`git rebase origin/<base>\`, then push with \`--force-with-lease\`.
+- To update from the base branch, run \`git fetch origin +refs/heads/<base>:refs/remotes/origin/<base>\`, because a single-branch clone does not create \`origin/<base>\` otherwise. If \`git merge-base HEAD origin/<base>\` then fails, the clone is too shallow: deepen both branches in bounded steps (\`git fetch --deepen=200 origin <branch> <base>\`) until it succeeds, and use \`git fetch --unshallow origin\` only as a last resort. Then run \`git rebase origin/<base>\` and push with \`--force-with-lease\`.
 - Before you commit again to a branch with an open merge request, run \`git pull --rebase --autostash origin <branch>\`, because CI or other people can push to it.
 - Open and read merge requests with the \`gitlab_merge_request\` tool (full name \`${GITLAB_MERGE_REQUEST_QUALIFIED_TOOL_NAME}\`). It opens draft merge requests only.
 - Do NOT add "Co-Authored-By" trailers or "Generated with" lines to commit messages.

@@ -32,11 +32,7 @@ export interface LocalToolsMeta extends LocalToolGateMeta {
   baseBranch?: string;
 }
 
-const GITLAB_ENV_VARS = [
-  "POSTHOG_GIT_PROVIDER",
-  "GITLAB_TOKEN",
-  "GITLAB_HOST",
-] as const;
+const GITLAB_ENV_VARS = ["POSTHOG_GIT_PROVIDER", "GITLAB_TOKEN"] as const;
 
 function toMcpServerStdio(
   ctx: LocalToolCtx,
