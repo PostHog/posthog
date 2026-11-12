@@ -51,6 +51,7 @@ from products.messaging.backend.services.imported_data import (
 )
 from products.messaging.backend.services.message_templates import create_template
 from products.messaging.backend.services.sendgrid_client import (
+    SUPPRESSION_PAGE_SIZE,
     TEMPLATE_PAGE_SIZE,
     SendGridAPIError,
     SendGridClient,
@@ -375,28 +376,79 @@ def _save_groups(context: ImportContext, groups: list[dict[str, Any]]) -> SavedP
     )
 
 
-def _offset_checkpoint(fingerprint: str, list_key: str, offset: int, end_time: int) -> StepCheckpoint:
-    return {"key": fingerprint, "list": list_key, "offset": offset, "end_time": end_time}
+def _offset_checkpoint(fingerprint: str, list_key: str, offset: int, end_time: int, last: str | None) -> StepCheckpoint:
+    checkpoint: StepCheckpoint = {"key": fingerprint, "list": list_key, "offset": offset, "end_time": end_time}
+    if last is not None:
+        checkpoint["last"] = last
+    return checkpoint
+
+
+def _list_email(row: Any) -> str | None:
+    return str(row["email"]) if isinstance(row, dict) and row.get("email") else None
+
+
+def _list_rows(client: SendGridClient, path: str, offset: int, end_time: int) -> list[Any]:
+    rows = client.get(path, {"end_time": end_time, "limit": SUPPRESSION_PAGE_SIZE, "offset": offset})
+    if not isinstance(rows, list):
+        raise SendGridAPIError(f"SendGrid sent an unexpected response for {path}.")
+    return rows
+
+
+def _offset_after(client: SendGridClient, path: str, position: int, last: str, end_time: int) -> tuple[int, str | None]:
+    # A deleted entry only moves later ones back, so the last row read is somewhere before where it was.
+    while position > 0:
+        start = max(position - SUPPRESSION_PAGE_SIZE, 0)
+        rows = _list_rows(client, path, start, end_time)
+        for index, row in enumerate(rows[: position - start]):
+            if _list_email(row) == last:
+                return start + index + 1, last
+        position = start
+    # It was deleted too. Saving an address twice changes nothing, so read the list again from the start.
+    return 0, None
+
+
+def _list_pages_after(
+    client: SendGridClient, path: str, offset: int, last: str | None, end_time: int
+) -> Iterator[tuple[list[Any], int, str | None]]:
+    """New rows of a suppression list, with the offset and email to continue after them.
+
+    Lists have no cursor, only an offset. Pinning the end of the range keeps new entries out, but deleting an entry
+    already read moves every later one back. So each page starts at the last row read, to check it's still there."""
+    while True:
+        start = offset - 1 if last is not None and offset > 0 else offset
+        rows = _list_rows(client, path, start, end_time)
+        if start < offset:
+            if not rows or _list_email(rows[0]) != last:
+                offset, last = _offset_after(client, path, start, last or "", end_time)
+                continue
+            fresh = rows[1:]
+        else:
+            fresh = rows
+        if fresh:
+            offset += len(fresh)
+            last = _list_email(fresh[-1])
+            yield fresh, offset, last
+        if len(rows) < SUPPRESSION_PAGE_SIZE:
+            return
 
 
 def _fetch_suppressions(
     client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
 ) -> Iterator[ImportPage]:
-    # Lists have no cursor, only an offset. Pinning the end of the range keeps offsets valid while new entries arrive.
     end_time = int(resume["end_time"]) if resume and "end_time" in resume else int(timezone.now().timestamp())
     reached = resume is None
     for list_key, path, source, reason in SUPPRESSION_LISTS:
         if not reached and resume and resume.get("list") != list_key:
             continue
-        offset = int(resume["offset"]) if not reached and resume else 0
+        start = int(resume["offset"]) if not reached and resume else 0
+        anchor = str(resume["last"]) if not reached and resume and "last" in resume else None
         reached = True
-        for page in client.offset_pages(path, offset=offset, params={"end_time": end_time}):
+        for rows, offset, last in _list_pages_after(client, path, start, anchor, end_time):
             yield ImportPage(
-                processed=len(page.data),
-                save=partial(_save_suppressions, context, page.data, list_key, source, reason),
-                checkpoint=_offset_checkpoint(fingerprint, list_key, offset + len(page.data), end_time),
+                processed=len(rows),
+                save=partial(_save_suppressions, context, rows, list_key, source, reason),
+                checkpoint=_offset_checkpoint(fingerprint, list_key, offset, end_time, last),
             )
-            offset += len(page.data)
 
 
 def _save_suppressions(
@@ -429,14 +481,14 @@ def _fetch_global_unsubscribes(
     client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
 ) -> Iterator[ImportPage]:
     end_time = int(resume["end_time"]) if resume and "end_time" in resume else int(timezone.now().timestamp())
-    offset = int(resume["offset"]) if resume and "offset" in resume else 0
-    for page in client.offset_pages("/v3/suppression/unsubscribes", offset=offset, params={"end_time": end_time}):
+    start = int(resume["offset"]) if resume and "offset" in resume else 0
+    anchor = str(resume["last"]) if resume and "last" in resume else None
+    for rows, offset, last in _list_pages_after(client, "/v3/suppression/unsubscribes", start, anchor, end_time):
         yield ImportPage(
-            processed=len(page.data),
-            save=partial(_save_global_unsubscribes, context, page.data),
-            checkpoint=_offset_checkpoint(fingerprint, "global", offset + len(page.data), end_time),
+            processed=len(rows),
+            save=partial(_save_global_unsubscribes, context, rows),
+            checkpoint=_offset_checkpoint(fingerprint, "global", offset, end_time, last),
         )
-        offset += len(page.data)
 
 
 def _save_global_unsubscribes(context: ImportContext, entries: list[dict[str, Any]]) -> SavedPage:
@@ -783,7 +835,11 @@ def _single_send_sender(
     if integration is None:
         return None, (f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",)
     return (
-        {"integrationId": integration.id, "email": address, "name": literal_liquid(str(sender.get("from_name") or ""))},
+        {
+            "integrationId": integration.id,
+            "email": literal_liquid(address),
+            "name": literal_liquid(str(sender.get("from_name") or "")),
+        },
         () if integration.config.get("verified") else (f"{address} isn't verified in PostHog yet.",),
     )
 
@@ -791,8 +847,7 @@ def _single_send_sender(
 def _single_send_reply_to(config: dict[str, Any], senders: Mapping[int, dict[str, Any] | None]) -> str:
     sender_id = config.get("sender_id")
     sender = senders.get(sender_id) if isinstance(sender_id, int) else None
-    reply_to = str((sender or {}).get("reply_to") or "")
-    return "" if reply_to.lower() == str((sender or {}).get("from_email") or "").lower() else literal_liquid(reply_to)
+    return literal_liquid(str((sender or {}).get("reply_to") or ""))
 
 
 def _single_send_category(team_id: int, config: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
