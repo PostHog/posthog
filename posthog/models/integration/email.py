@@ -193,7 +193,7 @@ class EmailIntegration:
 
         proof_required = (
             bool(other_organization_senders)
-            or same_domain_integrations.filter(**{f"config__{ORGANIZATION_PROOF_REQUIRED_KEY}": True}).exists()
+            or same_domain_integrations.filter(config__organization_proof_required=True).exists()
         )
         for sender in other_organization_senders:
             row_writes.update_row(sender, IntegrationPatch(config_patch={ORGANIZATION_PROOF_REQUIRED_KEY: True}))
