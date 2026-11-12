@@ -6,6 +6,7 @@ import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdk
 import { randomUUID } from 'node:crypto'
 import { register } from 'prom-client'
 import supertest from 'supertest'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -64,7 +65,7 @@ import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monit
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService } from './email-status.service'
+import { EmailStatus, EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -1808,6 +1809,7 @@ describe('EmailService', () => {
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
             const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
@@ -1821,7 +1823,10 @@ describe('EmailService', () => {
                     subject: 'Test Subject',
                     charsets: { subject: 'UTF-8', text: 'UTF-8', html: 'UTF-8' },
                     to: ['"Test User" <test@example.com>'],
-                    tags: expectedTags,
+                    tags:
+                        triggerEvent === TRANSACTIONAL_EMAIL_EVENT
+                            ? { ...expectedTags, ph_created_ms: String(Date.UTC(2026, 0, 2, 3, 4, 5, 678)) }
+                            : expectedTags,
                     feedbackForwardingAddress: 'test@posthog-test.com',
                     from: '"Test User" <test@posthog-test.com>',
                 }),
@@ -1859,6 +1864,7 @@ describe('EmailService', () => {
             expect(ses.sent[0].tags).toEqual({
                 ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
                 ph_email_status: 'true',
+                ph_created_ms: expect.stringMatching(/^\d+$/),
             })
             expect(result.capturedPostHogEvents[0].properties).toMatchObject({
                 $email_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
@@ -2489,7 +2495,8 @@ describe('EmailService', () => {
             })
         })
 
-        it.each([
+        type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
+        const statusCases: StatusCase[] = [
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
             [
                 'a transactional email that SES rejects',
@@ -2543,12 +2550,26 @@ describe('EmailService', () => {
             ['a workflow email that SES accepts', '$pageview', false, sesAccepts, null, null],
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
-        ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
+        ]
+        const statusTriggerTime = '2026-01-02T03:04:05.678Z'
+        const statusIdKinds: [string, string, string][] = [
+            ['a UUIDT id', new UUIDT(Date.UTC(2026, 0, 1, 12, 0, 0, 250)).toString(), '2026-01-01 12:00:00.250000'],
+            ['a keyed id', uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'), '2026-01-02 03:04:05.678000'],
+        ]
+
+        it.each(
+            statusCases.flatMap(([name, ...rest]) =>
+                statusIdKinds.map(
+                    ([kind, id, createdAt]) => [`${name}, under ${kind}`, ...rest, id, createdAt] as const
+                )
+            )
+        )('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason, id, createdAt) => {
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
             service['emailStatusService'] = emailStatusService
-            invocation.id = new UUIDT().toString()
+            invocation.id = id
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = statusTriggerTime
             setup()
 
             await service.executeSendEmail(invocation, isTest)
@@ -2561,10 +2582,11 @@ describe('EmailService', () => {
                     ? [
                           expect.objectContaining({
                               team_id: team.id,
-                              message_id: invocation.id,
+                              message_id: id,
                               status,
                               reason,
                               sending_domain: sendingDomain,
+                              created_at: createdAt,
                           }),
                       ]
                     : []

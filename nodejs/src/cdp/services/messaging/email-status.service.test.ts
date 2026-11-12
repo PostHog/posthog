@@ -1,10 +1,12 @@
 import { register } from 'prom-client'
+import { v5 as uuidv5 } from 'uuid'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 
-import { EmailStatusOutput } from '../../outputs/outputs'
+import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { EmailStatus, EmailStatusService, EmailStatusUpdate, buildEmailStatusRow } from './email-status.service'
@@ -17,24 +19,42 @@ const failedWrites = async (status: EmailStatus): Promise<number> =>
 describe('EmailStatusService', () => {
     const createdAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
     const messageId = new UUIDT(createdAt).toString()
+    const keyedMessageId = uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8')
+    const triggerTime = new Date(Date.UTC(2026, 0, 2, 3, 9, 0, 250))
 
-    it('builds a row whose created_at comes from the message id and whose version leads with the status rank', () => {
-        const statusAt = new Date(Date.UTC(2026, 0, 3, 10, 0, 0, 123))
+    it.each([
+        ['the message id', messageId, undefined, '2026-01-02 03:04:05.678000'],
+        ['the message id, whatever time the writer carries', messageId, triggerTime, '2026-01-02 03:04:05.678000'],
+        ['the carried time for a keyed message id', keyedMessageId, triggerTime, '2026-01-02 03:09:00.250000'],
+    ])(
+        'builds a row whose created_at comes from %s and whose version leads with the status rank',
+        (_desc, id, messageCreatedAt, expectedCreatedAt) => {
+            const statusAt = new Date(Date.UTC(2026, 0, 3, 10, 0, 0, 123))
 
-        expect(buildEmailStatusRow({ teamId: 2, messageId, status: 'bounced', reason: 'hard', statusAt })).toEqual({
-            team_id: 2,
-            message_id: messageId,
-            status: 'bounced',
-            // 6 * 2^48 + status_at in ms, as a decimal string for ClickHouse's UInt64.
-            version: (6n * 2n ** 48n + BigInt(statusAt.getTime())).toString(),
-            created_at: '2026-01-02 03:04:05.678000',
-            status_at: '2026-01-03 10:00:00.123000',
-            reason: 'hard',
-            recipient: '',
-            function_id: '',
-            sending_domain: '',
-        })
-    })
+            expect(
+                buildEmailStatusRow({
+                    teamId: 2,
+                    messageId: id,
+                    status: 'bounced',
+                    reason: 'hard',
+                    statusAt,
+                    messageCreatedAt,
+                })
+            ).toEqual({
+                team_id: 2,
+                message_id: id,
+                status: 'bounced',
+                // 6 * 2^48 + status_at in ms, as a decimal string for ClickHouse's UInt64.
+                version: (6n * 2n ** 48n + BigInt(statusAt.getTime())).toString(),
+                created_at: expectedCreatedAt,
+                status_at: '2026-01-03 10:00:00.123000',
+                reason: 'hard',
+                recipient: '',
+                function_id: '',
+                sending_domain: '',
+            })
+        }
+    )
 
     it('ranks every status above the previous one even when it is timestamped earlier', () => {
         const updates: Pick<EmailStatusUpdate, 'status' | 'reason' | 'runOutcome'>[] = [
@@ -66,15 +86,16 @@ describe('EmailStatusService', () => {
     describe('run outcomes', () => {
         const runResult = (
             triggerEvent: string,
-            outcome: Partial<Pick<CyclotronJobInvocationResult, 'error' | 'canceled' | 'finished'>>
+            outcome: Partial<Pick<CyclotronJobInvocationResult, 'error' | 'canceled' | 'finished'>>,
+            id = messageId
         ): CyclotronJobInvocationResult =>
             ({
                 invocation: {
-                    id: messageId,
+                    id,
                     teamId: 2,
                     functionId: 'flow-id',
                     hogFlow: { id: 'flow-id' },
-                    state: { event: { event: triggerEvent } },
+                    state: { event: { event: triggerEvent, timestamp: triggerTime.toISOString() } },
                 },
                 finished: true,
                 ...outcome,
@@ -126,6 +147,16 @@ describe('EmailStatusService', () => {
             )
         })
 
+        it('dates the failed row of a keyed run by its trigger event', async () => {
+            const rows = await producedRows([
+                runResult(TRANSACTIONAL_EMAIL_EVENT, { error: 'Template not found' }, keyedMessageId),
+            ])
+
+            expect(rows).toEqual([
+                expect.objectContaining({ message_id: keyedMessageId, created_at: '2026-01-02 03:09:00.250000' }),
+            ])
+        })
+
         it.each([
             ['a sent email as sent', 'sent', undefined],
             // The transactional workflow aborts on a failed step, so a rejected send also fails its run.
@@ -148,23 +179,47 @@ describe('EmailStatusService', () => {
     })
 
     it.each([
-        ['a transactional email', TRANSACTIONAL_EMAIL_EVENT, 1],
-        ['a workflow run', '$pageview', 0],
-    ])('records %s whose workflow is gone at dequeue as failed', async (_desc, triggerEvent, rows) => {
+        ['no creation time', undefined],
+        ['an invalid creation time', new Date(NaN)],
+    ])('drops and counts a row of a keyed message that carries %s', async (_desc, messageCreatedAt) => {
+        const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+        const service = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+        const before = await failedWrites('queued')
+
+        service.queue({ teamId: 2, messageId: keyedMessageId, status: 'queued', messageCreatedAt })
+        await service.flush()
+
+        expect(kafka.produced(EMAIL_STATUS_OUTPUT)).toEqual([])
+        expect(await failedWrites('queued')).toBe(before + 1)
+    })
+
+    it.each([
+        ['a transactional email', TRANSACTIONAL_EMAIL_EVENT, messageId, '2026-01-02 03:04:05.678000'],
+        ['a keyed transactional email', TRANSACTIONAL_EMAIL_EVENT, keyedMessageId, '2026-01-02 03:09:00.250000'],
+        ['a workflow run', '$pageview', messageId, null],
+    ])('records %s whose workflow is gone at dequeue as failed', async (_desc, triggerEvent, id, expectedCreatedAt) => {
         const produce = jest.fn().mockResolvedValue(undefined)
         const service = new EmailStatusService({ produce } as unknown as IngestionOutputs<EmailStatusOutput>, {
             EMAIL_STATUS_ENABLED: true,
         })
 
         service.queueUnavailableRun({
-            id: messageId,
+            id,
             teamId: 2,
-            state: { event: { event: triggerEvent } },
+            state: { event: { event: triggerEvent, timestamp: triggerTime.toISOString() } },
         } as unknown as CyclotronJobInvocation)
         await service.flush()
 
         expect(produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))).toEqual(
-            rows ? [expect.objectContaining({ status: 'failed', reason: 'workflow_unavailable' })] : []
+            expectedCreatedAt
+                ? [
+                      expect.objectContaining({
+                          status: 'failed',
+                          reason: 'workflow_unavailable',
+                          created_at: expectedCreatedAt,
+                      }),
+                  ]
+                : []
         )
     })
 
