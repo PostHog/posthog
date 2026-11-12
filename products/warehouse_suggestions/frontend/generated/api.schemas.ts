@@ -467,11 +467,11 @@ export const WarehouseSuggestionSurfaceEnumApi = {
 } as const
 
 export interface SurfaceMoreWarehouseSuggestionsApi {
-    /** Page to show more suggestions on. Only the kinds that page shows are picked.
+    /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
      *
      * * `models` - Models
      * * `catalog` - Data catalog */
-    surface: WarehouseSuggestionSurfaceEnumApi
+    surface?: WarehouseSuggestionSurfaceEnumApi
 }
 
 export interface WarehouseSuggestionSurfaceMoreResultApi {
@@ -597,7 +597,7 @@ export const WarehouseSuggestionsDismissCreateSurface = {
 
 export type WarehouseSuggestionsStatusRetrieveParams = {
     /**
-     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
      *
      * * `models` - Models
      * * `catalog` - Data catalog

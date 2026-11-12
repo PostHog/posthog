@@ -17,13 +17,20 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from .. import feature_flags
-from ..logic import releases as logic
+from ..logic import (
+    imports,
+    releases as logic,
+)
 from ..models import Release
 from . import contracts
 
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownFeatureFlagsError = contracts.UnknownFeatureFlagsError
 UnknownBroadcastsError = contracts.UnknownBroadcastsError
+ImportFlag = contracts.ImportFlag
+
+
+RESTRICTED_NAME = "Release of a restricted flag"
 
 
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
@@ -55,13 +62,14 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
 
 
 def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
+    has_hidden_flags = any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids)
     return contracts.ReleaseDTO(
         id=obj.id,
-        name=obj.name,
+        name=RESTRICTED_NAME if obj.auto_named and has_hidden_flags else obj.name,
         description=obj.description,
         owner=contracts.ReleaseOwnerDTO(id=obj.owner.id, first_name=obj.owner.first_name) if obj.owner else None,
         feature_flag_ids=[flag_id for flag_id in obj.feature_flag_ids if flag_id not in hidden.flags],
-        has_hidden_flags=any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids),
+        has_hidden_flags=has_hidden_flags,
         broadcast_ids=[broadcast_id for broadcast_id in obj.broadcast_ids if broadcast_id not in hidden.broadcasts],
         broadcasts=[
             hidden.summaries[broadcast_id]
@@ -141,11 +149,34 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 
 
+def import_all(team_id: int, load_flags: Callable[[], list[contracts.ImportFlag]]) -> int:
+    return imports.run_initial_import(team_id, load_flags)
+
+
+def project_uses_releases(team_id: int) -> bool:
+    return imports.project_imported(team_id)
+
+
+def create_release_for_new_flag(flag_id: int, team_id: int) -> None:
+    imports.create_release_for_new_flag(flag_id, team_id, releases_enabled)
+
+
 def releases_enabled(
-    *, team_id: int, team_uuid: UUID, organization_id: UUID, distinct_id: str, email: str | None
+    *,
+    team_id: int,
+    team_uuid: UUID,
+    organization_id: UUID,
+    distinct_id: str,
+    email: str | None,
+    raise_on_error: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
-        team_id=team_id, team_uuid=team_uuid, organization_id=organization_id, distinct_id=distinct_id, email=email
+        team_id=team_id,
+        team_uuid=team_uuid,
+        organization_id=organization_id,
+        distinct_id=distinct_id,
+        email=email,
+        raise_on_error=raise_on_error,
     )
 
 

@@ -5,9 +5,11 @@ from unittest import mock
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
 
@@ -480,6 +482,58 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert len(response.json()["short_id"]) > 0
+
+    @parameterized.expand(
+        [
+            ("accessible", False, False, "unique", status.HTTP_200_OK),
+            ("inaccessible", False, True, "invalid_input", status.HTTP_403_FORBIDDEN),
+            ("deleted", True, False, "invalid_input", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_create_notebook_rejects_duplicate_short_id_without_changing_existing_notebook(
+        self, _name, deleted, denied, expected_code, retrieve_status
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        notebook = Notebook.objects.create(team=self.team, short_id="reportA", title="Original report", deleted=deleted)
+        if denied:
+            AccessControl.objects.create(
+                team=self.team, resource="notebook", resource_id=str(notebook.id), access_level="none"
+            )
+        assert (
+            self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}").status_code
+            == retrieve_status
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Replacement report", "short_id": notebook.short_id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        assert response.json()["attr"] == "short_id"
+        notebook.refresh_from_db()
+        assert notebook.title == "Original report"
+        assert Notebook.objects.filter(team=self.team, short_id=notebook.short_id).count() == 1
+
+    def test_create_notebook_allows_short_id_used_in_another_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        Notebook.objects.create(team=other_team, short_id="reportA", title="Other report")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "New report", "short_id": "reportA"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Notebook.objects.get(team=self.team, short_id="reportA").title == "New report"
 
     @parameterized.expand(
         [

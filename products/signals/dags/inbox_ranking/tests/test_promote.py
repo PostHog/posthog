@@ -152,7 +152,7 @@ def test_a_rollback_to_an_older_version_rewrites_the_pointer_and_publishes_it(mo
     )
 
 
-@pytest.mark.parametrize("mode", ["due", "held", "pointer_moved", "transport_error"])
+@pytest.mark.parametrize("mode", ["due", "flag_interval", "held", "pointer_moved", "transport_error"])
 def test_the_daily_publish_auto_promotes_the_newest_passing_version_and_serves_it_in_the_same_run(monkeypatch, mode):
     served_key, newer_version, partition_key = f"{XGBOOST_MODEL_NAME}@{SERVED_VERSION}", "2026-10-18", "2026-10-19"
     client, store = _dataset(), _AppObjectStore()
@@ -166,7 +166,12 @@ def test_the_daily_publish_auto_promotes_the_newest_passing_version_and_serves_i
         {"would_promote": True, "reason": "candidate at or above", "incumbent_key": served_key}
     ).encode()
     capture = _patch_stores(monkeypatch, client, store)
-    monkeypatch.setattr(settings, "INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 3)
+    # In flag_interval the setting turns the step off, so only the flag's interval can promote.
+    monkeypatch.setattr(settings, "INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 0 if mode == "flag_interval" else 3)
+    monkeypatch.setattr(
+        "products.signals.backend.ranking.overrides.posthoganalytics.get_feature_flag_payload",
+        lambda flag, distinct_id: {"interval_days": 1} if mode == "flag_interval" else None,
+    )
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.read_ranking_overrides",
         lambda now: RankingOverrides(hold_auto_promotion=mode == "held"),
@@ -190,14 +195,14 @@ def test_the_daily_publish_auto_promotes_the_newest_passing_version_and_serves_i
 
         monkeypatch.setattr(client, "get_object", timing_out_get_object)
 
-    _publish_manifest(
+    metadata = _publish_manifest(
         dagster.build_asset_context(partition_key=partition_key), partition_key, "run-1", auto_promote=True
     )
 
     pointer = json.loads(client.objects[served_object_key(PREFIX)])
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(PREFIX)])
     events = [call["properties"] for call in capture.calls if call["event"] == MODEL_PROMOTED_EVENT]
-    if mode != "due":
+    if mode not in ("due", "flag_interval"):
         assert pointer == (
             manual_pointer if mode == "pointer_moved" else {**served, "promoted_at": "2026-10-16T05:00:00+00:00"}
         )
@@ -205,6 +210,11 @@ def test_the_daily_publish_auto_promotes_the_newest_passing_version_and_serves_i
         assert events == []
         return
     new_key = f"{XGBOOST_MODEL_NAME}@{newer_version}"
+    assert metadata["auto_promotion"].value == (
+        {"result": f"promoted {new_key}", "interval_days": 1, "source": "flag"}
+        if mode == "flag_interval"
+        else {"result": f"promoted {new_key}", "interval_days": 3, "source": "setting"}
+    )
     assert (pointer["model_key"], pointer["previous_key"], pointer["auto"]) == (new_key, served_key, True)
     assert manifest.served.key == new_key
     [event] = events

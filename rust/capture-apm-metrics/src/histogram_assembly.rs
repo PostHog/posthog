@@ -134,6 +134,7 @@ pub fn fold_classic_histograms(
             series_fingerprint,
             has_labels: true,
             retention_days: sum_row.retention_days,
+            start_timestamp: None,
         });
     }
 

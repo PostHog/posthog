@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 
 import pytest
@@ -7,9 +8,15 @@ from django.db import OperationalError
 
 import requests
 from google.auth.exceptions import RefreshError, TransportError
+from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.integrations import IntegrationNotFound
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -36,6 +43,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     google_search_console_source,
     normalize_site_url,
     suggest_registered_site,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
+    GoogleSearchConsoleSource,
 )
 
 TODAY = dt.date(2026, 4, 30)
@@ -815,3 +825,86 @@ def test_property_listing_marks_server_error_retryable(monkeypatch, resource_nam
 
     with pytest.raises(GoogleSearchConsoleServerError, match=r"\(retryable\)"):
         list(response.items())  # type: ignore[arg-type]
+
+
+def _appearance_row(appearance: str) -> dict:
+    return {"keys": [appearance], "clicks": 1, "impressions": 4, "ctr": 0.25, "position": 2.0}
+
+
+@pytest.mark.parametrize(
+    "last_value,resume_state,window_rows,expected_request_windows,expected_dates",
+    [
+        # No rich results in 16 months: one call over the window replaces one call per day.
+        (
+            None,
+            None,
+            [],
+            [("2025-01-05", "2026-04-27")],
+            [],
+        ),
+        (
+            dt.date(2026, 4, 25),
+            None,
+            [_appearance_row("VIDEO")],
+            [
+                ("2026-04-25", "2026-04-27"),
+                ("2026-04-25", "2026-04-25"),
+                ("2026-04-26", "2026-04-26"),
+                ("2026-04-27", "2026-04-27"),
+            ],
+            [dt.date(2026, 4, 25), dt.date(2026, 4, 26), dt.date(2026, 4, 27)],
+        ),
+        # A one-day window would ask the same question twice, so it skips the window call.
+        (
+            dt.date(2026, 4, 27),
+            None,
+            [],
+            [("2026-04-27", "2026-04-27")],
+            [dt.date(2026, 4, 27)],
+        ),
+        # A resumed run only asks about the days it has left.
+        (
+            dt.date(2026, 4, 20),
+            GoogleSearchConsoleResumeConfig(current_date="2026-04-26", start_row=0),
+            [],
+            [("2026-04-26", "2026-04-27")],
+            [],
+        ),
+        (
+            dt.date(2026, 4, 20),
+            GoogleSearchConsoleResumeConfig(current_date="2026-04-28", start_row=0),
+            [],
+            [],
+            [],
+        ),
+    ],
+)
+def test_search_appearance_skips_the_daily_walk_when_the_window_is_empty(
+    monkeypatch, last_value, resume_state, window_rows, expected_request_windows, expected_dates
+):
+    monkeypatch.setattr(gsc, "_today", lambda: TODAY)
+    monkeypatch.setattr(gsc, "_credentials", lambda *a, **kw: OAuthCredentials(token="token"))
+    monkeypatch.setattr(gsc, "_MIN_REQUEST_INTERVAL_SECONDS", 0.0)
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        body = json.loads(request.body or b"{}")
+        assert body["dimensions"] == ["searchAppearance"]
+        if body["startDate"] != body["endDate"]:
+            return ScriptedResponse(json={"rows": window_rows} if window_rows else {})
+        return ScriptedResponse(json={"rows": [_appearance_row("VIDEO")]})
+
+    config = GoogleSearchConsoleSourceConfig(site_url="https://example.com/", google_search_console_integration_id=1)
+    result = SourceDriver(GoogleSearchConsoleSource(), config).run(
+        "search_analytics_by_search_appearance",
+        answer,
+        resume_state=resume_state,
+        incremental_field="date",
+        db_incremental_field_last_value=last_value,
+    )
+
+    assert result.raised is None
+    request_windows = [
+        (json.loads(r.body or b"{}")["startDate"], json.loads(r.body or b"{}")["endDate"]) for r in result.requests
+    ]
+    assert request_windows == expected_request_windows
+    assert [row["date"] for row in result.rows] == expected_dates
