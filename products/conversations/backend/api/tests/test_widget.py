@@ -19,6 +19,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
+from posthog.test.persons import create_person
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
 from products.conversations.backend.api.widget import WidgetTicketsTeamThrottle
@@ -1594,6 +1595,37 @@ class TestWidgetIdentityVerification(BaseTest):
         ticket.refresh_from_db()
         self.assertTrue(ticket.identity_verified)
         self.assertEqual(ticket.verified_email, "person@example.com")
+
+    @parameterized.expand(
+        [
+            ("rebind_without_claim", "anon_old", False, None),
+            ("rebind_with_claim", "anon_old", True, "person@example.com"),
+            ("same_distinct_id_without_claim", None, False, "old@example.com"),
+        ]
+    )
+    def test_send_message_rebind_resets_verified_email(
+        self, _name, ticket_distinct_id, send_claim, expected_verified_email
+    ):
+        create_person(team=self.team, distinct_ids=["anon_old", self.distinct_id])
+        ticket = self._create_ticket(distinct_id=ticket_distinct_id)
+        Ticket.objects.filter(id=ticket.id).update(identity_verified=True, verified_email="old@example.com")
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **(self._email_claim("person@example.com") if send_claim else {}),
+                "message": "Follow-up",
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.distinct_id, self.distinct_id)
+        self.assertEqual(ticket.verified_email, expected_verified_email)
 
     def test_send_message_existing_ticket_ownership_by_distinct_id(self):
         ticket = self._create_ticket()

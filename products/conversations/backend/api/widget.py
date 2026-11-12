@@ -520,10 +520,14 @@ class WidgetMessageView(APIView):
                     if ticket.widget_session_id != widget_session_id:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+                stored_verified_email = ticket.verified_email
+
                 # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
                 # Anonymous → identified continuity is still handled by person merging.
                 if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
+                    # The stored claim was signed for the previous distinct_id.
+                    ticket.verified_email = None
 
                 # Other channels set traits from the attested sender, and the email bridge lets a
                 # viewer post to those tickets, so only a widget ticket takes traits from the request.
@@ -547,18 +551,20 @@ class WidgetMessageView(APIView):
 
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(
-                    update_fields=[
-                        "distinct_id",
-                        "anonymous_traits",
-                        "session_id",
-                        "session_context",
-                        "unread_team_count",
-                        "identity_verified",
-                        "verified_email",
-                        "updated_at",
-                    ]
-                )
+                update_fields = [
+                    "distinct_id",
+                    "anonymous_traits",
+                    "session_id",
+                    "session_context",
+                    "unread_team_count",
+                    "identity_verified",
+                    "updated_at",
+                ]
+                # A concurrent request without a claim reads a stale value, so it must not
+                # overwrite a claim another request stored in the meantime.
+                if ticket.verified_email != stored_verified_email:
+                    update_fields.append("verified_email")
+                ticket.save(update_fields=update_fields)
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
