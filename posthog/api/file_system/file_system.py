@@ -1326,27 +1326,32 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         else:
             with transaction.atomic():
-                instance.path = new_path
-                instance.depth = len(split_path(instance.path))
-                instance.save()
-                if instance.ref:
+                entry_ids = [instance.id]
+                if instance.ref and not instance.shortcut:
                     # The default surface matches both NULL and "web" rows, so one item can have two entries.
                     # Moving only this one would leave the item listed in two folders.
-                    folder_segments = split_path(new_path)[:-1]
-                    other_entries = (
+                    entry_ids += self._filter_by_access_control(
                         FileSystem.objects.filter(
                             surface_q(self.file_system_surface),
                             team_id=instance.team_id,
                             type=instance.type,
                             ref=instance.ref,
-                        )
-                        .exclude(id=instance.id)
-                        .exclude(shortcut=True)
-                    )
-                    for entry in other_entries:
-                        entry.path = join_path([*folder_segments, split_path(entry.path)[-1]])
-                        entry.depth = len(folder_segments) + 1
-                        entry.save(update_fields=["path", "depth"])
+                        ).exclude(shortcut=True)
+                    ).values_list("id", flat=True)
+                # Lock in id order, so concurrent moves of the same item's entries queue instead of deadlocking.
+                other_entries = [
+                    entry
+                    for entry in FileSystem.objects.select_for_update().filter(id__in=entry_ids).order_by("id")
+                    if entry.id != instance.id
+                ]
+                instance.path = new_path
+                instance.depth = len(split_path(instance.path))
+                instance.save()
+                folder_segments = split_path(new_path)[:-1]
+                for entry in other_entries:
+                    entry.path = join_path([*folder_segments, split_path(entry.path)[-1]])
+                    entry.depth = len(folder_segments) + 1
+                    entry.save(update_fields=["path", "depth"])
 
         # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
         leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
