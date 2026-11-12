@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this feature flag.",
+            "type": "number"
+        },
+        "version_number": {
+            "description": "The version number to reconstruct.",
+            "type": "number"
+        }
+    },
+    "required": ["id", "version_number"],
+    "type": "object"
+}

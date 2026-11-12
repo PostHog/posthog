@@ -5,10 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { DataModelingNode } from '~/types'
 
-import { LineageSearchMode } from './lineageSearch'
+import { LineageSearchMode, searchResultCountLabel, searchResultWindow } from './lineageSearch'
 import { NodeTypeTag } from './NodeTypeTag'
-
-const RENDERED_RESULT_LIMIT = 50
 
 export interface LineageSearchResultsProps {
     results: DataModelingNode[]
@@ -30,22 +28,8 @@ export function LineageSearchResults({
     onNext,
 }: LineageSearchResultsProps): JSX.Element {
     const selectedOptionRef = useRef<HTMLDivElement>(null)
-    const selectedPosition = results.findIndex((node) => node.id === selectedResultId) + 1
-    const resultCountLabel =
-        mode === 'search'
-            ? `${results.length} ${results.length === 1 ? 'result' : 'results'}`
-            : `${results.length} ${results.length === 1 ? 'model' : 'models'} · ${
-                  mode === 'both' ? 'both directions' : mode
-              }`
-
-    // A one-letter term matches most of a large warehouse, and only about eight rows fit. Render a
-    // window that holds the selection instead of one button per match, so arrow navigation still
-    // reaches every result and the list never mounts thousands of buttons.
-    const windowStart = Math.min(
-        Math.max(0, selectedPosition - 1 - Math.floor(RENDERED_RESULT_LIMIT / 2)),
-        Math.max(0, results.length - RENDERED_RESULT_LIMIT)
-    )
-    const renderedResults = results.slice(windowStart, windowStart + RENDERED_RESULT_LIMIT)
+    const { selectedPosition, renderedResults } = searchResultWindow(results, selectedResultId)
+    const resultCountLabel = searchResultCountLabel(results.length, mode)
 
     useEffect(() => {
         selectedOptionRef.current?.scrollIntoView({ block: 'nearest' })

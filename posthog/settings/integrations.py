@@ -8,6 +8,14 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 CREDENTIALS_SERVICE_URL = get_from_env("CREDENTIALS_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
 CREDENTIALS_SERVICE_JWT_SECRET = get_from_env("CREDENTIALS_SERVICE_JWT_SECRET", "")
+# Path of a mounted file with the Ed25519 private key (PEM) that signs integrations tokens. Per deployment.
+# The key is never an environment variable value. Read once per process.
+CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH = get_from_env(
+    "CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH", ""
+)
+# Where the integrations SDK keeps integration rows: "django" (the `Integration` model) or "service"
+# (the credentials service, with the URL and the signing key path above). See posthog/integrations/backend/.
+INTEGRATIONS_STORAGE_BACKEND = get_from_env("INTEGRATIONS_STORAGE_BACKEND", "django")
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")

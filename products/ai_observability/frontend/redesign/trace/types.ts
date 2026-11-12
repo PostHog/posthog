@@ -1,8 +1,6 @@
 import type {
     TraceAttachmentPartApi,
     TraceEvaluationResultOutcomeEnumApi,
-    TraceFeedbackScoreApi,
-    TraceFeedbackTextApi,
     TraceMessageApi,
     TraceNodeApi,
     TraceNodeContentApi,
@@ -11,7 +9,6 @@ import type {
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TraceSummaryContentApi,
     TraceSurveyResponseApi,
-    TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
@@ -65,23 +62,6 @@ export type ConversationState =
 
 export type NodeSideContent = TraceNodeContentApi['input']
 
-export type NodeContent =
-    | { kind: 'loaded'; input: NodeSideContent; output: NodeSideContent }
-    | { kind: 'loading' }
-    | { kind: 'error'; message: string }
-
-export type LoadedNodeContent = Extract<NodeContent, { kind: 'loaded' }>
-
-export interface NodeProperties {
-    timestamp: string | null
-    provider: string | null
-    temperature: number | null
-    sessionId: string | null
-    promptName: string | null
-    promptVersion: number | null
-    person: string | null
-}
-
 /**
  * `unrated` is a result with a value but no verdict, such as a numeric score without a passing rule.
  * `inconclusive` is a run that produced no usable value: skipped, not applicable, no score, unknown sentiment.
@@ -91,45 +71,8 @@ export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
 /** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
 export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
 
-export interface EvalsChipData {
-    passed: number
-    /** Results with a pass or a fail. */
-    graded: number
-    unrated: number
-}
-
-export interface EvalTarget {
-    label: string
-    nodeId: string
-}
-
-export interface EvalResult {
-    id: string
-    name: string
-    href: string | null
-    outcome: EvalOutcome
-    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
-    label: string
-    reasoning: string | null
-    timestamp: string
-    isBackfill: boolean
-    /** Null when the result targets the node being viewed. */
-    target: EvalTarget | null
-}
-
-export type EvalsState =
-    | { status: 'loading' }
-    | { status: 'ready'; results: EvalResult[] }
-    | { status: 'error'; errorMessage: string }
-
 export interface LabeledLink {
     label: string
-    href: string
-}
-
-export interface GitPullRequestLink {
-    number: number
-    title: string | null
     href: string
 }
 
@@ -157,45 +100,12 @@ export type SummaryModeState =
 /** Where a person opened the Feedback mode from, other than its tab. */
 export type FeedbackEntry = 'chip' | 'step'
 
-export interface FeedbackStep {
-    id: string
-    name: string
-}
-
-/**
- * `step` is null for feedback on the whole trace, and for a step the tree does not hold. `focused` marks the entries
- * of the step the Feedback mode was opened from.
- */
-export interface FeedbackPlacement {
-    step: FeedbackStep | null
-    focused: boolean
-}
-
-export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
-
-/** Survey responses link to the whole trace, so their `step` is always null. */
-export type FeedbackResponseItem = (TraceFeedbackTextApi | TraceSurveyResponseApi) & FeedbackPlacement
-
 export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
 
-export type FeedbackModeState =
-    | { status: 'loading' }
-    | { status: 'error' }
-    | {
-          status: 'ready'
-          scores: FeedbackScoreRow[]
-          responses: FeedbackResponseItem[]
-          unanswered: TraceUnansweredSurveyApi[]
-          surveysFailed: boolean
-      }
-
-export interface FeedbackChipData {
-    total: number
-    thumbsUp: number
-    thumbsDown: number
-}
-
-export interface StepFeedback {
-    scores: TraceFeedbackScoreApi[]
-    responseCount: number
+/** What the Feedback mode needs to place an entry: on a step of the tree, or on the whole trace, and which step it was
+ * opened from. */
+export interface FeedbackStepContext {
+    traceId: string
+    stepLabels: ReadonlyMap<string, string>
+    focusNodeId: string | null
 }

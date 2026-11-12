@@ -16,8 +16,8 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
-    _execute_llm_judge_activity,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
@@ -563,9 +563,7 @@ class TestExecuteSessionActivities:
                 result = (
                     async_to_sync(run_hog_eval_for_event)(evaluation, event_data)
                     if runtime == "hog"
-                    else _execute_llm_judge_activity(
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-                    )
+                    else run_generation_llm_judge(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
                 )
             elif target == "trace":
                 trace_inputs = ExecuteTraceEvaluationInputs(

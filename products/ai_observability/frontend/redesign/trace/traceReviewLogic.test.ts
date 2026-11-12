@@ -5,7 +5,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceReviewStatusApi } from '../../generated/api.schemas'
-import { decodeIdSegment } from './adapter/testFixtures'
+import { decodeIdSegment } from './testFixtures'
 import { traceReviewLogic } from './traceReviewLogic'
 
 const REVIEW_URL = '/api/projects/:team_id/ai_observability/traces/:id/review/'

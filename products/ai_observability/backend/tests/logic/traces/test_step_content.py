@@ -1,14 +1,26 @@
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+import structlog
 from parameterized import parameterized
 
 from products.ai_observability.backend.facade import contracts
+from products.ai_observability.backend.logic.message_normalizer import (
+    normalizer as normalizer_module,
+    run_limits as run_limits_module,
+)
 from products.ai_observability.backend.logic.message_normalizer.errors import RecipeTimeoutError
-from products.ai_observability.backend.logic.message_normalizer.normalizer import RecipeNormalizer
-from products.ai_observability.backend.logic.traces.step_content import step_content
+from products.ai_observability.backend.logic.message_normalizer.normalizer import (
+    RecipeNormalizer,
+    StoredRecipe,
+    compile_stored_recipe,
+    merge_recipes,
+)
+from products.ai_observability.backend.logic.message_normalizer.pipeline import RecipePipeline
+from products.ai_observability.backend.logic.traces.step_content import NODE_READ_TIME_LIMIT_SECONDS, step_content
 
 TEAM_ID = 7
 CONVERSATION = [{"role": "user", "content": "Hi"}]
@@ -22,6 +34,17 @@ def content_of(
     build_normalizer: Callable[[], RecipeNormalizer] = RecipeNormalizer,
 ):
     return step_content(kind, "node-1", input_value, output_value, build_normalizer=build_normalizer, team_id=TEAM_ID)
+
+
+def with_team_recipe(source: str) -> Callable[[], RecipeNormalizer]:
+    recipe = compile_stored_recipe(StoredRecipe(id="team-recipe", source=source))
+    assert recipe is not None
+    return lambda: RecipeNormalizer(merge_recipes([recipe]))
+
+
+AGENT_RECIPE = "rules:\n  - on: { who: agent }\n    emit: { role: assistant, content: $.said }\n"
+NEVER_MATCHING_RECIPE = "rules:\n  - on: { never: { exists: true } }\n    emit: { content: $ }\n"
+MATCH_EVERYTHING_RECIPE = "rules:\n  - on: { $: { exists: true } }\n    emit: { content: $ }\n"
 
 
 def texts(side: contracts.TraceMessagesSide | contracts.TraceJsonSide) -> list[str]:
@@ -56,14 +79,61 @@ def test_span_with_message_lists_on_both_sides_is_messages():
     assert texts(content.output) == ["Hello"]
 
 
-def test_span_keeps_a_wrapped_conversation_as_json():
+def test_span_unwraps_a_conversation_whose_only_key_is_messages():
     input_value: dict[str, Any] = {"conflicts": []}
-    output_value = {"messages": REPLY}
 
-    content = content_of("span", input_value, output_value)
+    content = content_of("span", input_value, {"messages": REPLY})
 
     assert content.input == contracts.TraceJsonSide(kind="json", value=input_value)
-    assert content.output == contracts.TraceJsonSide(kind="json", value=output_value)
+    assert texts(content.output) == ["Hello"]
+
+
+def test_a_span_prompt_value_renders_its_system_prompt_as_system():
+    system = {
+        "lc": 1,
+        "type": "constructor",
+        "id": ["langchain_core", "messages", "SystemMessage"],
+        "kwargs": {"content": "Be brief."},
+    }
+    prompt_value = {
+        "lc": 1,
+        "type": "constructor",
+        "id": ["langchain_core", "prompt_values", "ChatPromptValue"],
+        "kwargs": {"messages": [system]},
+    }
+
+    content = content_of("span", prompt_value, REPLY)
+
+    assert isinstance(content.input, contracts.TraceMessagesSide)
+    assert [m.role for m in content.input.messages] == ["system"]
+    assert texts(content.input) == ["Be brief."]
+
+
+def test_a_serialized_tool_result_folds_into_its_tool_call():
+    def serialized(cls: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        return {"lc": 1, "type": "constructor", "id": ["langchain_core", "messages", cls], "kwargs": kwargs}
+
+    call = {"name": "search", "args": {"q": "x"}, "id": "c1", "type": "tool_call"}
+    conversation = [
+        serialized("AIMessage", {"content": "", "tool_calls": [call]}),
+        serialized("ToolMessage", {"content": [{"type": "text", "text": "42"}], "tool_call_id": "c1"}),
+    ]
+
+    content = content_of("span", {"k": 1}, conversation)
+
+    assert isinstance(content.output, contracts.TraceMessagesSide)
+    [message] = content.output.messages
+    [part] = message.parts
+    assert isinstance(part, contracts.TraceToolCallPart)
+    assert (part.name, part.result) == ("search", "42")
+
+
+def test_a_generation_wrapping_messages_is_not_unwrapped():
+    content = content_of("generation", {"messages": CONVERSATION}, "Hello")
+
+    assert isinstance(content.input, contracts.TraceMessagesSide)
+    assert [m.role for m in content.input.messages] == ["user"]
+    assert texts(content.input) == ['{"messages":[{"role":"user","content":"Hi"}]}']
 
 
 @parameterized.expand(
@@ -95,14 +165,110 @@ def test_string_side_following_a_message_list_becomes_one_message_with_its_defau
     assert texts(content.input) == ["plain input"]
 
 
-def test_a_step_whose_sides_are_json_never_builds_the_normalizer():
+def test_a_normalizer_that_fails_to_build_is_tried_and_reported_once_per_read():
+    build_normalizer = MagicMock(side_effect=RuntimeError("boom"))
+
+    with patch("products.ai_observability.backend.logic.traces.step_content.capture_exception") as capture:
+        content = content_of("generation", "Hi", "Hello", build_normalizer)
+
+    assert (content.input.kind, content.output.kind) == ("json", "json")
+    assert build_normalizer.call_count == 1
+    assert capture.call_count == 1
+
+
+def test_a_json_span_side_builds_the_normalizer_once_and_stays_json_without_team_recipes():
     build_normalizer = MagicMock(side_effect=RecipeNormalizer)
 
-    content_of("span", {"k": 1}, {"j": 2}, build_normalizer)
-    assert build_normalizer.call_count == 0
+    content = content_of("span", {"k": 1}, {"j": 2}, build_normalizer)
 
-    content_of("generation", "Hi", "Hello", build_normalizer)
+    assert (content.input.kind, content.output.kind) == ("json", "json")
     assert build_normalizer.call_count == 1
+
+
+def test_a_span_side_a_team_recipe_recognizes_renders_as_messages():
+    content = content_of("span", {"who": "agent", "said": "Hi"}, {"k": 1}, with_team_recipe(AGENT_RECIPE))
+
+    assert isinstance(content.input, contracts.TraceMessagesSide)
+    assert [m.role for m in content.input.messages] == ["assistant"]
+    assert texts(content.input) == ["Hi"]
+    assert content.output == contracts.TraceJsonSide(kind="json", value={"k": 1})
+
+
+def test_a_span_side_only_a_builtin_recognizes_stays_json():
+    content = content_of("span", [{"foo": 1}], {"k": 1}, with_team_recipe(NEVER_MATCHING_RECIPE))
+
+    assert content.input == contracts.TraceJsonSide(kind="json", value=[{"foo": 1}])
+
+
+def timed_runs(run_cost: Callable[[Any], float]) -> tuple[SimpleNamespace, type[RecipePipeline]]:
+    clock = SimpleNamespace(now=0.0)
+
+    class TimedPipeline(RecipePipeline):
+        def run(self, value, default_role, *, salvages=True):
+            clock.now += run_cost(value)
+            return super().run(value, default_role, salvages=salvages)
+
+    return clock, TimedPipeline
+
+
+def test_a_team_recipe_check_that_runs_out_the_deadline_leaves_the_other_sides_conversation():
+    slow_input = {"documents": ["..."]}
+    clock, pipeline = timed_runs(lambda value: 2 * NODE_READ_TIME_LIMIT_SECONDS if value == slow_input else 0)
+
+    with (
+        patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: clock.now)),
+        patch.object(normalizer_module, "RecipePipeline", pipeline),
+    ):
+        content = content_of("span", slow_input, REPLY, with_team_recipe(AGENT_RECIPE))
+
+    assert content.input == contracts.TraceJsonSide(kind="json", value=slow_input)
+    assert texts(content.output) == ["Hello"]
+
+
+def test_a_matched_team_recipe_runs_once_so_a_slow_recipe_still_fits_the_deadline():
+    clock, pipeline = timed_runs(lambda value: 0.6 * NODE_READ_TIME_LIMIT_SECONDS if "who" in value else 0)
+
+    with (
+        patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: clock.now)),
+        patch.object(normalizer_module, "RecipePipeline", pipeline),
+    ):
+        content = content_of("span", {"who": "agent", "said": "Hi"}, {"k": 1}, with_team_recipe(AGENT_RECIPE))
+
+    assert texts(content.input) == ["Hi"]
+
+
+def test_a_team_recipe_check_on_an_unmatched_side_builds_no_fallback_text():
+    too_deep_to_serialize: dict[str, Any] = {}
+    cursor = too_deep_to_serialize
+    for _ in range(100_000):
+        cursor["a"] = {}
+        cursor = cursor["a"]
+
+    with structlog.testing.capture_logs() as logs:
+        content = content_of("span", too_deep_to_serialize, {"j": 2}, with_team_recipe(AGENT_RECIPE))
+
+    assert content.input.kind == "json"
+    assert [log["event"] for log in logs if log["event"] == "trace_step_content_fallback"] == []
+
+
+def test_a_team_recipe_match_that_renders_nothing_leaves_the_span_side_json():
+    content = content_of("span", {"k": 1}, {"j": 2}, with_team_recipe(MATCH_EVERYTHING_RECIPE))
+
+    assert content.input == contracts.TraceJsonSide(kind="json", value={"k": 1})
+
+
+def test_a_team_normalizer_that_fails_to_build_leaves_a_json_span_side_json():
+    build_normalizer = MagicMock(side_effect=RecipeTimeoutError("deadline"))
+
+    content = content_of("span", {"k": 1}, {"j": 2}, build_normalizer)
+
+    assert content.input == contracts.TraceJsonSide(kind="json", value={"k": 1})
+
+
+def test_a_generation_renders_the_same_with_a_team_recipe_that_matches_nothing():
+    assert content_of("generation", CONVERSATION, REPLY, with_team_recipe(NEVER_MATCHING_RECIPE)) == content_of(
+        "generation", CONVERSATION, REPLY
+    )
 
 
 @parameterized.expand(

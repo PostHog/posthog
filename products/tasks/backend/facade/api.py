@@ -45,7 +45,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
@@ -99,6 +99,7 @@ from products.tasks.backend.constants import (
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
@@ -1104,13 +1105,16 @@ def _task_detail_to_dto(
         inherited = _inherited_pr_fields(resolved_prior_pr_output)
         if inherited:
             latest_run_dto = replace(latest_run_dto, output={**(latest_run_dto.output or {}), **inherited})
+    description = getattr(task, "_description_preview", None)
+    if description is None:
+        description = task.description
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
         slug=task.slug,
         title=task.title,
         title_manually_set=task.title_manually_set,
-        description=task.description,
+        description=description,
         origin_product=task.origin_product,
         runtime=task.runtime,
         repository=task.repository,
@@ -7555,7 +7559,12 @@ def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[
 
 
 def _list_tasks_queryset(
-    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+    team_id: int,
+    user_id: int | None,
+    *,
+    filters: dict,
+    bypass_visibility: bool = False,
+    basic: bool = False,
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
@@ -7718,6 +7727,11 @@ def _list_tasks_queryset(
         Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)),
         Prefetch("team", queryset=Team.objects.only("id", "name")),
     )
+
+    if basic:
+        qs = qs.annotate(_description_preview=Substr("description", 1, TASK_DESCRIPTION_PREVIEW_LENGTH)).defer(
+            "description"
+        )
 
     return qs
 
