@@ -11,6 +11,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-patch-action-email` — **the way to edit the email inside a `function_email` step.** The template patch's design ops (id-addressed Unlayer blocks) plus an `email_patch` merge for subject/preheader/text/recipients; HTML is re-rendered server-side so it can't go stale. Stages a draft on active workflows, same as `workflows-patch-graph`.
 - `workflows-update` — **fallback editor.** Top-level metadata a graph patch can't express (renaming), or an escape hatch to replace the whole workflow when `workflows-patch-graph` won't land a change. On an active workflow, content fields stage a draft; name/description apply live.
 - `workflows-enable` — draft → `active`. It starts running on real people, so test first and get the user's explicit approval before enabling. Later changes stage as drafts and take effect only on publish.
+- `workflows-disable` — stop an active workflow by returning it to `draft`. Content edits after disabling still stage as a draft and need the normal test and publish cycle before they take effect.
 - `workflows-publish` — apply an active workflow's staged draft to its live config. Call without `confirm` first: it echoes `in_flight_runs` + `draft_updated_at` and changes nothing. Get the user's go-ahead, then confirm with that exact `draft_updated_at` (409 = draft changed under you; re-read).
 - `workflows-discard-draft` — throw the staged draft away; live config untouched. Idempotent.
 - `workflows-archive` — retire a workflow.
