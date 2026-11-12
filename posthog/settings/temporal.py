@@ -516,8 +516,7 @@ WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL", "")
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET", "")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
-# Its own fleet so AEO's Temporal cost is attributed to AEO. That fleet runs the LLM analytics image,
-# because the ONNX sentiment model brand sentiment scores with only ships in that image.
+# Kept apart from the evals queue so AEO's Temporal cost is attributed to AEO.
 AEO_TASK_QUEUE = _set_temporal_task_queue("aeo-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
