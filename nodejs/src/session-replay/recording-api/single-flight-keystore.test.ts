@@ -50,4 +50,26 @@ describe('SingleFlightKeyStore', () => {
         expect(after).toEqual(deleted)
         expect(await before).toEqual(key(1))
     })
+
+    it('keeps a lookup started after a delete shared when the older lookup settles', async () => {
+        let releaseFirst: (k: SessionKey) => void = () => {}
+        let releaseSecond: (k: SessionKey) => void = () => {}
+        const getKey = jest
+            .fn()
+            .mockImplementationOnce(() => new Promise<SessionKey>((resolve) => (releaseFirst = resolve)))
+            .mockImplementationOnce(() => new Promise<SessionKey>((resolve) => (releaseSecond = resolve)))
+        const delegate: any = { deleteKey: jest.fn().mockResolvedValue({ deleted: true }), getKey }
+        const store = new SingleFlightKeyStore(delegate)
+
+        const before = store.getKey('s1', 1)
+        await store.deleteKey('s1', 1, 'user')
+        const after = store.getKey('s1', 1)
+        releaseFirst(key(1))
+        await before
+        const joined = store.getKey('s1', 1)
+        releaseSecond(key(2))
+
+        expect(await Promise.all([after, joined])).toEqual([key(2), key(2)])
+        expect(getKey).toHaveBeenCalledTimes(2)
+    })
 })

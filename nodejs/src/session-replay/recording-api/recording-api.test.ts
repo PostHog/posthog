@@ -820,6 +820,7 @@ describe('RecordingApi', () => {
                     RECORDING_API_BLOCKS_JWT_SECRET: BLOCKS_JWT_SECRET,
                     RECORDING_API_ROLE: role,
                     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: enforced,
+                    RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: 10000,
                     ...config,
                 } as RecordingApiConfig,
                 mockPostgres,
@@ -859,10 +860,22 @@ describe('RecordingApi', () => {
             expect(res.headers['x-content-type-options']).toBe('nosniff')
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
-            expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc', expect.any(Function))
+            expect(mockService.getBlockByRef).toHaveBeenCalledWith(
+                1,
+                'session-123',
+                'v1.abc',
+                expect.any(Function),
+                10000
+            )
             expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
                 { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },
             ])
+
+            const revalidated = await supertest(app)
+                .get(BLOCK_URL)
+                .set('Authorization', browserToken())
+                .set('If-None-Match', res.headers['etag'])
+            expect(revalidated.status).toBe(304)
         })
 
         it.each([

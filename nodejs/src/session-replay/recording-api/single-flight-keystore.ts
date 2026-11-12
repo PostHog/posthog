@@ -25,7 +25,12 @@ export class SingleFlightKeyStore implements KeyStore {
         if (pending) {
             return pending
         }
-        const lookup = this.delegate.getKey(sessionId, teamId).finally(() => this.inFlight.delete(id))
+        const lookup: Promise<SessionKey> = this.delegate.getKey(sessionId, teamId).finally(() => {
+            // A delete may have replaced this entry with a newer lookup, which must stay shared.
+            if (this.inFlight.get(id) === lookup) {
+                this.inFlight.delete(id)
+            }
+        })
         this.inFlight.set(id, lookup)
         return lookup
     }

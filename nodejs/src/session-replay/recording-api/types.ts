@@ -92,6 +92,8 @@ export type RecordingApiBlocksConfig = {
     RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: number
     // Bytes of browser-route blocks one process reads and decrypts at once. A request over it gets a 503.
     RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: number
+    // Deadline for one browser-route S3 read, body included. It sits under the Envoy route timeout.
+    RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: number
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
@@ -111,6 +113,7 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
         RECORDING_API_REDIS_TIMEOUT_MS: 2000,
         RECORDING_API_MAX_PUBLIC_BLOCK_BYTES: 32 * 1024 * 1024,
         RECORDING_API_PUBLIC_BLOCK_BYTES_IN_FLIGHT: 256 * 1024 * 1024,
+        RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS: 10000,
     }
 }
 

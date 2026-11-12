@@ -33,6 +33,8 @@ export interface GetBlockParams {
     sessionKey?: SessionKey
     // The public block route's role cannot list the bucket, so S3 answers a missing key with AccessDenied there.
     accessDeniedMeansMissing?: boolean
+    // Aborts the S3 request and the body read, so a stalled read cannot hold the caller's byte budget.
+    timeoutMs?: number
 }
 
 export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
@@ -152,7 +154,9 @@ export class RecordingService {
                 range: `bytes=${startByte}-${endByte}`,
             })
 
-            const response = await this.s3Client.send(command)
+            const response = params.timeoutMs
+                ? await this.s3Client.send(command, { abortSignal: AbortSignal.timeout(params.timeoutMs) })
+                : await this.s3Client.send(command)
 
             if (!response.Body) {
                 logger.debug('[RecordingService] S3 returned no body', { key })
@@ -306,7 +310,8 @@ export class RecordingService {
         teamId: number,
         sessionId: string,
         ref: string,
-        admit: (bytes: number) => BlockAdmission = () => 'ok'
+        admit: (bytes: number) => BlockAdmission = () => 'ok',
+        timeoutMs?: number
     ): Promise<GetBlockByRefResult> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         const deletion = deletionOf(sessionKey)
@@ -324,7 +329,7 @@ export class RecordingService {
         if (admission !== 'ok') {
             return { ok: false, error: admission }
         }
-        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true })
+        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true, timeoutMs })
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {

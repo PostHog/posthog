@@ -51,6 +51,7 @@ import {
 // Django's sources listing, which hands out block URLs, reads the block listing uncached and reports a deletion first,
 // so the player never asks for a cached block of a deleted recording.
 const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=14400, immutable'
+const PUBLIC_BLOCK_HOLD_CAP_MS = 30_000
 
 const KEY_LOOKUP_TIMEOUT_MS = 1000
 // Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
@@ -505,6 +506,23 @@ export class RecordingApi {
         return 'ok'
     }
 
+    // The socket closes once the response is fully written or the client aborts. The timer covers anything that
+    // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
+    private releaseWhenWritten(res: express.Response, bytes: number): void {
+        let released = false
+        const release = (): void => {
+            if (!released) {
+                released = true
+                clearTimeout(timer)
+                this.publicBlockBytesInFlight -= bytes
+            }
+        }
+        const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
+        timer.unref()
+        res.socket?.once('close', release)
+        res.once('close', release)
+    }
+
     private getBlockByRef = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = ReplayBlockParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -537,13 +555,19 @@ export class RecordingApi {
                 }
             }
 
-            const result = await this.recordingService.getBlockByRef(teamId, sessionId, ref, (bytes) => {
-                const admission = this.admitPublicBlock(bytes)
-                if (admission === 'ok') {
-                    admittedBytes = bytes
-                }
-                return admission
-            })
+            const result = await this.recordingService.getBlockByRef(
+                teamId,
+                sessionId,
+                ref,
+                (bytes) => {
+                    const admission = this.admitPublicBlock(bytes)
+                    if (admission === 'ok') {
+                        admittedBytes = bytes
+                    }
+                    return admission
+                },
+                this.config.RECORDING_API_PUBLIC_BLOCK_READ_TIMEOUT_MS
+            )
             if (!result.ok) {
                 RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
                 if (result.error === 'deleted') {
@@ -568,7 +592,21 @@ export class RecordingApi {
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
             // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.
             res.set('X-Content-Type-Options', 'nosniff')
-            res.send(result.data)
+            // The write below skips the ETag and revalidation that send() does, so they happen here.
+            const etag = req.app.get('etag fn')?.(result.data)
+            if (etag) {
+                res.set('ETag', etag)
+            }
+            if (req.fresh) {
+                res.status(304).end()
+                return
+            }
+            // send() hands the whole buffer to uWS at once, so a slow reader would hold it after the budget frees it.
+            // A write with Content-Length set goes out under backpressure and closes the socket once fully written.
+            this.releaseWhenWritten(res, admittedBytes)
+            admittedBytes = 0
+            res.write(result.data)
+            res.end()
         } catch (error) {
             RecordingApiMetrics.incrementReplayBlockRequest('error')
             logger.error('[RecordingApi] Error serving a block by ref', {
