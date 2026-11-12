@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion

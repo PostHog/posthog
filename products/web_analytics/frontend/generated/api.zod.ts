@@ -82,6 +82,21 @@ export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turns an answer engine on or off for the project, or sets how often it checks each prompt. The next daily run uses the change. Each check on an engine is a paid model call.
+ * @summary Update an AEO answer engine
+ */
+export const AeoEnginesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
+    frequency: zod
+        .enum(['daily', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .optional()
+        .describe(
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+        ),
+})
+
+/**
  * Adds keywords to the project's keyword list. Send many at once. Blank entries and keywords already in the list are skipped and counted. Fails with 400 when the new keywords would take the list past 200.
  * @summary Add AEO keywords
  */
