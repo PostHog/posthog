@@ -368,7 +368,7 @@ class TestSelection(SimpleTestCase):
         )
         oversized = replace(record, id="oversized", document_id="", text="x" * MAX_CONTEXT_CHARS)
         self.selector.selection = replace(
-            self.selector.selection, exclude=frozenset({"business_knowledge:earlier", "skill:known-skill"})
+            self.selector.selection, exclude=frozenset({"business_knowledge:injected-before", "skill:known-skill"})
         )
         context = self.selector.render(
             [
@@ -377,10 +377,12 @@ class TestSelection(SimpleTestCase):
                 (replace(record, id="weak", document_id=""), 0.69),
                 (oversized, 0.95),
                 (replace(record, id="injected-before", document_id="earlier"), 0.99),
+                (replace(record, id="unread-section", document_id="earlier"), 0.97),
                 (replace(record, id="known-skill", kind="skill", document_id=""), 0.98),
             ]
         )
         self.assertNotIn("injected-before", context)
+        self.assertIn("unread-section", context)
         self.assertNotIn("known-skill", context)
         self.assertEqual(self.selector.excluded_count, 2)
         self.assertLessEqual(len(context), MAX_CONTEXT_CHARS)

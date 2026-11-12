@@ -3852,7 +3852,7 @@ describe("AgentServer HTTP Mode", () => {
         method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,
       });
       await selector.prepare({ messageId: "third", text: "And churn?" });
-      expect(excludes).toEqual([[], ["business_knowledge:doc-1"], []]);
+      expect(excludes).toEqual([[], ["business_knowledge:c"], []]);
       testServer.session = null;
     });
 

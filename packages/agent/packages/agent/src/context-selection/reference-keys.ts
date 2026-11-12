@@ -11,9 +11,12 @@ export function injectedReferenceKeys(text: string): string[] {
     } catch {
       continue;
     }
-    const id = record.document_id || record.id;
-    if (typeof record.kind === "string" && typeof id === "string" && id) {
-      keys.push(`${record.kind}:${id}`);
+    if (
+      typeof record.kind === "string" &&
+      typeof record.id === "string" &&
+      record.id
+    ) {
+      keys.push(`${record.kind}:${record.id}`);
     }
   }
   return keys;

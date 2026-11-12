@@ -149,14 +149,14 @@ describe("ResumeSaga", () => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
         createTaskRun(),
       );
-      const reference = (documentId: string) => ({
+      const reference = (chunkId: string) => ({
         type: "text",
         text: [
           '<posthog_reference_context selection_id="s">',
           JSON.stringify({
-            id: "c",
+            id: chunkId,
             kind: "business_knowledge",
-            document_id: documentId,
+            document_id: "doc",
           }),
           "</posthog_reference_context>",
         ].join("\n"),

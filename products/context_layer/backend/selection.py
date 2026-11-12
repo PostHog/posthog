@@ -85,8 +85,8 @@ class SelectionInput:
     exclude: frozenset[str] = frozenset()
 
 
-def reference_key(kind: str, identifier: str, document_id: str = "") -> str:
-    return f"{kind}:{document_id or identifier}"
+def reference_key(kind: str, identifier: str) -> str:
+    return f"{kind}:{identifier}"
 
 
 @frozen
@@ -470,7 +470,7 @@ class ContextSelector:
         for candidate, score in sorted(scored, key=lambda pair: (-pair[1], pair[0].kind, pair[0].id)):
             if score < 0.7 or selected_count >= 5 or candidate.document_id and candidate.document_id in documents:
                 continue
-            if reference_key(candidate.kind, candidate.id, candidate.document_id) in self.selection.exclude:
+            if reference_key(candidate.kind, candidate.id) in self.selection.exclude:
                 self.excluded_count += 1
                 continue
             block = "\n" + json.dumps(asdict(candidate), ensure_ascii=False).replace("<", "\\u003c").replace(

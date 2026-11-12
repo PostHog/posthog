@@ -137,7 +137,7 @@ describe("cloud context selection", () => {
     selector.recordInjected(block);
     await selector.prepare({ messageId: "next", text: "And for teams?" });
     expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual([
-      "business_knowledge:doc-1",
+      "business_knowledge:chunk-1",
       "skill:onboarding",
     ]);
     selector.forgetInjected();

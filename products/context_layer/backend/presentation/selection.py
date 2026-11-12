@@ -60,7 +60,7 @@ class PrepareSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=300),
         max_length=200,
         required=False,
-        help_text="Keys of references already in the agent's context, as `kind:document_id` or `kind:id`. These are not injected again.",
+        help_text="Keys of references already in the agent's context, as `kind:id`. These are not injected again.",
     )
 
 
