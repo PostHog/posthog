@@ -117,10 +117,13 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         }
         return {
             refreshFlagActivity: ({ flagIds }) => {
-                for (const flagId of flagIds) {
-                    cache.requested?.delete(flagId)
+                const requested = flagIds.filter((flagId) => cache.requested?.has(flagId))
+                for (const flagId of requested) {
+                    cache.requested.delete(flagId)
                 }
-                actions.loadFlagActivity(flagIds)
+                if (requested.length) {
+                    actions.loadFlagActivity(requested)
+                }
             },
             loadFlagActivity: ({ flagIds }) => {
                 cache.requested = cache.requested ?? new Set<number>()

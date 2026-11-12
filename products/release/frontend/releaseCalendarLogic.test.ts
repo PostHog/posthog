@@ -47,10 +47,10 @@ describe('releaseCalendarLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadFlagActivity([1])
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.refreshFlagActivity([1])
+        logic.actions.refreshFlagActivity([1, 2])
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockedRetrieve).toHaveBeenCalledTimes(2)
+        expect(mockedRetrieve.mock.calls.map(([, flagId]) => flagId)).toEqual([1, 1])
     })
 
     it('ignores a superseded history response that arrives last', async () => {

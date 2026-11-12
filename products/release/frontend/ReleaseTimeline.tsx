@@ -116,12 +116,7 @@ function TrackLanes({ track, open }: { track: Track; open: boolean }): JSX.Eleme
                 {!open && (
                     <ReleaseTrackMarkers
                         events={row.events.filter(
-                            (event) =>
-                                !(
-                                    steps.length &&
-                                    event.kind === 'schedule' &&
-                                    event.href === urls.featureFlag(row.flags[0]?.id)
-                                )
+                            (event) => !(steps.length && event.kind === 'schedule' && event.flagId === row.flags[0]?.id)
                         )}
                         scale={scale}
                         top={3}

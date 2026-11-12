@@ -94,7 +94,7 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             live: !!flag.active,
             steps: stepsByFlag.get(flag.id) ?? [],
             events: row.events.filter(
-                (event) => event.kind === 'schedule' && event.upcoming && event.href === urls.featureFlag(flag.id)
+                (event) => event.kind === 'schedule' && event.upcoming && event.flagId === flag.id
             ),
             span: {
                 key: `flag-span-${flag.id}`,
