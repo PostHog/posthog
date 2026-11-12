@@ -4578,19 +4578,43 @@ describe('CDP API', () => {
                     29.9,
                     31 * DAY_MS - HOUR_MS,
                     true,
+                    (id: string) => id,
                 ],
-                ['a send scheduled a day ahead and moved 30 days ahead', 1, 29.9, 31 * DAY_MS - HOUR_MS, true],
+                [
+                    'a send accepted to go out now and moved 30 days ahead by its uppercase id',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id.toUpperCase(),
+                ],
+                [
+                    'a send scheduled a day ahead and moved 30 days ahead',
+                    1,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id,
+                ],
                 [
                     'a send accepted to go out now and moved 30 days ahead, an hour after then',
                     undefined,
                     29.9,
                     31 * DAY_MS + HOUR_MS,
                     false,
+                    (id: string) => id,
                 ],
-                ['a send accepted to go out now and never moved', undefined, null, DAY_MS + HOUR_MS, false],
+                [
+                    'a send accepted to go out now and never moved',
+                    undefined,
+                    null,
+                    DAY_MS + HOUR_MS,
+                    false,
+                    (id: string) => id,
+                ],
             ])(
                 'replays a retry of %s only until a day after the latest time it can be due',
-                async (_desc, scheduledInDays, movedToDays, retryAfterMs, replays) => {
+                async (_desc, scheduledInDays, movedToDays, retryAfterMs, replays, messageIdInUrl) => {
                     const keys = api['transactionalEmailIdempotencyKeys']
                     const valkey = keys['valkey']!
                     const scope = `scope-${new UUIDT().toString()}`
@@ -4618,7 +4642,7 @@ describe('CDP API', () => {
                         const first = await sendFirstRequest()
                         expect(first.status).toEqual(202)
                         if (movedToDays !== null) {
-                            const moved = await manage('reschedule', first.body.invocation_id, {
+                            const moved = await manage('reschedule', messageIdInUrl(first.body.invocation_id), {
                                 scheduled_at: inDays(movedToDays),
                             })
                             expect(moved.status).toEqual(200)

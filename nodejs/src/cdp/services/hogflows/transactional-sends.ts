@@ -430,12 +430,7 @@ export class ScheduledTransactionalSends {
         const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
         const keyKept =
             !idempotencyKey ||
-            (await this.deps.idempotencyKeys.replayUntilDayAfter(
-                teamId,
-                messageId,
-                idempotencyKey,
-                latestDueAtOf(messageId)
-            ))
+            (await this.deps.idempotencyKeys.replayUntilDayAfter(teamId, job.id, idempotencyKey, latestDueAtOf(job.id)))
         writeStatus(this.deps.emailStatus, {
             teamId,
             messageId,
