@@ -64,7 +64,14 @@ class MemberProjectAccessResponseSerializer(serializers.Serializer):
 
 
 class MemberProjectAccessQuerySerializer(serializers.Serializer):
-    member_id = serializers.UUIDField(required=False, help_text="Narrow the list to one organization membership id.")
+    member_id = serializers.UUIDField(
+        required=False,
+        help_text="Narrow the list to one organization membership id. Combined with `email`, both must match.",
+    )
+    email = serializers.EmailField(
+        required=False,
+        help_text="Narrow the list to the member with this email address (case-insensitive). Combined with `member_id`, both must match.",
+    )
 
 
 class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
@@ -87,7 +94,8 @@ class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
             raise exceptions.NotFound()
 
         member_id = request.validated_query_data.get("member_id")
-        results = member_project_access(organization, requester, user, member_id=member_id)
-        if member_id is not None and not results:
+        email = request.validated_query_data.get("email")
+        results = member_project_access(organization, requester, user, member_id=member_id, email=email)
+        if (member_id is not None or email is not None) and not results:
             raise exceptions.NotFound()
         return Response(MemberProjectAccessResponseSerializer({"results": results}).data)
