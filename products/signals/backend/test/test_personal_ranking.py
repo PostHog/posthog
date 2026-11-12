@@ -12,8 +12,10 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db import connection
 from django.db.models import F
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -45,6 +47,7 @@ from products.signals.backend.personal_ranking.config import (
     ReasonLimits,
     parse_config,
 )
+from products.signals.backend.personal_ranking.list_sort import personal_ranking_state
 from products.signals.backend.personal_ranking.logic import (
     BUILT_EVENT,
     InputChanges,
@@ -1292,6 +1295,23 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._rows(), self.queued) == (0, [])
 
 
+class TestPersonalRankingState(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("real", "ok", True, 2, "real"),
+            ("one_report", "ok", True, 1, "one_report"),
+            ("not_personalized", "ok", False, 3, "not_personalized"),
+            ("ok_without_reports", "ok", True, 0, "empty"),
+            ("empty", "empty", False, 0, "empty"),
+            ("fallback", "fallback", False, 3, "fallback"),
+        ]
+    )
+    def test_only_an_ok_personalized_row_of_two_reports_is_real(
+        self, _name: str, status: str, personalized: bool, size: int, expected: str
+    ) -> None:
+        assert personal_ranking_state(status, personalized, size) == expected
+
+
 class TestPersonalListSort(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1350,8 +1370,7 @@ class TestPersonalListSort(APIBaseTest):
             input_hash="h",
             model="m",
             prompt_version=1,
-            status="ok",
-            **{"user": self.user, **defaults, **kwargs},
+            **{"user": self.user, "status": "ok", **defaults, **kwargs},
         )
 
     def _variants(self, variants: dict[str, str]) -> None:
@@ -1505,3 +1524,61 @@ class TestPersonalListSort(APIBaseTest):
             for call in self.analytics.get_feature_flag.call_args_list
             if call.args[0] == PERSONAL_RECOMMENDED_FLAG
         ] == exposures
+
+    @parameterized.expand([("priority", {}), ("personal", {}), ("personal", {"scope": "teammate"})])
+    def test_first_page_reports_the_viewer_ranking_status(self, sort: str, params: dict[str, Any]) -> None:
+        r0, r1, r2, *_ = self.reports
+        teammate = User.objects.create(email="teammate@example.com")
+        OrganizationMembership.objects.create(user=teammate, organization=self.organization)
+        with time_machine.travel("2026-03-01T12:00:00Z", tick=False):
+            row = self._ranking([r0, r1], [r2], status="fallback", personalized=False, fallback_reason="timeout")
+        PersonalInboxRanking.objects.filter(id=row.id).update(
+            checked_at=datetime.datetime(2026, 3, 1, 13, 30, tzinfo=datetime.UTC)
+        )
+        self._ranking([r2, r1], [], user=teammate)
+        if params:
+            params = {**params, "teammate_uuid": teammate.uuid}
+
+        with time_machine.travel("2026-03-01T14:00:00Z", tick=False):
+            first = self._list(sort=sort, limit=2, **params)
+            later = self._list(sort=sort, limit=2, offset=2, **params)
+
+        assert first["personal_ranking_status"] == {
+            "state": "fallback",
+            "size": 3,
+            "age_minutes": 120,
+            "checked_age_minutes": 30,
+            "fallback_reason": "timeout",
+        }
+        assert later["personal_ranking_status"] is None
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+
+    @parameterized.expand([("flag_off", False, None), ("no_row", True, "none")])
+    def test_ranking_status_without_a_ranking(self, _name: str, flag_enabled: bool, state: str | None) -> None:
+        self.flag_enabled = flag_enabled
+
+        status = self._list(sort="priority")["personal_ranking_status"]
+
+        if state is None:
+            assert status is None
+        else:
+            assert status == {
+                "state": state,
+                "size": None,
+                "age_minutes": None,
+                "checked_age_minutes": None,
+                "fallback_reason": None,
+            }
+
+    def test_ranking_status_adds_one_query_to_the_first_page(self) -> None:
+        r0, r1, *_ = self.reports
+        self._ranking([r0, r1], [])
+        self._list(sort="priority")
+
+        def queries(payload: dict[str, Any]) -> int:
+            self.payload = payload
+            with CaptureQueriesContext(connection) as captured:
+                self._list(sort="priority")
+            return len(captured)
+
+        assert queries({}) - queries({"enabled": False}) == 1
