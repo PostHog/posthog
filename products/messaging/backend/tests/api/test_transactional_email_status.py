@@ -15,10 +15,21 @@ from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE
+from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
 # moves forward, and a later status of the same rank wins by its time.
-RANK = {"queued": 0, "failed": 2, "sent": 3, "delivered": 5, "bounced": 6, "complained": 7}
+RANK = {
+    "scheduled": 0,
+    "queued": 0,
+    "canceled": 1,
+    "deferred": 1,
+    "failed": 2,
+    "sent": 3,
+    "delivered": 5,
+    "bounced": 6,
+    "complained": 7,
+}
 
 
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -84,6 +95,9 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("queued", [("queued", 0, "")], "queued", 0, None),
+            ("scheduled", [("scheduled", 0, "")], "scheduled", 0, None),
+            ("canceled_while_it_waited", [("scheduled", 0, ""), ("canceled", 60, "")], "canceled", 60, None),
+            ("sent_at_its_scheduled_time", [("scheduled", 0, ""), ("sent", 3600, "")], "sent", 3600, None),
             ("sent", [("queued", 0, ""), ("sent", 2, "")], "sent", 2, None),
             ("failed", [("queued", 0, ""), ("failed", 2, "provider_error")], "failed", 2, "provider_error"),
             ("delivered", [("queued", 0, ""), ("sent", 2, ""), ("delivered", 5, "")], "delivered", 5, None),
@@ -112,19 +126,9 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_reports_the_latest_status_of_the_send(self, _flag, _name, rows, expected_status, status_offset, reason):
         self._status_rows(rows)
 
-        with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
-            response = self.client.get(self._url(self.message_id))
+        response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert capture.call_args.kwargs["properties"] == {
-            "team_id": self.team.id,
-            "outcome": "found",
-            "status": expected_status,
-            "auth_method": "project_secret_api_key",
-            "authorized_by": "hog_flow",
-        }
         assert response.json() == {
             "id": self.message_id,
             "status": expected_status,
@@ -136,6 +140,7 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("not_written_yet", "message_id", False),
+            ("a_status_this_server_does_not_know", "unknown_status", False),
             ("another_projects_send", "message_id", True),
             ("not_a_uuid", "not-a-uuid", False),
             ("an_id_from_the_future", "ffffffff-ffff-4fff-bfff-ffffffffffff", False),
@@ -145,15 +150,44 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_answers_404_for_an_email_it_cannot_report(self, _flag, _name, message_id, other_project):
         if other_project:
             self._status_rows([("sent", 2, "")], team=Team.objects.create(organization=self.organization, name="Other"))
-        ids = {"message_id": self.message_id, "old": self._message_id(datetime.now(UTC) - timedelta(days=31))}
+        if message_id == "unknown_status":
+            self._status_rows([("deferred", 0, "")])
+        ids = {
+            "message_id": self.message_id,
+            "unknown_status": self.message_id,
+            "old": self._message_id(datetime.now(UTC) - timedelta(days=61)),
+        }
 
-        with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
-            response = self.client.get(self._url(ids.get(message_id, message_id)))
+        response = self.client.get(self._url(ids.get(message_id, message_id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert capture.call_args.kwargs["properties"]["outcome"] == "not_found"
+
+    @parameterized.expand(
+        [
+            ("found", [("scheduled", 0, "")], "found", "scheduled"),
+            ("not_found", [], "not_found", None),
+        ]
+    )
+    def test_records_each_read_for_usage(self, _flag, _name, rows, expected_outcome, expected_status):
+        self._status_rows(rows)
+
+        analytics = FakeAnalytics()
+
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
+            side_effect=analytics.capture,
+        ):
+            self.client.get(self._url(self.message_id))
+
+        assert analytics.properties_of("transactional email api status read") == [
+            {
+                "team_id": self.team.id,
+                "outcome": expected_outcome,
+                "status": expected_status,
+                "auth_method": "project_secret_api_key",
+                "authorized_by": "hog_flow",
+            }
+        ]
 
     @parameterized.expand(
         [
@@ -169,14 +203,18 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     ):
         self._status_rows([("queued", 0, "")])
 
+        analytics = FakeAnalytics()
+
         with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
+            side_effect=analytics.capture,
+        ):
             response = self._psak_client(scopes).get(self._url(self.message_id))
 
         assert response.status_code == expected_status
-        if expected_authorized_by:
-            assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
+        assert [event["authorized_by"] for event in analytics.properties_of("transactional email api status read")] == (
+            [expected_authorized_by] if expected_authorized_by else []
+        )
 
     def test_a_session_cannot_read_a_status(self, _flag):
         self._status_rows([("queued", 0, "")])
@@ -201,3 +239,13 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == expected_status
+
+    def test_reads_a_send_up_to_60_days_old(self, _flag):
+        self.queued_at = datetime.now(UTC).replace(microsecond=0) - timedelta(days=59)
+        self.message_id = self._message_id(self.queued_at)
+        self._status_rows([("scheduled", 0, ""), ("sent", 30 * 24 * 3600, "")])
+
+        response = self.client.get(self._url(self.message_id))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "sent"

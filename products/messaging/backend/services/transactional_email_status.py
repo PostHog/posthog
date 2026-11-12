@@ -1,6 +1,6 @@
 """The status of one transactional email, read from the email_status table that the email path writes.
 
-The send API writes `queued`, the email worker `sent` or `failed`, and the SES webhook `delivered`, `bounced` or
+The send API writes `queued` or `scheduled`, a cancel `canceled`, the email worker `sent` or `failed`, and the SES webhook `delivered`, `bounced` or
 `complained`. A row's version only grows as an email moves forward, so the row with the highest version is the status.
 """
 
@@ -12,12 +12,12 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.messaging.backend.facade.contracts import EmailDeliveryStatus, EmailStatus
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS, EMAIL_STATUS_TABLE
+from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
+from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_READ_DAYS, EMAIL_STATUS_TABLE
 
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
-_RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
+_RETENTION = timedelta(days=EMAIL_STATUS_READ_DAYS)
 # Every row of a message carries the message's own created_at, so the window prunes to its partition.
 _EMAIL_STATUS_QUERY = f"""
 SELECT argMax(status, version), argMax(status_at, version), argMax(reason, version)
@@ -65,11 +65,11 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     if not rows:
         return None
     status, status_at, reason = rows[0]
-    if status not in EmailDeliveryStatus.values:
+    if status not in EmailSendStatus.values:
         return None
     return EmailStatus(
         message_id=str(message_id),
-        status=EmailDeliveryStatus(status),
+        status=EmailSendStatus(status),
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,

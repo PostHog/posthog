@@ -901,8 +901,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("tracking_kind_that_is_not_a_boolean", {"tracking": {"clicks": "sometimes"}}, "tracking"),
             ("tracking_beside_capture_engagement", {"tracking": True, "capture_engagement": True}, "tracking"),
             ("sensitive_that_is_not_a_boolean", {"sensitive": "sometimes"}, "sensitive"),
-            ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
-            ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
+            ("field_this_server_lacks", {"tags": ["welcome"]}, "tags"),
+            ("empty_key_beside_a_field_this_server_lacks", {"": "", "tags": ["welcome"]}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
             ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
         ]
@@ -963,6 +963,41 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
         assert pipeline.queued == []
+
+    @parameterized.expand(
+        [
+            (f"{name}_{case}", route, scheduled_at)
+            for name, route in (
+                ("template_route", "template"),
+                ("template_id", "send_email"),
+                ("nested_template_id", "send_email_nested"),
+                ("template_key", "code"),
+            )
+            for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("null", None))
+        ]
+    )
+    def test_every_send_surface_refuses_scheduled_at_unless_null(
+        self, mock_post, _flag, _capture, _name, route, scheduled_at
+    ):
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            if route == "code":
+                response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
+            else:
+                response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
+
+        if scheduled_at is None:
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+            assert [payload["to"] for payload in cdp.received] == ["user@example.com"]
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert {key: response.json()[key] for key in ("type", "code", "attr")} == {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "attr": "scheduled_at",
+            }
+            assert cdp.received == []
 
     @parameterized.expand(
         [
