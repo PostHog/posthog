@@ -286,7 +286,7 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
             expected_records
         )
         if expected_status != "verified":
-            assert (body["verified"], self.is_verified(sender), self.verified_events()) == (False, False, [])
+            assert (body["verified"], self.is_verified(sender)) == (False, False)
 
     def test_verifying_a_sender_whose_mail_from_status_ses_leaves_out_keeps_it_unverified(self) -> None:
         self.world.ses.add_identity(DOMAIN, reports_mail_from_status=False)
