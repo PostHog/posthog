@@ -3079,11 +3079,8 @@ def capture_report(
             f"Failed to update organization group properties for {organization_id}: {str(err)}",
         )
 
-    # There are some billing-related flags we wanna set in customer.io
-    # and for that to work properly we need to make sure we include that
-    # for every single person in the organization, otherwise we might end up
-    # with some people having the property and some not,
-    # which makes it harder to filter on in customer.io
+    # Workflows cohorts filter on these billing properties. Set them on every member of the
+    # organization, because a member without the property falls out of the filter.
     per_person_properties = {
         "has_non_zero_usage": full_report_dict.get("has_non_zero_usage"),
     }

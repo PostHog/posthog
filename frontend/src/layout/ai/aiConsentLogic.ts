@@ -164,8 +164,8 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
             }
             posthog.capture('ai_access_request_submitted')
             try {
-                // Backend notifies the org admins/owners via a customer.io email — keeps the
-                // recipient resolution server-side so it can't be tampered with from the client.
+                // The backend emails the org admins and owners. It resolves the recipients
+                // server-side, so the client can't tamper with them.
                 await requestAiAccessCreate(organization.id)
                 actions.markAiAccessRequested(organization.id)
                 posthog.capture('ai_access_requested')

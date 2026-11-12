@@ -180,8 +180,6 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
 }
 
-WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
-
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
 # is invalid, the domain has no mail servers, or the address hard bounced and is on the suppression list. Every
 # provider would bounce it, so the email is dropped and not retried.

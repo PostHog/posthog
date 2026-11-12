@@ -557,8 +557,8 @@ class TestSanitizeEmailString(SimpleTestCase):
             # URL-shaped substrings are defanged so mail clients don't auto-link.
             # `​` is a zero-width space — invisible to the recipient but breaks the
             # `\w+\.\w+` / `[a-z]+://` patterns auto-linkers scan for. Chosen over HTML
-            # entities because Customer.io's TinyMCE-backed template engine decodes
-            # entities on output, defeating an entity-based defang.
+            # entities because template engines can decode entities on output, which
+            # defeats an entity-based defang.
             ("https_url", "Visit https://evil.com today", "Visit https:​//evil.​com today"),
             ("http_url", "see http://phish.me/", "see http:​//phish.​me/"),
             ("www_only", "go www.scam.io", "go www.​scam.​io"),

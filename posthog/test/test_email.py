@@ -475,7 +475,6 @@ class TestEmail(BaseTest):
         with (
             override_instance_config("EMAIL_HOST", ""),
             self.settings(
-                CUSTOMER_IO_API_KEY="",
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
             ),
