@@ -33,7 +33,7 @@ export const messagingSendEmailCreateBodyCategoryTwoKeyMax = 64
 
 export const messagingSendEmailCreateBodyCategoryTwoNameMax = 128
 
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -82,7 +82,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()

@@ -72,7 +72,7 @@ export const messagingSendEmailCreateBodyCategoryTwoKeyMax = 64
 
 export const messagingSendEmailCreateBodyCategoryTwoNameMax = 128
 
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -146,7 +146,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
@@ -1609,4 +1609,42 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
+})
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdateBodyDescriptionMax = 1000
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsItemMax = 255
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsMax = 10
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax = 2048
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax = 0
+
+export const TransactionalCodeEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(transactionalCodeEmailsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('What the email is for.'),
+    tags: zod
+        .array(zod.string().max(transactionalCodeEmailsPartialUpdateBodyTagsItemMax))
+        .max(transactionalCodeEmailsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.'
+        ),
+    source_url: zod
+        .union([
+            zod.url().max(transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax).nullable(),
+            zod.string().max(transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:\/\/ or https:\/\/. Send null or an empty string to unlink it.'
+        ),
 })

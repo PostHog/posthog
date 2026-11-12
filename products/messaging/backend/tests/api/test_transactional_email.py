@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, _Call, call, patch
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -48,7 +48,9 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import send_categories, transactional_email
+from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 from products.messaging.backend.tests.fakes.unlayer_export_api import FakeUnlayerExportAPI, unlayer_document
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
@@ -814,6 +816,36 @@ class TestTransactionalEmail(APIBaseTest):
             "queued",
         )
 
+    @parameterized.expand(
+        [
+            ("queued", None, True),
+            ("queue_unavailable", ConnectionError("broker unreachable"), True),
+            ("detection_off", None, False),
+        ]
+    )
+    def test_a_new_keys_first_send_queues_source_detection_after_commit(
+        self, mock_post, flag, _capture, _name, queue_error, detection_on
+    ):
+        flag.side_effect = lambda key, *_, **__: detection_on or key != SOURCE_DETECTION_FLAG
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+
+        def detection_checks() -> list[_Call]:
+            return [check for check in flag.call_args_list if check.args[0] == SOURCE_DETECTION_FLAG]
+
+        with patch.object(detect_code_email_source_task, "apply_async", side_effect=queue_error) as queue:
+            with self.captureOnCommitCallbacks(execute=True):
+                first = psak.post(self.send_email_url, self._code_send(), format="json")
+                assert queue.call_count == 0
+                assert detection_checks() == []
+            with self.captureOnCommitCallbacks(execute=True):
+                second = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert [check.kwargs["only_evaluate_locally"] for check in detection_checks()] == [True]
+        key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
+        assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
+
     def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
@@ -886,6 +918,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"subject": "Welcome, Jane", "text": "Hi", "captureEngagement": True},
             ),
             ("null_copies_and_attachments", {"cc": None, "bcc": None, "attachments": None}, WELCOME_DELIVERED),
+            ("key_of_256_characters", {"template_key": "k" * 256}, WELCOME_DELIVERED),
             (
                 "cc_and_bcc",
                 {"cc": "copy@example.com", "bcc": ["audit@example.com", "archive@example.com"]},
@@ -1367,6 +1400,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("neither_a_template_nor_a_key", {"template_key": None}, "template_id"),
             ("nested_identifiers", {"identifiers": {"distinct_id": "user-1"}}, "identifiers"),
             ("invalid_key", {"template_key": "welcome email"}, "template_key"),
+            ("key_over_256_characters", {"template_key": "k" * 257}, "template_key"),
             ("sender_that_is_not_an_address", {"from": "Example"}, "from"),
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
@@ -1386,11 +1420,12 @@ class TestTransactionalEmail(APIBaseTest):
     def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):
         body = {key: value for key, value in self._code_send(**fields).items() if value is not None}
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == attr
-        mock_post.assert_not_called()
+        assert cdp.received == []
 
     @parameterized.expand(
         [

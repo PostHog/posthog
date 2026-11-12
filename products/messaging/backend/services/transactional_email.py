@@ -73,6 +73,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER, text_from_html
 from products.messaging.backend.services.send_categories import (
     RequestedCategory,
@@ -81,6 +82,7 @@ from products.messaging.backend.services.send_categories import (
     template_category,
     template_send_category,
 )
+from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailCategoryType,
@@ -561,8 +563,16 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
                 "reuse it for every recipient."
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
-        keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
+        key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
+        transaction.on_commit(lambda: _queue_source_detection(team_id, key_id), robust=True)
         return hog_flow_id
+
+
+def _queue_source_detection(team_id: int, key_id: str) -> None:
+    # After commit and local-only, so a send never waits on the flag service while it holds the team's key lock.
+    # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
+    if source_detection_enabled(team_id, only_locally=True):
+        detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
 
 
 def _lock_team_keys(team_id: int) -> None:
