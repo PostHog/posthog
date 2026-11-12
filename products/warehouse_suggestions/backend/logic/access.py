@@ -54,17 +54,17 @@ SURFACE_FILTERS: Mapping[WarehouseSuggestionSurface, Q] = {
 }
 
 
-def surface_q(surface: WarehouseSuggestionSurface) -> Q:
-    return SURFACE_FILTERS[surface]
+def surface_q(surface: WarehouseSuggestionSurface | None) -> Q:
+    return Q() if surface is None else SURFACE_FILTERS[surface]
 
 
 def actionable_waiting(
     team_id: int,
     user_access_control: "UserAccessControl",
-    surface: WarehouseSuggestionSurface,
+    surface: WarehouseSuggestionSurface | None,
     subject_kinds: SubjectKinds,
 ) -> Q:
-    """Waiting suggestions on `surface` the user could accept or dismiss once shown."""
+    """Waiting suggestions on `surface`, or of every kind without one, the user could accept or dismiss once shown."""
     kinds = subject_kinds.readable & subject_kinds.actionable
     scoped = Q(subject_kind__in=kinds) & surface_q(surface)
     waiting = (
