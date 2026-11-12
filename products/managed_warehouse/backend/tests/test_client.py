@@ -288,15 +288,13 @@ class TestSelfManagedS3Secrets:
 class TestManagedWarehouseShadowCompilation:
     @mock.patch("products.managed_warehouse.backend.client.compile_hogql_to_ducklake_sql")
     def test_materialization_compile_bypasses_warehouse_access_control(self, mock_compile):
-        from products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse import (
-            _compile_hogql_for_ducklake,
-        )
+        from products.data_modeling.backend.facade.temporal import compile_hogql_for_ducklake
 
         mock_compile.return_value = DuckLakeCompiledQuery(
             sql="SELECT * FROM source", values={}, hogql="SELECT * FROM source"
         )
 
-        _compile_hogql_for_ducklake("SELECT * FROM source", 1)
+        compile_hogql_for_ducklake("SELECT * FROM source", 1)
 
         query = mock_compile.call_args.args[1]
         assert query.query == "SELECT * FROM source"

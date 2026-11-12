@@ -372,19 +372,6 @@ depends_on = [
 ]
 layer = "modules"
 
-# data_modeling: the worker registers the Temporal workflows, activities and metrics by import.
-# Two outside test modules exercise the incremental write and managed warehouse activities.
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.(ACTIVITIES|SEMANTIC_ENRICHMENT_ACTIVITIES|SEMANTIC_ENRICHMENT_WORKFLOWS|WORKFLOWS)",
-    "backend\\.temporal\\.metrics.*",
-    "backend\\.temporal\\.activities\\.incremental_write.*",
-    "backend\\.temporal\\.activities\\.materialize_view_managed_warehouse.*",
-]
-from = [
-    "products.data_modeling",
-]
-
 [[modules]]
 path = "products.data_tools"
 depends_on = ["posthog"]

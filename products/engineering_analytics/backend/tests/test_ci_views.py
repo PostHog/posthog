@@ -23,7 +23,7 @@ from posthog.clickhouse.client import sync_execute
 
 from products.data_modeling.backend.facade.api import check_incremental_eligibility, get_incremental_config
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
-from products.data_modeling.backend.temporal.activities.incremental_write import UniqueKeyTracker, upsert_batch
+from products.data_modeling.backend.facade.temporal import check_unique_key, upsert_batch
 from products.engineering_analytics.backend.facade.warehouse_views import get_expected_warehouse_views
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
@@ -371,7 +371,7 @@ class TestStoredCIConfig(SimpleTestCase):
             "run_attempt": previous_attempt,
         }
         initial = pa.RecordBatch.from_pylist([original, {**original, "source_id": "second"}])
-        UniqueKeyTracker(config.unique_key).check(initial)
+        check_unique_key(initial, config.unique_key)
         updated = {
             **original,
             "id": next_id,

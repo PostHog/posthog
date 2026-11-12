@@ -214,7 +214,7 @@ from products.data_catalog.backend.facade.temporal import (
     ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
     WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
 )
-from products.data_modeling.backend.temporal import (
+from products.data_modeling.backend.facade.temporal import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     SEMANTIC_ENRICHMENT_ACTIVITIES,
     SEMANTIC_ENRICHMENT_WORKFLOWS,
