@@ -44,6 +44,7 @@ from products.messaging.backend.provider_imports.sendgrid_templates import Conve
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -586,7 +587,7 @@ def _sample_data_line(version: dict[str, Any]) -> str:
 
 def _taken_keys(team_id: int, keys: list[str]) -> set[str]:
     rows = MessageTemplate.objects.filter(team_id=team_id, key__in=keys).values_list("key", flat=True)
-    return {key for key in rows if key}
+    return {key for key in rows if key} | code_email_keys(team_id, keys)
 
 
 def _create(
