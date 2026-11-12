@@ -1,6 +1,7 @@
 from dataclasses import replace
+from email.message import Message
 from typing import Any, cast
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -45,6 +46,16 @@ MESSAGE = alert_message(
     headline="API errors is firing",
     details=(MessageDetail(label="Value", value="300"), MessageDetail(label="Threshold", value="above 100")),
 )
+
+
+def _raised_while_reading(answer: HTTPError) -> TimeoutError:
+    try:
+        try:
+            raise answer
+        except HTTPError:
+            raise TimeoutError("The read operation timed out")
+    except TimeoutError as error:
+        return error
 
 
 class TestSlackBlocks(SimpleTestCase):
@@ -279,6 +290,7 @@ class TestSlackTransport(APIBaseTest):
             ("read_timeout", TimeoutError("timed out"), True),
             ("dropped_after_send", ConnectionResetError("Connection reset by peer"), True),
             ("connect_timeout", URLError(TimeoutError("timed out")), False),
+            ("rate_limit_body_read_timeout", _raised_while_reading(HTTPError("u", 429, "", Message(), None)), False),
         ]
     )
     def test_post_timeout_is_ambiguous(self, _name: str, error: Exception, ambiguous: bool) -> None:

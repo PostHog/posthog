@@ -130,16 +130,20 @@ def deliver(
             if not _recorded_as_delivered(error, transport.provider):
                 thread_store.release(claim)
                 raise
-            # No handle: nothing confirmed where the message landed, so there is no root to edit,
-            # and a later message in this conversation posts as a new opening message rather than
-            # a reply. The loop goes on, so the other transitions are still sent and counted.
+            # No handle: nothing confirmed where the message landed, so a later message in this
+            # conversation posts as a new opening message rather than a reply. A reply under a
+            # confirmed opening may have landed, so that opening still catches up. The loop goes
+            # on, so the other transitions are still sent and counted.
             logger.warning(
                 "alerts_platform_delivery_ambiguous",
                 configuration_id=configuration_id,
                 evaluation_key=evaluation_key,
                 provider=transport.provider,
-                grouping_key=transition.grouping_key,
+                # A grouping key can be a raw breakdown value, such as an email address.
+                grouped=bool(transition.grouping_key),
             )
+            if claim.handle is not None:
+                _edit_root(transport=transport, team_id=team_id, target=target, root=claim.handle, key=key)
             thread_store.delivered(claim, None)
             continue
         except Exception:

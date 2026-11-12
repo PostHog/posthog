@@ -186,6 +186,10 @@ class DatabaseThreadStore:
         if handle is not None and not thread.external_ref:
             fields["external_ref"] = handle.external_ref
             fields["root_message"] = handle.root_content
+            # `opening` reads the first entry as the send that opened the conversation. A send
+            # whose answer was lost is recorded with no message, so it can sit ahead of this one.
+            delivered = [claim.evaluation_key, *(k for k in delivered if k != claim.evaluation_key)]
+            fields["delivered_evaluation_keys"] = delivered
         self._fenced(claim).update(**fields)
 
     def release(self, claim: ThreadClaim, *, root_content: dict[str, Any] | None = None) -> None:

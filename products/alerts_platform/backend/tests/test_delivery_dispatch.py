@@ -102,8 +102,9 @@ class EditingTransport(FakeTransport):
         handle: MessageHandle | None = None,
         edit_error: Exception | None = None,
         store: "RecordingThreadStore | None" = None,
+        errors: list[Exception | None] | None = None,
     ) -> None:
-        super().__init__(handle=handle)
+        super().__init__(handle=handle, errors=errors)
         self.edit_error = edit_error
         self.store = store
         self.edits: list[tuple[MessageHandle, str]] = []
@@ -214,9 +215,12 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [handle for _, handle in resolve.sends] == [MessageHandle(external_ref={"ts": "morning"})]
         assert [handle for _, handle in second.sends] == [None]
 
-    def test_a_reply_brings_the_opening_message_up_to_the_current_state(self) -> None:
+    @parameterized.expand([("sent", None), ("answer_lost", DeliveryAmbiguous("Read timed out"))])
+    def test_a_reply_brings_the_opening_message_up_to_the_current_state(
+        self, _name: str, reply_error: Exception | None
+    ) -> None:
         store = RecordingThreadStore()
-        transport = EditingTransport(handle=OPENING, store=store)
+        transport = EditingTransport(handle=OPENING, store=store, errors=[None, reply_error])
 
         with (
             patch("products.alerts_platform.backend.delivery.dispatch.alert_snapshot", return_value=None),

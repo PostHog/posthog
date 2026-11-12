@@ -7,7 +7,7 @@ message becomes blocks.
 
 from http.client import HTTPException
 from typing import Any, Final
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -199,7 +199,16 @@ def _maybe_posted(error: OSError | HTTPException) -> bool:
     timeout, so Slack never had the whole post. Any other socket or HTTP error, a read timeout
     included, comes while waiting for or reading the answer, after the post was sent.
     """
-    return not isinstance(error, URLError)
+    if isinstance(error, URLError):
+        return False
+    # slack_sdk reads the body of an HTTP error answer, a 429 included. When that read times out,
+    # the timeout carries the answer as its context, and the answer says Slack refused the post.
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, HTTPError):
+            return False
+        cause = cause.__cause__ or cause.__context__
+    return True
 
 
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
