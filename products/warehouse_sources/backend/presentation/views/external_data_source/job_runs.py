@@ -21,6 +21,10 @@ from products.warehouse_sources.backend.facade.source_config import SourceConfig
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     SimpleExternalDataSchemaSerializer,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_resolver import (
+    resolve_source_type,
+    suggest_source_types,
+)
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base
@@ -234,17 +238,29 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
 
         requested = request.query_params.get("source_type")
         if requested:
-            requested_types = [t.strip() for t in requested.split(",") if t.strip()]
-            unknown = [t for t in requested_types if t not in configs]
+            resolved: set[str] = set()
+            unknown: list[str] = []
+            for name in (t.strip() for t in requested.split(",")):
+                if not name:
+                    continue
+                canonical = resolve_source_type(name, configs)
+                if canonical is None:
+                    unknown.append(name)
+                else:
+                    resolved.add(canonical)
             if unknown:
+                hints = [
+                    f"'{name}' (did you mean {', '.join(suggestions)}?)" if suggestions else f"'{name}'"
+                    for name, suggestions in ((name, suggest_source_types(name, configs)) for name in sorted(unknown))
+                ]
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
-                        "message": f"Unknown source_type(s): {', '.join(sorted(unknown))}. "
+                        "message": f"Unknown source_type(s): {', '.join(hints)}. "
                         "Omit source_type to list every available type."
                     },
                 )
-            configs = {st: config for st, config in configs.items() if st in requested_types}
+            configs = {st: config for st, config in configs.items() if st in resolved}
 
         response = WizardResponse(status=status.HTTP_200_OK, data=configs)
         # The catalog is deploy-static and identical for every user (no team/user input), so let the
