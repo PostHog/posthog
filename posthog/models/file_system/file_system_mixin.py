@@ -92,9 +92,9 @@ class FileSystemSyncMixin(Model):
         return FileSystem.objects.filter(
             surface_q(fs_data.surface),
             file_refs_q(fs_data.type, [fs_data.ref]),
+            ~Q(shortcut=True),
             team=team,
             type=fs_data.type,
-            shortcut=False,
         ).exists()
 
     @classmethod

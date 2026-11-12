@@ -225,7 +225,7 @@ def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface:
             return spellings
         matching = Q(ref__in=canonical_by_key)
     stored_spellings = (
-        FileSystem.objects.filter(any_surface, team_id=team_id, type=file_type, shortcut=False)
+        FileSystem.objects.filter(any_surface, ~Q(shortcut=True), team_id=team_id, type=file_type)
         .filter(matching)
         .values_list("ref", flat=True)
         .distinct()
@@ -1310,7 +1310,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 spellings = {row.ref for row in read if (row.team_id, row.type) == (team_id, file_type) and row.ref}
                 for stored in _stored_spellings(team_id, file_type, refs, any_surface).values():
                     spellings |= stored
-                rows |= Q(any_surface, team_id=team_id, type=file_type, shortcut=False, ref__in=spellings)
+                rows |= Q(any_surface, ~Q(shortcut=True), team_id=team_id, type=file_type, ref__in=spellings)
             savepoint = transaction.savepoint()
             locked = self._lock_file_rows(rows, without_meta=True)
             resampled = {team_id: _any_surface_q(team_id) for team_id in any_surface_by_team}
@@ -1354,7 +1354,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         surviving = {
             (row.team_id, row.type, canonical_file_system_ref(row.type, row.ref))
             for row in locked
-            if row.pk not in removed_ids and row.shortcut is False and row.ref
+            if row.pk not in removed_ids and not row.shortcut and row.ref
         }
         carriers: list[FileSystem] = []
         objects_to_delete: list[FileObjectRef] = []

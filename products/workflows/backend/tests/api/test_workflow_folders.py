@@ -59,6 +59,7 @@ REF_ENTRY_POINTS = [
     "save_signal",
     "unfiled",
     "delete_keeps_the_object",
+    "delete_keeps_the_object_for_an_unmarked_copy",
     "restore",
 ]
 
@@ -229,8 +230,8 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual([row["path"] for row in rows], [])
 
-    @parameterized.expand([("create",), ("bulk_update",)])
-    def test_a_starred_workflow_under_another_ref_spelling_follows_the_workflow_grant(self, write) -> None:
+    @parameterized.expand([("create",), ("bulk_update",), ("update",)])
+    def test_starring_a_workflow_under_another_ref_spelling_needs_access_to_the_workflow(self, write) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -250,13 +251,21 @@ class TestWorkflowFolders(APIBaseTest):
         shortcut = {"path": "Alias", "type": "hog_flow", "ref": flow.id.hex}
 
         if write == "create":
-            self.client.post(shortcuts_url, shortcut, format="json")
+            response = self.client.post(shortcuts_url, shortcut, format="json")
+        elif write == "bulk_update":
+            response = self.client.post(
+                f"{shortcuts_url}bulk_update/", {"add": [shortcut], "remove_ids": []}, format="json"
+            )
         else:
-            self.client.post(f"{shortcuts_url}bulk_update/", {"add": [shortcut], "remove_ids": []}, format="json")
-        listed = self.client.get(shortcuts_url).json()
+            starred = FileSystemShortcut.objects.create(
+                team=self.team, user=member, path="Alias", type="insight", ref="1", href="/insights/1"
+            )
+            response = self.client.patch(
+                f"{shortcuts_url}{starred.id}/", {"type": "hog_flow", "ref": flow.id.hex}, format="json"
+            )
 
-        rows = listed["results"] if isinstance(listed, dict) else listed
-        self.assertEqual([row["ref"] for row in rows if row["type"] == "hog_flow"], [])
+        stored = FileSystemShortcut.objects.filter(user=member, type="hog_flow").values_list("ref", flat=True)
+        self.assertEqual((response.status_code, list(stored)), (403, []), response.content)
 
     @parameterized.expand(
         [
@@ -385,7 +394,7 @@ class TestWorkflowFolders(APIBaseTest):
     def _through_folder_delete(self, spell):
         return self._refused_write(spell, self.client.delete, on_folder=True)
 
-    def _template_filed_under(self, spell, path: str = "Campaigns/Welcome") -> str:
+    def _template_filed_under(self, spell, path: str = "Campaigns/Welcome", shortcut: bool | None = False) -> str:
         template = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
         ).json()
@@ -396,7 +405,7 @@ class TestWorkflowFolders(APIBaseTest):
             depth=len(path.split("/")),
             type="message_template",
             ref=spell(UUID(template["id"])),
-            shortcut=False,
+            shortcut=shortcut,
         )
         return template["id"]
 
@@ -420,14 +429,17 @@ class TestWorkflowFolders(APIBaseTest):
         self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/", {"type": "message_template"})
         return self._template_paths(), ["Campaigns/Welcome"]
 
-    def _through_delete_keeps_the_object(self, spell):
-        template_id = self._template_filed_under(spell, path="Copies/Welcome")
+    def _through_delete_keeps_the_object(self, spell, copy_shortcut: bool | None = False):
+        template_id = self._template_filed_under(spell, path="Copies/Welcome", shortcut=copy_shortcut)
         canonical = FileSystem.objects.create(
             team=self.team, path="Campaigns/Welcome", depth=2, type="message_template", ref=template_id, shortcut=False
         )
         self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.id}/")
         template = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/")
         return (template.status_code, self._template_paths()), (200, ["Copies/Welcome"])
+
+    def _through_delete_keeps_the_object_for_an_unmarked_copy(self, spell):
+        return self._through_delete_keeps_the_object(spell, copy_shortcut=None)
 
     def _through_restore(self, spell):
         template_id = self._template_filed_under(spell)
@@ -1232,6 +1244,12 @@ class TestWorkflowFolders(APIBaseTest):
             ),
             ("unlink", "delete", "file_system/{file_id}/", None),
             ("move", "post", "file_system/{file_id}/move/", {"new_path": "Moved/Welcome"}),
+            (
+                "star",
+                "post",
+                "file_system_shortcut/",
+                {"path": "Starred email", "type": "message_template", "ref": "{template_id}"},
+            ),
         ]
     )
     def test_a_key_without_the_workflow_write_scope_cannot_change_template_files(
@@ -1248,7 +1266,7 @@ class TestWorkflowFolders(APIBaseTest):
             label="File system key",
             user=self.user,
             secure_value=hash_key_value(key_value),
-            scopes=["file_system:read", "file_system:write"],
+            scopes=["file_system:read", "file_system:write", "file_system_shortcut:write"],
         )
         self.client.logout()
 
