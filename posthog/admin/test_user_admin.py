@@ -5,11 +5,14 @@ from urllib.parse import parse_qs, urlsplit
 
 from posthog.test.base import BaseTest
 
+from django.contrib.admin.sites import AdminSite
+from django.contrib.auth.hashers import make_password
+from django.test import SimpleTestCase
 from django.urls import reverse
 
 from parameterized import parameterized
 
-from posthog.admin.admins.user_admin import UserChangeForm
+from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.models import User
 
 
@@ -110,26 +113,23 @@ class TestUserAdminTicketParam(BaseTest):
         self.assertEqual(response.context["cl"].result_count, 1)
 
 
-class TestUserChangeFormPasswordField(BaseTest):
-    def test_password_field_omits_salt_and_hash(self):
-        # Guards against the partial (masked) hash material Django's default widget shows reappearing.
-        user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
-        # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (test fixture, not a user-facing password-set path)
-        user.set_password("a-strong-password-123")
-        user.save()
+class TestUserAdminPasswordDisplay(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("usable", make_password("a-strong-password-123"), "Algorithm"),
+            ("unusable", make_password(None), "No password set."),
+            ("unknown_format", "not-a-hash$abc$def", "Unknown password format."),
+        ]
+    )
+    def test_shows_only_the_algorithm(self, _name: str, encoded: str, expected: str):
+        user = User(pk=1, email="someone@example.com", password=encoded)
 
-        rendered = str(UserChangeForm(instance=user)["password"])
+        rendered = str(UserAdmin(User, AdminSite()).password_display(user))
 
-        self.assertIn("algorithm", rendered)
-        self.assertNotIn("salt", rendered)
-        self.assertNotIn("hash", rendered)
+        self.assertIn(expected, rendered)
+        for part in encoded.split("$")[1:]:
+            self.assertNotIn(part, rendered)
 
-    def test_password_field_help_text_omits_reset_link(self):
-        # A raw reset link/token in the help text would let a staff member reset the user's
-        # password themselves; the "Reset password" button emails it to the user instead.
-        user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
-
-        help_text = UserChangeForm(instance=user).fields["password"].help_text
-
-        self.assertNotIn("/reset/", help_text)
-        self.assertNotIn("href", help_text)
+    def test_change_form_has_no_password_field(self):
+        # Django's own password field would render the first characters of the salt and hash.
+        self.assertNotIn("password", UserChangeForm.base_fields)
