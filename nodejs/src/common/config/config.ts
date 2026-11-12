@@ -49,7 +49,7 @@ export function overrideWithEnv(
                     throw Error(`Invalid PLUGIN_SERVER_MODE ${env[key]}`)
                 }
             } else if (typeof defaults[key] === 'number') {
-                tmpConfig[key] = parseNumberFromEnv(key, env[key]!, tmpConfig[key])
+                tmpConfig[key] = parseNumberFromEnv(key, env[key]!, tmpConfig[key], parseFloat)
             } else if (TRUE_ONLY_BOOLEAN_KEYS.has(key)) {
                 tmpConfig[key] = env[key] === 'true'
             } else if (typeof defaults[key] === 'boolean') {
@@ -87,7 +87,7 @@ export function overrideConfigWithEnv<T extends Record<string, unknown>>(
         if (typeof env[key] !== 'undefined') {
             const defaultValue = config[key]
             if (typeof defaultValue === 'number') {
-                result[key] = parseNumberFromEnv(key, env[key]!, defaultValue)
+                result[key] = parseNumberFromEnv(key, env[key]!, defaultValue, parseFloat)
             } else if (typeof defaultValue === 'boolean') {
                 result[key] = stringToBoolean(env[key])
             } else {

@@ -289,13 +289,11 @@ export function parseNumberFromEnv(
     key: string,
     raw: string,
     fallback: number,
-    toNumber: (value: string) => number = parseFloat
+    toNumber: (value: string) => number
 ): number {
-    const unquoted = raw
-        .trim()
-        .replace(/^(["'])(.*)\1$/, '$2')
-        .trim()
-    const value = toNumber(unquoted)
+    const trimmed = raw.trim()
+    const unquoted = trimmed.replace(/^(["'])(.*)\1$/, '$2').trim()
+    const value = unquoted === '' && trimmed !== '' ? NaN : toNumber(unquoted)
     if (Number.isFinite(value)) {
         return value
     }

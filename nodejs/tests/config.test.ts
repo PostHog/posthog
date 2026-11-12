@@ -92,6 +92,7 @@ describe('config', () => {
             [
                 ['0x10', 16],
                 ['', 0],
+                ['""', 'default'],
                 ['3000ms', 'default'],
             ],
         ],
