@@ -1,4 +1,4 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 const EXPLANATIONS = {
     model: 'No usage measurement is available for this model and date range.',
@@ -9,14 +9,19 @@ export function UsageNotAvailable({ context }: { context: keyof typeof EXPLANATI
     const explanation = EXPLANATIONS[context]
 
     return (
-        <Tooltip title={explanation}>
-            <span
-                className="cursor-help border-b border-dotted text-secondary"
-                tabIndex={0}
-                aria-label={`N/A. ${explanation}`}
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <span
+                        className="cursor-help border-b border-dotted text-muted-foreground"
+                        tabIndex={0}
+                        aria-label={`N/A. ${explanation}`}
+                    />
+                }
             >
                 N/A
-            </span>
+            </TooltipTrigger>
+            <TooltipContent>{explanation}</TooltipContent>
         </Tooltip>
     )
 }

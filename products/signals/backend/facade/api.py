@@ -190,8 +190,9 @@ class InboxSummary:
 
 
 def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth: bool = False) -> InboxSummary:
+    task_filter: Q | None = None
     if service_auth:
-        rows = generated_pull_requests(team_id)
+        can_read_summary = True
     elif isinstance(user, User):
         access = tasks_facade.task_access_scope(team_id=team_id, user=user)
         task_filter = tasks_facade.visible_tasks_q(access.user_id, relation="task")
@@ -199,28 +200,46 @@ def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth:
             task_filter &= Q(task_id__in=access.allowed_ids) | Q(task__created_by_id=access.user_id)
         elif access.blocked_ids:
             task_filter &= ~(Q(task_id__in=access.blocked_ids) & ~Q(task__created_by_id=access.user_id))
-        rows = generated_pull_requests(team_id, task_filter=task_filter)
+        can_read_summary = True
     else:
-        rows = SignalReportPullRequest.objects.for_team(team_id).none()
+        can_read_summary = False
 
     period_end = timezone.now()
     period_start = period_end - INBOX_SUMMARY_PERIOD
-    merged_rows = (
-        rows.filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
-        .values(
-            "number",
-            "participant_ids",
-            "participant_logins",
-            "participants_synced_at",
-            "repository",
-            "url",
+    # Keep the indexed merge-window lookup separate so the JSON-backed provenance check runs only for recent PRs.
+    candidate_rows = (
+        list(
+            SignalReportPullRequest.objects.for_team(team_id)
+            .filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
+            .values(
+                "id",
+                "number",
+                "participant_ids",
+                "participant_logins",
+                "participants_synced_at",
+                "repository",
+                "url",
+            )
+            .order_by("-merged_at", "repository", "number")
         )
-        .order_by("-merged_at", "repository", "number")
+        if can_read_summary
+        else []
+    )
+    generated_ids = (
+        set(
+            generated_pull_requests(team_id, task_filter=task_filter)
+            .filter(id__in=[row["id"] for row in candidate_rows])
+            .values_list("id", flat=True)
+        )
+        if candidate_rows
+        else set()
     )
     participation_complete = True
     people_by_id: dict[int, str] = {}
     pull_requests: list[InboxSummaryPullRequest] = []
-    for row in merged_rows.iterator():
+    for row in candidate_rows:
+        if row["id"] not in generated_ids:
+            continue
         pull_requests.append(
             InboxSummaryPullRequest(repository=row["repository"], number=row["number"], url=row["url"])
         )

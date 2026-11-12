@@ -30,6 +30,7 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -486,14 +487,17 @@ def load_single_agent_results(
     return SingleAgentResults(reviews={**fallback, **own}, fallbacks=frozenset(fallback.keys() - own.keys()))
 
 
-def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:
+def reviewed_pipeline_chunk_ids(
+    *, team_id: int, report_id: str, head_sha: str, since: datetime | None = None
+) -> set[int]:
     """The pipeline chunks at this head that at least one review unit finished, a perspective or the blind spot.
 
-    Any arm counts, because the question is whether a reviewer read the chunk at all.
+    Any arm counts, because the question is whether a reviewer read the chunk at all. `since` keeps
+    only results written from that time on, so that a chunk an earlier turn read does not count for a later one.
     """
     chunk_ids: set[int] = set()
     for content in _load_working_state(
-        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha, since=since
     ):
         assert isinstance(content, PerspectiveResultArtefact)
         if not is_single_agent_pass(content.pass_number):
@@ -512,6 +516,7 @@ def persist_pr_snapshot(
     review_design: str = REVIEW_DESIGN_PIPELINE,
     merge_base_sha: str | None = None,
     skipped_paths: Sequence[str] = (),
+    devex_lens_files: Sequence[str] = (),
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -530,6 +535,7 @@ def persist_pr_snapshot(
             review_design=review_design,
             merge_base_sha=merge_base_sha,
             skipped_paths=list(skipped_paths),
+            devex_lens_files=list(devex_lens_files),
         ),
         attribution=ArtefactAttribution.system(),
     )
@@ -552,7 +558,9 @@ def load_pr_snapshot(
     return latest
 
 
-def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list[ReviewArtefactContent]:
+def _load_working_state(
+    team_id: int, report_id: str, artefact_type: str, head_sha: str, since: datetime | None = None
+) -> list[ReviewArtefactContent]:
     """Parsed working-state contents for this turn, oldest-first so callers can latest-wins them.
 
     Turn scoping happens in SQL via the denormalized `head_sha` column, so only the current turn's
@@ -565,6 +573,8 @@ def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_s
         .filter(report_id=report_id, type=artefact_type, head_sha=head_sha)
         .order_by("created_at", "id")
     )
+    if since is not None:
+        rows = rows.filter(created_at__gte=since)
     for row in rows:
         try:
             content = parse_artefact_content(artefact_type, row.content)

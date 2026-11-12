@@ -1924,9 +1924,9 @@ export interface StartTrainingRequestApi {
 export interface TrainingRunCapReachedApi {
     /** Why the run did not start. */
     detail: string
-    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
     used: number
-    /** Sandbox training runs the project may start in any 24 hours. */
+    /** The project's daily limit of sandbox training runs. */
     limit: number
     /**
      * When the next training run can start. Null when training runs are turned off for the project.
@@ -1972,10 +1972,23 @@ export interface AgentModelOptionsApi {
     models: AgentModelOptionApi[]
 }
 
+/**
+ * * `project` - Project
+ * * `default` - Default
+ * * `code` - Code
+ */
+export type LimitSourceEnumApi = (typeof LimitSourceEnumApi)[keyof typeof LimitSourceEnumApi]
+
+export const LimitSourceEnumApi = {
+    Project: 'project',
+    Default: 'default',
+    Code: 'code',
+} as const
+
 export interface ProjectLimitsApi {
-    /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+    /** The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off. */
     max_training_runs_per_day: number
-    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
     training_runs_used: number
     /**
      * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
@@ -1988,6 +2001,24 @@ export interface ProjectLimitsApi {
     max_live_pipelines: number
     /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
     live_pipelines: number
+    /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_training_runs_per_day_source: LimitSourceEnumApi
+    /** Where max_iterations_per_run comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_iterations_per_run_source: LimitSourceEnumApi
+    /** Where max_live_pipelines comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_live_pipelines_source: LimitSourceEnumApi
 }
 
 /**

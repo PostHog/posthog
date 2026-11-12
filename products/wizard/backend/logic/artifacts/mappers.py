@@ -1,9 +1,13 @@
+from datetime import datetime
+
+from django.utils.dateparse import parse_datetime
+
 from products.wizard.backend.facade.contracts import (
     WizardRunArtifactDTO,
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunArtifactType
+from products.wizard.backend.facade.enums import WizardPullRequestState, WizardRunArtifactType
 from products.wizard.backend.models import WizardRunArtifact
 
 
@@ -54,6 +58,9 @@ def record_to_artifact(artifact: WizardRunArtifact) -> WizardRunArtifactDTO:
         head_branch=head_branch,
         base_branch=base_branch,
         created_at=artifact.created_at,
+        state=_pull_request_state(metadata.get("state")),
+        merged_at=_metadata_datetime(metadata.get("merged_at")),
+        closed_at=_metadata_datetime(metadata.get("closed_at")),
     )
 
 
@@ -66,3 +73,11 @@ def pull_request_metadata_to_record(
         "head_branch": head_branch,
         "base_branch": base_branch,
     }
+
+
+def _pull_request_state(value: object) -> WizardPullRequestState | None:
+    return WizardPullRequestState(value) if value in WizardPullRequestState.values else None
+
+
+def _metadata_datetime(value: object) -> datetime | None:
+    return parse_datetime(value) if isinstance(value, str) else None

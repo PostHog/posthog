@@ -21,7 +21,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
+import {
+    notebooksKernelComputeOptionsRetrieve,
+    notebooksKernelStatusRetrieve,
+} from 'products/notebooks/frontend/generated/api'
 import type {
     NotebookComputeOptionsResponseApi,
     NotebookComputePresetApi,
@@ -462,7 +465,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, cache }) => ({
         computeOptions: [
             null as NotebookComputeOptionsResponseApi | null,
             {
@@ -478,10 +481,17 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             null as NotebookKernelInfo | null,
             {
                 loadKernelInfo: async () => {
+                    const disposables = cache.disposables
                     try {
-                        const response = (await api.notebooks.kernelStatus(props.shortId)) as NotebookKernelInfo
+                        const response = (await notebooksKernelStatusRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.shortId
+                        )) as NotebookKernelInfo
                         return response.backend ? response : null
-                    } catch {
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status && [401, 403, 404, 410].includes(error.status)) {
+                            disposables.dispose('kernelInfoRefresh')
+                        }
                         return null
                     }
                 },
@@ -760,7 +770,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         },
     })),
     afterMount(({ actions, cache, props, values }) => {
-        if ((props.mode && props.mode !== 'notebook') || props.isShared) {
+        if (
+            (props.mode && props.mode !== 'notebook') ||
+            props.isShared ||
+            props.shortId.startsWith('canvas-') ||
+            props.shortId.startsWith('template-')
+        ) {
             return
         }
         // Replacing the kea context drops this logic's path from the store without unmounting it,

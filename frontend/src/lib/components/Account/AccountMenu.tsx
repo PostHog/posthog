@@ -55,6 +55,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
+import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTableSwitch'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 
@@ -431,6 +432,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             ) : null}
                         </>
                     )}
+                    <NewEventsTableSwitch />
                     {!isCloud && (
                         <DropdownMenuItem asChild>
                             <Link

@@ -206,22 +206,21 @@ function printInputRequired(out: Output, result: InputRequired): void {
     out.line(out.style(`More in ${escapeControls(result.docsUrl)}`, 'dim'))
 }
 
-function printSnippet(out: Output, result: Setup): void {
-    out.line('')
-    out.line('Add this to posthog.json in the repository:')
-    out.line('')
-    out.line(escapeControls(JSON.stringify(result.posthogJson, null, 4)))
-    out.line('')
-    out.line(`Then add this to the ${escapeControls(result.provider)} job that runs hog:`)
-    out.line('')
-    out.line(escapeControls(result.snippet))
-    out.line('')
-    out.line(
+function snippetNotes(out: Output, result: Setup): string[] {
+    return [
+        'Add this to posthog.json in the repository:',
+        '',
+        escapeControls(JSON.stringify(result.posthogJson, null, 4)),
+        '',
+        `Then add this to the ${escapeControls(result.provider)} job that runs hog:`,
+        '',
+        escapeControls(result.snippet),
+        '',
         result.posthogJson.host
             ? `Or, instead of posthog.json, set HOG_HOST=${result.host} and HOG_PROJECT_ID=${result.posthogJson.projectId} in the job.`
-            : `This PostHog isn't PostHog Cloud, so the job also needs HOG_HOST=${result.host}.`
-    )
-    out.line(out.style(`More in ${escapeControls(result.docsUrl)}`, 'dim'))
+            : `This PostHog isn't PostHog Cloud, so the job also needs HOG_HOST=${result.host}.`,
+        out.style(`More in ${escapeControls(result.docsUrl)}`, 'dim'),
+    ]
 }
 
 export default defineCommand({
@@ -257,6 +256,10 @@ export default defineCommand({
         },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
     },
+    refusesCI: {
+        reason: 'asks an admin to trust a CI job from your machine',
+        hint: 'Run `hog ci setup` on your machine, in the repository the job builds.',
+    },
     scopes: ['workload_trust_policy_request:write'],
     notes: [
         'Run it in the repository, logged in with `hog auth login`. hog asks PostHog to trust the repository in your project, and an organization admin approves the request in the browser.',
@@ -274,7 +277,7 @@ export default defineCommand({
         if (options.wait) {
             const api = await ctx.posthog()
             const { host, projectId } = (await ctx.session()).current
-            const approved = await resumeApproval(ctx, policyRequestWait(api, { host, projectId }))
+            const { value: approved } = await resumeApproval(ctx, policyRequestWait(api, { host, projectId }))
             // The snippet needs the provider's settings, so the request stays for another --wait until they load.
             const settings = await providerSettings(api, approved.projectId, approved.provider)
             await clearPending(ctx.runtime, CI_SETUP_COMMAND)
@@ -344,14 +347,14 @@ export default defineCommand({
             printInputRequired(out, result)
             return
         }
-        if (result.status === 'approved') {
-            out.line(
-                `${out.style('Approved.', 'green', 'bold')} ${escapeControls(result.provider)} jobs can now use hog in this project.`
-            )
-        } else {
-            printPending(out, result)
+        if (result.status === 'pending') {
+            printPending(out, result, 'policy request', ['', ...snippetNotes(out, result)])
+            return
         }
-        printSnippet(out, result)
+        out.report({
+            result: `${escapeControls(result.provider)} jobs can now use hog in this project`,
+            notes: snippetNotes(out, result),
+        })
     },
 
     agent({ result, out }) {

@@ -24,6 +24,7 @@ import { RefObject } from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 import {
     AudioMuteReplayerPlugin,
+    BLOCKED_ELEMENT_STYLE_RULE,
     COMMON_REPLAYER_CONFIG,
     speedDependentStyleRules,
     CanvasReplayerPlugin,
@@ -1373,11 +1374,7 @@ export interface sessionRecordingPlayerLogicMeta {
             showingClipParams: boolean,
             playerControlsOverlay: boolean
         ) => boolean
-        showAmbientBackground: (
-            ambientBackground: boolean,
-            maskingWindow: boolean,
-            logicProps: SessionRecordingPlayerLogicProps
-        ) => boolean
+        showAmbientBackground: (ambientBackground: boolean, logicProps: SessionRecordingPlayerLogicProps) => boolean
         showPlayerChrome: (
             isKioskMode: boolean,
             hoverModeIsEnabled: boolean,
@@ -2491,14 +2488,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         // Screenshot and video exports feed rendering and analysis, which want the recording on plain bars.
         showAmbientBackground: [
-            (s) => [s.ambientBackground, s.maskingWindow, s.logicProps],
-            (
-                ambientBackground: boolean,
-                maskingWindow: boolean,
-                logicProps: SessionRecordingPlayerLogicProps
-            ): boolean =>
+            (s) => [s.ambientBackground, s.logicProps],
+            (ambientBackground: boolean, logicProps: SessionRecordingPlayerLogicProps): boolean =>
                 ambientBackground &&
-                !maskingWindow &&
                 logicProps.mode !== SessionRecordingPlayerMode.Screenshot &&
                 logicProps.mode !== SessionRecordingPlayerMode.Video,
         ],
@@ -2735,6 +2727,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                    BLOCKED_ELEMENT_STYLE_RULE,
                     ...speedDependentStyleRules(values.speed),
                 ],
                 // these two settings are attempts to improve performance of running two Replayers at once

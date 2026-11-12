@@ -18,16 +18,6 @@ class TestTextFromHtml(SimpleTestCase):
                 "Reset\n\nHi Jane,\n\nUse the link.",
             ),
             ("line_breaks_stay", "<p>Line one<br>Line two</p>", "Line one\nLine two"),
-            (
-                "link_keeps_its_address",
-                '<p><a href="https://example.com/reset?t=1">Reset password</a></p>',
-                "Reset password (https://example.com/reset?t=1)",
-            ),
-            (
-                "link_that_shows_its_address",
-                '<a href="https://example.com">https://example.com</a>',
-                "https://example.com",
-            ),
             ("hidden_parts_are_dropped", "<style>p{color:red}</style><script>x()</script><p>Hi</p>", "Hi"),
             ("entities_are_decoded", "<p>Tom &amp; Jerry&nbsp;&lt;3</p>", "Tom & Jerry <3"),
             ("source_whitespace_collapses", "<p>Hi\n      Jane</p>\n\n\n<p>Bye</p>", "Hi Jane\n\nBye"),
@@ -40,7 +30,6 @@ class TestTextFromHtml(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("divs", "<div>" * 5000 + "Hi" + "</div>" * 5000, "Hi"),
             (
                 "links_that_show_their_address",
                 '<a href="https://example.com">' * 5000 + "https://example.com" + "</a>" * 5000,

@@ -88,6 +88,17 @@ def destination_ids_for_run(schema: ExternalDataSchema) -> list[str]:
     return sorted(str(destination.id) for destination in destinations)
 
 
+def includes_the_warehouse(team_id: int, destination_ids: Sequence[str]) -> bool:
+    """Whether a run that lists these destinations writes to the PostHog warehouse. An empty list means only there."""
+    if not destination_ids:
+        return True
+    return (
+        ExternalDataDestination.objects.for_team(team_id, canonical=True)
+        .filter(id__in=list(destination_ids), type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, deleted=False)
+        .exists()
+    )
+
+
 def external_destination_ids_for(team_id: int, destination_ids: Sequence[str]) -> list[str]:
     """The subset of `destination_ids` a destination writer delivers, so without the warehouse.
 

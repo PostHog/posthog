@@ -261,6 +261,7 @@ def _capture_sandbox_session_closed(
     task_run.capture_event(
         "sandbox_session_closed",
         {
+            "$update_person_last_seen_at": False,
             "sandbox_id": sandbox_session.sandbox_id,
             "ended_reason": reason,
             "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, effective_end),

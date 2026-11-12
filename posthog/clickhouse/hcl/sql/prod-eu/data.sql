@@ -344,6 +344,17 @@ CREATE TABLE posthog.error_tracking_issue_fingerprint_overrides (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_overrides _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.error_tracking_issue_fingerprint_overrides', '{replica}-{shard}', version) ORDER BY (team_id, fingerprint) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_issue_tags');
 CREATE TABLE posthog.events_dead_letter_queue (
   id UUID,
   event_uuid UUID,
@@ -1859,6 +1870,7 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
@@ -2064,6 +2076,7 @@ CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),

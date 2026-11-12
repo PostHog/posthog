@@ -1,6 +1,12 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "branded": {
+            "default": "all",
+            "description": "Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n* `all` - All\n* `branded` - Branded\n* `non_branded` - Non-branded",
+            "enum": ["all", "branded", "non_branded"],
+            "type": "string"
+        },
         "days": {
             "default": 30,
             "description": "Length of the window in days, ending today in the project's timezone. Default 30, at most 90.",

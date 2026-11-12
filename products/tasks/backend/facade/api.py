@@ -45,7 +45,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
@@ -99,6 +99,7 @@ from products.tasks.backend.constants import (
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
@@ -237,6 +238,7 @@ from products.tasks.backend.task_profiles import (
     USER,
     WIZARD,
 )
+from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -328,6 +330,7 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
@@ -1104,13 +1107,16 @@ def _task_detail_to_dto(
         inherited = _inherited_pr_fields(resolved_prior_pr_output)
         if inherited:
             latest_run_dto = replace(latest_run_dto, output={**(latest_run_dto.output or {}), **inherited})
+    description = getattr(task, "_description_preview", None)
+    if description is None:
+        description = task.description
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
         slug=task.slug,
         title=task.title,
         title_manually_set=task.title_manually_set,
-        description=task.description,
+        description=description,
         origin_product=task.origin_product,
         runtime=task.runtime,
         repository=task.repository,
@@ -1357,8 +1363,8 @@ def normalize_verified_pull_request_urls_batch(
     rows = TaskRun.objects.filter(team_id=team_id, state__has_key="verified_pr_urls").order_by("id")
     if after is not None:
         rows = rows.filter(id__gt=after)
-    batch = list(rows.values_list("id", "state")[:limit])
-    for run_id, state in batch:
+    batch = list(rows.values_list("id", "task_id", "state")[:limit])
+    for run_id, task_id, state in batch:
         verified = state.get("verified_pr_urls") if isinstance(state, dict) else None
         if normalize_verified_pull_request_urls(verified) == verified:
             continue
@@ -1369,6 +1375,7 @@ def normalize_verified_pull_request_urls_batch(
             )
 
         TaskRun.mutate_state_atomic(run_id, normalize)
+        sync_task_pr_urls(task_id)
     return batch[-1][0] if len(batch) == limit else None
 
 
@@ -1494,14 +1501,14 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
                 origin_product=Task.OriginProduct.SIGNAL_REPORT,
                 repository__isnull=True,
                 repositories=[],
-                github_integration__isnull=True,
+                github_integration_id__isnull=True,
                 github_user_integration__isnull=True,
             )
             | Q(
                 origin_product=Task.OriginProduct.SIGNALS_CHAT,
                 repository__isnull=True,
                 repositories=[],
-                github_integration__isnull=True,
+                github_integration_id__isnull=True,
                 github_user_integration__isnull=True,
             )
             | Q(
@@ -2066,6 +2073,15 @@ def collect_task_run_state_metrics(
             with_status=True,
         ),
     )
+
+
+def collect_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in collect_status_mismatches()
+    ]
 
 
 # --- Writes ---
@@ -3364,9 +3380,7 @@ def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
 
 
 def _task_run_queryset():
-    return TaskRun.objects.select_related(
-        "task", "task__created_by", "task__github_integration", "task__github_user_integration"
-    )
+    return TaskRun.objects.select_related("task", "task__created_by", "task__github_user_integration")
 
 
 def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
@@ -7065,7 +7079,7 @@ def resume_task_run_in_cloud(
         task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
             TaskRun.objects.select_for_update(of=("self",))
-            .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
+            .select_related("task", "task__created_by", "task__github_user_integration")
             .get(pk=run.pk, task_id=task.id, team_id=team_id)
         )
         if not run.matches_task_ownership(task):
@@ -7210,9 +7224,7 @@ def is_internal_debug_team(team_id: int | None) -> bool:
 
 
 def _task_detail_queryset():
-    return Task.objects.select_related(
-        "created_by", "team", "github_integration", "github_user_integration"
-    ).prefetch_related("runs")
+    return Task.objects.select_related("created_by", "team", "github_user_integration").prefetch_related("runs")
 
 
 def _visible_task_qs(
@@ -7559,7 +7571,12 @@ def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[
 
 
 def _list_tasks_queryset(
-    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+    team_id: int,
+    user_id: int | None,
+    *,
+    filters: dict,
+    bypass_visibility: bool = False,
+    basic: bool = False,
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
@@ -7722,6 +7739,11 @@ def _list_tasks_queryset(
         Prefetch("created_by", queryset=User.objects.only(*_TASK_CREATED_BY_FIELDS)),
         Prefetch("team", queryset=Team.objects.only("id", "name")),
     )
+
+    if basic:
+        qs = qs.annotate(_description_preview=Substr("description", 1, TASK_DESCRIPTION_PREVIEW_LENGTH)).defer(
+            "description"
+        )
 
     return qs
 
@@ -8256,7 +8278,13 @@ def create_task(
         and validated_data["origin_product"] != Task.OriginProduct.SIGNAL_REPORT
     ):
         validated_data["repositories"] = channel.repositories
-        validated_data["github_integration"] = channel.github_integration
+        validated_data["github_integration"] = (
+            IntegrationManager.github.oauth.get_many(team.id, [channel.github_integration_id]).get(
+                channel.github_integration_id
+            )
+            if channel.github_integration_id is not None
+            else None
+        )
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None

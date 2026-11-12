@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ErrorTrackingIssueFilter,
+    ErrorTrackingIssueTagFilter,
     ErrorTrackingQuery,
     FilterLogicalOperator,
     HogQLFilters,
@@ -17,7 +18,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 
-from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
@@ -28,6 +28,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     search_tokenizer,
     select_sparkline_array,
 )
+from products.error_tracking.backend.hogql_queries.issue_tag_answers import issue_tag_filter_expr
 
 
 def _bin_idx_expr(date_from: datetime.datetime, date_to: datetime.datetime, resolution: int) -> ast.Call:
@@ -186,26 +187,6 @@ _NULLABILITY_OPERATORS: dict[PropertyOperator, ast.CompareOperationOp] = {
 }
 
 
-@frozen
-class IssueIdFilter:
-    """Issue ids that Postgres resolved for a filter on data that ClickHouse does not hold."""
-
-    issue_ids: tuple[str, ...]
-    # Keep the issues outside `issue_ids` instead of the issues inside it.
-    negated: bool
-
-    def to_expr(self, issue_id: ast.Expr) -> ast.Expr:
-        if not self.issue_ids:
-            # An empty list excludes no issue when negated, and keeps no issue otherwise.
-            return ast.Constant(value=self.negated)
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotIn if self.negated else ast.CompareOperationOp.In,
-            left=issue_id,
-            # A list constant is one AST node and one query parameter. A tuple of constants adds one of each per id.
-            right=ast.Constant(value=list(self.issue_ids)),
-        )
-
-
 def _comparable_values(raw_value: Any) -> list[str | float | bool]:
     """Keep only the values ClickHouse can compare against an issue field."""
     candidates = raw_value if isinstance(raw_value, list) else [raw_value]
@@ -256,14 +237,16 @@ class ErrorTrackingQueryBuilder:
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         include_recent_issue_state: bool = False,
-        issue_id_filter: IssueIdFilter | None = None,
+        issue_tag_filter: ErrorTrackingIssueTagFilter | None = None,
     ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
         self.include_recent_issue_state = include_recent_issue_state
-        self.issue_id_filter = issue_id_filter
+        # The runner passes the tag filter only while the tag is enabled for the team, so the builder does not
+        # read the query's own `issueTag`.
+        self.issue_tag_filter = issue_tag_filter
 
     def build_query(self) -> ast.SelectQuery:
         if self._needs_legacy_shape():
@@ -478,8 +461,8 @@ class ErrorTrackingQueryBuilder:
                     )
                 )
 
-        if self.issue_id_filter is not None:
-            exprs.append(self.issue_id_filter.to_expr(state_expr("issue_id")))
+        if self.issue_tag_filter is not None:
+            exprs.append(issue_tag_filter_expr(state_expr("issue_id"), self.issue_tag_filter))
 
         return exprs
 

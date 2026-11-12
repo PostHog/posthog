@@ -139,6 +139,7 @@ from posthog.schema_enums import (
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
+    ExperimentMetricValueFormatType as ExperimentMetricValueFormatType,
     ExperimentStatsMethod as ExperimentStatsMethod,
     ExperimentStatsValidationFailure as ExperimentStatsValidationFailure,
     ExperimentWarehouseNativeMathType as ExperimentWarehouseNativeMathType,
@@ -349,6 +350,7 @@ from posthog.schema_enums import (
     ValueDisplay as ValueDisplay,
     ValueLabelPosition as ValueLabelPosition,
     ValueLabels as ValueLabels,
+    WarehouseSuggestionNoteKind as WarehouseSuggestionNoteKind,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -1653,9 +1655,12 @@ class ErrorTrackingIssueTag(BaseModel):
     description: str = Field(..., description="What the tag means, for a tooltip.")
     key: str = Field(..., description="Key of the tag definition.")
     label: str = Field(..., description="Short name of the tag.")
-    source: str = Field(
-        ...,
-        description=("The tagger that wrote the answer: `jev` for AI, `manual` for a person."),
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that wrote the answer: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results do not."
+        ),
     )
     value: bool | None = Field(
         ...,
@@ -3491,6 +3496,19 @@ class SessionReplayBlock(BaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
+class SessionReplayListConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a new recordings list opens with internal and test users filtered"
+            " out. An absent value falls back to the legacy browser preference."
+        ),
+    )
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3676,6 +3694,7 @@ class UserBasicType(BaseModel):
 
 class UserUIConfiguration(BaseModel):
     analytics_list: AnalyticsListDisplayConfiguration | None = None
+    session_replay: SessionReplayListConfiguration | None = None
     sql_editor: SQLEditorConfiguration | None = None
     ticket_sidebar: TicketSidebarConfiguration | None = None
     version: int = Field(
@@ -5645,6 +5664,10 @@ class DatabaseSchemaField(BaseModel):
         extra="forbid",
     )
     chain: list[str | int] | None = None
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the column, when the HogQL schema defines one."),
+    )
     fields: list[str] | None = None
     hogql_value: str
     id: str | None = None
@@ -5674,6 +5697,10 @@ class DatabaseSchemaTableCommon(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -6049,22 +6076,11 @@ class ExperimentExposureHealthRuleMinimum(BaseModel):
     )
 
 
-class ExperimentMetricBaseProperties(BaseModel):
+class ExperimentMetricValueFormat(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownFilter: BreakdownFilter | None = None
-    conversion_window: int | None = None
-    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
-    fingerprint: str | None = None
-    goal: ExperimentMetricGoal | None = None
-    isSharedMetric: bool | None = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    name: str | None = None
-    response: dict[str, Any] | None = None
-    sharedMetricId: float | None = None
-    uuid: str | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    type: ExperimentMetricValueFormatType
 
 
 class ExperimentStatsBase(BaseModel):
@@ -6282,6 +6298,10 @@ class FileSystemImport(BaseModel):
         description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
+    hiddenWhenFlags: list[str] | None = Field(
+        default=None,
+        description="Flags that hide the item when every one of them is on.",
+    )
     href: str | None = Field(default=None, description="Object's URL")
     iconColor: list[str] | None = Field(default=None, description="Color of the icon")
     iconType: FileSystemIconType | None = None
@@ -8265,169 +8285,6 @@ class Filters(BaseModel):
     properties: list[SessionPropertyFilter] | None = None
 
 
-class SessionAttributionExplorerQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: Any
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = None
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class SessionBatchEventsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[list]
-    session_events: list[SessionEventsItem] | None = Field(
-        default=None,
-        description=("Events grouped by session ID. Only populated when group_by_session=True."),
-    )
-    sessions_with_no_events: list[str] | None = Field(
-        default=None, description="List of session IDs that had no matching events"
-    )
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list[str]
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class SessionQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list[str] | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[LLMTrace]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8493,106 +8350,6 @@ class SessionRecordingType(BaseModel):
     )
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
-
-
-class SessionsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str = Field(..., description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[list]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list[str]
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class SessionsTimelineQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[TimelineEntry]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
 
 
 class SourceSymbol(BaseModel):
@@ -8687,61 +8444,6 @@ class StickinessFilter(BaseModel):
     showMultipleYAxes: bool | None = None
     showValuesOnSeries: bool | None = None
     stickinessCriteria: StickinessCriteria | None = None
-
-
-class StickinessQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action_names: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "The name of each action the query's series reference, keyed by action id."
-            " A series saved without a `name` displays this name, because the query"
-            " holds only the action's id."
-        ),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[dict[str, Any]]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
 
 
 class SuggestedQuestionsQuery(BaseModel):
@@ -8992,115 +8694,6 @@ class TeamTaxonomyItem(BaseModel):
     event: str
 
 
-class TestBasicQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TestCachedBasicQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
 class ThresholdDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9111,363 +8704,6 @@ class ThresholdDetectorConfig(BaseModel):
     )
     type: Literal["threshold"] = "threshold"
     upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
-
-
-class TraceQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list[str] | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[LLMTrace]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TraceSpansAggregationQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: list[AggregatedSpanRow] | None = Field(
-        default=None,
-        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[AggregatedSpanRow]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: list[AttributeBreakdownRow] | None = Field(
-        default=None,
-        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[AttributeBreakdownRow]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TraceSpansQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: Any
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TraceSpansSymbolStatsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    granularity: SymbolStatsGranularity = Field(
-        ...,
-        description=("Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[SymbolStatsRow] = Field(..., description="One row per bucket, ordered by line ascending.")
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TraceSpansTreeQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: list[SpanTreeNode] | None = Field(
-        default=None,
-        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[SpanTreeNode]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
-class TracesQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list[str] | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[LLMTrace]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
 
 
 class TrendsAlertConfig(BaseModel):
@@ -9656,63 +8892,6 @@ class TrendsFilter(BaseModel):
     )
 
 
-class TrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action_names: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "The name of each action the query's series reference, keyed by action id."
-            " A series saved without a `name` displays this name, because the query"
-            " holds only the action's id."
-        ),
-    )
-    boxplot_data: list[BoxPlotDatum] | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[dict[str, Any]]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
 class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9735,51 +8914,22 @@ class UsageMetric(BaseModel):
     value: float
 
 
-class UsageMetricsQueryResponse(BaseModel):
+class WarehouseSuggestionNote(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
+    can_act: bool = Field(
+        ...,
+        description=("Whether this user can edit the view, which accepting the suggestion needs."),
     )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
+    id: str = Field(
+        ...,
+        description=("The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`."),
     )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[UsageMetric]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
+    kind: WarehouseSuggestionNoteKind = Field(..., description="What the suggestion proposes.")
+    message: str = Field(..., description="Plain-language note for the person, with the next step.")
+    url: str = Field(..., description="Absolute link to the view's page in Models.")
+    view_name: str = Field(..., description="The view's current name.")
 
 
 class WebAgentAnalyticsQueryResponse(BaseModel):
@@ -9818,6 +8968,14 @@ class WebAgentAnalyticsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -9904,6 +9062,14 @@ class WebBotsTableQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -9956,6 +9122,14 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -10029,6 +9203,14 @@ class WebGoalsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -10077,6 +9259,14 @@ class WebNotableChangesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -10146,6 +9336,14 @@ class WebOverviewQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -10244,6 +9442,14 @@ class WebPageURLSearchQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -10315,6 +9521,14 @@ class WebStatsTableQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -10408,6 +9622,14 @@ class AccountsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -10475,6 +9697,14 @@ class AccountsTableQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -10551,6 +9781,14 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -10604,6 +9842,14 @@ class ActorsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -10650,6 +9896,14 @@ class AnalyticsQueryResponseBase(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12181,6 +11435,14 @@ class CachedAccountsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -12264,6 +11526,14 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -12325,6 +11595,14 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12394,6 +11672,14 @@ class CachedActorsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -12456,6 +11742,14 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12522,6 +11816,14 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -12583,6 +11885,14 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12651,6 +11961,14 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -12712,6 +12030,14 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12775,6 +12101,14 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -12837,6 +12171,14 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12903,6 +12245,14 @@ class CachedErrorTrackingIssueEventsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -12993,6 +12343,14 @@ class CachedErrorTrackingReleasesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13058,6 +12416,14 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13122,6 +12488,14 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13190,6 +12564,14 @@ class CachedEventsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13260,6 +12642,14 @@ class CachedFunnelsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13327,6 +12717,14 @@ class CachedGroupsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13398,6 +12796,14 @@ class CachedLifecycleQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13465,6 +12871,14 @@ class CachedLogsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13530,6 +12944,14 @@ class CachedMCPDashboardQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13591,6 +13013,14 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13654,6 +13084,14 @@ class CachedMCPMissingCapabilitiesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13721,6 +13159,14 @@ class CachedMCPModelBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13782,6 +13228,14 @@ class CachedMCPProtocolVersionBreakdownQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13845,6 +13299,14 @@ class CachedMCPToolCallBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -13906,6 +13368,14 @@ class CachedMCPToolCallsAndErrorsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -13969,6 +13439,14 @@ class CachedMCPToolCategoriesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14030,6 +13508,14 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14093,6 +13579,14 @@ class CachedMCPToolCategoryMapQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14154,6 +13648,14 @@ class CachedMCPToolDailyStatsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14217,6 +13719,14 @@ class CachedMCPToolDescriptionsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14278,6 +13788,14 @@ class CachedMCPToolFailureOccurrencesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14341,6 +13859,14 @@ class CachedMCPToolFailuresQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14403,6 +13929,14 @@ class CachedMCPToolNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14464,6 +13998,14 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14542,6 +14084,14 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14603,6 +14153,14 @@ class CachedMCPToolSampleIntentsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14669,6 +14227,14 @@ class CachedMCPToolStatsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14730,6 +14296,14 @@ class CachedMCPToolTopUsersQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14815,6 +14389,14 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -14893,6 +14475,14 @@ class CachedMarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -14979,6 +14569,14 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15064,6 +14662,14 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15129,6 +14735,14 @@ class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -15219,6 +14833,14 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15287,6 +14909,14 @@ class CachedMetricsHistogramQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15348,6 +14978,14 @@ class CachedMetricsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -15411,6 +15049,14 @@ class CachedPathsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15472,6 +15118,14 @@ class CachedPropertyValuesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -15540,6 +15194,14 @@ class CachedRecordingsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15601,6 +15263,14 @@ class CachedRetentionQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -15668,6 +15338,14 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -15744,6 +15422,14 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15809,6 +15495,14 @@ class CachedSessionQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -15877,6 +15571,14 @@ class CachedSessionsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -15939,6 +15641,14 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16009,6 +15719,14 @@ class CachedStickinessQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16104,6 +15822,14 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16214,6 +15940,14 @@ class CachedTraceQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16279,6 +16013,14 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16346,6 +16088,14 @@ class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16411,6 +16161,14 @@ class CachedTraceSpansQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16478,6 +16236,14 @@ class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16544,6 +16310,14 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16609,6 +16383,14 @@ class CachedTracesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16682,6 +16464,14 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16744,6 +16534,14 @@ class CachedUsageMetricsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16805,6 +16603,14 @@ class CachedVectorSearchQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -16873,6 +16679,14 @@ class CachedWebAgentAnalyticsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -16939,6 +16753,14 @@ class CachedWebBotsTableQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17007,6 +16829,14 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17095,6 +16925,14 @@ class CachedWebGoalsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17158,6 +16996,14 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17243,6 +17089,14 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17309,6 +17163,14 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17373,6 +17235,14 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17461,6 +17331,14 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17542,6 +17420,14 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17589,6 +17475,14 @@ class CalendarHeatmapResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17723,6 +17617,14 @@ class Response(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17776,6 +17678,14 @@ class Response1(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -17828,6 +17738,14 @@ class Response2(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17897,6 +17815,14 @@ class Response4(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -17970,6 +17896,14 @@ class Response5(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18023,6 +17957,14 @@ class Response6(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18074,6 +18016,14 @@ class Response7(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -18147,6 +18097,14 @@ class Response8(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18213,6 +18171,14 @@ class Response9(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18265,6 +18231,14 @@ class Response10(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18316,6 +18290,14 @@ class Response11(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -18391,6 +18373,14 @@ class Response12(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18460,6 +18450,14 @@ class Response13(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18510,6 +18508,14 @@ class Response16(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -18562,6 +18568,14 @@ class Response18(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -18619,6 +18633,14 @@ class Response19(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -18688,6 +18710,14 @@ class Response20(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18711,6 +18741,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -18725,6 +18759,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     format: str | None = Field(
@@ -18757,6 +18795,10 @@ class DatabaseSchemaPostHogTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -18771,6 +18813,10 @@ class DatabaseSchemaSystemTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -18813,6 +18859,14 @@ class DocumentSimilarityQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -18878,6 +18932,14 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18930,6 +18992,14 @@ class EndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -18977,6 +19047,14 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -19023,6 +19101,14 @@ class ErrorTrackingBreakdownsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19082,6 +19168,14 @@ class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19163,6 +19257,14 @@ class ErrorTrackingIssueEventsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -19213,6 +19315,14 @@ class ErrorTrackingQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19310,6 +19420,14 @@ class ErrorTrackingReleasesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -19360,6 +19478,14 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -19409,6 +19535,14 @@ class EventTaxonomyQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19462,6 +19596,14 @@ class EventsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19622,6 +19764,18 @@ class ExperimentApiMetric(BaseModel):
         ),
     )
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "For mean metrics without a threshold, ratio metrics and quantile metrics:"
+            " what the metric's value is, so that results show it in a readable format."
+            " Set `type` to 'currency' for an amount in the project's base currency,"
+            " 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for"
+            " a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a"
+            " 0-1 scale. Omit it to show a plain number. It only changes how results"
+            " show the value, and a change to it does not recalculate results."
+        ),
+    )
 
 
 class ExperimentBreakdownResult(BaseModel):
@@ -19670,6 +19824,31 @@ class ExperimentExposureHealthCheckRule(BaseModel):
             " below: when the value is below it. A value at the threshold passes."
         ),
     )
+
+
+class ExperimentMetricBaseProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: BreakdownFilter | None = None
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    name: str | None = None
+    response: dict[str, Any] | None = None
+    sharedMetricId: float | None = None
+    uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -19735,6 +19914,14 @@ class FunnelsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19810,6 +19997,14 @@ class GroupsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -19926,6 +20121,14 @@ class InboxUsageQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20074,6 +20277,14 @@ class LifecycleQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20122,6 +20333,14 @@ class LogAttributesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20168,6 +20387,14 @@ class LogValuesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20220,6 +20447,14 @@ class LogsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20289,6 +20524,14 @@ class MCPDashboardQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20335,6 +20578,14 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20383,6 +20634,14 @@ class MCPMissingCapabilitiesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20435,6 +20694,14 @@ class MCPModelBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20481,6 +20748,14 @@ class MCPProtocolVersionBreakdownQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20529,6 +20804,14 @@ class MCPToolCallBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20575,6 +20858,14 @@ class MCPToolCallsAndErrorsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20623,6 +20914,14 @@ class MCPToolCategoriesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20669,6 +20968,14 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20717,6 +21024,14 @@ class MCPToolCategoryMapQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20763,6 +21078,14 @@ class MCPToolDailyStatsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20811,6 +21134,14 @@ class MCPToolDescriptionsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20857,6 +21188,14 @@ class MCPToolFailureOccurrencesQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -20905,6 +21244,14 @@ class MCPToolFailuresQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20952,6 +21299,14 @@ class MCPToolNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -20998,6 +21353,14 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21061,6 +21424,14 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -21107,6 +21478,14 @@ class MCPToolSampleIntentsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21158,6 +21537,14 @@ class MCPToolStatsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -21204,6 +21591,14 @@ class MCPToolTopUsersQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21274,6 +21669,14 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -21337,6 +21740,14 @@ class MarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21407,6 +21818,14 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21495,6 +21914,14 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -21565,6 +21992,14 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -21615,6 +22050,14 @@ class MarketingAnalyticsSearchQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21689,6 +22132,14 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21765,6 +22216,14 @@ class MetricsHistogramQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -21811,6 +22270,14 @@ class MetricsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -21931,6 +22398,14 @@ class PathsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22036,6 +22511,14 @@ class PropertyValuesQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22089,6 +22572,14 @@ class QueryResponseAlternative1(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22140,6 +22631,14 @@ class QueryResponseAlternative2(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -22194,6 +22693,14 @@ class QueryResponseAlternative3(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22246,6 +22753,14 @@ class QueryResponseAlternative4(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -22311,6 +22826,14 @@ class QueryResponseAlternative6(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -22395,6 +22918,14 @@ class QueryResponseAlternative11(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22446,6 +22977,14 @@ class QueryResponseAlternative12(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22496,6 +23035,14 @@ class QueryResponseAlternative13(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22544,6 +23091,14 @@ class QueryResponseAlternative14(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22590,6 +23145,14 @@ class QueryResponseAlternative15(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -22665,6 +23228,14 @@ class QueryResponseAlternative16(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22715,6 +23286,14 @@ class QueryResponseAlternative18(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -22791,6 +23370,14 @@ class QueryResponseAlternative21(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22859,6 +23446,14 @@ class QueryResponseAlternative22(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -22932,6 +23527,14 @@ class QueryResponseAlternative23(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -22985,6 +23588,14 @@ class QueryResponseAlternative24(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23037,6 +23648,14 @@ class QueryResponseAlternative25(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23087,6 +23706,14 @@ class QueryResponseAlternative27(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -23160,6 +23787,14 @@ class QueryResponseAlternative28(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23226,6 +23861,14 @@ class QueryResponseAlternative29(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23276,6 +23919,14 @@ class QueryResponseAlternative30(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23324,6 +23975,14 @@ class QueryResponseAlternative32(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -23399,6 +24058,14 @@ class QueryResponseAlternative33(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23467,6 +24134,14 @@ class QueryResponseAlternative34(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -23538,6 +24213,14 @@ class QueryResponseAlternative35(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23601,6 +24284,14 @@ class QueryResponseAlternative36(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -23672,6 +24363,14 @@ class QueryResponseAlternative37(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23722,6 +24421,14 @@ class QueryResponseAlternative38(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -23778,6 +24485,14 @@ class QueryResponseAlternative39(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23830,6 +24545,14 @@ class QueryResponseAlternative40(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -23884,6 +24607,14 @@ class QueryResponseAlternative41(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -23936,6 +24667,14 @@ class QueryResponseAlternative42(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24005,6 +24744,14 @@ class QueryResponseAlternative44(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24078,6 +24825,14 @@ class QueryResponseAlternative45(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24131,6 +24886,14 @@ class QueryResponseAlternative46(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24182,6 +24945,14 @@ class QueryResponseAlternative47(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24255,6 +25026,14 @@ class QueryResponseAlternative48(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24321,6 +25100,14 @@ class QueryResponseAlternative49(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24373,6 +25160,14 @@ class QueryResponseAlternative50(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24424,6 +25219,14 @@ class QueryResponseAlternative51(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24499,6 +25302,14 @@ class QueryResponseAlternative52(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24568,6 +25379,14 @@ class QueryResponseAlternative53(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24618,6 +25437,14 @@ class QueryResponseAlternative54(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24670,6 +25497,14 @@ class QueryResponseAlternative56(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24721,6 +25556,14 @@ class QueryResponseAlternative58(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24778,6 +25621,14 @@ class QueryResponseAlternative59(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -24847,6 +25698,14 @@ class QueryResponseAlternative60(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24904,6 +25763,14 @@ class QueryResponseAlternative61(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -24958,6 +25825,14 @@ class QueryResponseAlternative62(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25004,6 +25879,14 @@ class QueryResponseAlternative63(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25052,6 +25935,14 @@ class QueryResponseAlternative64(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25098,6 +25989,14 @@ class QueryResponseAlternative65(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25154,6 +26053,14 @@ class QueryResponseAlternative66(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25205,6 +26112,14 @@ class QueryResponseAlternative69(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25258,6 +26173,14 @@ class QueryResponseAlternative70(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25306,6 +26229,14 @@ class QueryResponseAlternative71(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25353,6 +26284,14 @@ class QueryResponseAlternative72(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25399,6 +26338,14 @@ class QueryResponseAlternative73(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25453,6 +26400,14 @@ class QueryResponseAlternative74(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25503,6 +26458,14 @@ class QueryResponseAlternative75(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25555,6 +26518,14 @@ class QueryResponseAlternative76(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25605,6 +26576,14 @@ class QueryResponseAlternative77(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25657,6 +26636,14 @@ class QueryResponseAlternative78(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25706,6 +26693,14 @@ class QueryResponseAlternative80(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25757,6 +26752,14 @@ class QueryResponseAlternative81(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25803,6 +26806,14 @@ class QueryResponseAlternative82(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25855,6 +26866,14 @@ class QueryResponseAlternative83(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25901,6 +26920,14 @@ class QueryResponseAlternative87(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -25949,6 +26976,14 @@ class QueryResponseAlternative88(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -25995,6 +27030,14 @@ class QueryResponseAlternative89(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26052,6 +27095,14 @@ class QueryResponseAlternative90(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26121,6 +27172,14 @@ class QueryResponseAlternative91(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26167,6 +27226,14 @@ class QueryResponseAlternative92(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26220,6 +27287,14 @@ class QueryResponseAlternative93(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26266,6 +27341,14 @@ class QueryResponseAlternative94(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26314,6 +27397,14 @@ class QueryResponseAlternative95(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26361,6 +27452,14 @@ class QueryResponseAlternative96(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26407,6 +27506,14 @@ class QueryResponseAlternative97(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26459,6 +27566,14 @@ class QueryResponseAlternative98(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26505,6 +27620,14 @@ class QueryResponseAlternative99(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26553,6 +27676,14 @@ class QueryResponseAlternative100(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26600,6 +27731,14 @@ class QueryResponseAlternative101(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26646,6 +27785,14 @@ class QueryResponseAlternative102(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26697,6 +27844,14 @@ class QueryResponseAlternative103(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26743,6 +27898,14 @@ class QueryResponseAlternative104(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26806,6 +27969,14 @@ class QueryResponseAlternative105(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26852,6 +28023,14 @@ class QueryResponseAlternative106(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26900,6 +28079,14 @@ class QueryResponseAlternative107(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -26946,6 +28133,14 @@ class QueryResponseAlternative108(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -26994,6 +28189,14 @@ class QueryResponseAlternative109(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -27040,6 +28243,14 @@ class QueryResponseAlternative110(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -27088,6 +28299,14 @@ class QueryResponseAlternative111(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -27134,6 +28353,14 @@ class QueryResponseAlternative112(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -27182,6 +28409,14 @@ class QueryResponseAlternative113(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -27233,6 +28468,14 @@ class QueryResponseAlternative114(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -27279,6 +28522,14 @@ class QueryResponseAlternative115(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -27332,6 +28583,14 @@ class RecordingsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -27379,6 +28638,14 @@ class RetentionQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -27402,58 +28669,370 @@ class RevenueAnalyticsConfig(BaseModel):
     filter_test_accounts: bool | None = False
 
 
-class SessionAttributionExplorerQuery(BaseModel):
+class SessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    filters: Filters | None = None
-    groupBy: list[SessionAttributionGroupBy]
-    kind: Literal["SessionAttributionExplorerQuery"] = "SessionAttributionExplorerQuery"
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    response: SessionAttributionExplorerQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
 
 
-class SessionQuery(BaseModel):
+class SessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange | None = None
-    includeSentiment: bool | None = Field(
+    columns: list
+    error: str | None = Field(
         default=None,
-        description=("Include stored sentiment evaluation results for returned traces and generation events."),
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
     )
-    kind: Literal["SessionQuery"] = "SessionQuery"
+    hasMore: bool | None = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list]
+    session_events: list[SessionEventsItem] | None = Field(
+        default=None,
+        description=("Events grouped by session ID. Only populated when group_by_session=True."),
+    )
+    sessions_with_no_events: list[str] | None = Field(
+        default=None, description="List of session IDs that had no matching events"
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list[str]
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class SessionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    response: SessionQueryResponse | None = None
-    sessionId: str
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
 
 
-class SessionsTimelineQuery(BaseModel):
+class SessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    after: str | None = Field(
+    columns: list
+    error: str | None = Field(
         default=None,
-        description=("Only fetch sessions that started after this timestamp (default: '-24h')"),
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
     )
-    before: str | None = Field(
-        default=None,
-        description=("Only fetch sessions that started before this timestamp (default: '+5s')"),
-    )
-    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    hasMore: bool | None = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    personId: str | None = Field(default=None, description="Fetch sessions only for a given person")
-    response: SessionsTimelineQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[list]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list[str]
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class SessionsTimelineQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[TimelineEntry]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class StickinessQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
 
 
 class SurveyCreationSchema(BaseModel):
@@ -27513,6 +29092,14 @@ class TeamTaxonomyQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -27528,58 +29115,662 @@ class TeamTaxonomyQueryResponse(BaseModel):
     )
 
 
-class TraceSpansSymbolStatsQuery(BaseModel):
+class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
-    filePath: str = Field(
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TestCachedBasicQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TraceQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TraceSpansAggregationQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: list[AggregatedSpanRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AggregatedSpanRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AttributeBreakdownRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TraceSpansQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TraceSpansSymbolStatsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    granularity: SymbolStatsGranularity = Field(
         ...,
-        description=(
-            "Repo-relative path of the source file to aggregate (e.g."
-            " `src/flags/flag_matching.rs`). Matched as a path suffix against the"
-            " recorded `code.file.path` / `code.filepath`, so a recorded path carrying"
-            " an extra crate/workspace prefix still matches."
-        ),
+        description=("Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."),
     )
-    kind: Literal["TraceSpansSymbolStatsQuery"] = "TraceSpansSymbolStatsQuery"
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    response: TraceSpansSymbolStatsQueryResponse | None = None
-    symbols: list[SourceSymbol] | None = Field(
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SymbolStatsRow] = Field(..., description="One row per bucket, ordered by line ascending.")
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
         default=None,
         description=(
-            "Optional symbol (function) ranges to aggregate spans into. When supplied,"
-            " each span is attributed to the smallest range that encloses its recorded"
-            " line (one row per symbol). When omitted (or an empty list), spans are"
-            " aggregated per source line (one row per instrumented line) — pass a"
-            " single whole-file range for a file-level total."
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
         ),
     )
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
 
 
-class UsageMetricsQuery(BaseModel):
+class TraceSpansTreeQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    group_key: str | None = Field(
+    compare: list[SpanTreeNode] | None = Field(
         default=None,
-        description="Group key. Required with group_type_index for group queries.",
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
     )
-    group_type_index: int | None = Field(
+    error: str | None = Field(
         default=None,
-        description="Group type index. Required with group_key for group queries.",
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
     )
-    kind: Literal["UsageMetricsQuery"] = "UsageMetricsQuery"
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    person_id: str | None = Field(
+    query_status: QueryStatus | None = Field(
         default=None,
-        description=("Person ID to fetch metrics for. Mutually exclusive with group parameters."),
+        description=("Query status indicates whether next to the provided data, a query is still running."),
     )
-    response: UsageMetricsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SpanTreeNode]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TracesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class TrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
+    )
+    boxplot_data: list[BoxPlotDatum] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
+class UsageMetricsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[UsageMetric]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
 
 
 class VectorSearchQueryResponse(BaseModel):
@@ -27613,6 +29804,14 @@ class VectorSearchQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -27909,6 +30108,14 @@ class WebPageDirectoryQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -28084,6 +30291,14 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -28130,6 +30345,14 @@ class WebVitalsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -28830,6 +31053,14 @@ class CachedErrorTrackingQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -28935,6 +31166,14 @@ class CachedInboxUsageQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -29042,6 +31281,14 @@ class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -29142,6 +31389,14 @@ class CachedPathsV2QueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -29203,6 +31458,14 @@ class CachedWebVitalsQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -29487,6 +31750,14 @@ class Response14(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -29779,6 +32050,14 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -30378,6 +32657,14 @@ class HogQLQueryResponse(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
@@ -31487,6 +33774,14 @@ class PathsV2QueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -31626,6 +33921,14 @@ class QueryResponseAlternative8(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -31673,6 +33976,14 @@ class QueryResponseAlternative17(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -31774,6 +34085,14 @@ class QueryResponseAlternative43(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -31821,6 +34140,14 @@ class QueryResponseAlternative55(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -32009,6 +34336,60 @@ class RetentionFilter(BaseModel):
     totalIntervals: int | None = 8
 
 
+class SessionAttributionExplorerQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filters: Filters | None = None
+    groupBy: list[SessionAttributionGroupBy]
+    kind: Literal["SessionAttributionExplorerQuery"] = "SessionAttributionExplorerQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: SessionAttributionExplorerQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SessionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for returned traces and generation events."),
+    )
+    kind: Literal["SessionQuery"] = "SessionQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: SessionQueryResponse | None = None
+    sessionId: str
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SessionsTimelineQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(
+        default=None,
+        description=("Only fetch sessions that started after this timestamp (default: '-24h')"),
+    )
+    before: str | None = Field(
+        default=None,
+        description=("Only fetch sessions that started before this timestamp (default: '+5s')"),
+    )
+    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    personId: str | None = Field(default=None, description="Fetch sessions only for a given person")
+    response: SessionsTimelineQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32081,6 +34462,37 @@ class TraceQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class TraceSpansSymbolStatsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    filePath: str = Field(
+        ...,
+        description=(
+            "Repo-relative path of the source file to aggregate (e.g."
+            " `src/flags/flag_matching.rs`). Matched as a path suffix against the"
+            " recorded `code.file.path` / `code.filepath`, so a recorded path carrying"
+            " an extra crate/workspace prefix still matches."
+        ),
+    )
+    kind: Literal["TraceSpansSymbolStatsQuery"] = "TraceSpansSymbolStatsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: TraceSpansSymbolStatsQueryResponse | None = None
+    symbols: list[SourceSymbol] | None = Field(
+        default=None,
+        description=(
+            "Optional symbol (function) ranges to aggregate spans into. When supplied,"
+            " each span is attributed to the smallest range that encloses its recorded"
+            " line (one row per symbol). When omitted (or an empty list), spans are"
+            " aggregated per source line (one row per instrumented line) — pass a"
+            " single whole-file range for a file-level total."
+        ),
+    )
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32111,6 +34523,29 @@ class TracesQuery(BaseModel):
     response: TracesQueryResponse | None = None
     searchTerm: str | None = None
     showColumnConfigurator: bool | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class UsageMetricsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_key: str | None = Field(
+        default=None,
+        description="Group key. Required with group_type_index for group queries.",
+    )
+    group_type_index: int | None = Field(
+        default=None,
+        description="Group type index. Required with group_key for group queries.",
+    )
+    kind: Literal["UsageMetricsQuery"] = "UsageMetricsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    person_id: str | None = Field(
+        default=None,
+        description=("Person ID to fetch metrics for. Mutually exclusive with group parameters."),
+    )
+    response: UsageMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -32517,6 +34952,14 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
         description=(
@@ -32651,6 +35094,14 @@ class CachedHogQLQueryResponse(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -32740,6 +35191,14 @@ class Response3(BaseModel):
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -32787,6 +35246,14 @@ class Response15(BaseModel):
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warehouse_suggestions: list[WarehouseSuggestionNote] | None = Field(
+        default=None,
+        description=(
+            "Open warehouse suggestions about views this query read. Set only on fresh"
+            " runs for agent callers; absent when not evaluated, empty when evaluated"
+            " and none apply."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
         default=None,
@@ -33336,6 +35803,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -33352,6 +35823,10 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -33371,6 +35846,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
     )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     last_run_at: str | None = None
@@ -33388,6 +35867,10 @@ class DatabaseSchemaViewTable(BaseModel):
     certification: DatabaseSchemaTableCertification | None = Field(
         default=None,
         description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    description: str | None = Field(
+        default=None,
+        description=("Short description of the table, when the HogQL schema defines one."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -33603,6 +36086,13 @@ class ExperimentRatioMetric(BaseModel):
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34040,6 +36530,13 @@ class ExperimentFunnelMetric(BaseModel):
     series: list[Annotated[EventsNode | ActionsNode | ExperimentDataWarehouseNode, Field(discriminator="kind")]]
     sharedMetricId: float | None = None
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34083,6 +36580,13 @@ class ExperimentMeanMetric(BaseModel):
         ),
     )
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34139,6 +36643,13 @@ class ExperimentQuantileMetric(BaseModel):
         discriminator="kind",
     )
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -34166,6 +36677,13 @@ class ExperimentRetentionMetric(BaseModel):
     )
     start_handling: StartHandling
     uuid: str | None = None
+    value_format: ExperimentMetricValueFormat | None = Field(
+        default=None,
+        description=(
+            "How results show the value of the metric. Metrics that report a share of"
+            " users (funnel, retention, mean with a threshold) ignore it."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

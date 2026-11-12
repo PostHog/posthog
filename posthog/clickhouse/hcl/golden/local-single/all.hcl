@@ -1464,6 +1464,41 @@ database "posthog" {
     }
   }
 
+  table "error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
+    }
+  }
+
   table "events" {
     column "uuid" {
       type = "UUID"
@@ -3155,6 +3190,39 @@ database "posthog" {
       topic_list = "clickhouse_error_tracking_issue_fingerprint"
       group_name = "clickhouse-error-tracking-issue-fingerprint-overrides"
       format     = "JSONEachRow"
+    }
+  }
+
+  table "kafka_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    engine "kafka" {
+      collection           = "warpstream_shared"
+      topic_list           = "clickhouse_error_tracking_issue_tags"
+      group_name           = "clickhouse_error_tracking_issue_tags"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      flush_interval_ms    = 7500
+      thread_per_consumer  = true
     }
   }
 
@@ -9970,6 +10038,50 @@ SQL
     }
   }
 
+  table "raw_error_tracking_issue_tags" {
+    order_by = ["team_id", "key", "issue_id"]
+    settings = {
+      index_granularity = "512"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "kafka_timestamp_minmax_raw_error_tracking_issue_tags" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.raw_error_tracking_issue_tags"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
   table "raw_sessions" {
     column "team_id" {
       type = "Int64"
@@ -14701,7 +14813,8 @@ SQL
   }
 
   table "sharded_web_bounces_dimensional_preaggregated" {
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -14786,6 +14899,9 @@ SQL
     }
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
@@ -14983,7 +15099,8 @@ SQL
   }
 
   table "sharded_web_stats_dimensional_preaggregated" {
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -15071,6 +15188,9 @@ SQL
     }
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
@@ -16096,6 +16216,9 @@ SQL
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
     }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -16787,6 +16910,9 @@ SQL
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
     }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -17374,6 +17500,41 @@ SQL
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "error_tracking_issue_fingerprint_overrides"
+    }
+  }
+
+  table "writable_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
     }
   }
 
@@ -21063,6 +21224,51 @@ SQL
     }
   }
 
+  materialized_view "error_tracking_issue_tags_mv" {
+    to_table = "posthog.writable_error_tracking_issue_tags"
+    query    = <<SQL
+SELECT
+  team_id,
+  issue_id,
+  key,
+  value,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_tags
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
   materialized_view "events_dead_letter_queue_mv" {
     to_table = "posthog.writable_events_dead_letter_queue"
     query    = <<SQL
@@ -24251,6 +24457,8 @@ FROM
       dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
     AND
       (person_mode != 'propertyless')
+    AND
+      (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
   )
 WHERE notEmpty(group_key)
 GROUP BY

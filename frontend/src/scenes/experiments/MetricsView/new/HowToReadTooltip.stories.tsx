@@ -16,7 +16,7 @@ import type {
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { CurrencyCode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
 import { FIXED_HEIGHT_STYLE } from '~/scenes/experiments/MetricsView/shared/rowHeights'
 import {
@@ -168,7 +168,7 @@ function SignificanceExample(): JSX.Element {
                                 style={cellStyle}
                             >
                                 <div className="metric-cell">
-                                    <div>{formatMetricValue(result, EXAMPLE_METRIC)}</div>
+                                    <div>{formatMetricValue(result, EXAMPLE_METRIC, CurrencyCode.USD)}</div>
                                     <div className="text-xs text-muted">
                                         {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
                                     </div>

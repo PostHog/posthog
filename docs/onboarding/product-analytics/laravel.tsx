@@ -18,7 +18,7 @@ export const getLaravelInstallSteps = (ctx: OnboardingComponentsContext): StepDe
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                composer require posthog/posthog-php
+                                composer require "posthog/posthog-php:^4.0"
                             `,
                             },
                         ]}
