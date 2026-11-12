@@ -133,9 +133,9 @@ class PlanningCenterSource(ResumableSource[PlanningCenterSourceConfig, PlanningC
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            # A plans sync asks each service type for its plans again, so appending would write a
-            # second copy of every plan that changed in a service type.
-            merge_only=[name for name, endpoint in PLANNING_CENTER_ENDPOINTS.items() if endpoint.fanout],
+            # `where[updated_at][gte]` returns the rows at the watermark again on every sync, so an
+            # append sync would store a second copy of them. Merge on the primary key removes the copies.
+            merge_only=[name for name, endpoint in PLANNING_CENTER_ENDPOINTS.items() if endpoint.incremental],
         )
 
     def validate_credentials(

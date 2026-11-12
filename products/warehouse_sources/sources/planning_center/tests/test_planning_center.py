@@ -48,14 +48,59 @@ class TestPagination:
         assert result.rows[-1] == {"id": "100", "created_at": "2025-01-02T00:00:00Z"}
         assert result.committed_states == [PlanningCenterResumeConfig(next_offset=100)]
 
-    def test_resume_starts_at_the_saved_offset(self) -> None:
+    def test_incremental_walk_seeks_on_updated_at_of_the_last_row(self) -> None:
+        first = [_resource(str(i), updated_at=f"2026-02-01T00:00:{i % 60:02d}Z") for i in range(98)]
+        first += [_resource(str(i), updated_at="2026-02-02T00:00:00Z") for i in range(98, 100)]
+        ties = [_resource(str(i), updated_at="2026-02-02T00:00:00Z") for i in range(100, 200)]
+        last = [_resource("200", updated_at="2026-02-03T00:00:00Z")]
+
         result = _driver().run(
             "people",
-            [_page([_resource("201")], 201)],
-            resume_state=PlanningCenterResumeConfig(next_offset=200),
+            [_page(first, 201), _page(ties, 201), _page(last, 201)],
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert result.params("offset") == ["200"]
+        assert result.raised is None
+        assert result.params(UPDATED_AT_FILTER_PARAM) == [
+            "2026-01-01T00:00:00Z",
+            "2026-02-02T00:00:00Z",
+            "2026-02-02T00:00:00Z",
+        ]
+        assert result.params("offset") == ["0", "2", "102"]
+        assert result.params("order") == ["updated_at"] * 3
+        assert len(result.rows) == 201
+        assert result.committed_states == [
+            PlanningCenterResumeConfig(next_offset=2, next_updated_at="2026-02-02T00:00:00Z"),
+            PlanningCenterResumeConfig(next_offset=102, next_updated_at="2026-02-02T00:00:00Z"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("inputs", "resume_state", "expected_filter", "expected_offset"),
+        [
+            ({}, PlanningCenterResumeConfig(next_offset=200), None, "200"),
+            (
+                {
+                    "incremental_field": "updated_at",
+                    "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC),
+                },
+                PlanningCenterResumeConfig(next_offset=3, next_updated_at="2026-02-02T00:00:00Z"),
+                "2026-02-02T00:00:00Z",
+                "3",
+            ),
+        ],
+    )
+    def test_resume_starts_at_the_saved_position(
+        self,
+        inputs: dict[str, Any],
+        resume_state: PlanningCenterResumeConfig,
+        expected_filter: str | None,
+        expected_offset: str,
+    ) -> None:
+        result = _driver().run("people", [_page([_resource("201")], 201)], resume_state=resume_state, **inputs)
+
+        assert result.params(UPDATED_AT_FILTER_PARAM) == [expected_filter]
+        assert result.params("offset") == [expected_offset]
         assert [row["id"] for row in result.rows] == ["201"]
 
 

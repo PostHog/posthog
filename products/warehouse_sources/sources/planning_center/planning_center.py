@@ -2,6 +2,7 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
+from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.sources.planning_center.settings import (
@@ -12,6 +13,7 @@ from products.warehouse_sources.sources.planning_center.settings import (
     PlanningCenterEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     Endpoint,
     IncrementalConfig,
@@ -39,6 +41,9 @@ _JSON_API_KEYS = frozenset({"type", "attributes", "relationships", "links", "met
 @dataclasses.dataclass(frozen=True)
 class PlanningCenterResumeConfig:
     next_offset: Optional[int] = None
+    # Seek position of an incremental read ordered by `updated_at`. `next_offset` then counts the rows
+    # at this `updated_at` that the run already read.
+    next_updated_at: Optional[str] = None
     # Resume state of the plans fan-out, opaque to this source and passed back to the fan-out helper.
     fanout_state: Optional[dict[str, Any]] = None
 
@@ -98,13 +103,82 @@ def _incremental_config(_cursor_path: str) -> IncrementalConfig:
     }
 
 
-def _order_param(config: PlanningCenterEndpointConfig, use_incremental: bool) -> dict[str, str]:
+def _order_param(config: PlanningCenterEndpointConfig, use_incremental: bool) -> dict[str, Any]:
     if use_incremental:
         return {"order": "updated_at"} if config.orders_by_updated_at else {}
     return {"order": config.full_refresh_order} if config.full_refresh_order else {}
 
 
-def _paginator() -> OffsetPaginator:
+def _row_updated_at(item: Any) -> Optional[str]:
+    attributes = item.get("attributes") if isinstance(item, dict) else None
+    value = attributes.get("updated_at") if isinstance(attributes, dict) else None
+    return value if isinstance(value, str) else None
+
+
+class UpdatedAtSeekPaginator(BasePaginator):
+    """Pages an `order=updated_at` read by moving the `updated_at` filter forward.
+
+    Offset pages are not safe on this order: a row that changes during the sync moves to the end of
+    the order, every later row moves one position back, and the next offset skips one row. The skipped
+    row is older than the new watermark, so no later incremental sync reads it. This paginator sends the
+    `updated_at` of the last row as the next filter value. The offset then counts only the rows at that
+    exact `updated_at` that the sync already read, so more than one page of rows with the same
+    `updated_at` still advances.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._updated_at: Optional[str] = None
+        self._offset = 0
+
+    def _apply(self, request: Request) -> None:
+        params = dict(request.params or {})
+        params["per_page"] = PAGE_SIZE
+        params["offset"] = self._offset
+        if self._updated_at is not None:
+            params[UPDATED_AT_FILTER_PARAM] = self._updated_at
+        request.params = params
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        rows = data or []
+        if len(rows) < PAGE_SIZE:
+            self._has_next_page = False
+            return
+        self._has_next_page = True
+
+        last = _row_updated_at(rows[-1])
+        if last is None or last == self._updated_at:
+            self._offset += len(rows)
+            return
+        self._updated_at = last
+        self._offset = 0
+        for row in reversed(rows):
+            if _row_updated_at(row) != last:
+                break
+            self._offset += 1
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        return {"updated_at": self._updated_at, "offset": self._offset}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        if state.get("offset") is None:
+            return
+        self._offset = int(state["offset"])
+        self._updated_at = state.get("updated_at")
+        self._has_next_page = True
+
+
+def _paginator(config: Optional[PlanningCenterEndpointConfig] = None, use_incremental: bool = False) -> BasePaginator:
+    if config is not None and use_incremental and config.orders_by_updated_at:
+        return UpdatedAtSeekPaginator()
     return OffsetPaginator(
         limit=PAGE_SIZE,
         offset_param="offset",
@@ -153,6 +227,7 @@ def _top_level_source(
         "path": config.path,
         "params": _order_param(config, use_incremental),
         "data_selector": "data",
+        "paginator": _paginator(config, use_incremental),
     }
     if use_incremental:
         endpoint["incremental"] = _incremental_config("updated_at")
@@ -176,11 +251,13 @@ def _top_level_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.next_offset is not None:
-            initial_paginator_state = {"offset": resume.next_offset}
+            initial_paginator_state = {"offset": resume.next_offset, "updated_at": resume.next_updated_at}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("offset") is not None:
-            resumable_source_manager.save_state(PlanningCenterResumeConfig(next_offset=int(state["offset"])))
+            resumable_source_manager.save_state(
+                PlanningCenterResumeConfig(next_offset=int(state["offset"]), next_updated_at=state.get("updated_at"))
+            )
 
     resource = rest_api_resource(
         rest_config,
@@ -230,7 +307,7 @@ def _fanout_source(
             incremental_field="updated_at" if use_incremental else None,
             incremental_config_factory=_incremental_config,
             parent_endpoint_extra={"data_selector": "data", "paginator": _paginator()},
-            child_endpoint_extra={"data_selector": "data", "paginator": _paginator()},
+            child_endpoint_extra={"data_selector": "data", "paginator": _paginator(config, use_incremental)},
             child_params_extra=_order_param(config, use_incremental),
             # The paginator sends `per_page` on every request.
             page_size_param=None,
