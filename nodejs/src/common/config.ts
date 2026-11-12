@@ -295,11 +295,12 @@ const EXTERNAL_REQUEST_NUMBER_KEYS = new Set<string>([
 ])
 
 export function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
-    const toNumber = EXTERNAL_REQUEST_NUMBER_KEYS.has(key) ? Number : parseFloat
+    const isExternalRequestKey = EXTERNAL_REQUEST_NUMBER_KEYS.has(key)
+    const toNumber = isExternalRequestKey ? Number : parseFloat
     const trimmed = raw.trim()
     const unquoted = trimmed.replace(/^(["'])(.*)\1$/, '$2').trim()
     const value = unquoted === '' && trimmed !== '' ? NaN : toNumber(unquoted)
-    if (!Number.isNaN(value)) {
+    if (isExternalRequestKey ? Number.isFinite(value) : !Number.isNaN(value)) {
         return value
     }
     logger.error(`Ignoring ${key}: its env value is not a number, keeping the default`, {

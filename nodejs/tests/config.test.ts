@@ -64,9 +64,9 @@ describe('config', () => {
         ['.5', 0.5],
         ['"3008', 'default'],
         ['abc', 'default'],
-        ['Infinity', Infinity],
     ]
     const overrideRows: Row[] = [
+        ['Infinity', Infinity],
         ['10ms', 10],
         ['', 'default'],
         [' ', 'default'],
@@ -94,6 +94,8 @@ describe('config', () => {
                 ['', 0],
                 ['""', 'default'],
                 ['3000ms', 'default'],
+                ['Infinity', 'default'],
+                ['"Infinity"', 'default'],
             ],
         ],
     ])('%s', (_reader, read, defaultValue, ownRows) => {
