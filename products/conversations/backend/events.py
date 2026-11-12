@@ -427,6 +427,7 @@ def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
     # only when it is that attested identity, or the widget's signed email claim for that distinct_id.
     if ticket.identity_verified is not True or not customer_email:
         return False
+    attested_identities: list[str | None]
     if ticket.channel_source == Channel.EMAIL:
         attested_identities = [ticket.email_from or ticket.distinct_id]
     else:

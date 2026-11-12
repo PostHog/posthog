@@ -18,6 +18,7 @@ from dataclasses import field as dataclass_field
 from typing import Literal
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -508,63 +509,63 @@ class WidgetMessageView(APIView):
         if ticket_id:
             # Adding to existing ticket
             try:
-                ticket = Ticket.objects.get(id=ticket_id, team=team)
+                # Concurrent messages can rebind distinct_id and store an email claim. The row lock
+                # makes each request read the values the previous one wrote, so a claim never stays
+                # attached to a distinct_id it was not signed for.
+                with transaction.atomic():
+                    ticket = Ticket.objects.select_for_update().get(id=ticket_id, team=team)
 
-                ownership_match: TicketOwnershipMatch | None = None
-                if verified_distinct_id is not None:
-                    ownership_match = _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email)
-                    if ownership_match is None:
-                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-                else:
-                    # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
-                    if ticket.widget_session_id != widget_session_id:
-                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                    ownership_match: TicketOwnershipMatch | None = None
+                    if verified_distinct_id is not None:
+                        ownership_match = _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email)
+                        if ownership_match is None:
+                            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                    else:
+                        # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
+                        if ticket.widget_session_id != widget_session_id:
+                            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-                stored_verified_email = ticket.verified_email
+                    # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
+                    # Anonymous → identified continuity is still handled by person merging.
+                    if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
+                        ticket.distinct_id = distinct_id
+                        # The stored claim was signed for the previous distinct_id.
+                        ticket.verified_email = None
 
-                # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
-                # Anonymous → identified continuity is still handled by person merging.
-                if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
-                    ticket.distinct_id = distinct_id
-                    # The stored claim was signed for the previous distinct_id.
-                    ticket.verified_email = None
+                    # Other channels set traits from the attested sender, and the email bridge lets a
+                    # viewer post to those tickets, so only a widget ticket takes traits from the request.
+                    if traits and ticket.channel_source == Channel.WIDGET:
+                        ticket.anonymous_traits.update(traits)
 
-                # Other channels set traits from the attested sender, and the email bridge lets a
-                # viewer post to those tickets, so only a widget ticket takes traits from the request.
-                if traits and ticket.channel_source == Channel.WIDGET:
-                    ticket.anonymous_traits.update(traits)
+                    # Update session data if provided
+                    if session_id:
+                        ticket.session_id = session_id
+                    if session_context:
+                        ticket.session_context.update(session_context)
 
-                # Update session data if provided
-                if session_id:
-                    ticket.session_id = session_id
-                if session_context:
-                    ticket.session_context.update(session_context)
+                    # The HMAC attests only the distinct ID. On other channels identity_verified attests the
+                    # sender's address or platform account, and this request proves neither.
+                    if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
+                        ticket.identity_verified = True
+                        # The claim is bound to the distinct ID this ticket now carries. A viewer matched
+                        # only by email must not change where replies are sent.
+                        if verified_email:
+                            ticket.verified_email = verified_email
 
-                # The HMAC attests only the distinct ID. On other channels identity_verified attests the
-                # sender's address or platform account, and this request proves neither.
-                if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
-                    ticket.identity_verified = True
-                    # The claim is bound to the distinct ID this ticket now carries. A viewer matched
-                    # only by email must not change where replies are sent.
-                    if verified_email:
-                        ticket.verified_email = verified_email
-
-                # Increment unread count for team (customer sent a message)
-                ticket.unread_team_count = F("unread_team_count") + 1
-                update_fields = [
-                    "distinct_id",
-                    "anonymous_traits",
-                    "session_id",
-                    "session_context",
-                    "unread_team_count",
-                    "identity_verified",
-                    "updated_at",
-                ]
-                # A concurrent request without a claim reads a stale value, so it must not
-                # overwrite a claim another request stored in the meantime.
-                if ticket.verified_email != stored_verified_email:
-                    update_fields.append("verified_email")
-                ticket.save(update_fields=update_fields)
+                    # Increment unread count for team (customer sent a message)
+                    ticket.unread_team_count = F("unread_team_count") + 1
+                    ticket.save(
+                        update_fields=[
+                            "distinct_id",
+                            "anonymous_traits",
+                            "session_id",
+                            "session_context",
+                            "unread_team_count",
+                            "identity_verified",
+                            "verified_email",
+                            "updated_at",
+                        ]
+                    )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
