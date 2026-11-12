@@ -626,3 +626,9 @@ class MetricUsageSerializer(serializers.Serializer):
     adjusted_runs = AdjustedRunSerializer(
         many=True, help_text="Agent queries that re-derived the metric. is_scout marks the ones a scout ran."
     )
+
+
+class PendingReviewCountsSerializer(serializers.Serializer):
+    metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
+    relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
+    certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")

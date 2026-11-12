@@ -446,6 +446,11 @@ export interface NodeWatchingApi {
     watching: boolean
 }
 
+export interface NodeAttentionCountApi {
+    /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
+    count: number
+}
+
 export interface LineageResponseApi {
     /** Every node reachable from the requested one, plus the node itself. */
     nodes: NodeApi[]
