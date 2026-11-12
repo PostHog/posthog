@@ -341,6 +341,7 @@ class TaskDetailDTO:
     client_provenance: str | None = None
     last_client: str | None = None
     last_client_at: datetime | None = None
+    repository_integration: int | None = None
 
 
 @dataclass(frozen=True)

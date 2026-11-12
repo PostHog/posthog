@@ -597,6 +597,18 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         help_text="User-scoped GitHub integration used for user-authored task runs",
         related_name="+",
     )
+    # GitHub tasks keep `github_integration`. A task in any other provider's repository links its
+    # connection here, so the provider comes from the integration kind.
+    repository_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        limit_choices_to={"kind": "gitlab"},
+        help_text="Source-control integration for a repository outside GitHub, such as a GitLab project",
+        related_name="+",
+    )
 
     repository = models.CharField(
         max_length=255, null=True, blank=True
@@ -762,7 +774,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if self.repository:
             parts = self.repository.split("/")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
+            # GitLab projects can sit in nested groups, such as group/subgroup/project.
+            max_parts = None if self.repository_integration_id is not None else 2
+            if len(parts) < 2 or (max_parts is not None and len(parts) > max_parts) or not all(parts):
                 raise ValidationError({"repository": "Format for repository is organization/repo"})
 
             self.repository = self.repository.lower()

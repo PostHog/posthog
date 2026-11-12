@@ -54267,6 +54267,32 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitLabProject {
+      /** GitLab numeric project ID. */
+      id: number;
+      /** Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository. */
+      path_with_namespace: string;
+      /** Project page on GitLab. */
+      web_url: string;
+      /**
+         * Default branch of the project. Null for a project without commits.
+         * @nullable
+         */
+      default_branch: string | null;
+    }
+
+    export interface GitLabProjectsResponse {
+      /** Projects where the token has the Developer role or higher, most recently active first, up to 1,000. */
+      projects: GitLabProject[];
+      /** Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes. */
+      missing_scopes: string[];
+      /**
+         * Date when the token expires. Null when it does not expire or GitLab does not report it.
+         * @nullable
+         */
+      token_expires_at: string | null;
+    }
+
     export interface GitProviderFileLinkResolveResponse {
       /** Whether a matching file URL was found. */
       found: boolean;
@@ -80933,6 +80959,11 @@ export namespace Schemas {
          * @nullable
          */
       last_client_at?: string | null;
+      /**
+         * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+         * @nullable
+         */
+      repository_integration?: number | null;
     }
 
     /**
@@ -81015,6 +81046,11 @@ export namespace Schemas {
          * @nullable
          */
       last_client_at?: string | null;
+      /**
+         * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+         * @nullable
+         */
+      repository_integration?: number | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -93665,7 +93701,7 @@ export namespace Schemas {
        * * `feature_flags` - Feature Flags */
       origin_product?: TaskOriginProductEnum;
       /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
          * @maxLength 255
          * @nullable
          */
@@ -93681,6 +93717,11 @@ export namespace Schemas {
          * @nullable
          */
       github_integration?: number | null;
+      /**
+         * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+         * @nullable
+         */
+      repository_integration?: number | null;
       /**
          * User-scoped GitHub integration to use for user-authored cloud runs.
          * @nullable
@@ -116619,7 +116660,7 @@ export namespace Schemas {
        * * `feature_flags` - Feature Flags */
       origin_product?: TaskOriginProductEnum;
       /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
          * @maxLength 255
          * @nullable
          */
@@ -116635,6 +116676,11 @@ export namespace Schemas {
          * @nullable
          */
       github_integration?: number | null;
+      /**
+         * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+         * @nullable
+         */
+      repository_integration?: number | null;
       /**
          * User-scoped GitHub integration to use for user-authored cloud runs.
          * @nullable
@@ -116837,6 +116883,11 @@ export namespace Schemas {
          * @nullable
          */
       last_client_at?: string | null;
+      /**
+         * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+         * @nullable
+         */
+      repository_integration?: number | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -118045,6 +118096,11 @@ export namespace Schemas {
          * @nullable
          */
       last_client_at?: string | null;
+      /**
+         * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+         * @nullable
+         */
+      repository_integration?: number | null;
       /** Error returned when the run could not start. */
       run_error?: string;
       /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -118360,7 +118416,7 @@ export namespace Schemas {
        * * `feature_flags` - Feature Flags */
       origin_product?: TaskOriginProductEnum;
       /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
          * @maxLength 255
          * @nullable
          */
@@ -118376,6 +118432,11 @@ export namespace Schemas {
          * @nullable
          */
       github_integration?: number | null;
+      /**
+         * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+         * @nullable
+         */
+      repository_integration?: number | null;
       /**
          * User-scoped GitHub integration to use for user-authored cloud runs.
          * @nullable
@@ -137456,6 +137517,13 @@ export namespace Schemas {
     export type IntegrationsGitlabMembersRetrieveParams = {
     /**
      * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsGitlabProjectsRetrieveParams = {
+    /**
+     * Optional search on the project name or path. Leave blank to list the most recently active projects.
      */
     search?: string;
     };

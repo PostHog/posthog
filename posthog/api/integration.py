@@ -524,6 +524,44 @@ class JiraProjectsResponseSerializer(serializers.Serializer):
     projects = JiraProjectSerializer(many=True, help_text="Jira projects available to this integration.")
 
 
+class GitLabProjectSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitLab numeric project ID.")
+    path_with_namespace = serializers.CharField(
+        help_text="Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository."
+    )
+    web_url = serializers.CharField(help_text="Project page on GitLab.")
+    default_branch = serializers.CharField(
+        allow_null=True, help_text="Default branch of the project. Null for a project without commits."
+    )
+
+
+class GitLabProjectsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional search on the project name or path. Leave blank to list the most recently active projects.",
+    )
+
+
+class GitLabProjectsResponseSerializer(serializers.Serializer):
+    projects = GitLabProjectSerializer(
+        many=True,
+        help_text="Projects where the token has the Developer role or higher, most recently active first, up to 1,000.",
+    )
+    missing_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Token scopes that coding tasks need and the token does not have. "
+            "Empty when the token has them, or when GitLab does not report the token's scopes."
+        ),
+    )
+    token_expires_at = serializers.DateField(
+        allow_null=True,
+        help_text="Date when the token expires. Null when it does not expire or GitLab does not report it.",
+    )
+
+
 class LinearTeamSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Linear team ID to pass as error tracking config.team_id.")
     name = serializers.CharField(help_text="Linear team display name.")
@@ -1660,6 +1698,7 @@ class IntegrationViewSet(
         "linear_team_members",
         "github_assignees",
         "gitlab_members",
+        "gitlab_projects",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -2924,6 +2963,31 @@ class IntegrationViewSet(
             raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
+
+    @extend_schema(parameters=[GitLabProjectsQuerySerializer], responses={200: GitLabProjectsResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="gitlab_projects")
+    def gitlab_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitLabProjectsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "gitlab":
+            raise ValidationError("gitlab_projects endpoint is only supported for GitLab integrations")
+        gitlab = GitLabIntegration(instance)
+        try:
+            projects = gitlab.list_projects(query_serializer.validated_data["search"])
+            token_info = gitlab.credentials.describe()
+        except GitLabIntegrationError as error:
+            raise ValidationError(str(error))
+        return Response(
+            GitLabProjectsResponseSerializer(
+                {
+                    "projects": projects,
+                    "missing_scopes": list(token_info.missing_task_scopes) if token_info else [],
+                    "token_expires_at": token_info.expires_at if token_info else None,
+                }
+            ).data
+        )
 
     @validated_request(
         PushTokenImportRequestSerializer,

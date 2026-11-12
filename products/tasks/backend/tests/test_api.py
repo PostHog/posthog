@@ -2876,6 +2876,65 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("created", True, False, None, status.HTTP_201_CREATED),
+            ("flag_off", False, False, None, status.HTTP_400_BAD_REQUEST),
+            ("with_github_integration", True, True, None, status.HTTP_400_BAD_REQUEST),
+            (
+                "no_push_access",
+                True,
+                False,
+                "The GitLab token can't push to acme/platform/api.",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run")
+    def test_create_task_in_gitlab_project(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        send_github_integration: bool,
+        access_error: str | None,
+        expected_status: int,
+        mock_find_warm_run: MagicMock,
+    ) -> None:
+        github_integration = Integration.objects.create(team=self.team, kind="github", integration_id="123")
+        gitlab_integration = Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            integration_id="Acme / Platform / API",
+            config={"hostname": "https://gitlab.com"},
+            sensitive_config={"access_token": "token123"},
+        )
+        body: dict[str, Any] = {
+            "title": "GitLab task",
+            "repository": "Acme/Platform/API",
+            "repository_integration": gitlab_integration.id,
+            "branch": "main",
+        }
+        if send_github_integration:
+            body["github_integration"] = github_integration.id
+
+        with (
+            patch("products.tasks.backend.facade.api.gitlab_tasks_enabled", return_value=flag_enabled),
+            patch("products.tasks.backend.facade.api.gitlab_repository_error", return_value=access_error),
+        ):
+            response = self.client.post("/api/projects/@current/tasks/", body, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status != status.HTTP_201_CREATED:
+            self.assertFalse(Task.objects.filter(title="GitLab task").exists())
+            return
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(
+            (task.repository, task.repository_integration_id, task.github_integration_id),
+            ("acme/platform/api", gitlab_integration.id, None),
+        )
+        self.assertEqual(response.json()["repository_integration"], gitlab_integration.id)
+        mock_find_warm_run.assert_not_called()
+
     def test_create_task_with_pi_runtime(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",
