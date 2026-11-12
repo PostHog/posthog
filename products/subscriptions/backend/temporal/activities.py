@@ -5,6 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone as tz
 
@@ -21,6 +22,7 @@ from products.dashboards.backend.facade.contracts import DashboardInsightTileSum
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.contracts import SubscriptionTriggerType
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     UNSUPPORTED_TARGET_DISABLE_REASON,
@@ -245,12 +247,31 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 
 
 @temporalio.activity.defn
-async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAbort | None:
+async def validate_subscription_for_delivery(
+    subscription_id: int, delivery_id: uuid.UUID | None = None
+) -> DeliveryAbort | None:
     """Returns abort info when delivery should not proceed; None to continue."""
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by").get,
         thread_sensitive=False,
     )(pk=subscription_id)
+
+    # A finished delivery record means an earlier run already handled this scheduled slot
+    # (see `create_delivery_record`). This happens when that run closed seconds before the
+    # next scheduler run started a second child workflow from a stale due list.
+    if (
+        delivery_id is not None
+        and await database_sync_to_async(
+            SubscriptionDelivery.objects.filter(pk=delivery_id, finished_at__isnull=False).exists,
+            thread_sensitive=False,
+        )()
+    ):
+        await LOGGER.ainfo(
+            "validate_subscription.slot_already_delivered_skipping",
+            subscription_id=subscription_id,
+            delivery_id=delivery_id,
+        )
+        return DeliveryAbort()
 
     # Idempotency: a Temporal redispatch (e.g. worker crash mid-acknowledge) after a
     # prior auto-disable committed must not re-fire side effects.
@@ -648,6 +669,15 @@ async def _send_to_target(
     return result
 
 
+def _delivery_idempotency_key(inputs: CreateDeliveryRecordInputs, scheduled_at: datetime | None) -> str:
+    # A scheduled slot gets one record, whichever workflow run delivers it. The child workflow
+    # ID only blocks a second run while the first run is open, so a run that starts after the
+    # first run closes must find the same record and not deliver the slot again.
+    if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED and scheduled_at is not None:
+        return f"scheduled:{inputs.subscription_id}:{scheduled_at.isoformat()}"
+    return inputs.idempotency_key
+
+
 @temporalio.activity.defn
 async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUID:
     scheduled_at = datetime.fromisoformat(inputs.scheduled_at) if inputs.scheduled_at else None
@@ -667,7 +697,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
         )
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
-            idempotency_key=inputs.idempotency_key,
+            idempotency_key=_delivery_idempotency_key(inputs, scheduled_at),
             defaults={
                 "subscription": subscription,
                 "team_id": inputs.team_id,
@@ -695,8 +725,17 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
 @temporalio.activity.defn
 async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
     @database_sync_to_async(thread_sensitive=False)
-    def _update() -> None:
-        delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id)
+    def _update() -> bool:
+        delivery = SubscriptionDelivery.objects.filter(pk=inputs.delivery_id).first()
+        # The row is gone when its subscription was hard-deleted during the run (for example,
+        # deleting an insight deletes its subscriptions), so there is nothing left to record.
+        if delivery is None:
+            LOGGER.info("update_delivery_record.missing_skipping", delivery_id=inputs.delivery_id)
+            return False
+        # A finished row belongs to an earlier run of the same scheduled slot. Keep its outcome.
+        if delivery.finished_at is not None:
+            LOGGER.info("update_delivery_record.already_finished_skipping", delivery_id=inputs.delivery_id)
+            return False
         update_fields: list[str] = ["status", "last_updated_at"]
         delivery.status = inputs.status
 
@@ -716,8 +755,10 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
             update_fields.append("finished_at")
 
         delivery.save(update_fields=update_fields)
+        return True
 
-    await _update()
+    if not await _update():
+        return
     await LOGGER.ainfo(
         "update_delivery_record.updated",
         delivery_id=inputs.delivery_id,
@@ -755,17 +796,29 @@ async def notify_subscription_delivery_failure(subscription_id: int, failure_id:
 
 
 @temporalio.activity.defn
-async def advance_next_delivery_date(subscription_id: int) -> None:
-    subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
-    # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
-    # future delivery date — avoids showing a misleading "next delivery" in the UI.
-    if not subscription.enabled:
-        await LOGGER.ainfo("advance_next_delivery_date.skipped_disabled", subscription_id=subscription_id)
-        return
-    subscription.set_next_delivery_date(subscription.next_delivery_date)
-    await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
+async def advance_next_delivery_date(subscription_id: int, scheduled_at: str | None = None) -> None:
+    expected = datetime.fromisoformat(scheduled_at) if scheduled_at else None
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _advance() -> str:
+        with transaction.atomic():
+            subscription = Subscription.objects.select_for_update().get(pk=subscription_id)
+            # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
+            # future delivery date — avoids showing a misleading "next delivery" in the UI.
+            if not subscription.enabled:
+                return "skipped_disabled"
+            # Compare-and-set on the slot this run delivered. When the date moved away from it,
+            # another run already advanced the schedule (or the user changed it), and a second
+            # advance would skip the next delivery.
+            if expected is not None and subscription.next_delivery_date != expected:
+                return "skipped_already_advanced"
+            subscription.set_next_delivery_date(subscription.next_delivery_date)
+            subscription.save(update_fields=["next_delivery_date"])
+            return "updated"
+
+    outcome = await _advance()
     await LOGGER.ainfo(
-        "advance_next_delivery_date.updated",
+        f"advance_next_delivery_date.{outcome}",
         subscription_id=subscription_id,
-        next_delivery_date=subscription.next_delivery_date,
+        scheduled_at=scheduled_at,
     )

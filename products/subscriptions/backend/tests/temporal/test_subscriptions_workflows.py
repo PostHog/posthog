@@ -1299,7 +1299,8 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
     assert row.subscription_id == subscription.id
     assert row.team_id == team.id
     assert row.status == SubscriptionDelivery.Status.STARTING
-    assert row.idempotency_key == "idem-dedupe"
+    slot_key = f"scheduled:{subscription.id}:2022-02-02T08:55:00+00:00"
+    assert row.idempotency_key == slot_key
     assert row.temporal_workflow_id == "wf-delivery-1"
     assert row.trigger_type == SubscriptionTriggerType.SCHEDULED
     assert row.scheduled_at is not None
@@ -1313,12 +1314,12 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
         team_id=team.id,
         trigger_type=SubscriptionTriggerType.SCHEDULED,
         temporal_workflow_id="wf-delivery-retry",
-        idempotency_key="idem-dedupe",
+        idempotency_key="idem-other-run",
         scheduled_at="2022-02-02T08:55:00+00:00",
     )
     delivery_id_again = await env.run(create_delivery_record, inputs_retry)
     assert delivery_id_again == delivery_id
-    assert await sync_to_async(SubscriptionDelivery.objects.filter(idempotency_key="idem-dedupe").count)() == 1
+    assert await sync_to_async(SubscriptionDelivery.objects.filter(subscription=subscription).count)() == 1
     row_after = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
     assert row_after.temporal_workflow_id == "wf-delivery-1"
 
@@ -1395,7 +1396,7 @@ async def test_update_delivery_record_none_omits_collection_fields(team, user):
             status=DeliveryStatus.COMPLETED,
             exported_asset_ids=[42],
             recipient_results=[{"recipient": "a@b.com", "status": "success"}],
-            finished=True,
+            finished=False,
         ),
     )
 
@@ -1441,7 +1442,7 @@ async def test_update_delivery_record_empty_lists_persist(team, user):
             status=DeliveryStatus.COMPLETED,
             exported_asset_ids=[1, 2],
             recipient_results=[{"recipient": "x@y.com", "status": "success"}],
-            finished=True,
+            finished=False,
         ),
     )
 
@@ -1970,6 +1971,7 @@ async def test_scheduled_delivery_updates_next_delivery_date(
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="sched1", name="Sched Test")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
     original_next_delivery = subscription.next_delivery_date
+    assert original_next_delivery is not None
 
     def fake_export(asset_obj, **kwargs):
         asset_obj.content_location = "s3://bucket/sched.png"
@@ -1988,33 +1990,40 @@ async def test_scheduled_delivery_updates_next_delivery_date(
             activity_executor=ThreadPoolExecutor(max_workers=10),
             debug_mode=True,
         ):
-            await env.client.execute_workflow(
-                ProcessSubscriptionWorkflow.run,
-                TrackedSubscriptionInputs(
-                    subscription_id=subscription.id,
-                    team_id=subscription.team_id,
-                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    trigger_type=SubscriptionTriggerType.SCHEDULED,
-                    slo=SloConfig(
-                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
-                        area=SloArea.ANALYTIC_PLATFORM,
+            # The second run is a stale-due-list duplicate: it starts after the first run closed,
+            # for the same slot, so it must neither send again nor advance the schedule again.
+            for _ in range(2):
+                await env.client.execute_workflow(
+                    ProcessSubscriptionWorkflow.run,
+                    TrackedSubscriptionInputs(
+                        subscription_id=subscription.id,
                         team_id=subscription.team_id,
-                        resource_id=str(subscription.id),
                         distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                        trigger_type=SubscriptionTriggerType.SCHEDULED,
+                        scheduled_at=original_next_delivery.isoformat(),
+                        slo=SloConfig(
+                            operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                            area=SloArea.ANALYTIC_PLATFORM,
+                            team_id=subscription.team_id,
+                            resource_id=str(subscription.id),
+                            distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                        ),
                     ),
-                ),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
+                    id=f"process-subscription-{subscription.id}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
 
     # 2 recipients from factory default
     assert mock_send_email.call_count == 2
     for call in mock_send_email.call_args_list:
         assert call[1]["invite_message"] is None
 
-    # next_delivery_date should be updated for scheduled deliveries
     await sync_to_async(subscription.refresh_from_db)()
-    assert subscription.next_delivery_date != original_next_delivery
+    assert subscription.next_delivery_date == subscription.rrule.after(original_next_delivery, inc=False)
+    statuses = await sync_to_async(
+        lambda: list(SubscriptionDelivery.objects.filter(subscription=subscription).values_list("status", flat=True))
+    )()
+    assert statuses == [SubscriptionDelivery.Status.COMPLETED]
 
 
 def _make_export_counter(fail_count: int, error_factory):
@@ -2813,7 +2822,7 @@ async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
     mock_email.return_value.send.assert_called_once()  # owner notified once
     await sync_to_async(sub.refresh_from_db)()
     assert sub.enabled is True, "an over-budget sub stays enabled — it resumes when credits reset"
-    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.next_delivery_date == sub.rrule.after(datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), inc=False)
 
 
 async def test_generate_ai_report_credit_check_fails_open(team, user):
@@ -2917,7 +2926,7 @@ async def test_skip_helper_reschedules_past_credit_reset_and_emails_owner(team, 
 
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.next_delivery_date == sub.rrule.after(datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), inc=False)
     assert sub.enabled, "an over-limit sub stays enabled — it resumes when credits reset"
     mock_email.return_value.send.assert_called_once()
     # campaign_key carries sub id + billing-period date so MessagingRecord dedups to one notice per cycle.
@@ -2937,7 +2946,7 @@ async def test_skip_helper_no_owner_reschedules_without_emailing(team, user):
 
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.next_delivery_date == sub.rrule.after(datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), inc=False)
     mock_email.assert_not_called()
 
 
@@ -2953,7 +2962,7 @@ async def test_skip_helper_no_email_when_creator_left_org(team, user):
 
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), "still reschedules past reset"
+    assert sub.next_delivery_date == sub.rrule.after(reset_date, inc=False), "still reschedules past reset"
     mock_email.assert_not_called()
 
 

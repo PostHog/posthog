@@ -220,12 +220,12 @@ def _skip_ai_delivery_over_credit_limit_sync(subscription: Subscription) -> date
     """Reschedule the over-limit subscription past the credit reset and notify the owner once.
     Runs entirely sync (DB + email) — call via `database_sync_to_async`.
 
-    Persists `next_delivery_date = reset_date` so the always-runs `advance_next_delivery_date`
-    activity recomputes from it (`rrule.after(reset_date)`) — otherwise the next slot could fall
-    before the reset and re-fire while still over-limit.
+    Persists the first schedule slot after `reset_date` (`rrule.after(reset_date)`). Otherwise the
+    next slot could fall before the reset and re-fire while still over-limit. The date then no
+    longer matches the run's `scheduled_at`, so `advance_next_delivery_date` leaves it in place.
     """
     reset_date = _ai_credit_reset_date(subscription)
-    subscription.next_delivery_date = reset_date
+    subscription.set_next_delivery_date(reset_date)
     subscription.save(update_fields=["next_delivery_date"])
 
     creator = subscription.created_by
@@ -325,7 +325,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             resumes_at=reset_date.isoformat(),
         )
         # skipped=True → the workflow records SKIPPED (not FAILED — the sub isn't broken) and skips
-        # delivery; the sub stays enabled and advance_next_delivery_date recomputes from the reset.
+        # delivery; the sub stays enabled and resumes on the first slot after the reset.
         return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
 
     try:
