@@ -364,3 +364,7 @@ class BaseScanner(BaseModel, frozen=True):
     def validate_semantics(self, output: "BaseScannerOutput") -> str | None:
         """Scanner-specific checks beyond Pydantic schema validation; return `None` when valid, otherwise an error string suitable to feed back into a re-prompt."""
         return None
+
+
+def has_embeddable_text(model_output: object) -> bool:
+    return isinstance(model_output, BaseScannerOutput) and model_output.embedding_document() is not None

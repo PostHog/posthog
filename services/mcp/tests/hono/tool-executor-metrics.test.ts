@@ -305,6 +305,63 @@ describe('ToolExecutor metrics', () => {
             expect(JSON.stringify(extras)).not.toContain("'from' property")
         })
 
+        // A 4xx that is not a `validation_error` still names its cause in the body. Only
+        // identifier-shaped `code` and `attr` values may reach analytics; the free text
+        // (`detail`, `message`) echoes caller input and must not.
+        it.each<[string, number, string, { $mcp_error_code?: string; $mcp_error_field?: string }]>([
+            [
+                'a DRF validation body with code and attr',
+                400,
+                '{"type":"validation_error","code":"invalid_input","detail":"secret-value is bad","attr":"actions__2__config"}',
+                { $mcp_error_code: 'invalid_input', $mcp_error_field: 'actions__N__config' },
+            ],
+            [
+                'a {code, message} body',
+                400,
+                '{"code":"credentials_invalid","message":"secret-value rejected"}',
+                { $mcp_error_code: 'credentials_invalid' },
+            ],
+            [
+                'the first item of an error list',
+                400,
+                '[{"code":"required","attr":"name","detail":"secret-value"},{"code":"other"}]',
+                { $mcp_error_code: 'required', $mcp_error_field: 'name' },
+            ],
+            ['a body without a code', 404, '{"detail":"secret-value not found."}', {}],
+            ['a non-JSON body', 400, '<html>secret-value</html>', {}],
+            ['a JSON string body', 400, '"secret-value"', {}],
+            ['an error list of strings', 400, '["secret-value"]', {}],
+            ['a code that is not a string', 400, '{"code":42,"attr":["secret-value"]}', {}],
+            ['an overlong code', 400, JSON.stringify({ code: `a${'b'.repeat(64)}`, attr: `f${'g'.repeat(128)}` }), {}],
+            ['a code with spaces', 400, '{"code":"secret value here"}', {}],
+            ['a code with punctuation', 400, '{"code":"bad-code: secret-value!","attr":"a.b; drop"}', {}],
+            ['an uppercase code', 400, '{"code":"INVALID_INPUT"}', {}],
+            ['a code with a newline', 400, '{"code":"invalid_input\\n","attr":"name\\n"}', {}],
+        ])('records the API error code for a 4xx with %s', async (_label, status, body, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogApiError({
+                        status,
+                        statusText: 'Bad Request',
+                        body,
+                        url: 'https://us.posthog.com/api/environments/2/hog_functions/?search=secret-value',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'api_4xx', $mcp_error_status: status })
+            expect(extras?.$mcp_error_code).toBe(expected.$mcp_error_code)
+            expect(extras?.$mcp_error_field).toBe(expected.$mcp_error_field)
+            expect(JSON.stringify(extras)).not.toContain('secret-value')
+        })
+
         // A tool that fails inside PostHog's backend answers with an error type and, when the
         // backend knows it, the leaf failure name. Without the name every such failure reads
         // as one `internal` or `validation` bucket.
