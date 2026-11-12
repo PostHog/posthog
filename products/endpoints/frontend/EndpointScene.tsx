@@ -22,6 +22,7 @@ import {
 import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
@@ -43,7 +44,6 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
@@ -58,6 +58,7 @@ import { VersionBanner } from './endpoint-tabs/VersionBanner'
 import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
+import { EndpointSceneSkeleton } from './EndpointSceneSkeleton'
 import { endpointsLogic } from './endpointsLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
@@ -68,19 +69,23 @@ export const scene: SceneExport = {
 }
 
 export function EndpointScene(): JSX.Element {
-    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(endpointSceneLogic)
+    const { endpoint, endpointLoading, endpointMissing, activeTab, viewingVersion, isMaterialized } =
+        useValues(endpointSceneLogic)
     const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic)
     const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
     const { versions } = useValues(endpointLogic)
     const { allEndpoints } = useValues(endpointsLogic)
     const { openModal } = useActions(insightPickerEndpointModalLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const lineageSavedQueryId = (viewingVersion ?? endpoint)?.materialization?.saved_query_id ?? null
     const visibleTab =
         activeTab === EndpointTab.LINEAGE && endpoint && !lineageSavedQueryId ? EndpointTab.QUERY : activeTab
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+
+    if (endpointMissing) {
+        return <NotFound object="endpoint" />
+    }
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -341,7 +346,6 @@ export function EndpointScene(): JSX.Element {
                                 onSave={(tags) => saveTagsInline(tags)}
                                 canEdit
                                 tags={endpoint.tags}
-                                tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                                 dataAttrKey="endpoint"
                             />
                         </SceneMenuBarPopover>
@@ -361,15 +365,20 @@ export function EndpointScene(): JSX.Element {
                         onGoToLatest={() => setViewingVersion(null)}
                     />
                 )}
-                {!endpointLoading && <EndpointOverview />}
-                {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                {endpointLoading && !endpoint ? (
+                    <EndpointSceneSkeleton showTabs={!sceneMenuBarEnabled} />
+                ) : (
+                    <>
+                        <EndpointOverview />
+                        {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                    </>
+                )}
             </SceneContent>
             {endpoint && (
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneTags
                             tags={endpoint.tags}
-                            tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                             onSave={(tags) => saveTagsInline(tags)}
                             canEdit
                             dataAttrKey="endpoint"

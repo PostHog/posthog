@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, SavedQuery, TableNode
 
-from products.data_modeling.backend.logic.incremental import IncrementalConfig
+from products.data_modeling.backend.facade.contracts import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
     check_incremental_eligibility,
     propose_incremental_config,
@@ -327,7 +327,8 @@ class TestStarExpansion:
         assert result.key_candidates == ["a"]
 
     def test_an_aggregate_alongside_a_star_stays_excluded(self) -> None:
-        result = self._check("SELECT *, count() AS c FROM events GROUP BY ALL")
+        # A star over the events table would group by the whole properties document, which HogQL rejects.
+        result = self._check("SELECT *, count() AS c FROM (SELECT event, timestamp FROM events) GROUP BY ALL")
 
         assert "timestamp" in result.key_candidates
         assert "c" not in result.key_candidates

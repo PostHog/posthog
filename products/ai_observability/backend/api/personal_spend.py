@@ -37,6 +37,8 @@ from rest_framework.response import Response
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -47,6 +49,7 @@ from posthog.auth import (
     WebhookSignatureAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.llm.billing import BILLABLE_AI_PRODUCTS
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
@@ -77,7 +80,7 @@ MAX_LIMIT = 200
 DEFAULT_LIMIT = 50
 
 CACHE_TIMEOUT_SECONDS = 300
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3"
 
 UTC = ZoneInfo("UTC")
 
@@ -238,6 +241,9 @@ class _ProductBreakdownRowSerializer(serializers.Serializer):
         help_text="Number of $ai_generation + $ai_embedding events for this product."
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this product over the lookback window.")
+    billable = serializers.BooleanField(
+        help_text="Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules."
+    )
 
 
 class _ToolBreakdownRowSerializer(serializers.Serializer):
@@ -380,6 +386,12 @@ class _SummarySerializer(serializers.Serializer):
     )
     total_cost_usd = serializers.FloatField(
         help_text="Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter."
+    )
+    billable_cost_usd = serializers.FloatField(
+        help_text=(
+            "Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the "
+            "product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount."
+        )
     )
     event_count = serializers.IntegerField(
         help_text="Total $ai_generation + $ai_embedding events captured across every product."
@@ -557,8 +569,12 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     return {"items": rows[:limit], "truncated": len(rows) > limit}
 
 
+def _hogql_context(team: Team, database: Database) -> HogQLContext:
+    return HogQLContext(team_id=team.pk, team=team, database=database)
+
+
 def _fetch_summary(
-    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
+    team: Team, database: Database, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
 ) -> dict[str, Any]:
     query = parse_select(
         """
@@ -566,7 +582,8 @@ def _fetch_summary(
             countIf({product_filter}) AS scoped_event_count,
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd,
+            round(sumIf(toFloat(properties.$ai_total_cost_usd), properties.ai_product IN {billable_products}), 6) AS billable_cost_usd
         FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
@@ -575,14 +592,16 @@ def _fetch_summary(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
+            "billable_products": ast.Tuple(exprs=[ast.Constant(value=value) for value in sorted(BILLABLE_AI_PRODUCTS)]),
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendSummary",
     )
-    row = (result.results or [(0, 0.0, 0, 0.0)])[0]
+    row = (result.results or [(0, 0.0, 0, 0.0, 0.0)])[0]
     return {
         "date_from": from_dt,
         "date_to": to_dt,
@@ -591,11 +610,12 @@ def _fetch_summary(
         "scoped_cost_usd": float(row[1] or 0.0),
         "event_count": int(row[2] or 0),
         "total_cost_usd": float(row[3] or 0.0),
+        "billable_cost_usd": float(row[4] or 0.0),
     }
 
 
 def _fetch_by_product(
-    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, limit: int
+    team: Team, database: Database, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, limit: int
 ) -> dict[str, Any]:
     query = parse_select(
         """
@@ -619,11 +639,13 @@ def _fetch_by_product(
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByProduct",
     )
     rows = [
         {
             "product": row[0] if row[0] is not None else None,
+            "billable": row[0] in BILLABLE_AI_PRODUCTS,
             "event_count": int(row[1] or 0),
             "cost_usd": float(row[2] or 0.0),
         }
@@ -634,6 +656,7 @@ def _fetch_by_product(
 
 def _fetch_by_tool(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -670,6 +693,7 @@ def _fetch_by_tool(
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByTool",
     )
     rows = [
@@ -686,6 +710,7 @@ def _fetch_by_tool(
 
 def _fetch_by_model(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -720,6 +745,7 @@ def _fetch_by_model(
             "limit": ast.Constant(value=limit + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByModel",
     )
     rows = [
@@ -737,6 +763,7 @@ def _fetch_by_model(
 
 def _fetch_by_day(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -772,6 +799,7 @@ def _fetch_by_day(
             "limit": ast.Constant(value=BY_DAY_MAX_ROWS + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         # HogQL wraps `timestamp` in the team's configurable timezone by default, which would
         # shift the day buckets; days here are documented as UTC, so pin them.
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
@@ -792,6 +820,7 @@ def _fetch_by_day(
 
 def _fetch_by_day_model(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -821,6 +850,7 @@ def _fetch_by_day_model(
             "limit": ast.Constant(value=BY_DAY_MODEL_TOP_MODELS),
         },
         team=team,
+        context=_hogql_context(team, database),
         query_type="PersonalSpendByDayModelTopModels",
     )
     top_models = [row[0] for row in (top_models_result.results or []) if row[0] is not None]
@@ -861,6 +891,7 @@ def _fetch_by_day_model(
         query=query,
         placeholders=placeholders,
         team=team,
+        context=_hogql_context(team, database),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         query_type="PersonalSpendByDayModel",
     )
@@ -879,6 +910,7 @@ def _fetch_by_day_model(
 
 def _fetch_by_bucket(
     team: Team,
+    database: Database,
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
@@ -936,6 +968,7 @@ def _fetch_by_bucket(
             "limit": ast.Constant(value=MAX_TIME_BUCKETS + 1),
         },
         team=team,
+        context=_hogql_context(team, database),
         # Buckets are documented as UTC; pin them like by_day does.
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         query_type="PersonalSpendByBucket",
@@ -989,12 +1022,14 @@ def _compute_spend_analysis(
         logger.exception("personal_spend.team_missing", team_id=team_id)
         raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
+    database = Database.create_for_posthog_tables(team)
+
     # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
     # in the existing per-product Prometheus + cost-attribution dashboards alongside the
     # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-        summary = _fetch_summary(team, email, from_dt, to_dt, product)
-        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+        summary = _fetch_summary(team, database, email, from_dt, to_dt, product)
+        by_tool = _fetch_by_tool(team, database, email, from_dt, to_dt, product, limit)
         scoped = summary["scoped_cost_usd"] or 0.0
         # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
         # contribute to every tool. `share_of_scoped` is independent per row, so agents can
@@ -1004,13 +1039,13 @@ def _compute_spend_analysis(
 
         payload = {
             "summary": summary,
-            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+            "by_product": _fetch_by_product(team, database, email, from_dt, to_dt, limit),
             "by_tool": by_tool,
-            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-            "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
-            "by_day_model": _fetch_by_day_model(team, email, from_dt, to_dt, product),
+            "by_model": _fetch_by_model(team, database, email, from_dt, to_dt, product, limit),
+            "by_day": _fetch_by_day(team, database, email, from_dt, to_dt, product),
+            "by_day_model": _fetch_by_day_model(team, database, email, from_dt, to_dt, product),
             **(
-                {"by_bucket": _fetch_by_bucket(team, email, from_dt, to_dt, product, bucket_minutes)}
+                {"by_bucket": _fetch_by_bucket(team, database, email, from_dt, to_dt, product, bucket_minutes)}
                 if bucket_minutes is not None
                 else {}
             ),

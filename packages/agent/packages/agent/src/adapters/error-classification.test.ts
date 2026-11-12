@@ -58,7 +58,7 @@ describe("classifyAgentError", () => {
     ["Internal error: Flex capacity unavailable.", "upstream_rate_limited"],
     [
       "Selected model is at capacity. Please try a different model.",
-      "upstream_provider_failure",
+      "upstream_rate_limited",
     ],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",

@@ -7,9 +7,12 @@ use std::io::Read;
 
 use crate::bytescan::{self as scan, Span};
 use crate::compression;
+use crate::inspect::edits::EditSource;
 use serde::de::IgnoredAny;
 
-use super::canvas;
+use super::canvas::{self, CanvasImage};
+use crate::v4_image_refs::ImageDecline;
+
 use super::images::{extract_images, ImageSink};
 use super::message::{canonicalize_keys, Event, Message};
 
@@ -34,12 +37,61 @@ pub fn decode(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
 }
 
 fn compressed_bytes(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
+    match latin1_bytes(bytes, span) {
+        Some(compressed) => Ok(compressed),
+        None => unescaped_latin1(bytes, span),
+    }
+}
+
+fn unescaped_latin1(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
     let text = scan::unescape(bytes, span).map_err(|e| CvError::Malformed(e.0))?;
     let mut compressed = Vec::with_capacity(text.len());
     for c in text.chars() {
         compressed.push(u8::try_from(u32::from(c)).map_err(|_| CvError::NotLatin1)?);
     }
     Ok(compressed)
+}
+
+/// What [`unescaped_latin1`] returns for a string of latin-1 characters, in one pass. `None` for any other string.
+fn latin1_bytes(bytes: &[u8], span: Span) -> Option<Vec<u8>> {
+    let raw = bytes.get(span.0..span.1)?;
+    let inner = raw.strip_prefix(b"\"")?.strip_suffix(b"\"")?;
+    let mut out = Vec::with_capacity(inner.len());
+    let mut at = 0;
+    while let Some(&byte) = inner.get(at) {
+        at += 1;
+        let decoded = match byte {
+            b'\\' => {
+                at += 1;
+                match *inner.get(at - 1)? {
+                    escaped @ (b'"' | b'\\' | b'/') => escaped,
+                    b'b' => 0x08,
+                    b'f' => 0x0c,
+                    b'n' => b'\n',
+                    b'r' => b'\r',
+                    b't' => b'\t',
+                    b'u' => {
+                        let (character, consumed) = scan::decode_unicode(inner, at).ok()?;
+                        at += consumed;
+                        u8::try_from(u32::from(character)).ok()?
+                    }
+                    _ => return None,
+                }
+            }
+            0x00..=0x7f => byte,
+            0xc2 | 0xc3 => {
+                let next = *inner.get(at)?;
+                if next & 0xc0 != 0x80 {
+                    return None;
+                }
+                at += 1;
+                ((byte & 0x03) << 6) | (next & 0x3f)
+            }
+            _ => return None,
+        };
+        out.push(decoded);
+    }
+    Some(out)
 }
 
 fn decompress(compressed: &[u8]) -> Result<Vec<u8>, CvError> {
@@ -95,12 +147,11 @@ fn repaired_len(decoded: &[u8]) -> usize {
         .sum()
 }
 
-fn json_text(decoded: Vec<u8>) -> Option<Vec<u8>> {
-    let mut text = match String::from_utf8(decoded) {
-        Ok(text) => text.into_bytes(),
-        Err(error) => String::from_utf8_lossy(error.as_bytes())
-            .into_owned()
-            .into_bytes(),
+fn json_text(decoded: Vec<u8>, valid_utf8: bool) -> Option<Vec<u8>> {
+    let mut text = if valid_utf8 {
+        decoded
+    } else {
+        String::from_utf8_lossy(&decoded).into_owned().into_bytes()
     };
     if text.starts_with("\u{feff}".as_bytes()) {
         text.drain(..3);
@@ -276,11 +327,17 @@ fn expand_within(inner: &[u8], event: &Event, room: usize) -> (Expansion, usize)
             };
             let decoded_len = decoded.len();
             // The player's repair turns each invalid byte into three, so the repaired text must fit too.
-            if repaired_len(&decoded) > room.saturating_sub(cost) {
+            let valid_utf8 = std::str::from_utf8(&decoded).is_ok();
+            let repaired = if valid_utf8 {
+                decoded_len
+            } else {
+                repaired_len(&decoded)
+            };
+            if repaired > room.saturating_sub(cost) {
                 return (Expansion::Skipped, cost.saturating_add(decoded_len));
             }
             cost = cost.saturating_add(decoded_len);
-            let Some(json) = json_text(decoded) else {
+            let Some(json) = json_text(decoded, valid_utf8) else {
                 return (Expansion::Failed, cost);
             };
             // U+FFFD takes three bytes where an invalid byte took one.
@@ -387,20 +444,15 @@ impl<'b> Output<'b> {
         })
     }
 
-    fn scan_to(&mut self, end: usize, sink: &mut ImageSink<'_>) {
-        match extract_images(&self.bytes[self.copied_to..end], sink) {
-            Cow::Owned(extracted) => self.changed().extend_from_slice(&extracted),
-            Cow::Borrowed(same) => {
-                if let Some(out) = self.out.as_mut() {
-                    out.extend_from_slice(same);
-                }
-            }
+    fn copy_to(&mut self, end: usize) {
+        if let Some(out) = self.out.as_mut() {
+            out.extend_from_slice(&self.bytes[self.copied_to..end]);
         }
         self.copied_to = end;
     }
 
-    fn replace(&mut self, span: Span, with: &[u8], sink: &mut ImageSink<'_>) {
-        self.scan_to(span.0, sink);
+    fn replace(&mut self, span: Span, with: &[u8]) {
+        self.copy_to(span.0);
         self.changed().extend_from_slice(with);
         self.copied_to = span.1;
     }
@@ -408,18 +460,36 @@ impl<'b> Output<'b> {
 
 /// The event as a v4 block stores it, or `None` when that is the event as it arrived. Inline images become references,
 /// and the compressed strings of a `cv` event are expanded to JSON, without the `cv` marker. An event whose strings
-/// do not decode stays as it arrived, `cv` and images included. The stored event has no raw line break.
+/// do not decode keeps its `cv` strings and its images. The stored event has no raw line break, and its strings hold
+/// only the escapes that `write_json_string` writes.
 pub fn extract_event_images(
     inner: &[u8],
     event: &Event,
     sink: &mut ImageSink<'_>,
+    copy: Option<&mut Copier<'_>>,
 ) -> Option<Vec<u8>> {
-    let stored = stored_event(inner, event, sink);
-    let bytes = stored
-        .as_deref()
-        .unwrap_or(&inner[event.span.0..event.span.1]);
-    if let Cow::Owned(one_line) = without_line_breaks(bytes) {
-        return Some(one_line);
+    let (mut stored, takes_images) = match (&*expansion(inner, event), copy) {
+        (Expansion::Failed | Expansion::Skipped, _) => (None, false),
+        (Expansion::Decoded(fields), copy) => (Some(expanded(inner, event, fields, copy)), true),
+        // Only a canvas event holds canvas images, and only a DOM event holds slots that the writer changes.
+        (Expansion::Plain, Some(copy)) => {
+            let mut out = Vec::with_capacity(event.span.1 - event.span.0);
+            copy(EditSource::Payload, inner, event.span, &mut out);
+            (Some(out), true)
+        }
+        (Expansion::Plain, None) => (move_out_canvas_images(inner, event, sink), true),
+    };
+    let arrived = &inner[event.span.0..event.span.1];
+    if let Cow::Owned(one_line) = without_line_breaks(stored.as_deref().unwrap_or(arrived)) {
+        stored = Some(one_line);
+    }
+    if let Cow::Owned(canonical) = scan::canonical_strings(stored.as_deref().unwrap_or(arrived)) {
+        stored = Some(canonical);
+    }
+    if takes_images {
+        if let Cow::Owned(extracted) = extract_images(stored.as_deref().unwrap_or(arrived), sink) {
+            stored = Some(extracted);
+        }
     }
     stored
 }
@@ -454,30 +524,29 @@ fn without_line_breaks(bytes: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(out)
 }
 
-fn stored_event(inner: &[u8], event: &Event, sink: &mut ImageSink<'_>) -> Option<Vec<u8>> {
-    match &*expansion(inner, event) {
-        Expansion::Failed | Expansion::Skipped => None,
-        Expansion::Decoded(fields) => Some(expanded(inner, event, fields, sink)),
-        Expansion::Plain => {
-            let mut output = Output::new(inner, event.span);
-            let frame = event
-                .data
-                .and_then(|data| canvas::frame_image(inner, event.kind, event.source, data));
-            if let Some((mime, span)) = frame {
-                let payload = scan::unescape(inner, span).ok();
-                match payload.and_then(|p| sink.take(mime, p.as_bytes())) {
-                    Some(reference) => {
-                        let mut quoted = Vec::with_capacity(reference.len() + 2);
-                        scan::write_json_string(&reference, &mut quoted);
-                        output.replace(span, &quoted, sink);
-                    }
-                    None => sink.left_inline += 1,
-                }
-            }
-            output.scan_to(event.span.1, sink);
-            output.out
-        }
+fn move_out_canvas_images(
+    inner: &[u8],
+    event: &Event,
+    sink: &mut ImageSink<'_>,
+) -> Option<Vec<u8>> {
+    let mut output = Output::new(inner, event.span);
+    let images = event.data.map_or_else(Vec::new, |data| {
+        canvas::canvas_images(inner, event.kind, event.source, data)
+    });
+    for image in images {
+        let replacement = match image {
+            CanvasImage::Base64(span) => match scan::unescape(inner, span) {
+                Ok(payload) => sink.take_base64(payload.as_bytes()),
+                Err(_) => sink.decline(ImageDecline::Undecodable),
+            },
+            CanvasImage::Pixels(_) => sink.decline(ImageDecline::Unsupported),
+        };
+        let mut quoted = Vec::with_capacity(replacement.len() + 2);
+        scan::write_json_string(&replacement, &mut quoted);
+        output.replace(image.span(), &quoted);
     }
+    output.copy_to(event.span.1);
+    output.out
 }
 
 /// Writes the object at `span` entry by entry. `value` writes an entry's value, or returns false to leave the entry out.
@@ -485,8 +554,7 @@ fn write_object(
     bytes: &[u8],
     span: Span,
     out: &mut Vec<u8>,
-    sink: &mut ImageSink<'_>,
-    mut value: impl FnMut(&[u8], Span, &mut Vec<u8>, &mut ImageSink<'_>) -> bool,
+    mut value: impl FnMut(&[u8], Span, &mut Vec<u8>) -> bool,
 ) {
     out.push(b'{');
     let mut first = true;
@@ -501,7 +569,7 @@ fn write_object(
         }
         out.extend_from_slice(&bytes[entry.key.0 - 1..entry.key.1 + 1]);
         out.push(b':');
-        if value(&bytes[entry.key.0..entry.key.1], entry.value, out, sink) {
+        if value(&bytes[entry.key.0..entry.key.1], entry.value, out) {
             first = false;
         } else {
             out.truncate(mark);
@@ -510,7 +578,15 @@ fn write_object(
     out.push(b'}');
 }
 
-fn expanded(inner: &[u8], event: &Event, fields: &[Decoded], sink: &mut ImageSink<'_>) -> Vec<u8> {
+/// Copies a range of the payload or of a decoded string into the stored event, with what the writer changes there.
+pub type Copier<'c> = dyn FnMut(EditSource, &[u8], Span, &mut Vec<u8>) + 'c;
+
+fn expanded(
+    inner: &[u8],
+    event: &Event,
+    fields: &[Decoded],
+    mut copy: Option<&mut Copier<'_>>,
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(event.span.1 - event.span.0);
     let json = |span: Span| {
         fields
@@ -518,41 +594,39 @@ fn expanded(inner: &[u8], event: &Event, fields: &[Decoded], sink: &mut ImageSin
             .find(|f| f.span == span)
             .map(|f| f.json.as_deref())
     };
-    write_object(
-        inner,
-        event.span,
-        &mut out,
-        sink,
-        |key, value, out, sink| {
-            if key == b"cv" {
-                return false;
+    let mut put = |source: EditSource, bytes: &[u8], range: Span, out: &mut Vec<u8>| match &mut copy
+    {
+        Some(copy) => copy(source, bytes, range, out),
+        None => out.extend_from_slice(&bytes[range.0..range.1]),
+    };
+    write_object(inner, event.span, &mut out, |key, value, out| {
+        if key == b"cv" {
+            return false;
+        }
+        if key == b"data" {
+            if let Some(decoded) = json(value) {
+                // A full snapshot whose data is empty has no data, as in the player.
+                let Some(decoded) = decoded else { return false };
+                put(EditSource::Field(value), decoded, (0, decoded.len()), out);
+                return true;
             }
-            if key == b"data" {
-                if let Some(decoded) = json(value) {
-                    // A full snapshot whose data is empty has no data, as in the player.
-                    let Some(decoded) = decoded else { return false };
-                    out.extend_from_slice(&extract_images(decoded, sink));
-                    return true;
-                }
-                if scan::is_object(inner, value) {
-                    write_object(inner, value, out, sink, |_, value, out, sink| {
-                        match json(value) {
-                            Some(Some(decoded)) => {
-                                out.extend_from_slice(&extract_images(decoded, sink))
-                            }
-                            Some(None) => return false,
-                            None => out
-                                .extend_from_slice(&extract_images(&inner[value.0..value.1], sink)),
+            if scan::is_object(inner, value) {
+                write_object(inner, value, out, |_, value, out| {
+                    match json(value) {
+                        Some(Some(decoded)) => {
+                            put(EditSource::Field(value), decoded, (0, decoded.len()), out)
                         }
-                        true
-                    });
-                    return true;
-                }
+                        Some(None) => return false,
+                        None => put(EditSource::Payload, inner, value, out),
+                    }
+                    true
+                });
+                return true;
             }
-            out.extend_from_slice(&extract_images(&inner[value.0..value.1], sink));
-            true
-        },
-    );
+        }
+        put(EditSource::Payload, inner, value, out);
+        true
+    });
     out
 }
 
@@ -597,7 +671,10 @@ mod tests {
 
     #[test]
     fn stores_cv_events_expanded_with_their_images_moved_out() {
-        let image = format!("data:image/png;base64,{}", STANDARD.encode(b"png bytes"));
+        let image = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\npng bytes")
+        );
         let snapshot = json!({"node": {"attributes": {"src": image}}, "initialOffset": {"top": 0}});
         let adds = json!([{"parentId": 1, "node": {"attributes": {"src": image}}}]);
         let mut message = message_with(json!([
@@ -612,8 +689,10 @@ mod tests {
             .events
             .iter()
             .map(|e| {
-                serde_json::from_slice(&extract_event_images(&message.inner, e, &mut sink).unwrap())
-                    .unwrap()
+                serde_json::from_slice(
+                    &extract_event_images(&message.inner, e, &mut sink, None).unwrap(),
+                )
+                .unwrap()
             })
             .collect();
 
@@ -628,6 +707,60 @@ mod tests {
             json!({"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [{"parentId": 1, "node": {"attributes": {"src": reference}}}],
                 "texts": [{"id": 2, "value": "kept"}], "attributes": [{"id": 3, "attributes": {"src": reference}}]}})
         );
+    }
+
+    #[test]
+    fn moves_out_an_image_whose_data_uri_holds_json_escapes() {
+        let png = b"\x89PNG\r\n\x1a\npng bytes";
+        let payload = STANDARD.encode(png);
+        let escaped = |letter: char| format!("{}u{:04x}", '\\', u32::from(letter));
+        for uri in [
+            format!("{}ata:image/png;base64,{payload}", escaped('d')),
+            format!("data{}image/png;base64,{payload}", escaped(':')),
+            format!("DATA:{}mage/png;base64,{payload}", escaped('i')),
+        ] {
+            assert!(uri.contains('\\'), "{uri}");
+            let snapshot =
+                sdk_cv_text(&format!(r#"{{"node":{{"attributes":{{"src":"{uri}"}}}}}}"#));
+            let events = json!([
+                {"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                    "attributes": [{"id": 3, "attributes": {"src": "ESCAPED_URI"}}]}},
+                {"type": 2, "timestamp": 2, "data": snapshot, "cv": "2024-10"},
+            ]);
+            // Only JSON text can carry the escapes, so the URI goes in after serialization.
+            let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": "s", "$snapshot_items": events}})
+                .to_string()
+                .replace("ESCAPED_URI", &uri);
+            let mut message = read_message(
+                json!({"distinct_id": "d", "data": inner})
+                    .to_string()
+                    .into_bytes(),
+            )
+            .unwrap();
+            message.decode_compressed();
+            let mut sink = sink();
+            let stored: Vec<Value> = message
+                .events
+                .iter()
+                .map(|e| {
+                    let stored = extract_event_images(&message.inner, e, &mut sink, None)
+                        .unwrap_or_else(|| message.inner[e.span.0..e.span.1].to_vec());
+                    serde_json::from_slice(&stored).unwrap()
+                })
+                .collect();
+
+            assert_eq!(sink.images.len(), 1, "{uri}");
+            assert_eq!(sink.images[0].bytes, png, "{uri}");
+            let reference = json!(sink.images[0].reference);
+            assert_eq!(
+                stored[0]["data"]["attributes"][0]["attributes"]["src"], reference,
+                "{uri}"
+            );
+            assert_eq!(
+                stored[1]["data"]["node"]["attributes"]["src"], reference,
+                "{uri}"
+            );
+        }
     }
 
     #[test]
@@ -654,7 +787,7 @@ mod tests {
         );
         let mut sink = sink();
         assert_eq!(
-            extract_event_images(&message.inner, &message.events[1], &mut sink),
+            extract_event_images(&message.inner, &message.events[1], &mut sink, None),
             None
         );
 
@@ -760,7 +893,7 @@ mod tests {
         let stored: Vec<Vec<u8>> = message
             .events
             .iter()
-            .map(|e| extract_event_images(&message.inner, e, &mut sink).unwrap())
+            .map(|e| extract_event_images(&message.inner, e, &mut sink, None).unwrap())
             .collect();
         assert!(stored
             .iter()
@@ -791,7 +924,8 @@ mod tests {
         let mut message =
             message_with(json!([{"type": 2, "timestamp": 1, "data": compressed, "cv": "2024-10"}]));
         message.decode_compressed();
-        let stored = extract_event_images(&message.inner, &message.events[0], &mut sink()).unwrap();
+        let stored =
+            extract_event_images(&message.inner, &message.events[0], &mut sink(), None).unwrap();
         assert!(String::from_utf8_lossy(&stored).contains(r#""textContent":"a"#));
         assert_eq!(
             serde_json::from_slice::<Value>(&stored).unwrap(),
@@ -800,8 +934,49 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_latin1_string_in_one_pass_as_the_unescaper_does() {
+        let mut strings: Vec<Vec<u8>> = Vec::new();
+        for code in 0..=0x17f_u32 {
+            let character = char::from_u32(code).unwrap();
+            strings.push(serde_json::to_vec(&format!("a{character}b")).unwrap());
+            strings.push(format!(r#""\u{code:04x}\u{code:04X}""#).into_bytes());
+        }
+        strings.push(br#""\"\\\/\b\f\n\r\t""#.to_vec());
+        for malformed in [
+            &br#""\q""#[..],
+            br#""\"#,
+            br#""\u00""#,
+            br#""\ud83d\ude00""#,
+            br#""\ud83d""#,
+            b"\"\xc3\"",
+            b"\"\xc3\x28\"",
+            b"\"\xc0\x80\"",
+            b"\"\x80\"",
+            b"\"\xe2\x82\xac\"",
+            b"\"",
+            b"no quotes",
+        ] {
+            strings.push(malformed.to_vec());
+        }
+        let mut read = 0;
+        for string in &strings {
+            let span = (0, string.len());
+            let expected = unescaped_latin1(string, span);
+            if let Some(bytes) = latin1_bytes(string, span) {
+                read += 1;
+                assert_eq!(Ok(bytes), expected, "{}", string.escape_ascii());
+            }
+            assert_eq!(compressed_bytes(string, span), expected);
+        }
+        assert_eq!(read, 2 * 256 + 1);
+    }
+
+    #[test]
     fn leaves_a_cv_event_that_does_not_decode_as_it_arrived() {
-        let image = format!("data:image/png;base64,{}", STANDARD.encode(b"png bytes"));
+        let image = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\npng bytes")
+        );
         let message = message_with(json!([
             {"type": 2, "timestamp": 1, "data": format!("not gzip {image}"), "cv": "2024-10"},
             // One list that does not decode fails the whole event, as in the player. So does a list sent uncompressed.
@@ -813,59 +988,146 @@ mod tests {
         ]));
         let mut sink = sink();
         for event in &message.events {
-            assert_eq!(extract_event_images(&message.inner, event, &mut sink), None);
+            assert_eq!(
+                extract_event_images(&message.inner, event, &mut sink, None),
+                None
+            );
         }
         assert!(sink.images.is_empty());
     }
 
     #[test]
-    fn moves_only_the_posthog_js_canvas_frame() {
-        let frame = |draw_args: Value| {
-            json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 4, "type": 0, "commands": [
-                {"property": "clearRect", "args": [0, 0, 8, 8]},
-                {"property": "drawImage", "args": draw_args},
-            ]}})
-        };
-        let bitmap = |mime: &str, buffer: &str| {
-            json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": mime,
-                "data": [{"rr_type": buffer, "base64": STANDARD.encode(b"frame bytes")}]}]})
-        };
+    fn moves_every_canvas_image_out_or_declines_it() {
+        enum Outcome {
+            Stored(&'static str),
+            Marker(ImageDecline),
+            Kept,
+        }
+        let png = b"\x89PNG\r\n\x1a\nframe".as_slice();
+        let buffer =
+            |bytes: &[u8]| json!({"rr_type": "ArrayBuffer", "base64": STANDARD.encode(bytes)});
+        let bitmap = |mime: &str, bytes: &[u8]| json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": mime, "data": [buffer(bytes)]}]});
+        let commands = |commands: Value| json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 4, "type": 0, "commands": commands}});
+        let webgl = |property: &str, args: Value| json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 5, "type": 1, "property": property, "args": args}});
+        let draw =
+            |image: Value| commands(json!([{"property": "drawImage", "args": [image, 0, 0]}]));
+        let blob = "/args/0/data/0/base64";
         let cases = [
             (
-                frame(json!([bitmap("image/webp", "ArrayBuffer"), 0, 0, 8, 8])),
-                true,
+                commands(json!([{"property": "clearRect", "args": [0, 0, 8, 8]},
+                    {"property": "drawImage", "args": [bitmap("image/webp", b"RIFF\x00\x00\x00\x00WEBPframe"), 0, 0, 8, 8]}])),
+                format!("/data/commands/1/args/0{blob}"),
+                Outcome::Stored("image/webp"),
             ),
             (
-                frame(json!([bitmap("image/png", "ArrayBuffer"), 0, 0])),
-                true,
+                commands(json!([{"property": "fillRect", "args": [0, 0, 1, 1]},
+                    {"property": "drawImage", "args": [bitmap("image/gif", b"GIF89aframe"), 0, 0]}])),
+                format!("/data/commands/1/args/0{blob}"),
+                Outcome::Stored("image/gif"),
             ),
             (
-                frame(json!([bitmap("image/gif", "ArrayBuffer"), 0, 0])),
-                false,
+                webgl(
+                    "texImage2D",
+                    json!([3553, 0, 6408, 6408, 5121, bitmap("image/png", png)]),
+                ),
+                format!("/data/args/5{blob}"),
+                Outcome::Stored("image/png"),
             ),
             (
-                frame(json!([bitmap("image/png", "Uint8Array"), 0, 0])),
-                false,
+                draw(
+                    json!({"rr_type": "HTMLImageElement", "src": format!("data:image/png;base64,{}", STANDARD.encode(png))}),
+                ),
+                "/data/commands/0/args/0/src".to_owned(),
+                Outcome::Stored("image/png"),
             ),
-            (frame(json!([bitmap("image/png", "ArrayBuffer"), 0])), false),
             (
-                json!({"type": 3, "timestamp": 1, "data": {"source": 9, "id": 4, "type": 0, "commands": [
-                    {"property": "putImageData", "args": [{"rr_type": "ArrayBuffer", "base64": STANDARD.encode(b"pixels")}, 0, 0]},
-                ]}}),
-                false,
+                draw(bitmap("image/bmp", b"BMbitmap")),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(ImageDecline::Unsupported),
+            ),
+            (
+                draw(bitmap(
+                    "image/avif",
+                    b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
+                )),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Stored("image/avif"),
+            ),
+            (
+                draw(bitmap(
+                    "image/avif",
+                    b"\x00\x00\x00\x20ftypavis\x00\x00\x00\x00avisavifmif1msf1",
+                )),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(ImageDecline::Avif),
+            ),
+            (
+                draw(
+                    json!({"rr_type": "ImageBitmap", "args": [{"rr_type": "Blob", "type": "image/png",
+                    "data": [{"rr_type": "ArrayBuffer", "base64": "A"}]}]}),
+                ),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(ImageDecline::Undecodable),
+            ),
+            (
+                commands(
+                    json!([{"property": "putImageData", "args": [{"rr_type": "ImageData",
+                    "args": [{"rr_type": "Uint8ClampedArray", "args": [[255, 0, 0, 255]]}, 1, 1]}, 0, 0]}]),
+                ),
+                "/data/commands/0/args/0/args/0".to_owned(),
+                Outcome::Marker(ImageDecline::Unsupported),
+            ),
+            (
+                webgl(
+                    "texImage2D",
+                    json!([3553, 0, 6408, 1, 1, 0, 6408, 5121, {"rr_type": "Uint8Array", "args": [[255, 0, 0, 255]]}]),
+                ),
+                "/data/args/8/args/0".to_owned(),
+                Outcome::Marker(ImageDecline::Unsupported),
+            ),
+            (
+                webgl("bufferData", json!([34962, buffer(b"vertices"), 35044])),
+                "/data/args/1/base64".to_owned(),
+                Outcome::Marker(ImageDecline::Unsupported),
+            ),
+            (
+                draw(json!({"rr_type": "HTMLImageElement", "src": "https://example.com/a.png"})),
+                String::new(),
+                Outcome::Kept,
+            ),
+            (
+                webgl(
+                    "uniform4fv",
+                    json!([{"rr_type": "WebGLUniformLocation", "index": 0},
+                    {"rr_type": "Float32Array", "args": [[0.5, 0.5, 0.5, 1]]}]),
+                ),
+                String::new(),
+                Outcome::Kept,
             ),
         ];
-        for (event, moved) in cases {
+        for (event, pointer, outcome) in cases {
             let message = message_with(json!([event]));
             let mut sink = sink();
-            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink);
-            assert_eq!(stored.is_some(), moved, "{event}");
-            if let Some(stored) = stored {
-                let stored: Value = serde_json::from_slice(&stored).unwrap();
-                let blob = &stored["data"]["commands"][1]["args"][0]["args"][0];
-                assert_eq!(blob["data"][0]["base64"], sink.images[0].reference.as_str());
-                assert_eq!(blob["type"], sink.images[0].mime.as_str());
-            }
+            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink, None)
+                .map(|stored| serde_json::from_slice::<Value>(&stored).unwrap());
+            let replacement = match outcome {
+                Outcome::Kept => {
+                    assert_eq!(stored, None, "{event}");
+                    continue;
+                }
+                Outcome::Stored(mime) => {
+                    assert_eq!(sink.images.len(), 1, "{event}");
+                    assert_eq!(sink.images[0].mime, mime, "{event}");
+                    sink.images[0].reference.clone()
+                }
+                Outcome::Marker(reason) => {
+                    assert!(sink.images.is_empty(), "{event}");
+                    reason.marker().to_owned()
+                }
+            };
+            let mut expected = event.clone();
+            *expected.pointer_mut(&pointer).unwrap() = json!(replacement);
+            assert_eq!(stored, Some(expected), "{event}");
         }
     }
 }

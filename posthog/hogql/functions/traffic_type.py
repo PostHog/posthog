@@ -29,7 +29,7 @@ from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS, SERVER_AND_MOBILE_SDK_LIBS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
     BOT_IP_DEFINITIONS,
     bot_ip_prefix_groups_by_definition,
@@ -51,7 +51,13 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 
-COOKIELESS_MODE_FIELD = "$cookieless_mode"
+DEVICE_ID_FIELD = "$device_id"
+# Cookieless ingestion gives every event it processes a `$device_id` with this prefix
+# (`baseHashToDeviceId` in nodejs/src/ingestion/common/cookieless/cookieless-manager.ts). The
+# check reads the materialized `$device_id` column. `$cookieless_mode` marks the same events but
+# has no materialized column, so reading it reads the whole `properties` column of every row.
+COOKIELESS_DEVICE_ID_PREFIX = "cookielessd_"
+LIB_FIELD = "$lib"
 
 
 def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBotGroup]:
@@ -104,25 +110,43 @@ def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
     return None
 
 
-def _cookieless_missing_user_agent(
+def _string_property(property_expr: ast.Expr) -> ast.Expr:
+    return ast.Call(name="ifNull", args=[ast.Call(name="toString", args=[property_expr]), ast.Constant(value="")])
+
+
+def _expected_missing_user_agent(
     args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"]
 ) -> Optional[ast.Expr]:
-    if modifiers is None or not modifiers.cookielessTrafficIsRegular:
+    """Match events whose user agent is missing for a known reason, so the empty-user-agent rule
+    does not count them as automation. Positive bot signals and project rules still apply.
+
+    Two reasons are known: a cookieless event (when the modifier is on), and an event from a server
+    or mobile SDK, which sends no user agent unless the app forwards one.
+    """
+    reasons: list[ast.Expr] = []
+    if modifiers is not None and modifiers.cookielessTrafficIsRegular:
+        device_id_expr = _property_expr(DEVICE_ID_FIELD, args)
+        if device_id_expr is not None:
+            reasons.append(
+                ast.Call(
+                    name="startsWith",
+                    args=[_string_property(device_id_expr), ast.Constant(value=COOKIELESS_DEVICE_ID_PREFIX)],
+                )
+            )
+    lib_expr = _property_expr(LIB_FIELD, args)
+    if lib_expr is not None:
+        reasons.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=_string_property(lib_expr),
+                right=ast.Tuple(exprs=[ast.Constant(value=lib) for lib in SERVER_AND_MOBILE_SDK_LIBS]),
+            )
+        )
+    if not reasons:
         return None
-    cookieless_expr = _property_expr(COOKIELESS_MODE_FIELD, args)
-    if cookieless_expr is None:
-        return None
-    cookieless = ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Call(
-            name="ifNull",
-            args=[ast.Call(name="toString", args=[cookieless_expr]), ast.Constant(value="")],
-        ),
-        right=ast.Constant(value="true"),
-    )
     return ast.And(
         exprs=[
-            cookieless,
+            reasons[0] if len(reasons) == 1 else ast.Or(exprs=reasons),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Call(name="ifNull", args=[args[0], ast.Constant(value="")]),
@@ -312,7 +336,7 @@ def _build_bot_array_lookup(
 
     builtin_labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
     groups = _custom_groups(modifiers)
-    cookieless = _cookieless_missing_user_agent(args, modifiers)
+    expected_missing = _expected_missing_user_agent(args, modifiers)
 
     if not groups:
         # No project rules: one pass over the built-in patterns plus the empty-user-agent sentinel.
@@ -327,12 +351,12 @@ def _build_bot_array_lookup(
                 ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
             ],
         )
-        if cookieless is None:
+        if expected_missing is None:
             return lookup
-        return ast.Call(name="if", args=[cookieless, fallback, lookup])
+        return ast.Call(name="if", args=[expected_missing, fallback, lookup])
 
     # With project rules the checks become an ordered chain, in this order: the project's own
-    # rules, then the cookieless missing-UA fallback, then the built-ins, then the empty user
+    # rules, then the expected missing-UA fallback, then the built-ins, then the empty user
     # agent, then the built-in IP ranges. A rule someone wrote by hand says more about what
     # they want counted than a default we shipped, so a matching project rule always wins.
     #
@@ -344,8 +368,8 @@ def _build_bot_array_lookup(
         branch = _custom_group_branch(group, args, attr)
         if branch is not None:
             branches.extend([branch.matched, branch.label])
-    if cookieless is not None:
-        branches.extend([cookieless, fallback])
+    if expected_missing is not None:
+        branches.extend([expected_missing, fallback])
     builtin_index = ast.Call(
         name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
@@ -421,8 +445,9 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     HogQL function: isLikelyBot(user_agent[, ip])
 
     Returns true if the user agent matches bot/automation patterns, or (when given) the
-    client IP falls in a known bot IP range. NULL user agents are treated as bots
-    (empty UA is considered automation).
+    client IP falls in a known bot IP range. NULL or empty user agents count as automation,
+    except on events from server and mobile SDKs (and cookieless events when that modifier is
+    on), where a missing user agent is expected.
 
     Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.);
     the IP check is a handful of hash-set lookups and only evaluates for rows the UA check
@@ -439,9 +464,9 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
     builtin_matched: ast.Expr = _matched(index_call)
-    cookieless = _cookieless_missing_user_agent(args, modifiers)
-    if cookieless is not None:
-        builtin_matched = ast.And(exprs=[ast.Not(expr=cookieless), builtin_matched])
+    expected_missing = _expected_missing_user_agent(args, modifiers)
+    if expected_missing is not None:
+        builtin_matched = ast.And(exprs=[ast.Not(expr=expected_missing), builtin_matched])
 
     conditions: list[ast.Expr] = [builtin_matched]
     for group in _custom_groups(modifiers):

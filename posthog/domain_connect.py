@@ -30,7 +30,10 @@ from posthog.schema import DomainConnectProviderName
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
+    from posthog.integrations import IntegrationRecord
+
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
 
@@ -253,18 +256,20 @@ def resolve_email_context(
     integration_id: int,
     team_id: int,
     *,
-    on_domain_verified: Callable[["Integration"], None] | None = None,
+    on_domain_verified: Callable[["IntegrationRecord"], None] | None = None,
 ) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
     template variables needed for the email-verification template.
-    """
-    from posthog.models.integration import EmailIntegration, Integration
 
-    instance = Integration.objects.get(id=integration_id, team_id=team_id)
-    if instance.kind != "email":
-        raise ValueError("Integration must be of kind 'email'")
+    Raises `IntegrationNotFound` before any SES call when the team has no email
+    integration with this id.
+    """
+    from posthog.integrations import IntegrationManager
+    from posthog.models.integration import EmailIntegration
+
+    instance = IntegrationManager.email.credentials.get(team_id, integration_id)
 
     email_integration = EmailIntegration(instance)
     verification_result = email_integration.verify(
@@ -399,6 +404,10 @@ def _txt_value(rdata: TXTBase) -> str:
 
 
 def _dmarc_absence_confirmed(domain: str) -> bool:
+    if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
+        # Same answer as a lookup that failed: absence is not confirmed, so no caller claims it.
+        return False
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
         return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
@@ -414,6 +423,9 @@ def _lookup_domain_connect_endpoint(domain: str) -> str | None:
 
     Returns the first TXT record value or None if not found.
     """
+    if is_cloud() and (oob_domain := matched_oob_domain(domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
+        return None
     try:
         answers = dns.resolver.resolve(f"_domainconnect.{domain}", "TXT")
         for rdata in answers:

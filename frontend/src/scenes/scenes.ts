@@ -18,6 +18,7 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { SettingSectionId } from './settings/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -100,11 +101,24 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-full-scene-height',
         hideProjectNotice: true,
     },
+    [Scene.WorkloadTrustPolicyRequest]: {
+        projectBased: true,
+        layout: 'plain',
+        name: 'Trusted workload request',
+        description: 'Review a request to trust a workload',
+    },
     [Scene.CLIAuthorize]: {
         name: 'Authorize CLI',
         projectBased: false,
         organizationBased: false,
         layout: 'plain',
+    },
+    [Scene.OAuthDeviceAuthorize]: {
+        name: 'Approve a login',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+        allowUnauthenticated: true,
     },
     [Scene.CLILive]: {
         name: 'Authorize Live',
@@ -159,10 +173,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
-    [Scene.ErrorAccessDenied]: { name: 'Access denied' },
+    [Scene.ErrorAccessDenied]: { name: 'Access denied', hideProjectNotice: true },
     [Scene.ErrorNetwork]: { name: 'Network error' },
-    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
-    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied', hideProjectNotice: true },
+    [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable', hideProjectNotice: true },
     // Any scene can fail to mount, including a logged-out one (login, signup, invite, password reset),
     // so this generic error scene must render for both logged-out and logged-in visitors.
     [Scene.ErrorSceneLoad]: { name: 'Page could not load', allowUnauthenticated: true },
@@ -543,11 +557,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Drop events at ingestion time based on event metadata.',
         iconType: 'data_pipeline',
     },
-    [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
-    [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
-    [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
-    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -638,6 +652,8 @@ export const redirects: Record<
     '/views/new': urls.analyticsList(),
     // Analytics opens on View all; the bare path stays as the pane's prefix.
     [urls.analytics()]: urls.analyticsList(),
+    // Collections were called spaces; this keeps old links working.
+    '/analytics/spaces': urls.analyticsSpaces(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -731,6 +747,8 @@ export const redirects: Record<
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
+    '/project/settings/:section': ({ section }, _searchParams, hashParams) =>
+        combineUrl(urls.settings(section as SettingSectionId), {}, hashParams).url,
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
@@ -846,6 +864,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
+    // pinned: the backend builds this path into the approval link it returns, which people share
+    [urls.workloadTrustPolicyRequest(':id')]: [Scene.WorkloadTrustPolicyRequest, 'workloadTrustPolicyRequest'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
@@ -897,6 +917,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
     [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
+    [urls.oauthDeviceAuthorize()]: [Scene.OAuthDeviceAuthorize, 'oauthDeviceAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],

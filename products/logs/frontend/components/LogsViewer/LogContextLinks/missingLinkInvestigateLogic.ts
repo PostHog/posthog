@@ -1,21 +1,17 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
+import { MAX_SIDE_PANEL_ID, type PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import { type ActiveCreation, runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
-import {
-    type ActiveCreation,
-    type ComposerSeed,
-    composerSeedLogic,
-    runnerPanelLogic,
-} from 'products/posthog_ai/frontend/api/logics'
+import { type ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { InvestigateRoute, MissingLinkEventContext, captureInvestigate } from './missingLinkTelemetry'
 

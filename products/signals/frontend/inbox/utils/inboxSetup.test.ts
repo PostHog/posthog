@@ -1,8 +1,10 @@
+import type { InboxOnboardingDraftApi, SelfDrivingTrialStatusApi } from '../../generated/api.schemas'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
 import type { SourceProductStatus } from '../signalSourcesLogic'
-import { newInboxSetupDraft, reconcileInboxSetupDraft, setupSources } from './inboxSetup'
-import { inboxSetupDefaultScouts, inboxSetupScoutChoices } from './inboxSetupScouts'
+import type { SignalSourceConfig } from '../types'
+import { ONBOARDING_SOURCE_PRODUCTS, newInboxSetupDraft, reconcileInboxSetupDraft, setupSources } from './inboxSetup'
+import { inboxSetupDefaultScouts, inboxSetupScoutChoices, inboxSetupScoutLimit } from './inboxSetupScouts'
 
 describe('Inbox setup defaults', () => {
     it.each(['none', 'loading', 'error'] as const)(
@@ -19,7 +21,6 @@ describe('Inbox setup defaults', () => {
                     },
                 },
                 0,
-                {},
                 false
             )
             expect(newInboxSetupDraft(sources, []).sources).toEqual([])
@@ -38,7 +39,6 @@ describe('Inbox setup defaults', () => {
                 },
             },
             1,
-            {},
             false
         )
         const draft = newInboxSetupDraft(sources, ['scanner-id'])
@@ -49,24 +49,37 @@ describe('Inbox setup defaults', () => {
         expect(draft.implementation_priority).toBe('P1')
     })
 
-    it('uses connected warehouse sources before a signal config exists and points to missing tables', () => {
-        const sources = setupSources([], {}, 0, {}, false, [
-            { id: 'linear-source', source_type: 'Linear', schemas: [{ name: 'issues' }] },
-            { id: 'github-source', source_type: 'Github', schemas: [{ name: 'issues' }] },
-        ])
-        expect(newInboxSetupDraft(sources, []).sources).toEqual([
-            { source_product: 'linear', source_type: 'issue', enabled: true },
-        ])
-        for (const excluded of ['pganalyze', 'github', 'engineering_analytics']) {
-            expect(sources.some((source) => source.definition.source === excluded)).toBe(false)
+    it('never offers a warehouse-backed source, even when its signal config already exists', () => {
+        const linearConfig: SignalSourceConfig = {
+            id: 'linear-config',
+            source_product: 'linear',
+            source_type: 'issue',
+            enabled: true,
+            config: {},
+            created_at: '2026-10-01T00:00:00Z',
+            updated_at: '2026-10-01T00:00:00Z',
+            status: null,
         }
-        const missingTables = setupSources([], {}, 0, {}, false, [
-            { id: 'linear-source', source_type: 'Linear', schemas: [] },
+        const sources = setupSources([linearConfig], {}, 0, false)
+        expect(sources.every((source) => ONBOARDING_SOURCE_PRODUCTS.has(source.definition.sourceProduct))).toBe(true)
+        expect(sources.some((source) => source.definition.source === 'linear')).toBe(false)
+        expect(newInboxSetupDraft(sources, []).sources).toEqual([])
+    })
+
+    it('drops warehouse-backed sources from a saved draft and keeps PostHog choices', () => {
+        const sources = setupSources([], {}, 0, false)
+        const saved: InboxOnboardingDraftApi = {
+            ...newInboxSetupDraft(sources, []),
+            sources: [
+                { source_product: 'error_tracking', source_type: 'issue_created', enabled: false },
+                { source_product: 'linear', source_type: 'issue', enabled: true },
+            ],
+        }
+        expect(reconcileInboxSetupDraft(saved, sources).sources).toEqual([
+            { source_product: 'error_tracking', source_type: 'issue_created', enabled: false },
         ])
-        const linear = missingTables.find((source) => source.definition.source === 'linear')
-        expect(linear?.available).toBe(false)
-        expect(linear?.setupUrl).toContain('linear-source')
-        expect(newInboxSetupDraft(missingTables, []).sources).toEqual([])
+        const clean: InboxOnboardingDraftApi = { ...saved, sources: saved.sources.slice(0, 1) }
+        expect(reconcileInboxSetupDraft(clean, sources)).toBe(clean)
     })
 
     it.each([
@@ -99,7 +112,6 @@ describe('Inbox setup defaults', () => {
             'replay-vision',
             'ai-observability',
             'conversations',
-            'data-warehouse',
             'health-checks',
         ]
         const configs = names.map((name) => ({
@@ -129,9 +141,7 @@ describe('Inbox setup defaults', () => {
                 dataStatus: 'unavailable',
             },
         }
-        const sources = setupSources([], statuses, 1, {}, true, [
-            { id: 'linear-source', source_type: 'Linear', schemas: [{ name: 'issues' }] },
-        ])
+        const sources = setupSources([], statuses, 1, true)
         expect(inboxSetupDefaultScouts(configs, sources, true, statuses).map((scout) => scout.skill_name)).toEqual(
             names.map((name) => `signals-scout-${name}`)
         )
@@ -139,7 +149,7 @@ describe('Inbox setup defaults', () => {
             'signals-scout-general',
         ])
         expect(inboxSetupDefaultScouts([], sources, true)).toEqual([])
-        const withoutScanners = setupSources([], statuses, 0, {}, false)
+        const withoutScanners = setupSources([], statuses, 0, false)
         const replayChoices = inboxSetupDefaultScouts(configs, withoutScanners, false, statuses).map(
             (scout) => scout.skill_name
         )
@@ -160,5 +170,29 @@ describe('Inbox setup defaults', () => {
             ...overrides,
         }
         expect(inboxSetupDefaultScouts([config], [], true)).toEqual([])
+    })
+
+    const operational = {
+        enabled: true,
+        scout_role: 'operational' as const,
+        skill_name: 'signals-scout-inbox-validation',
+    }
+    const specialist = { enabled: true, scout_role: 'specialist' as const, skill_name: 'signals-scout-general' }
+    it.each([
+        ['no trial', null, [operational], 5],
+        ['eligible trial ignores the operational scout', { eligible: true }, [operational], 3],
+        ['active trial counts a scout that is already on', { grant_status: 'active' }, [operational, specialist], 2],
+        ['exhausted trial', { grant_status: 'exhausted' }, [operational, specialist], 5],
+    ])('limits scout selection to the free trial slots: %s', (_name, trialOverrides, configs, limit) => {
+        const trial =
+            trialOverrides &&
+            ({
+                enabled: true,
+                eligible: false,
+                grant_status: 'not_claimed',
+                scout_limit: 3,
+                ...trialOverrides,
+            } as SelfDrivingTrialStatusApi)
+        expect(inboxSetupScoutLimit(trial, configs, { suggestions: [] }).limit).toBe(limit)
     })
 })

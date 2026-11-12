@@ -1,0 +1,18 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/event_definitions/golang/",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  ],
+  "files": {
+    "posthog-typed.go": "utf8:/**\n * GENERATED FILE - DO NOT EDIT\n * Language: golang\n */\nexport type EventName = \"sign up\" | \"café ☕\"\n// end",
+    "posthog.json": "utf8:{\n  \"languages\": {\n    \"golang\": {\n      \"event_count\": 2,\n      \"output_path\": \"posthog-typed.go\",\n      \"schema_hash\": \"hash-golang\",\n      \"updated_at\": \"<time>\"\n    }\n  }\n}"
+  }
+}

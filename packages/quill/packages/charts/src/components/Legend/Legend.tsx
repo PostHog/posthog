@@ -1,12 +1,35 @@
 /* eslint-disable react/forbid-dom-props -- swatch color and the per-count row cap are dynamic values */
 import React from 'react'
 
+import { LegendTable } from './LegendTable'
+
+/** A per-series summary a legend table can show as a column, computed over the series' finite
+ *  values. `delta` is the last value minus the first. */
+export type LegendValue = 'mean' | 'min' | 'max' | 'last' | 'sum' | 'delta'
+
+export interface LegendTableConfig {
+    values: LegendValue[]
+    /** Read on mount only. Omit to keep the series order. A header click changes the sort. */
+    defaultSort?: {
+        by: 'label' | LegendValue
+        /** Defaults to true for a value column and false for `'label'`, the order a header click starts with. */
+        descending?: boolean
+    }
+    /** Formats a value cell. The time-series charts default to the series' axis tick format; the
+     *  others to a locale number with significant decimals. */
+    valueFormatter?: (value: number, item: LegendItem) => string
+}
+
 export interface LegendItem {
     key: string
     label: string
     color: string
     /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
     secondaryLabel?: string
+    /** Extra classes for the color swatch, for example a dashed outline. */
+    swatchClassName?: string
+    /** Per-series summaries for a value-column legend, `null` when the series has no finite value. */
+    values?: Partial<Record<LegendValue, number | null>>
 }
 
 /** Which gesture a legend row click was: a plain click means "isolate this series", a modified one
@@ -28,6 +51,7 @@ export interface LegendProps {
     /** Wrap each row — receives the default row node and its item, returns the node to render.
      *  Use to augment rows (e.g. a right-click context menu) while keeping the default rendering. */
     renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
+    table?: LegendTableConfig
 }
 
 // Align a horizontal legend with `justify-content` so wrapped rows stay centered (or start/end) within the
@@ -48,9 +72,23 @@ export function Legend({
     className,
     dataAttr,
     renderItem,
+    table,
 }: LegendProps): React.ReactElement | null {
     if (items.length === 0) {
         return null
+    }
+    if (table?.values.length) {
+        return (
+            <LegendTable
+                items={items}
+                table={table}
+                onItemClick={onItemClick}
+                hiddenKeys={hiddenKeys}
+                className={className}
+                dataAttr={dataAttr}
+                renderItem={renderItem}
+            />
+        )
     }
     const hidden = hiddenKeys?.length ? new Set(hiddenKeys) : null
     const isVertical = orientation === 'vertical'
@@ -83,7 +121,7 @@ export function Legend({
                     <>
                         <span
                             aria-hidden="true"
-                            className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                            className={`inline-block w-2.5 h-2.5 rounded-sm shrink-0 ${item.swatchClassName ?? ''}`}
                             style={{ backgroundColor: item.color }}
                         />
                         <span className="truncate min-w-0" title={item.label} data-attr="hog-chart-legend-label">

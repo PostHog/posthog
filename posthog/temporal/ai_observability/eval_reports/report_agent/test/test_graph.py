@@ -131,6 +131,10 @@ class TestSystemPromptFormat(SimpleTestCase):
                     "must call `get_generation_detail` before claiming",
                     "cache_read_input_tokens",
                     "cache_creation_input_tokens",
+                    "input_length",
+                    "Prompt caching is normal",
+                    "A trace can contain many generations",
+                    "Recheck any such caveat from a prior report",
                 ],
                 ["sample_trace_details", "sample_session_details"],
             ),
@@ -493,6 +497,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             session_id="report-session-1",
             properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
             distinct_id="team-1",
+            use_responses_api=True,
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)

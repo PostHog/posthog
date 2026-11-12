@@ -6,7 +6,9 @@ import {
     FIXTURE_ATTACHMENT_PARTS,
     FIXTURE_ATTACHMENT_REJECTED_IMAGE_URL,
     FIXTURE_ATTACHMENT_SAME_ORIGIN_AUDIO,
+    withWidth,
 } from '../storyFixtures'
+import { MessagePart } from '../types'
 import { MessagePartView } from './MessagePartView'
 
 const meta: Meta<typeof MessagePartView> = {
@@ -31,7 +33,12 @@ export const Thinking: Story = {
 }
 export const ToolCall: Story = {
     args: {
-        part: { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: { total_usd: 180 } },
+        part: {
+            kind: 'toolCall',
+            name: 'lookup_invoice',
+            args: { month: '2026-08' },
+            result: { total_usd: 180 },
+        },
     },
 }
 export const ToolCallMultilineArgs: Story = {
@@ -48,16 +55,22 @@ export const ToolCallMultilineArgs: Story = {
         },
     },
 }
-export const ToolCallError: Story = {
-    args: {
-        part: {
-            kind: 'toolCall',
-            name: 'lookup_invoice',
-            args: { month: '2026-08' },
-            result: 'Timeout',
-            isError: true,
-        },
+const longResultPart: MessagePart = {
+    kind: 'toolCall',
+    name: 'lookup_seat_history',
+    args: { team: 'team-42', months: 2 },
+    result: {
+        history: [
+            { month: '2026-08', seats: 4, note: 'Seat count from the billing snapshot taken on the first day.' },
+            { month: '2026-09', seats: 6, note: 'Two seats added mid-month, prorated on the next invoice.' },
+        ],
     },
+}
+export const ToolCallLongResultFolded: Story = { args: { part: longResultPart }, decorators: [withWidth(420)] }
+// A matching search query opens the fold without a click, so the snapshot does not depend on play timing.
+export const ToolCallLongResultOpenWraps: Story = {
+    args: { part: longResultPart, highlightQuery: '2026-09' },
+    decorators: [withWidth(420)],
 }
 export const Attachments: Story = {
     render: () => (

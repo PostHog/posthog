@@ -5,7 +5,7 @@ import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { fileURLToPath } from 'node:url'
 import path from 'path'
 
-import type { Mocks } from '~/mocks/utils'
+import type { SnapshotTheme, SupportedBrowserName, ViewportWidthName } from '~/@types/storybook-parameters'
 
 // Storybook 10 loads this config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
@@ -18,94 +18,13 @@ const VIEWPORT_WIDTHS = {
     medium: { width: 960, height: 720 },
     wide: { width: 1300, height: 720 },
     superwide: { width: 1920, height: 720 },
-} as const
-type ViewportWidthName = keyof typeof VIEWPORT_WIDTHS
-
-// 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
-type SupportedBrowserName = 'chromium' | 'webkit'
-type SnapshotTheme = 'light' | 'dark'
-
-// Extend Storybook interface `Parameters` with Chromatic parameters
-declare module 'storybook/internal/types' {
-    interface Parameters {
-        options?: any
-        /** @default 'padded' */
-        layout?: 'padded' | 'fullscreen' | 'centered'
-        testOptions?: {
-            /**
-             * Whether we should wait for all loading indicators to disappear before taking a snapshot.
-             * @default true
-             */
-            waitForLoadersToDisappear?: boolean
-            /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
-            waitForSelector?: string | string[]
-            /** Timeout in ms for waitForSelector. Defaults to Playwright's context timeout (PLAYWRIGHT_TIMEOUT_MS). */
-            waitForSelectorTimeout?: number
-            /**
-             * Override the per-test Jest timeout (ms) for stories whose render legitimately needs
-             * longer than the default. Use sparingly — a slow story is usually a bug, not a budget
-             * problem. Still scaled by the viewport-widths multiplier. Defaults to JEST_TIMEOUT_MS.
-             */
-            jestTimeout?: number
-            /**
-             * By default we wait for images to have width as an indication the page is ready for screenshot testing
-             * Some stories have broken images on purpose to test what the UI does
-             * in those cases set `allowImagesWithoutWidth` to `true`
-             */
-            allowImagesWithoutWidth?: boolean
-            /**
-             * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
-             * @default false
-             */
-            includeNavigationInSnapshot?: boolean
-            /**
-             * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
-             * Override this to take snapshots in other browsers too.
-             *
-             * @default ['chromium']
-             */
-            snapshotBrowsers?: SupportedBrowserName[]
-            /** Narrow the snapshot to a specific element. Only works for component (non-fullscreen) snapshots — throws an error if used with `layout: 'fullscreen'`. */
-            snapshotTargetSelector?: string
-            /** specify an alternative viewport size */
-            viewport?: { width: number; height: number }
-            /** take snapshots at multiple preset widths, producing one snapshot per width */
-            viewportWidths?: ViewportWidthName[]
-            /**
-             * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
-             * Also skips waiting for networkidle, which is useful for stories with background network activity.
-             * @default false
-             */
-            skipIframeWait?: boolean
-            /**
-             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
-             */
-            skipDarkMode?: boolean
-            /**
-             * Skip taking a light mode snapshot. Useful for stories that pin themselves to dark mode
-             * (e.g. via story globals plus a mocked `theme_mode: 'dark'` user), where the light
-             * snapshot would render dark-computed values on a light background.
-             */
-            skipLightMode?: boolean
-            /**
-             * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
-             * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
-             * @default false
-             */
-            skipCanvasDraw?: boolean
-        }
-        msw?: {
-            mocks?: Mocks
-        }
-        [name: string]: any
-    }
-
-    interface Globals {
-        theme: SnapshotTheme
-    }
-}
+} as const satisfies Record<ViewportWidthName, { width: number; height: number }>
 
 const RETRY_TIMES = 2
+// A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
+// changing, which then keeps its last capture.
+const MAX_SNAPSHOT_CAPTURES = 4
+const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
 const LOADER_SELECTORS = [
     '.Spinner',
@@ -169,6 +88,19 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
+            // Seeded (mulberry32) and restarted per story in preVisit, so random placeholders render the same every run.
+            const RANDOM_SEED = 1
+            let randomState = RANDOM_SEED
+            Math.random = (): number => {
+                randomState = (randomState + 0x6d2b79f5) | 0
+                let value = Math.imul(randomState ^ (randomState >>> 15), 1 | randomState)
+                value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+                return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+            }
+            ;(window as unknown as { __testRunnerRestartRandom: () => void }).__testRunnerRestartRandom = (): void => {
+                randomState = RANDOM_SEED
+            }
+
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
@@ -211,7 +143,11 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        await page.emulateMedia({ colorScheme: 'light' })
+        // Reduced motion also stops requestAnimationFrame motion (React Flow, d3) that the CSS override cannot reach.
+        await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+        await page.evaluate(() =>
+            (window as unknown as { __testRunnerRestartRandom?: () => void }).__testRunnerRestartRandom?.()
+        )
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -299,6 +235,7 @@ export default {
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
         await resizeViewportAndWait(page, effectiveViewport)
+        await applyTestRunnerBodyClasses(page, storyContext.parameters?.layout || 'padded')
     },
 
     async postVisit(page, context) {
@@ -352,6 +289,24 @@ export default {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
+
+/**
+ * Runs before the story renders, because the classes hide scrollbars. Chromium keeps a scroll container's
+ * height from a layout with scrollbars after they are hidden, so a story laid out first can carry
+ * stale extra height into the first snapshot.
+ */
+async function applyTestRunnerBodyClasses(page: Page, layout: string): Promise<void> {
+    await page.evaluate((layout: string) => {
+        // Stop all animations for consistent snapshots, and adjust other styles
+        document.body.classList.add('storybook-test-runner')
+        document.body.classList.remove(
+            'storybook-test-runner--fullscreen',
+            'storybook-test-runner--padded',
+            'storybook-test-runner--centered'
+        )
+        document.body.classList.add(`storybook-test-runner--${layout}`)
+    }, layout)
+}
 
 async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: string | undefined): Promise<void> {
     const unreachable = (detail: string): Error =>
@@ -440,16 +395,7 @@ async function expectStoryToMatchSnapshot(
         ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
     })
 
-    await page.evaluate((layout: string) => {
-        // Stop all animations for consistent snapshots, and adjust other styles
-        document.body.classList.add('storybook-test-runner')
-        document.body.classList.remove(
-            'storybook-test-runner--fullscreen',
-            'storybook-test-runner--padded',
-            'storybook-test-runner--centered'
-        )
-        document.body.classList.add(`storybook-test-runner--${layout}`)
-
+    await page.evaluate(() => {
         // Force all content-visibility:auto elements to render fully for deterministic snapshots.
         // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
         // page heights depending on timing. We override it and trigger a synchronous reflow.
@@ -463,7 +409,7 @@ async function expectStoryToMatchSnapshot(
         })
         // Force synchronous reflow so the browser recalculates layout
         void document.body.offsetHeight
-    }, storyContext.parameters?.layout || 'padded')
+    })
 
     // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
     // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
@@ -478,19 +424,11 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const {
-        waitForLoadersToDisappear = true,
-        waitForSelector,
-        waitForSelectorTimeout,
-    } = storyContext.parameters?.testOptions ?? {}
+    const { waitForSelector, waitForSelectorTimeout } = storyContext.parameters?.testOptions ?? {}
 
-    if (waitForLoadersToDisappear) {
-        // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
-        // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
-        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
-        // to account for slower CI environments while still catching stuck elements
-        const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+    const loaderWaitTimeout = getLoaderWaitTimeout(context, storyContext)
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
 
     if (typeof waitForSelector === 'string') {
@@ -507,6 +445,51 @@ async function expectStoryToMatchSnapshot(
     }
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
+}
+
+/** The loader wait timeout for the story, or null when the story shows a loader on purpose. */
+function getLoaderWaitTimeout(context: TestContext, storyContext: StoryContext): number | null {
+    const { waitForLoadersToDisappear = true } = storyContext.parameters?.testOptions ?? {}
+    if (!waitForLoadersToDisappear) {
+        return null
+    }
+    // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
+    // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
+    // to account for slower CI environments while still catching stuck elements
+    return context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
+}
+
+function locateVisibleLoaders(page: Page): Locator {
+    return page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+}
+
+/**
+ * Wait until no loader on the page is visible.
+ *
+ * `page.waitForSelector(..., { state: 'hidden' })` checks only the first element that matches, so a
+ * page with two loaders was captured while the second one still showed. Here the locator keeps only
+ * visible matches, so its first match is hidden only when no loader is visible. "Visible" follows
+ * Playwright's definition: a non-empty box and no `visibility: hidden`, because some loaders (like
+ * toasts) stay in the DOM after they hide. A locator also reaches into open shadow roots, where the
+ * toolbar stories render their loaders.
+ */
+async function waitForEveryLoaderHidden(page: Page, timeout: number): Promise<void> {
+    const visibleLoaders = locateVisibleLoaders(page)
+    try {
+        await visibleLoaders.first().waitFor({ state: 'hidden', timeout })
+    } catch (error) {
+        const stillVisible = await visibleLoaders
+            .evaluateAll((elements) => elements.map((element) => element.outerHTML.slice(0, 120)))
+            .catch(() => [])
+        if (stillVisible.length === 0) {
+            throw error
+        }
+        throw new Error(
+            `A loader was still visible after ${timeout}ms. Mock the request it waits for, or set ` +
+                `testOptions.waitForLoadersToDisappear: false if the story shows it on purpose:\n` +
+                stillVisible.join('\n')
+        )
     }
 }
 
@@ -562,11 +545,17 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
-    await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
+    // A request can start after the wait in expectStoryToMatchSnapshot, for example one that waits for
+    // earlier mocked calls and a debounce, so its loader can show up between the two themes.
+    const loaderWaitTimeout = getLoaderWaitTimeout(context, storyContext)
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+    }
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         // A lazy image far below the fold stays unfetched until it nears the viewport, and the
@@ -625,6 +614,7 @@ async function takeSnapshotWithTheme(
                         const iframes = Array.from(document.querySelectorAll('iframe'))
                         return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
                     },
+                    undefined,
                     { timeout: 8000 }
                 )
                 .catch(() => {
@@ -635,22 +625,15 @@ async function takeSnapshotWithTheme(
         }
     }
 
-    // reset scroll positions to ensure consistent snapshots
+    // Inner containers keep their scroll position. Components scroll them on a timer (the settings
+    // nav scrolls to the selected item), so resetting them races that timer and flips the snapshot.
     await page.evaluate(() => {
-        // scroll main viewport to top
         window.scrollTo(0, 0)
-        // scroll the app's main content viewport (Navigation.tsx uses <main id="main-content"> as the scroll container)
+        // Navigation.tsx uses <main id="main-content"> as the scroll container
         const mainContent = document.querySelector('#main-content')
         if (mainContent instanceof HTMLElement) {
             mainContent.scrollTop = 0
         }
-        // scroll all overflow containers to top
-        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                el.scrollTop = 0
-                el.scrollLeft = 0
-            }
-        })
     })
 
     // wait for content to stabilize - detects when DOM stops changing
@@ -684,6 +667,7 @@ async function takeSnapshotWithTheme(
                     checkStability()
                 })
             },
+            undefined,
             { timeout: 3000 }
         )
         .catch(() => {
@@ -695,8 +679,30 @@ async function takeSnapshotWithTheme(
 
     await waitForChartCanvasesPainted(page)
 
+    await finishAnimations(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+/** Headless Chromium sometimes paints the first keyframe of the 0 ms animations base.scss forces; this commits the last. */
+async function finishAnimations(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.
+        const roots: (Document | ShadowRoot)[] = [document]
+        document.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) {
+                roots.push(element.shadowRoot)
+            }
+        })
+        for (const animation of roots.flatMap((root) => root.getAnimations())) {
+            try {
+                animation.finish()
+            } catch {
+                continue
+            }
+        }
+    })
 }
 
 async function doTakeSnapshotWithTheme(
@@ -714,6 +720,7 @@ async function doTakeSnapshotWithTheme(
         context: TestContext,
         browser: SupportedBrowserName,
         theme: SnapshotTheme,
+        loaderWaitTimeout: number | null,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -733,28 +740,36 @@ async function doTakeSnapshotWithTheme(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    await check(page, context, browser, theme, snapshotTargetSelector)
+    await check(page, context, browser, theme, getLoaderWaitTimeout(context, storyContext), snapshotTargetSelector)
 }
 
 async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, loaderWaitTimeout)
 }
 
 async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null
 ): Promise<void> {
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(
+        page.locator('body, main').last(),
+        context,
+        browser,
+        theme,
+        loaderWaitTimeout
+    )
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -762,6 +777,7 @@ async function expectStoryToMatchComponentSnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -791,7 +807,7 @@ async function expectStoryToMatchComponentSnapshot(
     // Widening the root for a popover can resize a chart again.
     await waitForChartCanvasesPainted(page)
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, loaderWaitTimeout, {
         omitBackground: true,
     })
 }
@@ -801,9 +817,10 @@ async function expectLocatorToMatchStorySnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await takeSnapshotImage(locator, context, options)
+    const image = await takeSettledSnapshotImage(locator, context, theme, loaderWaitTimeout, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -819,6 +836,48 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
+ * Between captures the chart paint and animation finish run again, so a page that changed after the
+ * waits is captured again once it settles.
+ *
+ * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
+ * of a loading state match too. So unless the story opts out of the loader wait, each capture waits
+ * for loaders first, and a capture is kept only when no loader shows after it.
+ */
+async function takeSettledSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    const page = 'page' in locator ? locator.page() : locator
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+    }
+    let previous = await takeSnapshotImage(locator, context, options)
+    for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
+        await page.waitForTimeout(RECAPTURE_SETTLE_MS)
+        await waitForChartCanvasesPainted(page)
+        await finishAnimations(page)
+        if (loaderWaitTimeout !== null) {
+            await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+        }
+        const image = await takeSnapshotImage(locator, context, options)
+        const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
+        if (image.equals(previous) && !loaderShowed) {
+            return image
+        }
+        previous = image
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures. Look for an animation, a timer or late content.`
+    )
+    return previous
 }
 
 /**
@@ -953,6 +1012,7 @@ async function resizeViewportAndWait(page: Page, viewport: { width: number; heig
                     checkStability()
                 })
             },
+            undefined,
             { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
         )
         .catch(() => {

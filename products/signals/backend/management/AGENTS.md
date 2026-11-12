@@ -74,6 +74,7 @@ python manage.py seed_refund_test_data --team-id 1
 ```
 
 `seed_inbox_data` reports are billable too (runs are recorded via the production dual-write), but their runs are created "now", so refunds on them always take the excluded path.
+`seed_inbox_data --github-optional` seeds the reports GitHub-optional research leaves without a GitHub integration: a `data_only` repo selection with no repository, and no commits, GitHub reviewers, or implementation runs.
 Environment prerequisites (feature flag, local billing service): "Testing refunds locally" in `../../ARCHITECTURE.md`.
 
 ## Re-ingesting reports
@@ -211,6 +212,30 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
 
+## Filling the cached Inbox ordering values
+
+`uv run manage.py backfill_inbox_sort_cache --team-id <id>` fills the priority and ranking cache in locked batches.
+Run it only after all API processes and workers use the cache writers.
+Keep `inbox-sort-cache` off until the backfill completes for every team in the organization.
+The command can run again after an interruption.
+See [Inbox ranking rollout](../../../../../docs/internal/inbox-ranking-training.md#cached-inbox-ordering) for the rollout and rollback steps.
+
+## Filling the cached implementation PR flags
+
+`SignalReport.has_implementation_pr` and `has_active_implementation_pr` cache `implementation_pr_report_filter`, so the inbox filters on a column.
+The receivers in `implementation_pr_cache.py` refresh them after every link write.
+Run `backfill_report_inbox_state` once after the columns ship, and again as a repair after a bulk write that bypassed Django signals.
+
+```bash
+# Every team
+uv run manage.py backfill_report_inbox_state
+
+# One team, resuming after the report id an earlier run printed
+uv run manage.py backfill_report_inbox_state --team-id 1 --after <report-id>
+```
+
+Idempotent. It writes only the rows that disagree with the live filter.
+
 ## Resuming operational scouts the setup flow paused
 
 An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
@@ -231,6 +256,28 @@ uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
 
 Idempotent. A resumed row no longer matches.
 
+## Switching off general scouts nobody chose
+
+Opening the inbox once seeded the general scout enabled for every team, so many teams run one that no person turned on.
+`unenroll_unchosen_general_scouts` sets `enabled=False` on a running `signals-scout-general` row only when no person created or enabled it, and the team never completed self-driving setup.
+Setup completed on a child project counts for the parent's scout.
+It also leaves a row alone when a person or the wizard enabled or created another non-operational scout on the team, or when the row's activity log shows a person changed whether or when it runs (that survives the person's account being deleted, which clears `enabled_by`).
+Every skip reason is checked again under the row lock just before the write.
+A team that edited the general scout skill is left alone.
+Each row saves on its own, so the activity log records it, and `save` moves `status` to `paused_by_user` with no `status_changed_by`.
+It prints totals for matched, skipped, and changed rows, split by `managed_by` and `status`.
+
+```bash
+# Dry run (the default): totals and the first 50 team ids
+uv run manage.py unenroll_unchosen_general_scouts
+
+# Canary on some teams, then write for all
+uv run manage.py unenroll_unchosen_general_scouts --apply --team-ids 1 2
+uv run manage.py unenroll_unchosen_general_scouts --apply
+```
+
+Idempotent. A switched-off row no longer matches.
+
 ## Reactivating report checks a paused scout retired
 
 Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.
@@ -247,6 +294,120 @@ uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
 ```
 
 Idempotent. A reactivated check no longer matches.
+
+## Building a personal inbox ranking
+
+`run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
+It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+It prints the effective config first: the model, `reasoning_effort`, `rank_top`, `max_candidates`, `timeout_seconds` and `max_completion_tokens`.
+The model ranks only the best `rank_top` candidates. The other candidates follow in model order, with `ranked_by: model`.
+At most `top_max` entries (default 5) get the `top` tier and at most `worth_a_look_max` (default 15) get `worth_a_look`. An entry past a cap moves down to the next tier with room and keeps its rank.
+
+```bash
+# Call the model, but store no PersonalInboxRanking row and capture no event
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
+
+# Store the row and capture `personal inbox ranking built`, with optional focus text
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
+```
+
+Every candidate is tied to the person: routed to them, waiting on their input, or claimed by them.
+A person with no such report gets `status: empty` with no model call.
+
+An optional `pools` list in the payload replaces the default candidate pools, in merge order:
+
+```json
+{
+  "pools": [
+    { "source": "assigned", "size": 5 },
+    { "source": "for_you_recommended", "size": 10 },
+    { "source": "for_you_updated", "size": 0 }
+  ]
+}
+```
+
+Each entry takes a `source` (`for_you_recommended`, `for_you_updated` or `assigned`), a `size` (0 turns it off) and an optional `name`.
+The build logs and drops an invalid entry, such as one with the removed `scored` or `priority` source, and uses the default pools when no entry is valid.
+
+A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
+When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
+The `personal inbox ranking built` event records `model_called`, so builds with and without a model call can be counted apart.
+The command spends no build limit, so use it only for single runs.
+
+`GET /api/projects/:id/signals/reports/for_me/` (`../personal_ranking/serve.py`) serves the same list to the user it describes, when the flag is on for that user.
+It reuses the latest row for `freshness_minutes` after the row was built or last checked by the tick, while the input hash matches.
+Otherwise it queues one `build_personal_inbox_ranking` Celery task per person behind a cache lock, and serves the latest row as stale, or the candidates in inbox order with `fallback_reason: building`.
+The input hash covers the model, `reasoning_effort` and the rendered system prompt, so a payload change to a lever the prompt names, such as `rank_top`, a tier cap or a reason limit, rebuilds each list at its next check.
+It limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
+`max_builds_per_day` (default 500, at most 10000) limits the builds that call the model across every person, in one Redis token bucket per region (`../personal_ranking/build_budget.py`).
+A build with no ready activity summary, or for an organization that has not approved AI data processing, does not call the model and does not spend that limit.
+When a limit refuses a build, the read serves the latest row as stale, or the candidates in inbox order with `fallback_reason: rate_limited`.
+The scheduled tick spends from the same bucket.
+
+When the activity summary tick stores a person's first summary and the person has no list, it queues the same Celery task with `trigger: first_summary`, so the first list does not wait for the personal ranking tick.
+That build takes the per-person lock, needs `"enabled"` in the payload, and runs only when it calls the model, so it also needs candidates and AI approval, and it spends the shared `max_builds_per_day`.
+It does not need tick enrollment. A build that a gate refuses leaves the pair to the tick.
+
+### Scheduled personal ranking tick
+
+`personal-inbox-ranking-tick` (`../personal_ranking/tick.py`) is a Temporal schedule on `SELF_DRIVING_TASK_QUEUE` with overlap `SKIP`.
+It runs every `PERSONAL_INBOX_RANKING_TICK_INTERVAL_MINUTES` (default 15) in every environment, and builds lists ahead of the first `for_me` read.
+The `tick` object of the `personal-inbox-ranking` payload holds its levers. Without `"enabled": true` in that object the tick does nothing, and `"enabled": false` at the top level stops it too.
+
+```json
+{
+  "tick": {
+    "enabled": true,
+    "self_driving_organization_percentage": 5,
+    "organization_ids": ["<organization uuid>"],
+    "deny_organization_ids": [],
+    "skip_team_ids": [],
+    "target_interval_minutes": 60,
+    "active_days": 7,
+    "max_pairs_per_tick": 20,
+    "max_concurrency": 4,
+    "max_tick_builds_per_day": 100,
+    "max_org_share": 0.25,
+    "max_error_rate": 0.5
+  }
+}
+```
+
+- **Enrollment:** every project of the listed organizations, plus the salted `self_driving_organization_percentage` of the organizations with a project that has an enabled signal source. The percentage enrolls only those projects, and a higher percentage keeps the organizations of a lower one. The organization must approve AI data processing, and the activity summary must be readable for the project. A summary is readable for every project that activity summary generation enrolls, including its own percentage rollout. The deny list and `skip_team_ids` win. Enrollment decides who gets scheduled builds. It does not change who can read `for_me`.
+- **Due pairs:** a member with a ready activity summary, activity in the last `active_days`, and a latest list that was built or checked longer ago than `target_interval_minutes`, or no list.
+- **Order:** paying organizations first, then the most recent activity, then the oldest list. One organization takes at most `max_org_share` of `max_pairs_per_tick`.
+- **Unchanged inputs:** the pair activity compares the input hash first. A match calls no model and sets `checked_at` on the latest row, so the pair is not due again until `target_interval_minutes` passes, and `for_me` serves that row as fresh. An enabled tick raises `freshness_minutes` to at least `target_interval_minutes`, so a plain read does not rebuild a list inside the tick's interval. A row whose model call failed, timed out or answered outside the schema, or that skipped the model without AI approval, is built again instead.
+- **Limits:** a build that calls the model spends `max_tick_builds_per_day` (one Redis token bucket per region, closed when Redis is unreachable) and then the shared `max_builds_per_day`. `max_tick_builds_per_day` is limited to 80% of `max_builds_per_day`, so `refresh` and `focus` requests keep a reserve. To run the tick above that, raise the shared limit too. The tick stops at the first refusal, at `max_error_rate` after 10 model calls, and when 60% of its interval has passed.
+- **Locks:** the pair takes the same per-person lock as `for_me`, so a tick skips a person whose build is running.
+- **Concurrency:** the tick keeps `max_concurrency` pairs running and starts the next pair as soon as any pair finishes. A stop starts no further pair, and the pairs already running finish. The pairs never started stay due for the next tick.
+- **Bounds:** the payload can set `max_pairs_per_tick` up to 2000, `max_concurrency` up to 50, and `max_tick_builds_per_day` and `max_builds_per_day` up to 50000. Larger values clamp to these.
+
+Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
+It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
+`personal inbox ranking built` and the model call's trace carry `trigger` (`tick`, `on_demand` or `first_summary`), so cost can be split by what started a build.
+
+`due_pairs`, `due_without_list` and `oldest_due_hours` are read when the tick plans, before it does any work.
+A healthy tick reads `oldest_due_hours` a little above `target_interval_minutes`, and one old list that just became due makes it spike, so do not alert on it.
+`oldest_due_activity_hours` and `oldest_due_summary_hours` are the hours since the last activity and since the activity summary of the pair behind `oldest_due_hours`, to show whether that pair just became eligible again.
+
+The backlog after the tick is in `remaining_due_pairs`, `remaining_due_without_list` and `remaining_oldest_due_hours`. Alert on these:
+
+- A due pair of the plan leaves the backlog when its result is `built`, `unchanged` or `not_enrolled`. Every other result, a pair that raised, a pair a stop never started, and a due pair past `max_pairs_per_tick` or `max_org_share` stay in it.
+- `remaining_oldest_due_hours` is the hours at the end of the tick since the oldest remaining list was built or checked. It ignores remaining pairs with no list, which `remaining_due_without_list` counts.
+- An empty backlog reads 0, 0 and null. A backlog of only pairs with no list also has a null age, so read the age with `remaining_due_pairs`.
+- A pair that becomes due while the tick runs is not in the plan, so it counts in the next tick.
+- The three fields are null for a tick planned before the deploy that added them.
+
+## Publishing signal filter catalogs
+
+`publish_signal_filter_catalogs` publishes the checked-in field catalogs in `../filter_catalog_seeds.py` to the instance-global filter catalog tables.
+Run it once in each region after a change to a seed.
+An unchanged catalog creates no version, and a changed one becomes the next active version.
+It sets the rollout state only when it creates a source, and it never sets filter eligibility.
+
+```bash
+uv run manage.py publish_signal_filter_catalogs
+```
 
 ## Tips
 

@@ -4,6 +4,7 @@ import socket
 import asyncio
 import subprocess
 import dataclasses
+from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
 
@@ -14,10 +15,13 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.integrations import RepositoryCache
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
+    ActiveSessionCapError,
     ComputeBillingLimitError,
     OrganizationExecutionError,
     RepositoryAccessError,
@@ -27,6 +31,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
+from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
@@ -42,6 +47,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
 )
+from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
 
 
 @pytest.fixture(autouse=True)
@@ -247,22 +253,20 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 
 @pytest.mark.parametrize(
-    "task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
+    "task_runtime, snapshot_id, snapshot_external_id, state, capability, expected",
     [
         (
             Task.Runtime.ACP,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             True,
         ),
         (
             Task.Runtime.ACP,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             True,
             False,
@@ -271,43 +275,22 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
             Task.Runtime.ACP,
             None,
             "snapshot-1",
-            SNAPSHOT_KIND_DIRECTORY,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
         ),
         (
             Task.Runtime.ACP,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"resume_from_run_id": "previous-run"},
             False,
             False,
         ),
         (
-            Task.Runtime.ACP,
-            "snapshot-row-1",
-            None,
-            SNAPSHOT_KIND_FILESYSTEM,
-            {"prewarmed": True, "resume_from_run_id": "previous-run"},
-            False,
-            True,
-        ),
-        (
-            Task.Runtime.ACP,
-            "snapshot-row-1",
-            None,
-            SNAPSHOT_KIND_DIRECTORY,
-            {"prewarmed": True, "resume_from_run_id": "previous-run"},
-            False,
-            False,
-        ),
-        (
             Task.Runtime.PI,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
@@ -315,7 +298,7 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
     ],
 )
 def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
-    mocker, task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
+    mocker, task_runtime, snapshot_id, snapshot_external_id, state, capability, expected
 ):
     context = _context_for_desktop_bootstrap()
     context.task_runtime = task_runtime
@@ -333,7 +316,6 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         shallow_clone=True,
         image_source="resume_snapshot",
         image_source_label="resume snapshot snapshot-1",
-        snapshot_kind=snapshot_kind,
     )
     sandbox = mocker.Mock()
     sandbox.agent_server_supports_prewarmed_resume_message_driven.return_value = capability
@@ -620,9 +602,9 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
     [
         (
             "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': No such device or address\n",
-            RepositoryAccessError,
+            RepositoryCloneError,
             1,
-            None,
+            1,
         ),
         (
             "Cloning into 'repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/acme/repo.git/' not found\n",
@@ -632,9 +614,21 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         ),
         (
             "fatal: Authentication failed for 'https://github.com/example/repo.git/'\n",
-            RepositoryAccessError,
+            RepositoryCloneError,
             3,
-            None,
+            16,
+        ),
+        (
+            "fatal: unable to access 'https://github.com/acme/repo.git/': The requested URL returned error: 403\n",
+            RepositoryCloneError,
+            1,
+            1,
+        ),
+        (
+            "fatal: unable to access 'https://github.com/acme/repo.git/': The requested URL returned error: 404\n",
+            RepositoryCloneError,
+            1,
+            1,
         ),
         (
             "Cloning into 'repo'...\nfatal: unable to access 'https://github.com/acme/repo.git/': Could not resolve host: github.com\n",
@@ -653,7 +647,7 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         ],
     ],
 )
-def test_clone_failure_stops_retries_only_when_github_denies_access(
+def test_clone_failures_without_installation_marker_remain_retryable(
     mocker, activity_environment, stderr, expected_error, attempt, retry_delay
 ):
     activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
@@ -674,6 +668,7 @@ def test_clone_failure_stops_retries_only_when_github_denies_access(
         "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
         return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
     )
+    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="")
     capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
 
     with pytest.raises(expected_error) as error:
@@ -688,17 +683,16 @@ def test_clone_failure_stops_retries_only_when_github_denies_access(
             ),
         )
 
-    access_denied = expected_error is RepositoryAccessError
-    assert error.value.non_retryable is access_denied
-    assert is_expected_activity_failure(error.value) is access_denied
-    assert capture_exception.called is not access_denied
+    assert error.value.non_retryable is False
+    assert is_expected_activity_failure(error.value) is False
+    assert capture_exception.called
     assert error.value.next_retry_delay == (timedelta(seconds=retry_delay) if retry_delay is not None else None)
 
 
 @pytest.mark.parametrize(
     "failure, expected_error",
     [
-        ("fatal: Authentication failed for", RepositoryAccessError),
+        ("fatal: Authentication failed for", RepositoryCloneError),
         ("remote: Repository not found.", RepositoryCloneError),
     ],
 )
@@ -728,6 +722,7 @@ def test_clone_failure_diagnostics_redact_credentials_before_truncation(
         "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
         return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
     )
+    mocker.patch.object(provision_sandbox_module, "_installation_behind_sandbox_token", return_value=None)
     capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
     warning = mocker.patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.logger.warning")
 
@@ -759,6 +754,277 @@ def test_clone_failure_diagnostics_redact_credentials_before_truncation(
     diagnostics = str(error.value.details) + str(capture_exception.call_args_list) + str(diagnostic)
     assert token not in diagnostics
     assert "fake-other-credential" not in diagnostics
+
+
+def _clone_context(**overrides) -> TaskProcessingContext:
+    fields = {
+        "task_id": "task-id",
+        "run_id": "run-id",
+        "team_id": 1,
+        "team_uuid": "team-uuid",
+        "organization_id": "organization-id",
+        "github_integration_id": 123,
+        "repository": "acme/repo",
+        "distinct_id": "distinct-id",
+        "state": {},
+    }
+    return TaskProcessingContext(**{**fields, **overrides})
+
+
+def _clone_input(context: TaskProcessingContext, github_token: str) -> CloneRepositoryInSandboxInput:
+    return CloneRepositoryInSandboxInput(
+        context=context,
+        sandbox_id="sandbox-id",
+        repository="acme/repo",
+        github_token=github_token,
+        shallow_clone=True,
+    )
+
+
+def _mock_clone_sandbox(mocker, clone_result: ExecutionResult):
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = clone_result
+    mocker.patch.object(
+        provision_sandbox_module,
+        "get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    return sandbox
+
+
+@pytest.mark.parametrize(
+    "installation_unavailable, expected_error",
+    [(True, RepositoryAccessError), (False, RepositoryCloneError)],
+    ids=["installation_unavailable", "installation_state_unknown"],
+)
+def test_denied_clone_is_permanent_only_when_installation_is_marked_unavailable(
+    mocker, activity_environment, installation_unavailable, expected_error
+):
+    stderr = (
+        "Cloning into 'repo'...\n"
+        "warning: redirecting to https://x-access-token:ghs_secret@github.com/acme/repo.git/\n"
+        "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"
+    )
+    _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None))
+    installation = mocker.Mock()
+    installation.installation_unavailable.return_value = installation_unavailable
+    mocker.patch.object(provision_sandbox_module, "_installation_behind_sandbox_token", return_value=installation)
+    forget = mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox, _clone_input(_clone_context(), github_token="ghs_secret")
+        )
+
+    assert error.value.non_retryable is installation_unavailable
+    assert error.value.context["stderr"] == stderr.replace("ghs_secret", "<redacted>")
+    assert "ghs_secret" not in str(error.value)
+    installation.installation_unavailable.assert_called_once_with()
+    if installation_unavailable:
+        forget.assert_not_called()
+    else:
+        forget.assert_called_once_with(installation, ["acme/repo"])
+        assert error.value.next_retry_delay == timedelta(seconds=1)
+
+
+@pytest.mark.parametrize("github_token", ["", "ghu_user"], ids=["no_token", "unresolved_installation"])
+def test_denied_clone_without_resolved_installation_remains_retryable(mocker, activity_environment, github_token):
+    _mock_clone_sandbox(
+        mocker,
+        ExecutionResult(
+            stdout="",
+            stderr="fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n",
+            exit_code=128,
+            error=None,
+        ),
+    )
+    installation = mocker.patch.object(
+        provision_sandbox_module, "_installation_behind_sandbox_token", return_value=None
+    )
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox, _clone_input(_clone_context(), github_token=github_token)
+        )
+
+    assert error.value.non_retryable is False
+    assert error.value.next_retry_delay == timedelta(seconds=1)
+    assert installation.called is bool(github_token)
+
+
+@pytest.mark.parametrize(
+    "integrations, expected_error",
+    [
+        ([True], RepositoryAccessError),
+        ([True, False], RepositoryCloneError),
+    ],
+    ids=["unavailable_team_installation", "available_team_installation_wins"],
+)
+def test_denial_classification_resolves_team_installation_state(
+    mocker, activity_environment, integrations, expected_error
+):
+    rows = []
+    for index, unavailable in enumerate(integrations):
+        row = mocker.Mock(spec=Integration)
+        row.kind = "github"
+        config: dict[str, object] = {"account": {"type": "Organization", "name": str(index + 1)}}
+        if unavailable:
+            config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = "2026-01-01T00:00:00Z"
+        row.config = config
+        row.auth_type = "oauth"
+        row.errors = ""
+        row.integration_id = str(index + 1)
+        rows.append(row)
+    mocker.patch("posthog.integrations.IntegrationManager.github.oauth.list", return_value=rows)
+    # The adapter reads the repository list through the SDK, not from the row.
+    mocker.patch(
+        "posthog.integrations.accessors.AuthAccessor.get_repository_cache",
+        return_value=RepositoryCache(repositories=None, updated_at=None),
+    )
+    mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
+    context = _clone_context(state={"github_read_access": True})
+    stderr = "fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n"
+    _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None))
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            _clone_input(context, github_token="github-token"),
+        )
+
+    assert error.value.non_retryable is (expected_error is RepositoryAccessError)
+
+
+@pytest.mark.parametrize(
+    "stderr, api_status",
+    [
+        ("fatal: could not read Username for 'https://github.com': terminal prompts disabled\n", 403),
+        ("fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n", 404),
+    ],
+    ids=["username_prompt_denial", "stale_installation_token"],
+)
+def test_denied_clone_retries_with_a_refreshed_token(mocker, activity_environment, stderr, api_status):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=1)
+    sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))
+    sandbox.clone_repository.side_effect = [
+        ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None),
+        ExecutionResult(stdout="", stderr="", exit_code=0),
+    ]
+    installation = mocker.Mock()
+    installation.installation_unavailable.return_value = False
+    installation.api_request.return_value.status_code = api_status
+    mocker.patch.object(provision_sandbox_module, "_installation_behind_sandbox_token", return_value=installation)
+    forget = mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
+    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="fresh-token")
+    mocker.patch.object(provision_sandbox_module, "_prepare_posthog_desktop_cloud_task")
+    mocker.patch.object(provision_sandbox_module, "sandbox_credential_lock", return_value=nullcontext(True))
+    apply_credentials = mocker.patch.object(
+        provision_sandbox_module, "apply_github_credentials_to_sandbox", return_value=True
+    )
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+    clone_input = _clone_input(_clone_context(), github_token="github-token")
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(clone_repository_in_sandbox, clone_input)
+
+    assert error.value.non_retryable is False
+    assert error.value.next_retry_delay == timedelta(seconds=1)
+    forget.assert_called_once_with(installation, ["acme/repo"])
+    installation.api_request.assert_not_called()
+
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=2)
+    async_to_sync(activity_environment.run)(clone_repository_in_sandbox, clone_input)
+
+    assert [call.kwargs["github_token"] for call in sandbox.clone_repository.call_args_list] == [
+        "github-token",
+        "fresh-token",
+    ]
+    apply_credentials.assert_called_once_with(sandbox, ["acme/repo"], "fresh-token")
+
+
+@pytest.mark.parametrize(
+    "attempt, input_token, fresh_token, lock_acquired, expected_token, credentials_applied",
+    [
+        (1, "github-token", "fresh-token", True, "github-token", False),
+        (2, "github-token", "fresh-token", True, "fresh-token", True),
+        (2, "github-token", "fresh-token", False, "fresh-token", False),
+        (2, "", "", True, "", False),
+        (2, "", "fresh-token", True, "fresh-token", True),
+    ],
+    ids=[
+        "first_attempt",
+        "retry",
+        "retry_without_credential_lock",
+        "anonymous_public_retry",
+        "anonymous_retry_with_new_token",
+    ],
+)
+def test_retried_clone_resolves_a_fresh_github_token(
+    mocker, activity_environment, attempt, input_token, fresh_token, lock_acquired, expected_token, credentials_applied
+):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
+    sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))
+    reresolve = mocker.patch.object(
+        provision_sandbox_module, "_reresolve_sandbox_github_token", return_value=fresh_token
+    )
+    mocker.patch.object(provision_sandbox_module, "_prepare_posthog_desktop_cloud_task")
+    mocker.patch.object(provision_sandbox_module, "sandbox_credential_lock", return_value=nullcontext(lock_acquired))
+    apply_credentials = mocker.patch.object(
+        provision_sandbox_module, "apply_github_credentials_to_sandbox", return_value=True
+    )
+
+    async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox, _clone_input(_clone_context(), github_token=input_token)
+    )
+
+    assert sandbox.clone_repository.call_args.kwargs["github_token"] == expected_token
+    assert reresolve.called is (attempt > 1)
+    if credentials_applied:
+        apply_credentials.assert_called_once_with(sandbox, ["acme/repo"], "fresh-token")
+    else:
+        apply_credentials.assert_not_called()
+
+
+def test_retried_clone_fails_transiently_when_no_fresh_token_is_available(mocker, activity_environment):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=2)
+    sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))
+    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="")
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox, _clone_input(_clone_context(), github_token="github-token")
+        )
+
+    assert error.value.non_retryable is False
+    sandbox.clone_repository.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "state, github_integration_id, authorship_mode, expected",
+    [
+        ({"github_read_access": True}, None, None, "readonly"),
+        ({}, 123, PrAuthorshipMode.BOT, "installation"),
+        ({}, 123, PrAuthorshipMode.USER, None),
+        ({}, None, PrAuthorshipMode.BOT, None),
+    ],
+    ids=["readonly_run", "bot_run_with_installation", "user_authored_run", "run_without_integration"],
+)
+def test_installation_behind_sandbox_token_skips_user_credentials(
+    mocker, state, github_integration_id, authorship_mode, expected
+):
+    mocker.patch.object(provision_sandbox_module, "_load_task")
+    mocker.patch.object(provision_sandbox_module, "get_pr_authorship_mode", return_value=authorship_mode)
+    mocker.patch.object(provision_sandbox_module, "resolve_readonly_github_integration", return_value="readonly")
+    mocker.patch.object(
+        provision_sandbox_module, "resolve_installation_github_integration", return_value="installation"
+    )
+
+    context = _clone_context(state=state, github_integration_id=github_integration_id)
+
+    assert provision_sandbox_module._installation_behind_sandbox_token(context) == expected
 
 
 def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:
@@ -809,12 +1075,55 @@ def test_blocked_organization_creates_no_sandbox(
     sandbox_class.return_value.create.assert_not_called()
 
 
+@pytest.mark.parametrize("warm", [False, True])
+def test_active_session_cap_refuses_a_cold_start_before_create(mocker, warm: bool) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"await_user_message": warm}
+    task = mocker.Mock(
+        origin_product=Task.OriginProduct.USER_CREATED, created_by_id=7, signal_report_id=None, id="task-id"
+    )
+    task.team.organization_id = "organization-id"
+    mocker.patch.object(provision_sandbox_module, "_load_task", return_value=task)
+    mocker.patch.object(provision_sandbox_module, "get_compute_quota_denial_reason", return_value=None)
+    cap_hit = mocker.patch.object(SandboxWarmer, "active_session_cap_hit", return_value="user")
+    mocker.patch.object(provision_sandbox_module, "_emit_image_source_log")
+    mocker.patch.object(provision_sandbox_module, "_apply_modal_network_policy")
+    mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+    create = mocker.Mock(side_effect=RuntimeError("created"))
+    mocker.patch.object(
+        provision_sandbox_module, "get_sandbox_class_for_run_backend", return_value=mocker.Mock(create=create)
+    )
+
+    with pytest.raises(RuntimeError if warm else ActiveSessionCapError) as error:
+        async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+        )
+
+    if warm:
+        cap_hit.assert_not_called()
+        create.assert_called_once()
+    else:
+        assert isinstance(error.value, ActiveSessionCapError)
+        assert error.value.non_retryable is True
+        assert error.value.message == SandboxWarmer.active_session_cap_detail(Task.OriginProduct.USER_CREATED, "user")
+        cap_hit.assert_called_once_with(
+            Task.OriginProduct.USER_CREATED,
+            organization_id="organization-id",
+            created_by_id=7,
+            exclude_run_id="run-id",
+            signal_report_id=None,
+            task_id="task-id",
+        )
+        create.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "failing_step,destroy_fails",
     [
         ("get_connect_credentials", False),
         ("get_connect_credentials", True),
         ("start_cpu_billing_sampler", False),
+        ("persist_sandbox_connection", False),
     ],
 )
 def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
@@ -835,9 +1144,14 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     sandbox.launch_dev_stack_bootstrap.return_value = False
     sandbox.start_cpu_billing_sampler.return_value = True
     sandbox.execute.return_value = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
-    getattr(sandbox, failing_step).side_effect = SandboxRateLimitedError(
+    failure: Exception = SandboxRateLimitedError(
         "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
     )
+    if failing_step == "persist_sandbox_connection":
+        failure = ActiveSessionCapError({"run_id": "run-id"}, "org", "Your organization is at its cap.")
+        mocker.patch.object(provision_sandbox_module, "persist_sandbox_connection", side_effect=failure)
+    else:
+        getattr(sandbox, failing_step).side_effect = failure
     if destroy_fails:
         sandbox.destroy.side_effect = SandboxCleanupError(
             "Failed to destroy sandbox", {"sandbox_id": "sandbox-id"}, cause=RuntimeError("terminate failed")
@@ -858,7 +1172,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     task_run = mocker.patch.object(provision_sandbox_module, "TaskRun")
     mocker.patch.object(provision_sandbox_module, "pinned_agent_version", return_value="1.2.3")
 
-    with pytest.raises(SandboxRateLimitedError):
+    with pytest.raises(type(failure)):
         async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
             CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
         )
@@ -981,7 +1295,7 @@ def test_create_sandbox_records_installed_agent_version(
     [
         ("hogland_golden", False),
         ("custom_vm_image", False),
-        ("filesystem_snapshot", False),
+        ("repository_snapshot", False),
         ("directory_snapshot", True),
     ],
 )
@@ -996,9 +1310,9 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
     if restored:
         prepared = dataclasses.replace(
             prepared,
-            snapshot_external_id="snapshot-id",
+            snapshot_id="snapshot-id" if source == "repository_snapshot" else None,
+            snapshot_external_id="snapshot-id" if source == "directory_snapshot" else None,
             used_snapshot=True,
-            snapshot_kind=SNAPSHOT_KIND_DIRECTORY if source == "directory_snapshot" else SNAPSHOT_KIND_FILESYSTEM,
         )
 
     update_state, mismatch_extras = _create_and_record_agent_version(

@@ -2,7 +2,8 @@
 
 from posthog.models import Team, User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action, find_actions_by_name
+from products.actions.backend.facade.contracts import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.marketing_analytics.backend.demo.warehouse import STRIPE_INVOICES_TABLE
 from products.marketing_analytics.backend.demo.world import EVENT_DEMO_BOOKED, EVENT_PURCHASE, EVENT_SIGNUP
@@ -30,10 +31,10 @@ _DEFAULT_SCHEMA_MAP = {
 
 
 def _ensure_demo_action(team: Team) -> Action:
-    action = Action.objects.filter(team=team, name="Demo booked (marketing demo)", deleted=False).first()
-    if action:
-        return action
-    return Action.objects.create(
+    existing = find_actions_by_name(team_id=team.pk, name="Demo booked (marketing demo)")
+    if existing:
+        return existing[0]
+    return create_action(
         team=team,
         name="Demo booked (marketing demo)",
         steps_json=[{"event": EVENT_DEMO_BOOKED}],
@@ -66,7 +67,7 @@ def build_conversion_goals(team: Team) -> list[dict]:
         },
         {
             "kind": "ActionsNode",
-            "id": action.pk,
+            "id": action.id,
             "conversion_goal_id": "cg_demos",
             "name": "Demo booked (marketing demo)",
             "conversion_goal_name": "Demos booked",

@@ -1,8 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
+import { EntityTypes } from '~/types'
 
-import { EntityFilterInfo } from './EntityFilterInfo'
+import { DisplayableEntity, EntityFilterInfo } from './EntityFilterInfo'
 
 const meta: Meta<typeof EntityFilterInfo> = {
     title: 'Components/Entity Filter Info',
@@ -20,7 +20,7 @@ const meta: Meta<typeof EntityFilterInfo> = {
 export default meta
 type Story = StoryObj<typeof EntityFilterInfo>
 
-const VARIANTS: { label: string; filter: EntityFilter | ActionFilter }[] = [
+const VARIANTS: { label: string; filter: DisplayableEntity }[] = [
     {
         label: 'Unrenamed core event (single label, no tooltip)',
         filter: { type: EntityTypes.EVENTS, id: '$pageview', name: '$pageview' },

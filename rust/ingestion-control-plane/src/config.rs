@@ -1,6 +1,10 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
+use anyhow::Context;
 use envconfig::Envconfig;
+use personhog_coordination::types::ClusterEndpoint;
+use serde::Deserialize;
 
 /// How consumer pods are discovered, mirroring the ingestion-consumer's
 /// typed `DiscoveryMode`.
@@ -165,6 +169,11 @@ pub struct Config {
     #[envconfig(from = "PERSONHOG_ETCD_PREFIX", default = "/personhog/")]
     pub personhog_etcd_prefix: String,
 
+    /// Versioned S3 bucket that keeps a copy of `config/changelog` after
+    /// every change; empty disables backups and restore.
+    #[envconfig(from = "CHANGELOG_BACKUP_BUCKET", default = "")]
+    pub changelog_backup_bucket: String,
+
     /// The personhog changelog's Kafka cluster; unset means `KAFKA_HOSTS`.
     #[envconfig(from = "PERSONHOG_KAFKA_HOSTS")]
     pub personhog_kafka_hosts: Option<String>,
@@ -172,6 +181,15 @@ pub struct Config {
     /// TLS for `PERSONHOG_KAFKA_HOSTS`; unset means `KAFKA_TLS`.
     #[envconfig(from = "PERSONHOG_KAFKA_TLS")]
     pub personhog_kafka_tls: Option<bool>,
+
+    /// Clusters the changelog can live on, as JSON `{"name": {"hosts": "...", "tls": bool}}`.
+    #[envconfig(from = "CHANGELOG_KAFKA_CLUSTERS", default = "")]
+    pub changelog_kafka_clusters: String,
+
+    /// Allows migrations onto another cluster. An older router's coordinator drops the
+    /// cluster at the flip, and an older leader, writer or relay ignores it.
+    #[envconfig(from = "PERSONHOG_CROSS_CLUSTER_MIGRATIONS", default = "false")]
+    pub personhog_cross_cluster_migrations: bool,
 
     /// Per-phase handoff deadline used to flag stuck handoffs; must match
     /// the coordinator's `COORDINATOR_HANDOFF_DEADLINE_SECS` to agree with
@@ -182,6 +200,25 @@ pub struct Config {
     /// Warming-phase deadline, mirroring `COORDINATOR_WARMING_DEADLINE_SECS`.
     #[envconfig(from = "PERSONHOG_WARMING_DEADLINE_SECS", default = "1800")]
     pub personhog_warming_deadline_secs: u64,
+}
+
+/// One cluster in `CHANGELOG_KAFKA_CLUSTERS`; `tls` is required and unknown keys are
+/// refused, so neither an omission nor a typo can drop TLS.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClusterSpec {
+    hosts: String,
+    tls: bool,
+}
+
+impl ClusterSpec {
+    fn endpoint(self, name: String) -> ClusterEndpoint {
+        ClusterEndpoint {
+            name,
+            hosts: self.hosts,
+            tls: self.tls,
+        }
+    }
 }
 
 impl Config {
@@ -201,6 +238,46 @@ impl Config {
         }
         if let Some(tls) = self.personhog_kafka_tls {
             config.kafka_tls = tls;
+        }
+        config
+    }
+
+    fn changelog_clusters(&self) -> anyhow::Result<HashMap<String, ClusterSpec>> {
+        match self.changelog_kafka_clusters.trim() {
+            "" => Ok(HashMap::new()),
+            spec => serde_json::from_str(spec)
+                .context("CHANGELOG_KAFKA_CLUSTERS is not a valid cluster map"),
+        }
+    }
+
+    pub fn changelog_cluster_names(&self) -> anyhow::Result<Vec<String>> {
+        let mut names: Vec<String> = self.changelog_clusters()?.into_keys().collect();
+        names.sort();
+        Ok(names)
+    }
+
+    pub fn changelog_cluster(&self, name: &str) -> anyhow::Result<ClusterEndpoint> {
+        let spec = self
+            .changelog_clusters()?
+            .remove(name)
+            .with_context(|| format!("cluster {name:?} is not in CHANGELOG_KAFKA_CLUSTERS"))?;
+        Ok(spec.endpoint(name.to_string()))
+    }
+
+    pub fn current_changelog_cluster(&self) -> anyhow::Result<Option<ClusterEndpoint>> {
+        let current = self.personhog_kafka();
+        Ok(self
+            .changelog_clusters()?
+            .into_iter()
+            .find(|(_, spec)| spec.hosts == current.kafka_hosts && spec.tls == current.kafka_tls)
+            .map(|(name, spec)| spec.endpoint(name)))
+    }
+
+    pub fn changelog_kafka(&self, cluster: Option<&ClusterEndpoint>) -> Config {
+        let mut config = self.personhog_kafka();
+        if let Some(cluster) = cluster {
+            config.kafka_hosts = cluster.hosts.clone();
+            config.kafka_tls = cluster.tls;
         }
         config
     }
@@ -287,6 +364,40 @@ mod tests {
             (set.kafka_hosts.as_str(), set.kafka_tls),
             ("personhog:9094", true)
         );
+
+        config.changelog_kafka_clusters =
+            r#"{"dedicated": {"hosts": "d:9092", "tls": false}}"#.to_string();
+        let dedicated = config.changelog_cluster("dedicated").unwrap();
+        let moved = config.changelog_kafka(Some(&dedicated));
+        assert_eq!(
+            (moved.kafka_hosts.as_str(), moved.kafka_tls),
+            ("d:9092", false)
+        );
+        assert!(config.changelog_cluster("unknown").is_err());
+        config.changelog_kafka_clusters =
+            r#"{"dedicated": {"hosts": "d:9092", "tsl": true}}"#.to_string();
+        assert!(config.changelog_cluster("dedicated").is_err());
+        config.changelog_kafka_clusters = r#"{"dedicated": {"hosts": "d:9092"}}"#.to_string();
+        assert!(config.changelog_cluster("dedicated").is_err());
+    }
+
+    #[test]
+    fn the_current_cluster_is_the_entry_matching_the_personhog_hosts() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        config.personhog_kafka_hosts = Some("ingestion:9092".to_string());
+        config.personhog_kafka_tls = Some(true);
+        config.changelog_kafka_clusters = r#"{
+            "ingestion": {"hosts": "ingestion:9092", "tls": true},
+            "dedicated": {"hosts": "dedicated:9092", "tls": true}
+        }"#
+        .to_string();
+        assert_eq!(
+            config.current_changelog_cluster().unwrap(),
+            Some(config.changelog_cluster("ingestion").unwrap())
+        );
+
+        config.personhog_kafka_tls = Some(false);
+        assert_eq!(config.current_changelog_cluster().unwrap(), None);
     }
 
     #[test]

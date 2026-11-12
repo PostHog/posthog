@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -16,14 +16,21 @@ export const WarehouseSuggestionsListParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsListQueryLimitMax = 100
+
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
+    assignee_id: zod.number().optional().describe('Only return suggestions assigned to the user with this ID.'),
     kind: zod
         .enum(['certify', 'deprecate', 'materialize', 'unmaterialize'])
         .optional()
         .describe(
             'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `unmaterialize` - Unmaterialize'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(warehouseSuggestionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     status: zod
         .enum(['proposed', 'accepted', 'dismissed', 'expired', 'auto_resolved'])
@@ -32,6 +39,12 @@ export const WarehouseSuggestionsListQueryParams = () => zod.object({
             'Only return suggestions in this status.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `dismissed` - Dismissed\n\* `expired` - Expired\n\* `auto_resolved` - Auto-resolved'
         ),
     subject_id: zod.string().optional().describe('Only return suggestions about the view or table with this ID.'),
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
 })
 
 export const warehouseSuggestionsRetrievePathIdRegExp = new RegExp(
@@ -57,6 +70,15 @@ export const WarehouseSuggestionsAcceptCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsAcceptCreateQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page the decision was made on. Only recorded on the analytics event.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })
 
@@ -107,6 +129,34 @@ export const WarehouseSuggestionsAcceptCreateBody = () => zod.object({
         .describe(
             "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
         ),
+    delete_view: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread.'
+        ),
+})
+
+export const warehouseSuggestionsAssignCreatePathIdRegExp = new RegExp(
+    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
+export const WarehouseSuggestionsAssignCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseSuggestionsAssignCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsAssignCreateBody = () => zod.object({
+    assignee_id: zod
+        .number()
+        .nullable()
+        .describe(
+            'ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.'
+        ),
 })
 
 export const warehouseSuggestionsDismissCreatePathIdRegExp = new RegExp(
@@ -119,6 +169,15 @@ export const WarehouseSuggestionsDismissCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsDismissCreateQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page the decision was made on. Only recorded on the analytics event.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })
 
@@ -156,5 +215,14 @@ export const WarehouseSuggestionsStatusRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsStatusRetrieveQueryParams = () => zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .optional()
+        .describe(
+            'Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
         ),
 })

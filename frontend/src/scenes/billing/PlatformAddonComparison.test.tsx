@@ -5,13 +5,14 @@ import { cleanup, render } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { makeBillingWithPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingProductV2Type } from '~/types'
 
-import { billingLogic } from './billingLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
 
 describe('PlatformAddonComparison', () => {

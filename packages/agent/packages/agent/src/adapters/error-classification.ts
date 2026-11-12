@@ -94,8 +94,6 @@ export function classifyAgentError(
   }
   if (
     UPSTREAM_RATE_LIMIT_PATTERN.test(text) ||
-    UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
-    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
     CODEX_SERVER_OVERLOADED_PATTERN.test(text) ||
     UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN.test(text)
   ) {
@@ -165,7 +163,7 @@ export function agentErrorRetryAfterMs(result: string): number | undefined {
     : undefined;
 }
 
-function rejectedRequestMessage(body: string): string | undefined {
+export function rejectedRequestMessage(body: string): string | undefined {
   try {
     const message = JSON.parse(body)?.error?.message;
     return typeof message === "string" ? message : undefined;

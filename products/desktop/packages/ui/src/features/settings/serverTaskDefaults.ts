@@ -8,15 +8,16 @@ export interface TaskDefaultsSync {
   upload: Partial<Record<keyof TaskDefaults, boolean>>;
   // Set when the server holds a newer "always create pull requests" value.
   pullAutoPublishCloudRuns: boolean | null;
+  pullInitialTaskMode: DefaultInitialTaskMode | null;
   synced: TaskDefaultsSyncState;
 }
 
 /**
  * What to sync between Desktop and the task defaults on the server for one
- * project. A value nobody set on the server takes the Desktop value, so Desktop
- * users keep what they have. "Start in" is offered once and stays local after.
- * "Always create pull requests" stays in step both ways: the side that changed
- * since the last sync wins.
+ * project. Both values stay in step both ways: the side that changed since the
+ * last sync wins, and on the first sync the server wins. An unset "always
+ * create pull requests" takes the Desktop value. An unset "Start in plan mode"
+ * reads as off, so plan mode stays off until a person turns it on.
  */
 export function nextTaskDefaultsSync(input: {
   server: TaskDefaults;
@@ -24,37 +25,66 @@ export function nextTaskDefaultsSync(input: {
   localInitialTaskMode: DefaultInitialTaskMode;
   synced: TaskDefaultsSyncState | undefined;
 }): TaskDefaultsSync {
-  const { server, localAutoPublishCloudRuns: local, synced } = input;
+  const { server, localAutoPublishCloudRuns, localInitialTaskMode, synced } =
+    input;
   const upload: TaskDefaultsSync["upload"] = {};
 
-  if (
-    !synced?.planModeOffered &&
-    server.start_in_plan_mode === null &&
-    input.localInitialTaskMode === "plan"
-  ) {
-    upload.start_in_plan_mode = true;
+  const autoPublish = syncFlag({
+    remote: server.auto_publish_cloud_runs,
+    local: localAutoPublishCloudRuns,
+    last: synced?.autoPublishCloudRuns,
+    unsetRemote: "upload",
+  });
+  if (autoPublish.upload !== undefined) {
+    upload.auto_publish_cloud_runs = autoPublish.upload;
   }
 
-  let agreed = local;
-  let pull: boolean | null = null;
-  const remote = server.auto_publish_cloud_runs;
-  if (remote === null) {
-    upload.auto_publish_cloud_runs = local;
-  } else if (synced === undefined) {
-    // First sync on this device: a value already on the server was chosen on purpose.
-    agreed = remote;
-  } else if (local !== synced.autoPublishCloudRuns) {
-    upload.auto_publish_cloud_runs = local;
-  } else {
-    agreed = remote;
-  }
-  if (agreed !== local) {
-    pull = agreed;
+  const localPlan = localInitialTaskMode === "plan";
+  const planMode = syncFlag({
+    remote: server.start_in_plan_mode,
+    local: localPlan,
+    last: synced?.startInPlanMode,
+    unsetRemote: "off",
+  });
+  if (planMode.upload !== undefined) {
+    upload.start_in_plan_mode = planMode.upload;
   }
 
   return {
     upload,
-    pullAutoPublishCloudRuns: pull,
-    synced: { autoPublishCloudRuns: agreed, planModeOffered: true },
+    pullAutoPublishCloudRuns:
+      autoPublish.agreed !== localAutoPublishCloudRuns
+        ? autoPublish.agreed
+        : null,
+    pullInitialTaskMode:
+      planMode.agreed !== localPlan
+        ? planMode.agreed
+          ? "plan"
+          : "last_used"
+        : null,
+    synced: {
+      autoPublishCloudRuns: autoPublish.agreed,
+      startInPlanMode: planMode.agreed,
+    },
   };
+}
+
+function syncFlag(input: {
+  remote: boolean | null;
+  local: boolean;
+  last: boolean | undefined;
+  unsetRemote: "upload" | "off";
+}): { upload?: boolean; agreed: boolean } {
+  const { local, last } = input;
+  if (input.remote === null && input.unsetRemote === "upload") {
+    return { upload: local, agreed: local };
+  }
+  const remote = input.remote ?? false;
+  if (last === undefined) {
+    return { agreed: remote };
+  }
+  if (local !== last) {
+    return { upload: local, agreed: local };
+  }
+  return { agreed: remote };
 }

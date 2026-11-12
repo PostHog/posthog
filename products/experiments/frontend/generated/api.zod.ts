@@ -901,7 +901,7 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -925,7 +925,7 @@ export const ExperimentSavedMetricsUpdateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -951,7 +951,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -1328,6 +1328,7 @@ export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin
 
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax = 100
 
 export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
 
@@ -1352,8 +1353,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
         number_of_variants: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .max(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax)
             .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
-            .describe('Total number of variants including control (default 2).'),
+            .describe('Total number of variants including control (default 2, at most 100).'),
         exposure_rate_per_day: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
@@ -1369,7 +1371,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+                'Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.'
             ),
         baseline_stats: zod
             .union([
@@ -1387,7 +1389,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                            .describe(
+                                "Sum of squared metric values. Mean metrics read their variance from it, and ratio\/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value."
+                            ),
                         denominator_sum: zod
                             .number()
                             .nullish()

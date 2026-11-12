@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
@@ -14,15 +14,25 @@ from posthog.schema import TrendsQueryResponse
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.product_analytics.backend.facade.api import (
+    create_insight_explanation,
+    delete_agent_insight_reads_for_teams,
+    get_insight_explanation,
+    insight_reads_by_agents,
+    insight_short_ids_built_by,
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
+    record_agent_insight_read,
     record_insight_view,
+    update_insight_explanation,
     viewer_counts_by_insight,
 )
+from products.product_analytics.backend.facade.contracts import AgentInsightRead
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
@@ -71,7 +81,95 @@ class TestRecordInsightView(BaseTest):
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
 
 
+class TestAgentInsightReads(BaseTest):
+    def test_a_read_counts_once_a_day_and_deleted_insights_are_left_out(self) -> None:
+        asked = Insight.objects.create(team=self.team, saved=True, short_id="asked")
+        deleted = Insight.objects.create(team=self.team, saved=True, short_id="deleted", deleted=True)
+        for moment, insight in (
+            (datetime(2026, 10, 1, 9, tzinfo=UTC), asked),
+            (datetime(2026, 10, 1, 15, tzinfo=UTC), asked),
+            (datetime(2026, 11, 6, 9, tzinfo=UTC), asked),
+            (datetime(2026, 11, 7, 9, tzinfo=UTC), asked),
+            (datetime(2026, 11, 7, 9, tzinfo=UTC), deleted),
+        ):
+            with time_machine.travel(moment, tick=False):
+                record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
+
+        reads = insight_reads_by_agents(
+            team_id=self.team.id, user_id=self.user.id, since=date(2026, 10, 1), min_days=2, limit=5
+        )
+
+        self.assertEqual(reads, [AgentInsightRead("asked", (date(2026, 10, 1), date(2026, 11, 6), date(2026, 11, 7)))])
+
+    def test_the_limit_counts_only_insights_read_on_enough_days_in_the_window(self) -> None:
+        def read(short_id: str, days: list[date]) -> None:
+            insight = Insight.objects.create(team=self.team, saved=True, short_id=short_id)
+            for day in days:
+                InsightAgentRead.objects.for_team(self.team.id).create(
+                    team=self.team, user=self.user, insight=insight, day=day
+                )
+
+        read("once", [date(2026, 11, 9)])
+        read("early", [date(2026, 10, 1), date(2026, 11, 8)])
+        read("twice", [date(2026, 11, 2), date(2026, 11, 5)])
+
+        reads = insight_reads_by_agents(
+            team_id=self.team.id, user_id=self.user.id, since=date(2026, 10, 13), min_days=2, limit=1
+        )
+
+        self.assertEqual([r.short_id for r in reads], ["twice"])
+
+    def test_deleting_a_team_keeps_the_agent_reads_of_other_teams(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        for team in (self.team, other):
+            insight = Insight.objects.create(team=team, saved=True, short_id=f"t{team.id}")
+            record_agent_insight_read(team=team, user_id=self.user.id, insight_id=insight.pk)
+
+        delete_agent_insight_reads_for_teams([self.team.id])
+
+        self.assertEqual(
+            [InsightAgentRead.objects.for_team(team.id).count() for team in (self.team, other)],
+            [0, 1],
+        )
+
+    @time_machine.travel("2026-11-10T12:00:00Z", tick=False)
+    def test_the_daily_task_expires_days_past_the_window_for_every_reader(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, short_id="dormant")
+        for day in (date(2026, 10, 5), date(2026, 10, 6), date(2026, 11, 9)):
+            InsightAgentRead.objects.for_team(self.team.id).create(
+                team=self.team, user=self.user, insight=insight, day=day
+            )
+
+        expire_agent_insight_reads()
+
+        self.assertEqual(
+            sorted(InsightAgentRead.objects.for_team(self.team.id).values_list("day", flat=True)),
+            [date(2026, 10, 6), date(2026, 11, 9)],
+        )
+
+
 class TestInsightReads(BaseTest):
+    @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
+    def test_built_insights_are_recent_saved_ones_you_created_or_edited(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        since = now() - timedelta(days=28)
+        old = now() - timedelta(days=40)
+        rows: dict[str, tuple[dict[str, object], datetime]] = {
+            "created": ({"created_by": self.user}, now()),
+            "edited": ({"created_by": other, "last_modified_by": self.user}, now()),
+            "old": ({"created_by": self.user, "last_modified_by": self.user}, old),
+            "unsaved": ({"created_by": self.user, "saved": False}, now()),
+            "deleted": ({"created_by": self.user, "deleted": True}, now()),
+            "theirs": ({"created_by": other, "last_modified_by": other}, now()),
+        }
+        for short_id, (fields, at) in rows.items():
+            insight = Insight.objects.create(team=self.team, short_id=short_id, **fields)
+            Insight.objects_including_soft_deleted.filter(id=insight.id).update(created_at=at, last_modified_at=at)
+
+        found = insight_short_ids_built_by(team=self.team, user_id=self.user.id, since=since, limit=10)
+
+        assert sorted(found) == ["created", "edited"]
+
     def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
         deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
         live_insight = Insight.objects.create(team=self.team, name="Live")
@@ -109,6 +207,37 @@ class TestInsightReads(BaseTest):
         )
 
         assert counts == {viewed.pk: 2}
+
+
+class TestSaveInsightExplanation(BaseTest):
+    @parameterized.expand(
+        [
+            ("by_the_person_who_saved_it", True, True),
+            ("by_another_person", False, False),
+        ]
+    )
+    def test_only_the_person_who_saved_an_explanation_can_change_it(
+        self, _name: str, same_person: bool, changed: bool
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="Pageviews")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        first = create_insight_explanation(
+            team_id=self.team.id, insight_id=insight.id, user_id=self.user.id, data={"headline": "First."}
+        )
+
+        updated = update_insight_explanation(
+            team_id=self.team.id,
+            insight_id=insight.id,
+            explanation_id=first.id,
+            user_id=(self.user if same_person else other).id,
+            data={"headline": "Second."},
+        )
+
+        assert (updated is not None) == changed
+        stored = get_insight_explanation(team_id=self.team.id, insight_id=insight.id, explanation_id=first.id)
+        assert stored is not None
+        assert stored.data == {"headline": "Second." if changed else "First."}
+        assert stored.created_by is not None and stored.created_by.id == self.user.id
 
 
 class TestRunCachedTrendsQuery(BaseTest):

@@ -8,13 +8,13 @@ from uuid import UUID
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
@@ -27,9 +27,12 @@ from posthog.utils import UUID_REGEX
 from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
+    SUBJECT_SCOPE_OBJECTS,
+    WAREHOUSE_SCOPE_OBJECT,
     AcceptFailedError,
     AcceptOptionRefusedError,
     AcceptOptions,
+    AssigneeCannotActError,
     CatalogEditAccessRequiredError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
@@ -37,17 +40,27 @@ from ..facade.contracts import (
     Suggestion,
     SuggestionAlreadyDecidedError,
     SuggestionNotFoundError,
+    SuggestionNotOpenError,
     SuggestionOutdatedError,
-    SuggestionPage,
     SuggestionSubjectGoneError,
 )
-from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
+)
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
+    AssignWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
+    SurfaceMoreWarehouseSuggestionsSerializer,
+    WarehouseSuggestionDecisionQuerySerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
+    WarehouseSuggestionStatusQuerySerializer,
     WarehouseSuggestionStatusSerializer,
+    WarehouseSuggestionSurfaceMoreResultSerializer,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -66,25 +79,23 @@ ALREADY_CERTIFIED = {
     WarehouseSuggestionSubjectKind.TABLE: "This table already has a certification.",
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
+ASSIGNEE_CANNOT_ACT = (
+    "This person can't accept this suggestion. Pick someone with edit access to the view or table, "
+    "and to the data catalog for certify and deprecate suggestions."
+)
+ONLY_OPEN_ASSIGNABLE = "Only open suggestions can be assigned."
 ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
 ScopeLevel = Literal["read", "write"]
-SUBJECT_SCOPE_OBJECTS = {
-    WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
-    WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
-}
 
 
-class SuggestionPagination(LimitOffsetPagination):
+def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
+    surface = request.validated_query_data.get("surface")
+    return WarehouseSuggestionSurface(surface) if surface else None
+
+
+class SuggestionPagination(FacadeLimitOffsetPagination):
     default_limit = DEFAULT_PAGE_SIZE
     max_limit = DEFAULT_PAGE_SIZE
-
-    def paginate(self, request: Request, fetch_page: Callable[[int, int], SuggestionPage]) -> Response:
-        self.request = request
-        self.limit = self.get_limit(request) or DEFAULT_PAGE_SIZE
-        self.offset = self.get_offset(request)
-        page = fetch_page(self.limit, self.offset)
-        self.count = page.count
-        return self.get_paginated_response(WarehouseSuggestionSerializer(page.results, many=True).data)
 
 
 class ProjectAccessPermission(BasePermission):
@@ -94,9 +105,9 @@ class ProjectAccessPermission(BasePermission):
 
 
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "warehouse_objects"
+    scope_object = WAREHOUSE_SCOPE_OBJECT
     scope_object_read_actions = ["list", "retrieve", "status"]
-    scope_object_write_actions = ["accept", "dismiss", "resume"]
+    scope_object_write_actions = ["accept", "assign", "dismiss", "resume", "surface_more"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
 
@@ -145,24 +156,46 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         kind = request.validated_query_data.get("kind")
         status = request.validated_query_data.get("status")
-        return cast(SuggestionPagination, self.paginator).paginate(
-            request,
-            lambda limit, offset: api.list_suggestions(
+        return facade_page_response(
+            self,
+            lambda page: api.list_suggestions(
                 self.team_id,
                 self.user_access_control,
                 kind=WarehouseSuggestionKind(kind) if kind else None,
                 status=WarehouseSuggestionStatus(status) if status else None,
                 subject_id=request.validated_query_data.get("subject_id"),
+                assignee_id=request.validated_query_data.get("assignee_id"),
+                surface=_surface(request),
                 subject_kinds=self._subject_kinds,
-                limit=limit,
-                offset=offset,
+                page=page,
             ),
+            serializer_class=WarehouseSuggestionSerializer,
         )
 
-    @extend_schema(responses={200: WarehouseSuggestionStatusSerializer})
+    @validated_request(
+        query_serializer=WarehouseSuggestionStatusQuerySerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionStatusSerializer)},
+    )
     @action(detail=False, methods=["get"], pagination_class=None)
-    def status(self, request: Request, **kwargs: Any) -> Response:
-        return Response(WarehouseSuggestionStatusSerializer(api.suggestion_status(self.team_id)).data)
+    def status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        status = api.suggestion_status(
+            self.team_id, self.user_access_control, subject_kinds=self._subject_kinds, surface=_surface(request)
+        )
+        return Response(WarehouseSuggestionStatusSerializer(status).data)
+
+    @validated_request(
+        request_serializer=SurfaceMoreWarehouseSuggestionsSerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionSurfaceMoreResultSerializer)},
+    )
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def surface_more(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        result = api.surface_more(
+            self.team,
+            self.user_access_control,
+            surface=WarehouseSuggestionSurface(request.validated_data["surface"]),
+            subject_kinds=self._subject_kinds,
+        )
+        return Response(WarehouseSuggestionSurfaceMoreResultSerializer(result).data)
 
     @extend_schema(responses={200: WarehouseSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -174,6 +207,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @validated_request(
         request_serializer=DismissWarehouseSuggestionSerializer,
+        query_serializer=WarehouseSuggestionDecisionQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
@@ -187,11 +221,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 reason=request.validated_data["reason"],
                 note=request.validated_data.get("note") or None,
                 subject_kinds=self._subject_kinds,
+                surface=_surface(request),
             )
         )
 
     @validated_request(
         request_serializer=AcceptWarehouseSuggestionSerializer,
+        query_serializer=WarehouseSuggestionDecisionQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
@@ -204,6 +240,24 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 user=cast(User, request.user),
                 options=request.validated_data,
                 was_impersonated=is_impersonated(request),
+                subject_kinds=self._subject_kinds,
+                surface=_surface(request),
+            )
+        )
+
+    @validated_request(
+        request_serializer=AssignWarehouseSuggestionSerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
+    )
+    @action(detail=True, methods=["post"])
+    def assign(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        return self._respond(
+            lambda: api.assign_suggestion(
+                self.team,
+                self.user_access_control,
+                UUID(pk),
+                user=cast(User, request.user),
+                assignee_id=request.validated_data["assignee_id"],
                 subject_kinds=self._subject_kinds,
             )
         )
@@ -242,3 +296,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))
+        except AssigneeCannotActError:
+            raise ValidationError({"assignee_id": ASSIGNEE_CANNOT_ACT})
+        except SuggestionNotOpenError:
+            raise Conflict(ONLY_OPEN_ASSIGNABLE)

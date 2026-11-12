@@ -36,6 +36,7 @@ from ..logic import (
     destination_eligibility,
     destinations,
     insight_alert_destinations,
+    insight_alert_message,
 )
 from .contracts import (
     AlertInternalEvent,
@@ -109,6 +110,51 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_pagerduty_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
+def insight_alert_slack_properties(
+    *,
+    breaches: list[str],
+    metric_name: str,
+    is_anomaly: bool = False,
+    tags: list[str] | None = None,
+    breach_details: list[dict[str, str]] | None = None,
+    affected_dates: list[str] | None = None,
+    affected_interval: str | None = None,
+    project_timezone: str = "UTC",
+    metric_description: str | None = None,
+    next_step: str | None = None,
+    summary: str | None,
+    verdict: str | None,
+    investigation_status: str | None,
+    detected_at: str,
+    allowed_root: str,
+) -> dict[str, Any]:
+    return insight_alert_message.insight_alert_slack_properties(
+        breaches=breaches,
+        metric_name=metric_name,
+        is_anomaly=is_anomaly,
+        tags=tags,
+        breach_details=breach_details,
+        affected_dates=affected_dates,
+        affected_interval=affected_interval,
+        project_timezone=project_timezone,
+        metric_description=metric_description,
+        next_step=next_step,
+        summary=summary,
+        verdict=verdict,
+        investigation_status=investigation_status,
+        detected_at=detected_at,
+        allowed_root=allowed_root,
+    )
+
+
 def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
@@ -155,6 +201,11 @@ def list_alert_destination_groups(
     return destinations.list_alert_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The platform's lookup for HogFunctions that still exist, which `products.alerts` registers when Django starts."""
+    return destinations.live_hog_function_ids(team_id=team_id, hog_function_ids=hog_function_ids)
 
 
 def owned_alert_destination_ids(
@@ -280,6 +331,25 @@ def customized_alert_destination_ids(
             team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
         )
         if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
+    )
+
+
+def unrevised_hold_backs(
+    config: AlertDestinationConfig, *, allowed_event_ids: Collection[str]
+) -> tuple[DestinationHoldBack, ...]:
+    """What a destination built from this config holds back when it has no revision to compare with.
+
+    Empty means the source lists every message the builder wrote as one of its defaults.
+    """
+    return destination_eligibility.unrevised_hold_backs(
+        config.payload["template_id"], config.payload["inputs"], allowed_event_ids
+    )
+
+
+def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound."""
+    return destination_eligibility.alert_has_enabled_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
 
 

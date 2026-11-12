@@ -17,7 +17,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
 from products.experiments.backend.health.context import (
@@ -30,18 +32,21 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
+    PinnedTraffic,
     grade_pinned_share,
     pinned_conditions,
     pinned_share_severity,
+    pinned_traffic,
     pinned_variant_keys,
 )
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, flag_to_check
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip, CheckValues, flag_to_check
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
-# Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
-# everyone, or each variant gets a different group of users, so the results compare nothing valid.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
+# Every condition that includes users pins a variant, and one of them includes everyone it reaches, so no user is
+# randomly assigned. One variant gets everyone, or each variant gets a different group of users, so the results
+# compare nothing valid.
 ALL_CONDITIONS_PINNED = "all_conditions_pinned"
 # Some conditions pin a variant. The users they match count in that variant's results without random
 # assignment, so they bias the comparison unless the analysis excludes them, for example as test users.
@@ -49,6 +54,9 @@ SOME_CONDITIONS_PINNED = "some_conditions_pinned"
 # Every condition that includes users pins the variant that one property names, so the code that sets the
 # property assigns the variants. The comparison is valid if that code assigns at random, which PostHog can't see.
 ASSIGNED_BY_PROPERTY = "assigned_by_property"
+# Every condition that includes users pins a variant and matches only some users, so only those users enter the
+# experiment and everyone else gets no variant. Usually a test set-up, such as a list of the team's own users.
+CLOSED_TO_MATCHED_USERS = "closed_to_matched_users"
 
 
 @frozen
@@ -60,6 +68,13 @@ class _Pins:
     graded: PinnedConditions
 
 
+def assigns_nobody_by_split(flag: FlagState) -> bool:
+    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
+    return bool(flag.reachable_conditions) and all(
+        condition.pinned_variant is not None for condition in flag.reachable_conditions
+    )
+
+
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides in place that SOME_CONDITIONS_PINNED is graded by, or None when it is not graded."""
     flag = flag_to_check(ctx, before_launch=True)
@@ -69,6 +84,47 @@ def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     if pins is None or pins.all_pinned:
         return None
     return pins.graded
+
+
+def forced_variant_values(ctx: HealthContext) -> CheckValues:
+    flag = flag_to_check(ctx, before_launch=True)
+    if isinstance(flag, CheckSkip):
+        return {}
+    forced = sum(1 for condition in flag.reachable_conditions if condition.pinned_variant is not None)
+    values = {ExperimentHealthValueKey.FORCED_CONDITION_COUNT: forced}
+    measured = _measured_traffic(ctx)
+    if measured is None:
+        return values
+    return {
+        **values,
+        ExperimentHealthValueKey.MATCHED_COUNT: measured.matched_people,
+        ExperimentHealthValueKey.TRAFFIC_SINCE_AT: measured.since.astimezone(UTC).isoformat(),
+    }
+
+
+def forced_variant_rows(ctx: HealthContext) -> CheckRows:
+    measured = _measured_traffic(ctx)
+    if measured is None:
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.VARIANT: variant.key,
+            ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: round(variant.people),
+            ExperimentHealthValueKey.FORCED_COUNT: variant.pinned_people,
+            ExperimentHealthValueKey.FORCED_PERCENTAGE: round(variant.share * 100, 2),
+        }
+        for variant in measured.variants
+        if variant.key not in ctx.excluded_variant_keys
+    )
+
+
+def _measured_traffic(ctx: HealthContext) -> PinnedTraffic | None:
+    """The traffic that grades SOME_CONDITIONS_PINNED, under the same conditions as its grade."""
+    graded = overrides_to_grade(ctx)
+    traffic = ctx.condition_set_traffic
+    if graded is None or not graded.weighted or traffic is None:
+        return None
+    return pinned_traffic(graded, traffic)
 
 
 def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
@@ -101,6 +157,23 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
             diagnostic_ref="A7b",
             grade_evidence={"variant_property": variant_property.key, **set_after_launch.evidence},
         )
+    if not any(condition.includes_everyone for condition in pins.pinned):
+        return _finding(
+            subcode=CLOSED_TO_MATCHED_USERS,
+            severity=ExperimentHealthFindingSeverity.WARNING,
+            title=f"Only users who match {set_names(pinned_numbers)} get a variant",
+            detail=_closed_detail(pinned_numbers, pinned_keys, is_draft, set_after_launch),
+            pinned_numbers=pinned_numbers,
+            pinned_keys=pinned_keys,
+            diagnostic_ref="A7b",
+            grade_evidence=set_after_launch.evidence,
+            actions=(
+                ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+                *(() if is_draft else (ExperimentHealthFindingActionKind.END_EXPERIMENT,)),
+            ),
+        )
+    # With one variant for everyone, the detail of a launched experiment says to end it if the rollout was meant.
+    ends_first = not is_draft and len(pinned_keys) == 1
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
@@ -110,6 +183,10 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
         grade_evidence=set_after_launch.evidence,
+        actions=(
+            *((ExperimentHealthFindingActionKind.END_EXPERIMENT,) if ends_first else ()),
+            ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+        ),
     )
 
 
@@ -121,7 +198,7 @@ def _pins(ctx: HealthContext, flag: FlagState) -> _Pins | None:
     analyzed = tuple(condition for condition in pinned if condition.pinned_variant not in ctx.excluded_variant_keys)
     return _Pins(
         pinned=pinned,
-        all_pinned=len(pinned) == len(flag.reachable_conditions),
+        all_pinned=assigns_nobody_by_split(flag),
         analyzed=analyzed,
         graded=pinned_conditions(analyzed, flag.variants),
     )
@@ -152,6 +229,7 @@ def _some_conditions_pinned(pins: _Pins, ctx: HealthContext, is_draft: bool) -> 
         pinned_keys=pinned_keys,
         diagnostic_ref="A7",
         grade_evidence={**(grade.evidence() if grade is not None else {}), **set_after_launch.evidence},
+        reason=grade.finding_reason if grade is not None else None,
     )
 
 
@@ -167,7 +245,7 @@ class _SetAfterLaunch:
     def remedy_after_removal(self) -> str:
         if self.covers_all:
             return "Then move the experiment's start date to after the removal."
-        return "Then reset the experiment, or move its start date to after the removal."
+        return f"Then reset the experiment, or move its start date to after the removal. {RESET_EFFECT}"
 
 
 def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLaunch:
@@ -190,7 +268,7 @@ def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLa
             "who were exposed before may have switched variants."
         )
     else:
-        names = _set_names(sorted(override.condition_number for override in added))
+        names = set_names(sorted(override.condition_number for override in added))
         sentence = (
             f" The overrides of {names} were set after launch, last on {at}, so users they match who were exposed "
             "before may have switched variants."
@@ -211,7 +289,7 @@ def _quoted(keys: Sequence[str]) -> str:
     return ", ".join(f'"{key}"' for key in keys)
 
 
-def _set_names(numbers: Sequence[int]) -> str:
+def set_names(numbers: Sequence[int]) -> str:
     if len(numbers) == 1:
         return f"Set {numbers[0]}"
     return "Sets " + ", ".join(str(number) for number in numbers[:-1]) + f" and {numbers[-1]}"
@@ -239,16 +317,61 @@ def _all_pinned_detail(
             f"Every release condition that includes users sets a variant override ({_quoted(pinned_keys)}), so "
             f"{when}each user gets the variant of the condition they match instead of a random one."
         )
+        # The conditions can assign by segment on purpose, so the fix is offered for a random assignment.
         why = (
             "Each variant then holds a different group of users, so a difference in the results can come from "
             "who those users are and not from the variant."
         )
         fix = (
-            f"Remove {overrides} so users are assigned at random. Users who already saw a variant can then "
+            f"To assign users at random, remove {overrides}. Users who already saw a variant can then "
             f"switch to another one. {set_after_launch.remedy_after_removal()}"
         )
     if is_draft:
         fix = f"Remove {overrides} before launch so users are assigned at random."
+    return f"{fact}{set_after_launch.sentence} {why} {fix}"
+
+
+def _closed_detail(
+    numbers: Sequence[int], keys: Sequence[str], is_draft: bool, set_after_launch: _SetAfterLaunch
+) -> str:
+    enter = "after launch only those users enter" if is_draft else "only those users enter"
+    if len(keys) == 1:
+        gets = f'sets the variant override "{keys[0]}", so {enter} the experiment, and they all get "{keys[0]}".'
+        why = (
+            "Everyone else gets no variant. With no other variant to compare against, the results can't show "
+            f'whether "{keys[0]}" makes a difference.'
+        )
+    else:
+        gets = (
+            f"sets a variant override ({_quoted(keys)}), so {enter} the experiment, and each gets the variant of "
+            "their condition."
+        )
+        why = (
+            "Everyone else gets no variant. Each variant holds a different group of users, so a difference in the "
+            "results can come from who those users are and not from the variant."
+        )
+    if len(numbers) == 1:
+        fact = (
+            f"Set {numbers[0]} is the only release condition that includes users. It matches only some users and {gets}"
+        )
+    else:
+        fact = (
+            f"{set_names(numbers)} are the only release conditions that include users. Each matches only some users "
+            f"and {gets}"
+        )
+    overrides = "the override" if len(numbers) == 1 else "the overrides"
+    if is_draft:
+        fix = (
+            "An override helps to test the experiment before launch. Before you launch, add a release condition "
+            f"without a variant override for the users you want to test. If these are those users, remove {overrides} "
+            "instead."
+        )
+    else:
+        fix = (
+            "If these are test users, add a release condition without a variant override for the users you want to "
+            f"test, or end the experiment. If they are the users you want to test, remove {overrides} so they are "
+            f"assigned at random. {set_after_launch.remedy_after_removal()}"
+        )
     return f"{fact}{set_after_launch.sentence} {why} {fix}"
 
 
@@ -274,13 +397,13 @@ def _some_pinned_detail(
         key = pinned_keys[0]
         overrides, them = "the override", "it"
         fact = (
-            f'{_set_names(numbers)} sets the variant override "{key}", so users who match it always get "{key}" '
+            f'{set_names(numbers)} sets the variant override "{key}", so users who match it always get "{key}" '
             "instead of a random variant."
         )
     else:
         overrides, them = "the overrides", "them"
         fact = (
-            f"{_set_names(numbers)} set variant overrides ({_quoted(pinned_keys)}), so users who match them "
+            f"{set_names(numbers)} set variant overrides ({_quoted(pinned_keys)}), so users who match them "
             "always get the variant of their condition instead of a random one."
         )
     why = (
@@ -321,10 +444,15 @@ def _finding(
     pinned_keys: Sequence[str],
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
+    reason: str | None = None,
+    actions: tuple[ExperimentHealthFindingActionKind, ...] = (
+        ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+    ),
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=detail,
@@ -333,6 +461,6 @@ def _finding(
             "pinned_variant_keys": ", ".join(pinned_keys),
             **(grade_evidence or {}),
         },
-        actions=(ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,),
+        actions=actions,
         diagnostic_ref=diagnostic_ref,
     )

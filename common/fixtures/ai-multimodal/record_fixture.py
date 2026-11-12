@@ -57,10 +57,10 @@ def main() -> None:
     encoded = json.dumps(properties["$ai_input"])
     if "[base64 image redacted]" in encoded:
         raise SystemExit("image was redacted — _enable_multimodal_capture did not take effect")
-    if len(image_b64) <= 20480:
+    if len(image_b64) <= 20000:
         raise SystemExit(
             f"screenshot is too small ({len(image_b64)} base64 chars); "
-            "it must exceed AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20480) or ingestion will not offload it"
+            "it must exceed AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20000) or ingestion will not offload it"
         )
 
     FIXTURE.write_text(

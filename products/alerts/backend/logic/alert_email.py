@@ -1,13 +1,13 @@
-"""Who an insight alert emails, for the production check and for the shared platform.
+"""Who an alert emails besides its HogFunction destinations.
 
-An insight alert emails its subscribed users besides any HogFunction destinations. Both senders
-read recipients here, so a user who loses access to the insight stops receiving either.
+An insight alert emails its subscribed users. Both senders, the production check and the shared
+platform, read recipients here, so a user who loses access to the insight stops receiving either.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection
-from typing import Final
+from collections.abc import Collection, Iterable
+from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -18,6 +18,9 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 # A failed check has no internal event of its own, because production emails it directly. The
 # platform routes errored transitions to email by this id, which no HogFunction can subscribe to.
@@ -47,16 +50,22 @@ def recipients_with_access(alert: AlertConfiguration) -> list[tuple[int, str]]:
         .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
         .only("id", "email")
     )
-    return [
-        (user.id, user.email)
-        for user in candidates
-        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
-    ]
+    return [(user.id, user.email) for user in candidates if can_view_insight(user, alert)]
+
+
+def can_view_insight(user: User, alert: AlertConfiguration) -> bool:
+    return UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
 
 
 def insight_email_groups(recipients: Collection[tuple[int, str]]) -> list[AlertDestinationGroup]:
-    addresses = sorted({email for _, email in recipients if email})
-    if not addresses:
+    return email_groups(email for _, email in recipients)
+
+
+def email_groups(addresses: Iterable[str]) -> list[AlertDestinationGroup]:
+    # Sorted and deduplicated, because delivery tells destinations apart by their data. The same
+    # people in another order would read as a second destination.
+    unique = sorted({address for address in addresses if address})
+    if not unique:
         return []
-    data: AlertDestinationData = {"type": DestinationType.EMAIL, "email_addresses": addresses}
+    data: AlertDestinationData = {"type": DestinationType.EMAIL, "email_addresses": unique}
     return [AlertDestinationGroup(hog_function_ids=(), data=data, fully_enabled=True)]

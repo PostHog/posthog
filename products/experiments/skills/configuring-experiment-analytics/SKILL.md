@@ -1,6 +1,6 @@
 ---
 name: configuring-experiment-analytics
-description: Configures the analytics side of a PostHog experiment — exposure criteria (server-resolved default exposure event vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude from analysis" vs "Use first seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
+description: Configures the analytics side of a PostHog experiment — exposure criteria (server-resolved default exposure event vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`, percentile with `quantile`), multivariate user handling ("Exclude from analysis" vs "Use first seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
 ---
 
 # Configuring experiment analytics
@@ -17,6 +17,10 @@ Two options:
 
 1. **Default exposure event** — users are included when the experiment's default exposure event fires for the experiment's flag: `$feature_flag_called`, or `$experiment_exposure` for newer experiments. Which one applies is resolved server-side — read `resolved_exposure_event` from `experiment-get` rather than assuming either name (both events carry the same properties). When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows. This is the standard approach — it means a user is included only when they actually encounter the feature flag in your code.
 2. **Custom exposure event** — users are included when a specific custom event fires. Use this when you want tighter control over who enters the analysis (e.g., only users who actually visit the page where the experiment runs).
+
+Filters on the exposure event remove individual events, not users.
+A user still counts as long as one of their exposure events passes the filters.
+To keep users out of the experiment, exclude them in the flag's release conditions before launch (see `configuring-experiment-rollout`).
 
 ### Multiple variant handling
 
@@ -78,7 +82,7 @@ compare on what each metric measures (its `query`), never on its title.
 **Workflow:**
 
 1. **Know what you're about to build first.** Settle the target event(s)/action(s) and metric type
-   (mean / funnel / ratio / retention) before searching — see Step 2 to confirm the event exists via
+   (mean / funnel / ratio / retention / quantile) before searching — see Step 2 to confirm the event exists via
    `read-data-schema`. You can only recognize a duplicate once you know the concrete event/action,
    so this check runs _after_ you've pinned down the event, not before.
 2. **Search by the event, then compare each candidate's `query`.** Call `experiment-saved-metrics-list`
@@ -150,7 +154,7 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
 
 Start from a template in `references/metric-templates.md`: it maps common requests ("more revenue", "people come back") to a metric type and the defaults to set with it (window units, winsorization, goal).
 
-There are four metric types. Each has `kind: "ExperimentMetric"`:
+There are five metric types. Each has `kind: "ExperimentMetric"`:
 
 | metric_type   | When to use                                                                            | Required fields                                                                                                                |
 | ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -158,6 +162,7 @@ There are four metric types. Each has `kind: "ExperimentMetric"`:
 | `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` (1 or more steps)                                                                                                     |
 | `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` — set `math: "sum"` + `math_property` on a side to aggregate a property; filters never aggregate    |
 | `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, `retention_window_start`, `retention_window_end`, `retention_window_unit`, `start_handling` |
+| `"quantile"`  | A percentile of a numeric property across all events (p90 load time, p99 latency)      | `source` with `math_property`, `quantile` (0.01 to 0.99, e.g. `0.9` for p90)                                                   |
 
 **Funnel metrics and the implicit exposure step**
 
@@ -178,6 +183,12 @@ Examples:
 
 Both can reference the same event — the difference is whether you care about count/magnitude (mean) or yes/no conversion (funnel).
 
+**Mean vs percentile for durations**
+
+- **Mean** with `math: "avg"` averages the value per user. A few extreme values pull the mean, and the average hides how the slow tail changed.
+- **Quantile** (shown as "Percentile" in the UI) takes the percentile over all events of a variant, pooled across users. It describes one point of the distribution, such as the slow tail at p90 or p99, and a few extreme values barely move it. Use it for latency, load times and other durations where the slow tail matters. Set `goal: "decrease"` when lower is better.
+- A percentile metric doesn't support data warehouse sources, CUPED or timeseries.
+
 **Retention: same vs different start/completion event**
 
 The retention window is measured from the start event, so the events you pick decide what's measured:
@@ -186,7 +197,7 @@ The start occurrence never counts as its own completion (only a distinct later e
 - **Different** start and completion events → conversion-style retention ("did they reach the target action within the window?").
 - **Same** event → repeat retention ("did they fire it _again_?"). `From 0` counts a repeat from the same period onward (same-day repeats included); `From ≥ 1` requires an occurrence later. Use `start_handling: "first_seen"`. When a user says "retention of `<event>`" they usually mean repeat retention.
 
-See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
+See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all five metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
 ### Step 4: Primary vs secondary
 

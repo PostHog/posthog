@@ -6,10 +6,9 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationConfig } from '../types'
-import { EvaluationCodeEditor, HogTestResultsPanel } from './EvaluationCodeEditor'
+import { EvaluationCodeEditor } from './EvaluationCodeEditor'
 
 jest.mock('lib/monaco/CodeEditorResizable', () => ({
     CodeEditorResizeable: () => <div data-attr="mock-code-editor" />,
@@ -38,28 +37,6 @@ const baseEvaluation: EvaluationConfig = {
     updated_at: '2024-01-01T00:00:00Z',
 }
 
-const trueResult: TestHogResultItemApi = {
-    sample_id: 'gen-1',
-    sample_type: 'generation',
-    event_uuid: 'gen-1',
-    trace_id: 'trace-1',
-    input_preview: 'hello',
-    output_preview: 'world',
-    result: true,
-    reasoning: '',
-    error: null,
-}
-
-function renderPanel(): void {
-    render(
-        <Provider>
-            <BindLogic logic={llmEvaluationLogic} props={props}>
-                <HogTestResultsPanel />
-            </BindLogic>
-        </Provider>
-    )
-}
-
 function renderEditor(): void {
     render(
         <Provider>
@@ -68,6 +45,8 @@ function renderEditor(): void {
             </BindLogic>
         </Provider>
     )
+    // The authoring tips sit in a fold that starts closed.
+    fireEvent.click(screen.getByText('Hog reference'))
 }
 
 describe('EvaluationCodeEditor', () => {
@@ -96,31 +75,6 @@ describe('EvaluationCodeEditor', () => {
         logic?.unmount()
     })
 
-    it('labels a true result as a pass for a plain evaluation', () => {
-        logic.actions.loadEvaluationSuccess(baseEvaluation)
-        logic.actions.testHogOnSampleSuccess([trueResult])
-        renderPanel()
-
-        expect(screen.getByText('1 passed')).toBeInTheDocument()
-        expect(screen.getByText('0 failed')).toBeInTheDocument()
-        expect(screen.getByText('Pass')).toBeInTheDocument()
-        expect(screen.queryByText('Fail')).not.toBeInTheDocument()
-    })
-
-    it('labels a true result as a fail for a detector, matching the polarity switch', () => {
-        logic.actions.loadEvaluationSuccess({
-            ...baseEvaluation,
-            output_config: { allows_na: false, true_is_failure: true },
-        })
-        logic.actions.testHogOnSampleSuccess([trueResult])
-        renderPanel()
-
-        expect(screen.getByText('0 passed')).toBeInTheDocument()
-        expect(screen.getByText('1 failed')).toBeInTheDocument()
-        expect(screen.getByText('Fail')).toBeInTheDocument()
-        expect(screen.queryByText('Pass')).not.toBeInTheDocument()
-    })
-
     it('describes detector polarity in the authoring tip', () => {
         logic.actions.loadEvaluationSuccess({
             ...baseEvaluation,
@@ -140,9 +94,11 @@ describe('EvaluationCodeEditor', () => {
         ['Latency', 'return target.total_latency_seconds;'],
         ['Cost', 'return target.total_cost_usd;'],
     ])('enables N/A for the numeric %s example', (label, source) => {
-        logic.actions.loadEvaluationSuccess({ ...baseEvaluation, output_type: 'numeric' })
+        // Traces have no numeric templates, so the menu lists these starters.
+        logic.actions.loadEvaluationSuccess({ ...baseEvaluation, output_type: 'numeric', target: 'trace' })
         renderEditor()
 
+        fireEvent.click(screen.getByText('Insert an example'))
         fireEvent.click(screen.getByText(label))
 
         expect(logic.values.evaluation?.evaluation_config).toEqual({ source })

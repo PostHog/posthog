@@ -1,9 +1,14 @@
 import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
+
+import type { ActivityLogCredentialTypeEnumApi } from 'products/platform_features/frontend/generated/api.schemas'
+
+import { workloadActorLabel, parseWorkloadAttribution } from './parseWorkloadAttribution'
+import { WorkloadActorName } from './WorkloadActorName'
 
 export interface ActivityChange {
     type: ActivityScope
@@ -58,6 +63,10 @@ export type ActivityLogItem = {
     client?: string | null
     /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
     ip_address?: string | null
+    /** Kind of credential that authenticated the request that made the change. Null outside a request and for older entries. */
+    credential_type?: ActivityLogCredentialTypeEnumApi | null
+    /** Login session id or key id of that credential. Both activity log endpoints return it, only for some credential types. */
+    credential_id?: string | null
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -96,6 +105,8 @@ export type HumanizedActivityLogItem = {
     /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     description: Description
+    /** Markdown the row renders in place of `description`, e.g. a changelog notification's body. */
+    markdownDescription?: string
     summary?: ActivityLogSummary
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     expandedView?: ExpandedView // e.g. a flag's release conditions after the change
@@ -135,14 +146,17 @@ export function humanize(
         const { description, summary, extendedDescription, expandedView } = describer(logItem, asNotification)
 
         if (description !== null) {
+            const workload = parseWorkloadAttribution(logItem)
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
                 id: logItem.id,
                 email: actorEmailForLogItem(logItem),
                 emailToReveal: actorEmailToRevealForLogItem(logItem),
-                name: logItem.was_impersonated
-                    ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
-                    : impersonatedUserName,
+                name: workload
+                    ? workloadActorLabel(workload)
+                    : logItem.was_impersonated
+                      ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
+                      : impersonatedUserName,
                 isSystem: logItem.is_system,
                 wasImpersonated: logItem.was_impersonated,
                 client: logItem.client,
@@ -162,6 +176,10 @@ export function humanize(
 export function userNameForLogItem(logItem: ActivityLogItem): string {
     if (logItem.is_system) {
         return 'PostHog'
+    }
+    const workload = parseWorkloadAttribution(logItem)
+    if (workload) {
+        return workloadActorLabel(workload)
     }
     if (logItem.was_impersonated) {
         return `PostHog Support (as ${nameOrEmailForUser(logItem.user, 'a user')})`
@@ -186,7 +204,7 @@ function nameOrEmailForUser(
 // surface that shows the email must use this, or a row can disclose it in one place and hide it
 // in another.
 export function actorEmailForLogItem(logItem: ActivityLogItem): string | null {
-    if (logItem.is_system || logItem.was_impersonated) {
+    if (logItem.is_system || logItem.was_impersonated || parseWorkloadAttribution(logItem)) {
         return null
     }
     return logItem.user?.email ?? null
@@ -201,6 +219,10 @@ export function actorEmailToRevealForLogItem(logItem: ActivityLogItem): string |
 
 /** The person who did the thing, with their email on hover. */
 export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
+    const workload = parseWorkloadAttribution(logItem)
+    if (workload) {
+        return <WorkloadActorName attribution={workload} teamId={logItem.team_id} />
+    }
     return <UserNameWithEmail name={userNameForLogItem(logItem)} email={actorEmailForLogItem(logItem)} />
 }
 
@@ -221,6 +243,12 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
+    [ActivityScope.PLATFORM_ALERT_CONFIGURATION]: { singular: 'Platform alert', plural: 'Platform alerts' },
+    [ActivityScope.WORKLOAD_TRUST_POLICY]: { singular: 'Trusted workload', plural: 'Trusted workloads' },
+    [ActivityScope.WORKLOAD_TRUST_POLICY_REQUEST]: {
+        singular: 'Trusted workload request',
+        plural: 'Trusted workload requests',
+    },
     [ActivityScope.DEV_GATEWAY_TOKEN]: { singular: 'Developer mode token', plural: 'Developer mode tokens' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
@@ -231,6 +259,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.REPLAY_OBSERVATION]: { singular: 'Observation', plural: 'Observations' },
     [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
@@ -292,7 +321,7 @@ function describeComment(
         ),
         extendedDescription: commentContent ? (
             <div className="border rounded bg-surface-primary p-4">
-                <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
+                <LazyLemonMarkdown lowKeyHeadings>{commentContent}</LazyLemonMarkdown>
             </div>
         ) : undefined,
     }

@@ -13,9 +13,7 @@ products/experiments/backend/experiment_service.py::ExperimentService.clone_expe
 products/experiments/backend/experiment_service.py::ExperimentService.clone_experiment::source_experiment.feature_flag.get_filters()
 products/experiments/backend/experiment_service.py::ExperimentService.filter_experiments_queryset::sql on posthog_featureflag.filters
 products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner.__init__::(self.experiment.feature_flag.filters or {}).get('aggregation_group_type_index')
-products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner.__init__::(self.query.feature_flag.get('filters') or {}).get('multivariate')
-products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner._calculate_srm::(self.query.feature_flag.get('filters') or {}).get('multivariate')
-products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner._evaluate_bias_risk::(self.query.feature_flag.get('filters') or {}).get('multivariate')
+products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner._multivariate_data::(self.query.feature_flag.get('filters') or {}).get('multivariate')
 products/experiments/backend/presentation/serializers.py::ExperimentBaseSerializer._project_feature_flag_config::flag.get_filters()
 products/experiments/backend/replay_linkage.py::_validated_scope::(flag.filters or {}).get('aggregation_group_type_index')
 products/experiments/backend/replay_linkage.py::targetable_experiments::(flag.filters or {}).get('aggregation_group_type_index')
@@ -39,9 +37,6 @@ products/feature_flags/backend/api/feature_flag.py::apply_encrypted_payload_resp
 products/feature_flags/backend/api/feature_flag.py::find_dependent_flags::extra(sql on filters)
 products/feature_flags/backend/api/feature_flag.py::find_dependent_flags_batch::dep_flag.filters.get('groups')
 products/feature_flags/backend/api/feature_flag.py::find_dependent_flags_batch::extra(sql on filters)
-products/feature_flags/backend/api/flag_value.py::FlagValueViewSet.values::flag.filters.get('multivariate')
-products/feature_flags/backend/api/flag_value.py::FlagValueViewSet.values::flag.filters['multivariate']
-products/feature_flags/backend/api/flag_value.py::FlagValueViewSet.values::flag.filters['multivariate']
 products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._copy_feature_flag_to_target::source_flag.get_filters()
 products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._get_direct_flag_dependencies::flag.get_filters()
 products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._get_source_dependency_context::source_flag.get_filters()

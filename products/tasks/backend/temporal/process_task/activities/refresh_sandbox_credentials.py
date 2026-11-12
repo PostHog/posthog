@@ -130,9 +130,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             # transient blip from escaping as error-tracking noise (Temporal still retries
             # the activity if the DB is genuinely degraded).
             task = retry_on_db_connection_drop(
-                lambda: Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-                    id=ctx.task_id
-                )
+                lambda: Task.objects.select_related("created_by", "github_user_integration").get(id=ctx.task_id)
             )
             context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
             if context_ownership_version != task.ownership_version:

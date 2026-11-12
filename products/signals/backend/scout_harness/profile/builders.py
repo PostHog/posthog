@@ -43,27 +43,22 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.integrations import IntegrationManager
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action_inventory
 from products.alerts.backend.facade.destinations import redact_urls_in_name
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
-
-# `products.experiments` ships a facade (api.py + contracts.py) but the contract is
-# not yet enforced by CI (no `backend:contract-check` script in package.json). The
-# facade exposes `create_experiment` but no list/query helpers, so the read-only
-# orientation reader here imports the model directly. When experiments isolation is
-# enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
-from products.experiments.backend.models.experiment import Experiment
+from products.dashboards.backend.facade import api as dashboards_api
+from products.experiments.backend.facade import scout as experiments_scout
+from products.experiments.backend.facade.contracts import RecentExperiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
@@ -90,7 +85,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v18"
+INVENTORY_SOURCE_VERSION = "v19"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -242,7 +237,7 @@ def _integrations(team: Team) -> list[dict[str, Any]]:
     Only the kind + creation timestamp — `Integration.config` and `Integration.sensitive_config`
     can hold tokens or workspace details we don't want to surface to the agent.
     """
-    rows = Integration.objects.filter(team=team).order_by("kind", "id")
+    rows = sorted(IntegrationManager.any.list(team.id), key=lambda row: (row.kind, row.id))
     return [
         {
             "kind": row.kind,
@@ -431,20 +426,15 @@ def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
     "what's the team currently looking at" rather than "what's most trafficked." The
     name reflects what we actually have.
     """
-    rows = (
-        Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)
-        .order_by("-last_accessed_at")[:RECENT_DASHBOARDS_LIMIT]
-        .values("id", "name", "last_accessed_at", "last_refresh", "created_at")
-    )
     return [
         {
-            "id": row["id"],
-            "name": row["name"] or "",
-            "last_accessed_at": row["last_accessed_at"].isoformat() if row["last_accessed_at"] else None,
-            "last_refresh": row["last_refresh"].isoformat() if row["last_refresh"] else None,
-            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "id": dashboard.id,
+            "name": dashboard.name or "",
+            "last_accessed_at": dashboard.last_accessed_at.isoformat() if dashboard.last_accessed_at else None,
+            "last_refresh": dashboard.last_refresh.isoformat() if dashboard.last_refresh else None,
+            "created_at": dashboard.created_at.isoformat() if dashboard.created_at else None,
         }
-        for row in rows
+        for dashboard in dashboards_api.recently_accessed_dashboards(team_id=team.id, limit=RECENT_DASHBOARDS_LIMIT)
     ]
 
 
@@ -541,27 +531,24 @@ def _recent_experiments(team: Team) -> dict[str, Any]:
     the model's own `is_running` property. `feature_flag_key` is the cross-ref the
     agent uses to correlate experiments with the `recent_feature_flags` section.
     """
-    qs = Experiment.objects.filter(team=team).filter(Q(deleted=False) | Q(deleted__isnull=True))
-    total = qs.count()
-    running = qs.filter(archived=False, start_date__isnull=False, end_date__isnull=True).count()
-    recent = qs.select_related("feature_flag").order_by("-updated_at")[:RECENT_ENTITY_LIMIT]
+    orientation = experiments_scout.experiment_orientation(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "running_count": running,
+        "total_count": orientation.total_count,
+        "running_count": orientation.running_count,
         "recent": [
             {
                 "id": exp.id,
                 "name": exp.name,
                 "status": _experiment_status(exp),
-                "feature_flag_key": exp.feature_flag.key if exp.feature_flag_id else None,
-                "updated_at": exp.updated_at.isoformat() if exp.updated_at else None,
+                "feature_flag_key": exp.feature_flag_key,
+                "updated_at": exp.updated_at.isoformat(),
             }
-            for exp in recent
+            for exp in orientation.recent
         ],
     }
 
 
-def _experiment_status(exp: Experiment) -> str:
+def _experiment_status(exp: RecentExperiment) -> str:
     """Derive single-word experiment status from archive/start/end fields."""
     if exp.archived:
         return "archived"
@@ -718,18 +705,16 @@ def _recent_actions(team: Team) -> dict[str, Any]:
     this user behavior as a named thing"). Sort by `updated_at` so both new actions
     and edits to step definitions surface.
     """
-    qs = Action.objects.filter(team=team, deleted=False)
-    total = qs.count()
-    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "updated_at")
+    inventory = get_action_inventory(team_id=team.pk, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
+        "total_count": inventory.total_count,
         "recent": [
             {
-                "id": row["id"],
-                "name": (row["name"] or "").strip(),
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "id": entry.id,
+                "name": (entry.name or "").strip(),
+                "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
             }
-            for row in recent
+            for entry in inventory.recent
         ],
     }
 
@@ -851,12 +836,21 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
         detail = row.detail or {}
         changes = detail.get("changes") or []
         change = changes[0] if changes and isinstance(changes[0], dict) else {}
+        stated = {c.get("field"): c.get("after") for c in changes if isinstance(c, dict)}
+        # A default owner was a fallback, not a routing pick, so adding or removing one is not precedent.
+        default_owners = set(stated.get("default_owner_reviewers") or [])
+        before = [label for label in change.get("before") or [] if label not in default_owners]
+        after = [label for label in change.get("after") or [] if label not in default_owners]
+        if default_owners and set(before) == set(after):
+            continue
         corrections.append(
             {
                 "report_id": str(row.item_id),
                 "report_title": detail.get("name"),
-                "before": change.get("before") or [],
-                "after": change.get("after") or [],
+                "before": before,
+                "after": after,
+                "removal_reason": stated.get("removal_reason"),
+                "removal_reason_reviewers": stated.get("removal_reason_reviewers") or [],
                 "at": row.created_at.isoformat() if row.created_at else None,
             }
         )

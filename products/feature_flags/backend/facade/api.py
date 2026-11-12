@@ -47,7 +47,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYL
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.ownership import flag_owner_kind
+from products.feature_flags.backend.ownership import MINTED_OWNER_CONTEXT_KEY, flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
@@ -97,6 +97,7 @@ def create_flag(
     user: Any,
     request: Any | None = None,
     serializer_context: dict | None = None,
+    owner: Literal["survey"] | None = None,
 ) -> FeatureFlag:
     """Gated create: routes through FeatureFlagSerializer so @approval_gate, validation,
     and activity logging apply. ``data`` is the flag's own write shape (key, name, filters,
@@ -105,8 +106,12 @@ def create_flag(
     ``created_by`` stays null, activity is logged as system, the approval gate is skipped.
     ``serializer_context`` is extra serializer context (an HTTP caller passes its viewset
     context); the facade's own ``request``, ``team_id``, ``project_id``, ``get_team`` and
-    ``get_organization`` entries win over the caller's."""
+    ``get_organization`` entries win over the caller's. ``owner`` names the product that will own
+    the new flag, so the approval gate applies that product's policies to the create instead of the
+    policies for flags no product owns. Pass it only when the caller links the flag to its own row
+    in the same transaction."""
     context = {**(serializer_context or {}), **_serializer_context(team, user, request)}
+    context[MINTED_OWNER_CONTEXT_KEY] = owner
     serializer = FeatureFlagSerializer(data=data, context=context)
     serializer.is_valid(raise_exception=True)
     return serializer.save()
@@ -428,3 +433,19 @@ def flag_is_active(key: str, *, team_id: int | None = None) -> bool:
     if team_id is not None:
         qs = qs.filter(team_id=team_id)
     return qs.exists()
+
+
+def existing_flag_ids(
+    flag_ids: list[int],
+    *,
+    team_id: int,
+    access_control: UserAccessControl | None = None,
+    include_deleted: bool = False,
+) -> set[int]:
+    manager = FeatureFlag.objects_including_soft_deleted if include_deleted else FeatureFlag.objects
+    queryset = manager.filter(team_id=team_id, id__in=flag_ids)
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    if access_control is not None:
+        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    return set(queryset.values_list("id", flat=True))

@@ -4,6 +4,7 @@ use std::time::Duration;
 use common_database::PoolConfig;
 use tokio::sync::Semaphore;
 
+use crate::backup::BackupStore;
 use crate::cache::TtlCache;
 use crate::config::Config;
 use crate::etcd::EtcdHandle;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub browse_permits: Arc<Semaphore>,
     /// `None` when `ETCD_ENDPOINTS` is unset; the etcd tools then 503.
     pub etcd: Option<Arc<EtcdHandle>>,
+    pub backups: Option<Arc<dyn BackupStore>>,
 }
 
 impl AppState {
@@ -77,6 +79,7 @@ impl AppState {
             ))),
             browse_permits: Arc::new(Semaphore::new(config.browse_max_concurrent.max(1))),
             etcd: etcd.map(Arc::new),
+            backups: None,
             config: Arc::new(config),
         })
     }

@@ -1,8 +1,11 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { insightsApi } from 'scenes/insights/utils/api'
 
-import { deleteWithUndo } from './deleteWithUndo'
+import { InsightModel } from '~/types'
+
+import { deleteInsightWithUndo, deleteWithUndo } from './deleteWithUndo'
 
 describe('deleteWithUndo', () => {
     let updateSpy: jest.SpyInstance
@@ -63,5 +66,27 @@ describe('deleteWithUndo', () => {
         expect(handleError).toHaveBeenCalledWith({ status: 409, detail: 'Changed elsewhere' })
         expect(errorSpy).toHaveBeenCalledTimes(toasts)
         expect(onError).toHaveBeenCalledWith(false, { id: 7 })
+    })
+
+    it('restores an insight even when one of its dashboards refuses the tile', async () => {
+        const warningSpy = jest.spyOn(lemonToast, 'warning')
+        jest.spyOn(insightsApi, 'addToDashboard')
+            .mockResolvedValueOnce({ id: 11, dashboard_id: 1 })
+            .mockRejectedValueOnce({ status: 404, detail: 'Not found.' })
+        const callback = jest.fn()
+        const insight = {
+            id: 7,
+            name: 'Weekly signups',
+            dashboard_tiles: [
+                { id: 11, dashboard_id: 1 },
+                { id: 12, dashboard_id: 2 },
+            ],
+        } as InsightModel
+
+        await deleteInsightWithUndo({ undo: true, endpoint: 'projects/1/insights', object: insight, callback })
+
+        expect(updateSpy).toHaveBeenCalledWith('api/projects/1/insights/7', expect.objectContaining({ deleted: false }))
+        expect(callback).toHaveBeenCalledWith(true, insight)
+        expect(warningSpy).toHaveBeenCalledTimes(1)
     })
 })

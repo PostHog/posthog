@@ -37,6 +37,7 @@ from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -44,6 +45,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     ensure_precomputed,
     parse_ttl_schedule,
+    retention_build_floor,
 )
 from products.analytics_platform.backend.lazy_computation.stale_policy import (
     is_background_warming_request as shared_is_background_warming_request,
@@ -607,6 +609,16 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
+# "InCohort" also matches NotInCohort. A cohort's criteria are expanded after this check and can
+# classify traffic, so any cohort filter counts, such as a cohort in the test-account filters.
+_TRAFFIC_CLASSIFICATION_NAMES = ("$virt_", "isLikelyBot", "getBot", "getTraffic", "__preview_", "InCohort")
+
+
+def _classifies_traffic(insert_query: Any, placeholders: Optional[dict[str, Any]]) -> bool:
+    text = repr(insert_query) + repr(placeholders)
+    return any(name in text for name in _TRAFFIC_CLASSIFICATION_NAMES)
+
+
 def web_ensure_precomputed(
     *, team: Team, shape_key_extra: Optional[str] = None, **kwargs: Any
 ) -> LazyComputationResult:
@@ -630,10 +642,17 @@ def web_ensure_precomputed(
         # Use the runner's value, which can carry a per-query override, so the INSERT and the job hash match the read.
         modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
     kwargs["modifiers"] = modifiers
+    # The job hash covers the HogQL text, not what `$virt_*` expands to, so a classification change
+    # needs a new marker. Only queries that classify traffic get it, so other jobs keep their hash.
+    markers = []
     if modifiers.cookielessTrafficIsRegular:
+        markers.append("cookieless-missing-ua-v1")
+    if _classifies_traffic(kwargs.get("insert_query"), kwargs.get("placeholders")):
+        markers.append("sdk-missing-ua-v1")
+    if markers:
         kwargs["cache_key_context"] = {
             **(kwargs.get("cache_key_context") or {}),
-            "traffic_classification": "cookieless-missing-ua-v1",
+            "traffic_classification": "+".join(markers),
         }
     background = is_background_warming_request()
     forced = is_forced_refresh_request()
@@ -919,6 +938,16 @@ class DateRangeOverMax(LazyPrecomputeIneligible):
         super().__init__(f"days={days} max={max_days}")
 
 
+class ReachesRetentionFloor(LazyPrecomputeIneligible):
+    """The range starts before the events-retention build floor. The executor builds no
+    windows there, so only the live query can serve it."""
+
+
+def range_reaches_retention_floor(team: Team, start: datetime) -> bool:
+    months = events_retention_months_for_team(team, team.pk)
+    return months is not None and start < retention_build_floor(months)
+
+
 def is_org_feature_flag_enabled(team: Team) -> bool:
     """Evaluate the rollout flag locally — fails closed on flag-service errors."""
     return bool(
@@ -972,6 +1001,7 @@ def check_common_eligibility(
     resolve_date_range: Callable[[], tuple[Optional[datetime], Optional[datetime]]],
     allow_channel_type_filter: bool = False,
     max_days: int = MAX_PRECOMPUTE_DAYS,
+    resolve_compare_date_from: Optional[Callable[[], Optional[datetime]]] = None,
 ) -> None:
     """Run the gate checks shared by all web-analytics lazy precompute paths.
 
@@ -982,6 +1012,8 @@ def check_common_eligibility(
     `resolve_date_range` is called lazily so the gate can reject cheap cases
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
+    `resolve_compare_date_from` returns the compare period's start, or None
+    when the query has no compare period.
     """
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
@@ -1043,6 +1075,12 @@ def check_common_eligibility(
     days = (date_to - date_from).days
     if days > max_days:
         raise DateRangeOverMax(days, max_days)
+
+    compare_date_from = resolve_compare_date_from() if resolve_compare_date_from is not None else None
+    if range_reaches_retention_floor(team, date_from) or (
+        compare_date_from is not None and range_reaches_retention_floor(team, compare_date_from)
+    ):
+        raise ReachesRetentionFloor()
 
 
 def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[LazyPrecomputeIneligible]) -> None:

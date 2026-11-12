@@ -87,10 +87,25 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 - Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
   remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
   To replace an insight tile, add the new insight and delete the old tile.
+- Description on create and update: it is a short note for people who open the dashboard. Say what the dashboard shows
+  and who it is for, in one or two sentences (about 30 words). Shorter is better. The limit is not a target.
+  - Skip the description when the name already tells a viewer what the dashboard shows. An empty description is fine.
+  - Test: would a viewer who never saw this session need the sentence? If not, delete it.
+  - Good: "Weekly signups and activation by plan."
+  - Bad: "Tracks signups, activation, and churn across all plans. Revised 3 March to add the enterprise tile."
+  - When you update it, rewrite it. Do not append.
+  - Put metric definitions in the Data Catalog. Put working notes in a text tile's `agent_context`.
+  - Use the same rules for insight descriptions. Write plain, short copy: see `writing-user-facing-copy`.
 - Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
   8 plus 4 or 6 plus 6 can show that hierarchy.
+- Default sizes (`w` × `h`): `Metric` and `BoldNumber` cards 3×3; line, area, and bar charts over time 6×4, or 6×3 when
+  they share a row with metric cards; bar charts per category and funnels 4×4 or 6×4; retention 6×7; paths 12×7; text
+  headings 12×1 or 12×2. Give every tile in a row the same height. Go taller than 4 only when the chart needs it.
+- Hide descriptions on the dashboard. An insight tile shows its insight's description unless the tile's
+  `show_description` is `false`, so send `show_description: false` for every insight tile in the same `dashboard-update`
+  call as the layout. The description stays on the insight page.
 - Reflow: use `dashboard-reorder-tiles` only when the user explicitly asks to reorder tiles or make every tile the
   same size. Include every tile ID from `dashboard-get`; omitted tiles keep their positions and can overlap moved tiles.
   Its layout modes give every listed tile a uniform box. For mixed widths or heights, use `dashboard-update`.

@@ -19,6 +19,8 @@ export interface WarehouseSuggestionDeprecatePayloadApi {
     refresh_seconds_per_month: number
     /** Bytes its refreshes read in a month. */
     refresh_bytes_per_month: number
+    /** Whether the view is materialized. A plain view has no refreshes, so both refresh costs are 0. */
+    materialized?: boolean
 }
 
 export interface WarehouseSuggestionVisibleSourcesApi {
@@ -44,6 +46,7 @@ export const WarehouseSuggestionRefreshModeEnumApi = {
  * * `source_sync` - Source sync
  * * `fastest_schedule` - Fastest schedule
  * * `read_rate` - Read rate
+ * * `consumer_refresh` - Consumer refresh
  * * `savings` - Savings
  */
 export type WarehouseSuggestionRefreshIntervalBasisEnumApi =
@@ -53,7 +56,22 @@ export const WarehouseSuggestionRefreshIntervalBasisEnumApi = {
     SourceSync: 'source_sync',
     FastestSchedule: 'fastest_schedule',
     ReadRate: 'read_rate',
+    ConsumerRefresh: 'consumer_refresh',
     Savings: 'savings',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `background` - Background
+ * * `scanned` - Scanned
+ */
+export type WarehouseSuggestionMainSavingEnumApi =
+    (typeof WarehouseSuggestionMainSavingEnumApi)[keyof typeof WarehouseSuggestionMainSavingEnumApi]
+
+export const WarehouseSuggestionMainSavingEnumApi = {
+    Waiting: 'waiting',
+    Background: 'background',
+    Scanned: 'scanned',
 } as const
 
 export interface WarehouseSuggestionMaterializePayloadApi {
@@ -66,13 +84,20 @@ export interface WarehouseSuggestionMaterializePayloadApi {
      * * `full` - Full
      * * `incremental` - Incremental */
     refresh_mode: WarehouseSuggestionRefreshModeEnumApi
-    /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+    /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. consumer_refresh: the materialized views that read it refresh no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
      *
      * * `source_sync` - Source sync
      * * `fastest_schedule` - Fastest schedule
      * * `read_rate` - Read rate
+     * * `consumer_refresh` - Consumer refresh
      * * `savings` - Savings */
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnumApi | null
+    /** The saving that earned the suggestion. waiting: people, agents and API callers wait less on reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before this was recorded.
+     *
+     * * `waiting` - Waiting
+     * * `background` - Background
+     * * `scanned` - Scanned */
+    main_saving: WarehouseSuggestionMainSavingEnumApi | null
     /** Name of the view to materialize. */
     subject_name: string
     /** Proposed refresh interval, in seconds. */
@@ -97,6 +122,23 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     unique_key?: string[]
     /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
     lookback_seconds?: number
+    /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
+    recomputed_by_views?: number
+    /**
+     * Part of saves_seconds_per_month that people, agents and API callers spend waiting on reads of this view, in seconds. Null on suggestions made before this was recorded.
+     * @nullable
+     */
+    waiting_seconds_saved_per_month?: number | null
+    /**
+     * Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative when refreshing the stored copy costs more background time than it saves. Null on suggestions made before this was recorded.
+     * @nullable
+     */
+    background_seconds_saved_per_month?: number | null
+    /**
+     * How long one read of the view takes today, in seconds. Null when no read was measured on its own.
+     * @nullable
+     */
+    read_seconds?: number | null
 }
 
 export interface WarehouseSuggestionUnmaterializePayloadApi {
@@ -243,6 +285,8 @@ export interface WarehouseSuggestionApi {
     created_asset: WarehouseSuggestionApiCreatedAsset
     /** Who accepted or dismissed this suggestion. Null while it is open. */
     reviewed_by: WarehouseSuggestionReviewerApi | null
+    /** Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to the person who created the view, if they can accept it. Null when nobody is assigned. */
+    assignee: WarehouseSuggestionReviewerApi | null
     /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
      *
      * * `certify` - Certify
@@ -359,6 +403,16 @@ export interface AcceptWarehouseSuggestionApi {
     lookback_seconds?: number
     /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
     keep_materialized?: boolean
+    /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
+    delete_view?: boolean
+}
+
+export interface AssignWarehouseSuggestionApi {
+    /**
+     * ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.
+     * @nullable
+     */
+    assignee_id: number | null
 }
 
 export interface DismissWarehouseSuggestionApi {
@@ -394,9 +448,42 @@ export interface WarehouseSuggestionStatusApi {
      * @nullable
      */
     refreshed_at: string | null
+    /** Suggestions waiting to be shown on the requested surface that you can read and act on. 0 without a surface, or while new suggestions are paused or off. */
+    waiting: number
+    /** Whether a surface_more call would show at least one waiting suggestion now. False while the open limits are full. */
+    can_show_more: boolean
+}
+
+/**
+ * * `models` - Models
+ * * `catalog` - Data catalog
+ */
+export type WarehouseSuggestionSurfaceEnumApi =
+    (typeof WarehouseSuggestionSurfaceEnumApi)[keyof typeof WarehouseSuggestionSurfaceEnumApi]
+
+export const WarehouseSuggestionSurfaceEnumApi = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export interface SurfaceMoreWarehouseSuggestionsApi {
+    /** Page to show more suggestions on. Only the kinds that page shows are picked.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog */
+    surface: WarehouseSuggestionSurfaceEnumApi
+}
+
+export interface WarehouseSuggestionSurfaceMoreResultApi {
+    /** How many waiting suggestions this call showed. 0 when none could be shown. */
+    surfaced: number
 }
 
 export type WarehouseSuggestionsListParams = {
+    /**
+     * Only return suggestions assigned to the user with this ID.
+     */
+    assignee_id?: number
     /**
      * Only return suggestions of this kind.
      *
@@ -409,6 +496,7 @@ export type WarehouseSuggestionsListParams = {
     kind?: WarehouseSuggestionsListKind
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -430,6 +518,14 @@ export type WarehouseSuggestionsListParams = {
      * Only return suggestions about the view or table with this ID.
      */
     subject_id?: string
+    /**
+     * Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsListSurface
 }
 
 export type WarehouseSuggestionsListKind =
@@ -451,4 +547,69 @@ export const WarehouseSuggestionsListStatus = {
     Dismissed: 'dismissed',
     Expired: 'expired',
     AutoResolved: 'auto_resolved',
+} as const
+
+export type WarehouseSuggestionsListSurface =
+    (typeof WarehouseSuggestionsListSurface)[keyof typeof WarehouseSuggestionsListSurface]
+
+export const WarehouseSuggestionsListSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsAcceptCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsAcceptCreateSurface
+}
+
+export type WarehouseSuggestionsAcceptCreateSurface =
+    (typeof WarehouseSuggestionsAcceptCreateSurface)[keyof typeof WarehouseSuggestionsAcceptCreateSurface]
+
+export const WarehouseSuggestionsAcceptCreateSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsDismissCreateSurface
+}
+
+export type WarehouseSuggestionsDismissCreateSurface =
+    (typeof WarehouseSuggestionsDismissCreateSurface)[keyof typeof WarehouseSuggestionsDismissCreateSurface]
+
+export const WarehouseSuggestionsDismissCreateSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsStatusRetrieveParams = {
+    /**
+     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsStatusRetrieveSurface
+}
+
+export type WarehouseSuggestionsStatusRetrieveSurface =
+    (typeof WarehouseSuggestionsStatusRetrieveSurface)[keyof typeof WarehouseSuggestionsStatusRetrieveSurface]
+
+export const WarehouseSuggestionsStatusRetrieveSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
 } as const

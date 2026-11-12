@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import field
+from datetime import date, timedelta
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
@@ -14,14 +15,16 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.columns.datecolumn import DateColumn
 from clickhouse_pool import ChPool
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
@@ -30,6 +33,41 @@ from posthog.utils import patchable
 # read on the native-JSON events table expands to a few hundred bytes of SQL, so a query that reads many properties
 # (the bot-traffic classifier is ~2 MB) needs more room than the 1 MB default.
 MAX_QUERY_SIZE_BYTES = 8 * 1024 * 1024
+
+
+_EPOCH = date(1970, 1, 1)
+
+OUT_OF_RANGE_DATES_DECODED_COUNTER = Counter(
+    "posthog_clickhouse_out_of_range_dates_decoded",
+    "Date and Date32 values decoded from a day outside the driver's 1900-2299 lookup table.",
+)
+OUT_OF_RANGE_DISTINCT_DAYS_GAUGE = Gauge(
+    "posthog_clickhouse_out_of_range_distinct_days",
+    "Distinct out-of-range days this process has decoded, up to the tracking cap.",
+    multiprocess_mode="livemax",
+)
+# Bounds the tracking set. A gauge at the cap means a process saw at least this many distinct days.
+_DISTINCT_DAYS_TRACKING_CAP = 10_000
+
+
+class _DateLookup(dict[int, date]):
+    # Computes days outside the prefilled range without storing them. The table is shared by every query in the
+    # process, so a cache here would grow with whatever dates any team's data holds.
+    def __init__(self, prefilled: dict[int, date]) -> None:
+        super().__init__(prefilled)
+        self._seen_days: set[int] = set()
+
+    def __missing__(self, day: int) -> date:
+        OUT_OF_RANGE_DATES_DECODED_COUNTER.inc()
+        if day not in self._seen_days and len(self._seen_days) < _DISTINCT_DAYS_TRACKING_CAP:
+            self._seen_days.add(day)
+            OUT_OF_RANGE_DISTINCT_DAYS_GAUGE.set(len(self._seen_days))
+        return _EPOCH + timedelta(days=day)
+
+
+# clickhouse_driver decodes Date and Date32 through a lookup table that covers 1900-2299 and raises KeyError for any
+# other day. ClickHouse 26.9 returns days outside that range from Parquet reads and casts.
+DateColumn.date_lut = _DateLookup(DateColumn.date_lut)
 
 
 class NodeRole(StrEnum):
@@ -53,6 +91,8 @@ class NodeRole(StrEnum):
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
+    INGESTION_METRICS = "ingestion_metrics"
+    METRICS = "metrics"
     OPS = "ops"
     SESSIONS = "sessions"
 
@@ -67,13 +107,14 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
         NodeRole.AUX,
         NodeRole.BATCH_EXPORTS,
         NodeRole.LOGS,
+        NodeRole.METRICS,
         NodeRole.OPS,
         NodeRole.SESSIONS,
     }
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.METRICS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 
 
@@ -123,6 +164,10 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
+    ALERTS_PLATFORM_TRACES = "alerts_platform_traces"
+    # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
+    ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
     # The platform's own bookkeeping, shared by every source: its check history and the default
     # user of its evaluation worker. A source's checks keep their own user, so a new source never
     # takes from another source's budget.
@@ -395,6 +440,7 @@ def _clickhouse_http_pool_mgr():
 def get_http_client(**overrides):
     from clickhouse_connect import get_client  # noqa: PLC0415
 
+    clickhouse_test_setup.run()
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -414,21 +460,63 @@ def get_http_client(**overrides):
 
 # Named users that exist on the logs cluster. Every other named user exists on the main cluster
 # only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
-LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_LOGS})
+# ALERTS_PLATFORM_INSIGHT exists on both, because an insight can read logs, spans or metrics.
+LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
+    {
+        ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ClickHouseUser.ALERTS_PLATFORM_LOGS,
+        ClickHouseUser.ALERTS_PLATFORM_METRICS,
+        ClickHouseUser.ALERTS_PLATFORM_TRACES,
+    }
+)
+# Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
+# host falls back to the logs host, so a user listed here must also work there.
+# ALERTS_PLATFORM_INSIGHT is here because an insight alert on metrics must keep its own concurrency budget.
+METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
+    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+)
+
+_PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {
+    Workload.LOGS: LOGS_CLUSTER_USERS,
+    Workload.METRICS: METRICS_CLUSTER_USERS,
+}
 
 
 def connection_creds(workload: Workload, ch_user: ClickHouseUser) -> ClickHouseCredentials | None:
-    """The credentials a connection authenticates with, or None when it uses the logs cluster's own user.
+    """The credentials a connection authenticates with, or None when it uses the pinned cluster's own user.
 
-    A logs connection uses a named user only when the user exists on the logs cluster and is
+    A logs or metrics connection uses a named user only when the user exists on that cluster and is
     registered. get_clickhouse_creds falls back to the default user, whose credentials belong to
     the main cluster.
     """
-    if workload != Workload.LOGS:
+    cluster_users = _PINNED_CLUSTER_USERS.get(workload)
+    if cluster_users is None:
         return get_clickhouse_creds(ch_user)
-    if ch_user not in LOGS_CLUSTER_USERS:
+    if ch_user not in cluster_users:
         return None
     return _registered_users().get(ch_user)
+
+
+def _pinned_cluster_kwargs(workload: Workload) -> dict[str, Any] | None:
+    if workload == Workload.LOGS:
+        return {
+            "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
+            "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+            "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+            "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+        }
+    if workload == Workload.METRICS:
+        return {
+            "host": settings.CLICKHOUSE_METRICS_CLUSTER_HOST,
+            "port": settings.CLICKHOUSE_METRICS_CLUSTER_PORT,
+            "database": settings.CLICKHOUSE_METRICS_CLUSTER_DATABASE,
+            "secure": settings.CLICKHOUSE_METRICS_CLUSTER_SECURE,
+            "user": settings.CLICKHOUSE_METRICS_CLUSTER_USER,
+            "password": settings.CLICKHOUSE_METRICS_CLUSTER_PASSWORD,
+        }
+    return None
 
 
 def get_kwargs_for_client(
@@ -437,20 +525,10 @@ def get_kwargs_for_client(
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
-    if workload == Workload.LOGS:
-        logs_kwargs = {
-            "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
-            "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
-            "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
-            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
-        }
+    if (pinned_kwargs := _pinned_cluster_kwargs(workload)) is not None:
         if named := connection_creds(workload, ch_user):
-            return {**logs_kwargs, "user": named.user, "password": named.password}
-        return {
-            **logs_kwargs,
-            "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
-            "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-        }
+            return {**pinned_kwargs, "user": named.user, "password": named.password}
+        return pinned_kwargs
 
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
@@ -514,18 +592,28 @@ def get_client_from_pool(
     team_id=None,
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    send_receive_timeout: int | None = None,
 ):
     """
     Returns the client for a given workload.
 
-    The connection pool for HTTP is managed by a library.
+    The connection pool for HTTP is managed by a library. send_receive_timeout bounds each socket read
+    and write on either transport; None keeps each transport's default.
     """
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        if send_receive_timeout is not None:
+            kwargs["send_receive_timeout"] = send_receive_timeout
         return get_http_client(**kwargs)
 
-    return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
+    return get_pool(
+        workload=workload,
+        team_id=team_id,
+        readonly=readonly,
+        ch_user=ch_user,
+        send_receive_timeout=send_receive_timeout,
+    ).get_client()
 
 
 def get_pool(
@@ -533,13 +621,19 @@ def get_pool(
     team_id=None,
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    send_receive_timeout: int | None = None,
 ):
     """
     Returns the right connection pool given a workload.
 
     Note that the same pool should be returned every call.
+
+    send_receive_timeout bounds each socket read and write, which the default pool leaves effectively
+    unbounded, so a stalled connection fails instead of holding its thread. It keys a pool of its own.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    if send_receive_timeout is not None:
+        kwargs["send_receive_timeout"] = send_receive_timeout
     creds = connection_creds(workload, ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
@@ -568,6 +662,7 @@ def default_client(
     user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
+    clickhouse_test_setup.run()
     if user is None and password is None:
         user = settings.CLICKHOUSE_USER
         password = ClickHouseCredentials(
@@ -603,6 +698,10 @@ class ClickHouseChPool(ChPool):
         else:
             self._pool.append(client)
         return client
+
+    def pull(self, key: str | None = None) -> SyncClient:
+        clickhouse_test_setup.run()
+        return super().pull(key)
 
 
 class RefreshingChPool(ClickHouseChPool):

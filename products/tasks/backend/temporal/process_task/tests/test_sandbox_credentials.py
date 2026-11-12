@@ -121,7 +121,7 @@ class TestGitHubSandboxCredential:
             "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
             return_value="ghs_resolved",
         ) as resolve:
-            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock(stored_profile=None))
 
         resolve.assert_called_once()
         assert outcome.refreshed is True
@@ -140,7 +140,7 @@ class TestGitHubSandboxCredential:
             "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
             return_value="ghu_resolved",
         ):
-            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock())
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock(stored_profile=None))
 
         assert outcome.next_refresh_seconds == 2 * 60 * 60
 
@@ -193,7 +193,7 @@ class TestGitHubSandboxCredential:
     def test_deleted_integration_raises_credential_unavailable(self):
         from products.tasks.backend.exceptions import CredentialUnavailableError
 
-        task = MagicMock()
+        task = MagicMock(stored_profile=None)
         task.github_integration_id = None
         task.github_user_integration_id = None
 
@@ -210,7 +210,7 @@ class TestGitHubSandboxCredential:
         sandbox = MagicMock()
         sandbox.execute.return_value = _ok("")
         sandbox.write_file.return_value = _ok()
-        task = MagicMock()
+        task = MagicMock(stored_profile=None)
         task.github_integration_id = 456
         task.github_user_integration_id = None
 
@@ -363,13 +363,14 @@ class TestSharedUserIntegrationRefresh:
             apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
             task = MagicMock()
             task.github_integration_id = 456
+            task.team_id = 9
 
             sandbox = MagicMock()
             outcome = GitHubSandboxCredential().refresh(sandbox, _context(), task)
 
             assert outcome.refreshed is True
             assert outcome.next_refresh_seconds == 20 * 60
-            installation_token.assert_called_once_with(456, repositories=["explore-science/paper-wizard-frontend"])
+            installation_token.assert_called_once_with(9, 456, repositories=["explore-science/paper-wizard-frontend"])
             apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghs_team")
 
     def test_reauthorization_without_team_integration_raises_credential_unavailable(self):
@@ -391,25 +392,33 @@ class TestSharedUserIntegrationRefresh:
             with pytest.raises(CredentialUnavailableError):
                 GitHubSandboxCredential().refresh(MagicMock(), _context(), task)
 
-    def test_caller_token_run_skips_coordinated_path(self):
+    @pytest.mark.parametrize(
+        "caller_token,state,token",
+        [
+            (True, {}, "ghu_caller"),
+            (False, {"github_token_scope": "push"}, "ghs_scoped_push"),
+            (False, {"github_token_scope": "read"}, "ghs_scoped_read"),
+        ],
+    )
+    def test_pinned_credential_run_skips_coordinated_path(self, caller_token, state, token):
         import contextlib
 
         from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch(f"{MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER))
-            stack.enter_context(patch(f"{MODULE}.is_caller_token_run", return_value=True))
+            stack.enter_context(patch(f"{MODULE}.is_caller_token_run", return_value=caller_token))
             resolve = stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task"))
-            stack.enter_context(patch(f"{MODULE}.get_sandbox_github_token", return_value="ghu_caller"))
+            stack.enter_context(patch(f"{MODULE}.get_sandbox_github_token", return_value=token))
             apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
 
             sandbox = MagicMock()
             sandbox.id = "sb-own"
-            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock())
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(state=state), MagicMock())
 
             assert outcome.refreshed is True
             resolve.assert_not_called()
-            apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghu_caller")
+            apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], token)
 
 
 class TestApplyTokenLocked:
@@ -641,6 +650,13 @@ class TestLiveSandboxRegistry:
             team=team,
             status=TaskRun.Status.IN_PROGRESS,
             state={"sandbox_id": "sb-caller", "pr_authorship_mode": "user", "github_credential_source": "caller_token"},
+        )
+        scoped = _task("org/scoped")
+        TaskRun.objects.create(
+            task=scoped,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-scoped", "pr_authorship_mode": "user", "github_token_scope": "push"},
         )
 
         result = _live_sandboxes_for_user_integration(integration.id)

@@ -347,6 +347,7 @@ class GithubSource(
                     ),
                     SourceFieldOauthAccountSelectConfig(
                         name="repositories",
+                        sync_setting=True,
                         label="Repositories",
                         integrationField="github_integration_id",
                         integrationKind="github",
@@ -359,6 +360,7 @@ class GithubSource(
                     # doubles as the marker for the repo whose schemas keep bare, unqualified names.
                     SourceFieldOauthAccountSelectConfig(
                         name="repository",
+                        sync_setting=True,
                         label="Repository",
                         integrationField="github_integration_id",
                         integrationKind="github",
@@ -471,6 +473,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GitHubRateLimitError that survives _fetch_page's own rate-limit-aware tenacity retry
         # still gets picked up by Temporal's activity retry; classify it as retryable so it's
         # logged as a warning rather than tracked as an exception. Mirrors Stripe's equivalent case.
+        # GraphQL's own primary rate limit (_raise_if_graphql_rate_limited, hit while backfilling
+        # pull_requests.merge_commit_sha) raises the same exception type with different wording, so
+        # it needs its own entry here rather than falling through to the generic exception path.
         #
         # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
@@ -485,17 +490,24 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # failure is self-recovering. Mirrors ClickHouse's equivalent classification of the same
         # urllib3/OpenSSL wording.
         #
+        # An empty or non-JSON body on that same token-minting call is the same class of edge blip —
+        # ``refresh_access_token`` only reaches this message when ``response.json()`` can't parse the
+        # body at all, which a GitHub-side error page or a truncated response produces, not anything
+        # the customer's credentials or config control.
+        #
         # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
         # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
         # least surprising failure the source has; tracking it as an exception put a self-inflicted,
         # self-healing condition at the top of the pipeline-error groups.
         return {
             "GitHub API rate limit exceeded",
+            "GraphQL rate limit exceeded",
             "GitHub egress budget exhausted",
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",
             "Read timed out",
+            "Non-JSON response when refreshing installation token",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -504,6 +516,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         return {
             "GitHub egress budget exhausted": RATE_LIMITED_MESSAGE,
             "GitHub API rate limit exceeded": RATE_LIMITED_MESSAGE,
+            "GraphQL rate limit exceeded": RATE_LIMITED_MESSAGE,
         }
 
     def get_oauth_accounts(
@@ -604,6 +617,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         github_integration = GitHubIntegration(integration, source="warehouse", priority=Priority.CRITICAL)
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
+        integration = github_integration.integration
 
         if not integration.access_token:
             raise ValueError("GitHub access token not found")

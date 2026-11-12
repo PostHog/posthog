@@ -218,18 +218,20 @@ Person readiness may be enabled only once every region's flags service runs that
 
 A `person_metadata` leaf makes a cohort non-realtime in the first place, so such a cohort is never compatible.
 A cohort made only of references needs no stamp, so it is never compatible either.
+On a team whose access row is at `processing` or `off` and that is not on `REALTIME_COHORT_TEAM_ALLOWLIST`, no stamp counts, even one from before the grant, so its cohorts are never compatible.
 
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the realtime targeting rollout flag is on for the user and every such cohort is flag-compatible.
 The same rollout flag lets the flag editor's cohort picker list these cohorts.
 
-Behind the same rollout flag, for allowlisted teams, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+Behind the same rollout flag, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `building`, `rebuilding`, `ready`, or `needs_attention`.
+A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS` also carries `reason: history_over_limit` and the limit in `history_limit_days`.
 
 ### In the feature flags service
 
 The Rust flags service reads cohorts from the flags cache, or from Postgres through a short-lived cache when the flags cache has none.
 It routes a cohort to the membership table when all of these hold:
 
-- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`,
+- the team is in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or its team access row is at `serving`,
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its stamps satisfy the configured stamp policy.
@@ -255,6 +257,7 @@ And Django can accept a flag that Rust then evaluates dynamically, for example w
 - **It does not mean complete history.**
   A person stamp covers persons updated since the run's horizon.
   A behavioral stamp covers history only up to the seeder's lookback cap.
+  Django keeps a cohort that looks back further off realtime when its criteria are saved, unless `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above that cap.
 - **It does not cover leaving the realtime set.**
   The finalizer does not check whether the cohort was deleted, made static or stopped being realtime while the run was in flight.
 

@@ -18,14 +18,16 @@ export type TeamWorkflowsConfig = {
     email_tracking_consent_mode: EmailTrackingConsentMode
     email_sending_suspended: boolean
     ses_tenant_provider_suspended: boolean
-    /** Trust tier that picks the team's hourly and daily workflow email caps. */
+    /** Trust tier that picks the team's daily workflow email cap. */
     email_sending_tier: number
     /** Max marketing messages one person gets per window. Null on either field means no cap. */
     marketing_frequency_cap_max_messages: number | null
     marketing_frequency_cap_window_days: number | null
+    /** Hours a capped marketing message waits for a free slot. Null skips it at once. */
+    marketing_frequency_cap_hold_hours: number | null
 }
 
-export type FrequencyCap = { max_messages: number | null; window_days: number | null }
+export type FrequencyCap = { max_messages: number | null; window_days: number | null; hold_hours: number | null }
 
 const DEFAULT_CONFIG: TeamWorkflowsConfig = {
     capture_workflows_engagement_events: false,
@@ -35,6 +37,7 @@ const DEFAULT_CONFIG: TeamWorkflowsConfig = {
     email_sending_tier: 0,
     marketing_frequency_cap_max_messages: null,
     marketing_frequency_cap_window_days: null,
+    marketing_frequency_cap_hold_hours: null,
 }
 
 /**
@@ -46,7 +49,7 @@ export class TeamWorkflowsConfigService {
     private lazyLoader: LazyLoader<TeamWorkflowsConfig>
 
     constructor(
-        private postgres: PostgresRouter,
+        private postgres: Pick<PostgresRouter, 'query'>,
         pubSub: PubSub
     ) {
         this.lazyLoader = new LazyLoader({
@@ -100,7 +103,7 @@ export class TeamWorkflowsConfigService {
     }
 
     /**
-     * Trust tier for the team's workflow email, which the send path turns into an hourly and a
+     * Trust tier for the team's workflow email, which the send path turns into a
      * daily cap. Fails open with `null`: a lookup error must let the send through rather than
      * throttle a legitimate customer, same stance as `isEmailSendingSuspended`.
      */
@@ -119,6 +122,7 @@ export class TeamWorkflowsConfigService {
         return {
             max_messages: config.marketing_frequency_cap_max_messages,
             window_days: config.marketing_frequency_cap_window_days,
+            hold_hours: config.marketing_frequency_cap_hold_hours,
         }
     }
 
@@ -132,6 +136,7 @@ export class TeamWorkflowsConfigService {
             email_sending_tier: number
             marketing_frequency_cap_max_messages: number | null
             marketing_frequency_cap_window_days: number | null
+            marketing_frequency_cap_hold_hours: number | null
         }>(
             PostgresUse.COMMON_READ,
             // Only DISABLED blocks: ENABLED and REINSTATED both permit sending, and '' means the
@@ -139,7 +144,8 @@ export class TeamWorkflowsConfigService {
             `SELECT team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
                     email_sending_suspended_at IS NOT NULL AS email_sending_suspended,
                     ses_tenant_sending_status = 'DISABLED' AS ses_tenant_provider_suspended,
-                    email_sending_tier, marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days
+                    email_sending_tier, marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days,
+                    marketing_frequency_cap_hold_hours
              FROM workflows_teamworkflowsconfig
              WHERE team_id = ANY($1)`,
             [validTeamIds(teamIds)],
@@ -159,6 +165,7 @@ export class TeamWorkflowsConfigService {
                 email_sending_tier: row.email_sending_tier ?? 0,
                 marketing_frequency_cap_max_messages: row.marketing_frequency_cap_max_messages,
                 marketing_frequency_cap_window_days: row.marketing_frequency_cap_window_days,
+                marketing_frequency_cap_hold_hours: row.marketing_frequency_cap_hold_hours,
             }
         }
         return configs

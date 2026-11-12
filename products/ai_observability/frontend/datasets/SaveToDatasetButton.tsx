@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import React, { useMemo } from 'react'
 
 import { IconDatabase, IconExternal, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,11 +16,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { DatasetItemCreateApi } from '../generated/api.schemas'
 import { DatasetItemModal } from './DatasetItemModal'
-import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
+import { type StepReadFailure, saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
+import type { TraceStep } from './traceStepDatasetItem'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
 import { normalizeJsonValue } from './utils'
 
-export interface SaveToDatasetButtonProps {
+export interface SaveToDatasetButtonContentProps {
     traceId: string
     timestamp: string
     sourceId: string
@@ -29,30 +30,39 @@ export interface SaveToDatasetButtonProps {
     metadata?: unknown
 }
 
-export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
-    traceId,
-    timestamp,
-    sourceId,
-    input,
-    output,
-    metadata,
-}: SaveToDatasetButtonProps): JSX.Element {
-    const partialDatasetItem: Partial<DatasetItemCreateApi> = useMemo(
-        () => ({
-            client_item_id: sourceId,
-            source_trace_id: traceId,
-            source_timestamp: timestamp,
-            source_event_id: sourceId,
-            input: normalizeJsonValue(input ?? {}, {}) ?? {},
-            source_output: normalizeJsonValue(output, null),
-            metadata: toMetadataObject(metadata),
-        }),
-        [traceId, timestamp, sourceId, input, output, metadata]
-    )
-    const logic = saveToDatasetButtonLogic({ partialDatasetItem })
+export type SaveToDatasetButtonProps = SaveToDatasetButtonContentProps | { step: TraceStep }
 
-    const { dropdownVisible, isModalOpen, selectedDataset, isModalMounted } = useValues(logic)
-    const { setEditMode, setDropdownVisible, setIsModalOpen } = useActions(logic)
+const STEP_READ_FAILURE_MESSAGES: Record<StepReadFailure, string> = {
+    error: "Couldn't load this step.",
+    not_found: 'This step no longer exists.',
+}
+
+export const SaveToDatasetButton = React.memo(function SaveToDatasetButton(
+    props: SaveToDatasetButtonProps
+): JSX.Element {
+    const step = 'step' in props ? props.step : null
+    const content: Partial<SaveToDatasetButtonContentProps> = 'step' in props ? {} : props
+    const { traceId, timestamp, sourceId, input, output, metadata } = content
+    const isStepMode = step !== null
+    const partialDatasetItem: Partial<DatasetItemCreateApi> | null = useMemo(
+        () =>
+            isStepMode
+                ? null
+                : {
+                      client_item_id: sourceId,
+                      source_trace_id: traceId,
+                      source_timestamp: timestamp,
+                      source_event_id: sourceId,
+                      input: normalizeJsonValue(input ?? {}, {}) ?? {},
+                      source_output: normalizeJsonValue(output, null),
+                      metadata: toMetadataObject(metadata),
+                  },
+        [isStepMode, traceId, timestamp, sourceId, input, output, metadata]
+    )
+    const logic = saveToDatasetButtonLogic({ partialDatasetItem, step })
+
+    const { dropdownVisible, isModalOpen, selectedDataset, isModalMounted, modalItem } = useValues(logic)
+    const { setEditMode, setDropdownVisible, closeItemModal } = useActions(logic)
 
     return (
         <>
@@ -68,9 +78,11 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
                 >
                     <LemonButton
                         type="secondary"
+                        data-attr="save-to-dataset-open"
                         size="xsmall"
                         icon={<IconDatabase />}
                         sideAction={{
+                            'data-attr': 'save-to-dataset-edit',
                             icon: <IconPencil />,
                             onClick: () => {
                                 if (!dropdownVisible) {
@@ -91,9 +103,9 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
             {isModalMounted && selectedDataset && (
                 <DatasetItemModal
                     isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
+                    onClose={closeItemModal}
                     datasetId={selectedDataset.id}
-                    partialDatasetItem={partialDatasetItem}
+                    partialDatasetItem={'step' in props ? modalItem : partialDatasetItem}
                     title={`New dataset item for ${selectedDataset.name}`}
                 />
             )}
@@ -102,9 +114,9 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
 })
 
 function OverlayMenu(): JSX.Element {
-    const { datasets, isLoadingDatasets, isSearchFormSubmitting, recentDatasets, searchForm } =
+    const { datasets, isLoadingDatasets, isSearchFormSubmitting, recentDatasets, searchForm, stepReadStatus } =
         useValues(saveToDatasetButtonLogic)
-    const { setSearchFormValue, setDropdownVisible } = useActions(saveToDatasetButtonLogic)
+    const { setSearchFormValue, setDropdownVisible, retryStepRead } = useActions(saveToDatasetButtonLogic)
 
     const { referenceRef, itemsRef, focusedItemIndex } = useKeyboardNavigation<HTMLDivElement, HTMLButtonElement>(
         (datasets?.length ?? 0) + (recentDatasets?.length ?? 0),
@@ -113,13 +125,40 @@ function OverlayMenu(): JSX.Element {
     )
 
     const recentDatasetsLength = recentDatasets?.length ?? 0
+    const stepReadFailure = stepReadStatus === 'error' || stepReadStatus === 'not_found' ? stepReadStatus : null
+
+    function getDatasetDisabledReason(datasetId: string): string | undefined {
+        if (stepReadFailure) {
+            return STEP_READ_FAILURE_MESSAGES[stepReadFailure]
+        }
+        return isSearchFormSubmitting && searchForm.datasetId !== datasetId
+            ? 'A dataset item is being saved'
+            : undefined
+    }
 
     return (
         <Form logic={saveToDatasetButtonLogic} formKey="searchForm" className="w-xs" enableFormOnSubmit>
             <LemonField name="search" label="Search" labelClassName="sr-only">
-                <LemonInput placeholder="Find a dataset" autoFocus />
+                <LemonInput placeholder="Find a dataset" autoFocus data-attr="save-to-dataset-search" />
             </LemonField>
             <LemonDivider className="my-0 mt-2" />
+            {stepReadFailure && (
+                <LemonBanner
+                    type="error"
+                    className="mt-2"
+                    action={
+                        stepReadFailure === 'error'
+                            ? {
+                                  children: 'Try again',
+                                  onClick: retryStepRead,
+                                  'data-attr': 'save-to-dataset-step-retry',
+                              }
+                            : undefined
+                    }
+                >
+                    {STEP_READ_FAILURE_MESSAGES[stepReadFailure]}
+                </LemonBanner>
+            )}
             <div
                 className={clsx('overflow-y-auto max-h-64 py-2', isLoadingDatasets ? 'space-y-4' : 'space-y-2')}
                 ref={referenceRef}
@@ -154,11 +193,7 @@ function OverlayMenu(): JSX.Element {
                                                 setSearchFormValue('datasetId', dataset.id)
                                             }}
                                             loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
-                                            disabledReason={
-                                                isSearchFormSubmitting && searchForm.datasetId !== dataset.id
-                                                    ? 'A dataset item is being saved'
-                                                    : undefined
-                                            }
+                                            disabledReason={getDatasetDisabledReason(dataset.id)}
                                             data-attr="save-to-dataset-select"
                                         >
                                             <span className="line-clamp-1">{dataset.name}</span>
@@ -185,11 +220,7 @@ function OverlayMenu(): JSX.Element {
                                         setSearchFormValue('datasetId', dataset.id)
                                     }}
                                     loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
-                                    disabledReason={
-                                        isSearchFormSubmitting && searchForm.datasetId !== dataset.id
-                                            ? 'A dataset item is being saved'
-                                            : undefined
-                                    }
+                                    disabledReason={getDatasetDisabledReason(dataset.id)}
                                     data-attr="save-to-dataset-select"
                                 >
                                     <span className="line-clamp-1">{dataset.name}</span>
@@ -206,6 +237,7 @@ function OverlayMenu(): JSX.Element {
                 fullWidth
                 size="small"
                 to={urls.aiObservabilityDataset('new')}
+                data-attr="save-to-dataset-create"
                 sideIcon={<IconExternal />}
                 targetBlank
                 onClick={() => {

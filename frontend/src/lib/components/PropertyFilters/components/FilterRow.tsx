@@ -3,9 +3,11 @@ import './FilterRow.scss'
 import clsx from 'clsx'
 import React, { useState } from 'react'
 
-import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
+import { IconPlus, IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
@@ -13,8 +15,11 @@ import { PathCleaningFilter, PropertyFilterRow } from '~/types'
 
 import { OperandTag } from './OperandTag'
 import { PropertyFilterButton } from './PropertyFilterButton'
+import { QuillFilterRowPopover } from './QuillFilterRowPopover'
 
 interface FilterRowProps {
+    header?: React.ReactNode
+    onOpen?: () => void
     item: Record<string, any>
     index: number
     filters: PropertyFilterRow[] | PathCleaningFilter[]
@@ -38,6 +43,8 @@ interface FilterRowProps {
 
 export const FilterRow = React.memo(function FilterRow({
     item,
+    onOpen,
+    header,
     index,
     filters,
     pageKey,
@@ -58,11 +65,15 @@ export const FilterRow = React.memo(function FilterRow({
     suffix,
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
+    const quillSurface = useQuillSurface()
 
     const { key } = item
     const isValid = isValidPropertyFilter(item)
 
     const handleVisibleChange = (visible: boolean): void => {
+        if (visible) {
+            onOpen?.()
+        }
         if (!visible && isValid && !item.key) {
             onRemove(index)
         }
@@ -87,32 +98,80 @@ export const FilterRow = React.memo(function FilterRow({
                     <>
                         {filterComponent(() => setOpen(false))}
                         {Object.keys(filters[index]).length > 0 && editable && showRemoveButton ? (
-                            <LemonButton
-                                icon={orFiltering ? <IconTrash /> : <IconX />}
-                                onClick={() => onRemove(index)}
-                                size={size}
-                                className="ml-2"
-                                noPadding
-                            />
+                            quillSurface ? (
+                                <Button
+                                    size="icon"
+                                    aria-label="Remove filter"
+                                    tooltip="Remove filter"
+                                    onClick={() => onRemove(index)}
+                                    className="ml-2"
+                                >
+                                    {orFiltering ? <IconTrash /> : <IconX />}
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    icon={orFiltering ? <IconTrash /> : <IconX />}
+                                    onClick={() => onRemove(index)}
+                                    size={size}
+                                    className="ml-2"
+                                    noPadding
+                                />
+                            )
                         ) : null}
                     </>
+                ) : quillSurface ? (
+                    isValid || !disabledReason ? (
+                        <QuillFilterRowPopover
+                            open={open}
+                            onOpenChange={handleVisibleChange}
+                            trigger={
+                                isValid ? (
+                                    (triggerProps) => (
+                                        <PropertyFilterButton
+                                            onClose={() => onRemove(index)}
+                                            item={item}
+                                            disabledReason={disabledReason}
+                                            triggerProps={triggerProps}
+                                        />
+                                    )
+                                ) : (
+                                    <Button
+                                        variant="outline"
+                                        className={clsx('new-prop-filter', labelClassName)}
+                                        data-attr={'new-prop-filter-' + pageKey}
+                                    >
+                                        <IconPlus />
+                                        {label}
+                                    </Button>
+                                )
+                            }
+                        >
+                            {header}
+                            {filterComponent(() => setOpen(false))}
+                        </QuillFilterRowPopover>
+                    ) : null
                 ) : (
                     <Popover
                         className="filter-row-popover"
                         visible={open}
                         onClickOutside={() => handleVisibleChange(false)}
-                        overlay={filterComponent(() => setOpen(false))}
+                        overlay={
+                            <>
+                                {header}
+                                {filterComponent(() => setOpen(false))}
+                            </>
+                        }
                     >
                         {isValid ? (
                             <PropertyFilterButton
-                                onClick={() => setOpen(!open)}
+                                onClick={() => handleVisibleChange(!open)}
                                 onClose={() => onRemove(index)}
                                 item={item}
                                 disabledReason={disabledReason}
                             />
                         ) : !disabledReason ? (
                             <LemonButton
-                                onClick={() => setOpen(!open)}
+                                onClick={() => handleVisibleChange(!open)}
                                 className={clsx('new-prop-filter', labelClassName)}
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"

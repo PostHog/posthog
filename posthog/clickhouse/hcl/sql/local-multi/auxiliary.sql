@@ -15,6 +15,34 @@ CREATE TABLE posthog.cohortpeople (
   sign Int8,
   version UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'cohortpeople', rand());
+CREATE TABLE posthog.email_status_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.email_status_data', '{replica}-{shard}', version) ORDER BY (team_id, message_id) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.email_status_events_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  scheduled_at Nullable(DateTime64(6, 'UTC')),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.email_status_events_data', '{replica}-{shard}') ORDER BY (team_id, created_at, message_id, status_at) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.events (
   uuid UUID,
   event String,
@@ -161,6 +189,28 @@ CREATE TABLE posthog.ingestion_warnings_v2_distributed (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'ingestion_warnings_v2');
+CREATE TABLE posthog.kafka_email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
+CREATE TABLE posthog.kafka_email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  scheduled_at Nullable(DateTime64(6, 'UTC'))
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status_events', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
 CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -615,6 +665,8 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,
@@ -875,6 +927,7 @@ CREATE TABLE posthog.sharded_web_bounces_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
@@ -883,7 +936,7 @@ CREATE TABLE posthog.sharded_web_bounces_dimensional_preaggregated (
   total_session_count_state AggregateFunction(sum, Int64),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS allow_nullable_key = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at) PRIMARY KEY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn) ORDER BY (team_id, job_id, period_bucket, host, device_type, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn, channel_type) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS allow_nullable_key = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_goals_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -955,12 +1008,13 @@ CREATE TABLE posthog.sharded_web_stats_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS allow_nullable_key = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated', '{replica}', computed_at) PRIMARY KEY (team_id, job_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn) ORDER BY (team_id, job_id, period_bucket, host, device_type, pathname, entry_pathname, end_pathname, browser, os, viewport_width, viewport_height, referring_domain, utm_source, utm_medium, utm_campaign, utm_term, utm_content, country_code, city_name, region_code, region_name, has_gclid, has_gad_source_paid_search, has_fbclid, mat_metadata_backend, mat_metadata_loggedIn, channel_type) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS allow_nullable_key = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_stats_frustration_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -1075,6 +1129,7 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
@@ -1143,6 +1198,7 @@ CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   has_fbclid Bool,
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
+  channel_type LowCardinality(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),
@@ -1318,6 +1374,35 @@ CREATE TABLE posthog.writable_query_log_archive_v3 (
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_v3_buffer');
+CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_events_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, recipient String, function_id String, sending_domain LowCardinality(String), scheduled_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  recipient,
+  function_id,
+  sending_domain,
+  scheduled_at,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status_events;
+CREATE MATERIALIZED VIEW posthog.email_status_mv TO posthog.email_status_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked');
 CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO posthog.writable_error_tracking_fingerprint_issue_state (team_id Int64, fingerprint String, issue_id UUID, issue_name Nullable(String), issue_description Nullable(String), issue_status String, issue_severity Nullable(String), assigned_user_id Nullable(Int64), assigned_role_id Nullable(UUID), first_seen DateTime64(3, 'UTC'), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   fingerprint,
@@ -1656,6 +1741,34 @@ CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_conversion_goal_attributed_preaggregated', cityHash64(person_id));
+CREATE TABLE posthog.email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
+CREATE TABLE posthog.email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  scheduled_at Nullable(DateTime64(6, 'UTC')),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -1677,6 +1790,8 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,

@@ -24,15 +24,20 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
+from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import canonical_deprecation_for, canonical_skill_names
 from products.signals.backend.scout_harness.limits import (
     COORDINATOR_INTERVAL_MINUTES,
     MAX_DISPATCH_SMEAR_SECONDS,
     MAX_ENABLED_SCOUTS_PER_TEAM,
 )
+from products.signals.backend.trial.scouts import trial_enabled_scout_cap
 
 logger = structlog.get_logger(__name__)
 
@@ -113,6 +118,15 @@ TEAM_CONFIG_GITHUB_READ_ACCESS = "github_read_access"
 # the seed + dispatch layer — a withheld scout can't be self-enabled into running.
 TEAM_CONFIG_WITHHELD_SKILLS = "withheld_skills"
 
+# Canonical scouts Inbox quick setup enables, as an ordered list of skill names. Resolves like
+# `withheld_skills` (`_resolve_setup_default_skills`): the team's `team_configs` entry, then
+# `default_team_config`, then general only. It shapes the setup draft and nothing else, so it never
+# enables a scout outside setup and never edits a config that already exists.
+TEAM_CONFIG_SETUP_DEFAULT_SKILLS = "setup_default_skills"
+SETUP_REQUIRED_SKILL = "signals-scout-general"
+# The onboarding draft serializer accepts at most this many suggestions.
+MAX_SETUP_DEFAULT_SKILLS = 5
+
 # Rolling window the per-team daily budget is counted over.
 DAILY_BUDGET_WINDOW = timedelta(hours=24)
 
@@ -169,7 +183,7 @@ def _read_flag_payload() -> dict | None:
 ENROLL_ALL_TOKEN = "*"
 
 
-@dataclass(frozen=True)
+@frozen
 class Enrollment:
     """Parsed scout enrollment from the `signals-scout` flag payload.
 
@@ -182,6 +196,7 @@ class Enrollment:
     wildcard: bool
     explicit: set[int]
     skip: set[int]
+    drained: bool = False
 
 
 def _parse_enrollment(payload: dict | None) -> Enrollment:
@@ -223,12 +238,14 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
     else:
         skip = set()
 
-    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
+    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip, drained=payload.get("guaranteed_team_ids") == [])
 
 
-# Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
-# asking. Separate from `guaranteed_team_ids`: a background team gets one config for one skill, not
-# the full catalog seed.
+# Flag payload blocks that enroll a cohort in scouts that PostHog sets up without a person asking.
+# Separate from `guaranteed_team_ids`: a background team gets one config per lane skill, not the
+# full catalog seed. `background_lanes` holds one lane per skill. The older single `background`
+# block parses as one lane and applies only when `background_lanes` is absent.
+BACKGROUND_LANES_KEY = "background_lanes"
 BACKGROUND_KEY = "background"
 DEFAULT_BACKGROUND_SKILL_NAME = "signals-scout-general"
 # Bounds how many teams get a new background config in one tick, so a large list starts over
@@ -289,9 +306,12 @@ class BackgroundBudget:
 
 @dataclass(frozen=True)
 class BackgroundEnrollment:
-    """Parsed `background` block from the `signals-scout` flag payload.
+    """One background lane: an entry of `background_lanes`, or the older `background` block.
 
-    `enabled` → the coordinator creates and dispatches background configs. A valid block with
+    A lane is its skill. Every config, sample, budget, and backoff of the lane belongs to
+    `skill_name` alone, so two lanes never change each other's configs.
+
+    `enabled` → the coordinator creates and dispatches background configs. A valid lane with
     `enabled` off still pauses configs whose team left `team_ids`. `interval_minutes` is `None`
     when unset, so the created row keeps the model default.
     """
@@ -307,6 +327,11 @@ class BackgroundEnrollment:
     backoff: BackgroundBackoff | None = None
     # `None` means no lane budget, so every due background run goes on to the shared tick caps.
     budget: BackgroundBudget | None = None
+    # The band rows the lane samples from: projects that did not set Signals up, or ones that did.
+    audience: str = SignalScoutBackgroundBand.Audience.NOT_SET_UP
+    # Dispatch only when the skill's default pre-check finds something, whatever the skill's
+    # `precheck_default_rollout` says. Keeps a short interval cheap.
+    require_precheck: bool = False
 
     def band_interval_minutes(self, band: int | None) -> int | None:
         entry = self.bands.get(band) if band is not None else None
@@ -370,19 +395,33 @@ def _parse_background_budget(raw: object) -> BackgroundBudget | None:
     )
 
 
-def resolve_background_backoff() -> BackgroundBackoff | None:
-    """One flag-payload read of `background.backoff`, for callers outside the coordinator."""
-    background = _parse_background(_read_flag_payload())
-    return background.backoff if background is not None else None
+def background_lane_for(lanes: Sequence[BackgroundEnrollment] | None, skill_name: str) -> BackgroundEnrollment | None:
+    return next((lane for lane in lanes or () if lane.skill_name == skill_name), None)
 
 
-def background_sample_bucket(team_id: int) -> int:
-    """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
+def resolve_background_lane(skill_name: str) -> BackgroundEnrollment | None:
+    """One flag-payload read of the lane that runs `skill_name`, for callers outside the coordinator."""
+    return background_lane_for(parse_background_lanes(_read_flag_payload()), skill_name)
+
+
+def resolve_background_backoff(skill_name: str) -> BackgroundBackoff | None:
+    lane = resolve_background_lane(skill_name)
+    return lane.backoff if lane is not None else None
+
+
+def background_sample_bucket(team_id: int, skill_name: str = DEFAULT_BACKGROUND_SKILL_NAME) -> int:
+    """The stable 0-99 bucket of a project in one lane. Python's `hash()` is salted per process, so it cannot be used.
 
     A project is sampled when its bucket is below its band percent, so a higher percent keeps every
-    project that a lower percent sampled.
+    project that a lower percent sampled. The skill name salts the hash, so each lane samples on
+    its own. The general scout keeps the salt it had before lanes, so its cohort does not move.
     """
-    digest = hashlib.sha256(f"signals-scout-background:{team_id}".encode()).digest()
+    salt = (
+        "signals-scout-background"
+        if skill_name == DEFAULT_BACKGROUND_SKILL_NAME
+        else f"signals-scout-background:{skill_name}"
+    )
+    digest = hashlib.sha256(f"{salt}:{team_id}".encode()).digest()
     return int.from_bytes(digest[:8], "big") % 100
 
 
@@ -419,24 +458,68 @@ def precheck_default_rollout_bucket(team_id: int, skill_name: str) -> int:
     return int.from_bytes(digest[:8], "big") % 100
 
 
-def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
-    """Parse the `background` block, or return `None` when the coordinator must not act on it.
+def parse_background_lanes(payload: dict | None) -> tuple[BackgroundEnrollment, ...] | None:
+    """Parse the background lanes, or return `None` when the coordinator must not act on them.
 
-    `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
-    that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
-    `team_ids` must not read as an empty list, because an empty list pauses every background
-    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
-    `max_new_teams_per_tick`, `bands` entry, `backoff`, or `budget` falls back to its default and does
-    not invalidate the block.
+    `background_lanes` wins over `background` when both are present. `None` for a missing payload,
+    no lane key at all, a `background_lanes` value that is not a list, any malformed lane, or two
+    lanes with the same `skill_name`. One bad lane fails the whole list, because a lane that drops
+    out reads as a removed lane, and a removed lane pauses its configs. An empty list is valid and
+    removes every lane.
     """
     if payload is None:
         return None
-    raw = payload.get(BACKGROUND_KEY)
+    if BACKGROUND_LANES_KEY not in payload:
+        lane = _parse_background(payload)
+        return (lane,) if lane is not None else None
+
+    if BACKGROUND_KEY in payload:
+        logger.info("signals_scout: background_lanes is set, ignoring the background block")
+    raw_lanes = payload[BACKGROUND_LANES_KEY]
+    if not isinstance(raw_lanes, list):
+        logger.warning("signals_scout: background_lanes is not a list, skipping background lanes")
+        return None
+    lanes: list[BackgroundEnrollment] = []
+    for index, raw in enumerate(raw_lanes):
+        lane = _parse_background_lane(raw, default_skill_name=None)
+        if lane is None:
+            logger.warning("signals_scout: malformed background lane, skipping background lanes", index=index)
+            return None
+        lanes.append(lane)
+    skill_names = [lane.skill_name for lane in lanes]
+    if len(set(skill_names)) != len(skill_names):
+        logger.warning("signals_scout: duplicate background lane skill, skipping background lanes", skills=skill_names)
+        return None
+    return tuple(lanes)
+
+
+def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
+    """The older single `background` block as one lane. `None` when it is missing or malformed."""
+    if payload is None:
+        return None
+    return _parse_background_lane(payload.get(BACKGROUND_KEY), default_skill_name=DEFAULT_BACKGROUND_SKILL_NAME)
+
+
+def _parse_background_lane(raw: object, *, default_skill_name: str | None) -> BackgroundEnrollment | None:
+    """Parse one lane, or return `None` when the coordinator must not act on it.
+
+    `None` for a lane that is not an object, a `skill_name` that is not a non-empty string (a
+    `background_lanes` entry has no default skill), a `team_ids` that is not a list of integer ids,
+    or an `audience` that is not a known value. A malformed `team_ids` must not read as an empty
+    list, because an empty list pauses every config of the lane. `enabled` and `require_precheck`
+    are on only for a literal `true`. An absent or malformed `interval_minutes`,
+    `max_new_teams_per_tick`, `bands` entry, `backoff`, or `budget` falls back to its default and
+    does not invalidate the lane.
+    """
     if not isinstance(raw, dict):
         return None
 
-    skill_name = raw.get("skill_name", DEFAULT_BACKGROUND_SKILL_NAME)
+    skill_name = raw.get("skill_name", default_skill_name)
     if not isinstance(skill_name, str) or not skill_name.strip():
+        return None
+
+    audience = raw.get("audience", SignalScoutBackgroundBand.Audience.NOT_SET_UP)
+    if audience not in SignalScoutBackgroundBand.Audience.values:
         return None
 
     raw_team_ids = raw.get("team_ids", [])
@@ -455,6 +538,8 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         bands=_parse_background_bands(raw.get("bands")),
         backoff=_parse_background_backoff(raw.get("backoff")),
         budget=_parse_background_budget(raw.get("budget")),
+        audience=SignalScoutBackgroundBand.Audience(audience),
+        require_precheck=raw.get("require_precheck") is True,
     )
 
 
@@ -574,6 +659,12 @@ def resolve_max_enabled_scouts(config_layers: Sequence[dict] | None) -> int:
     return MAX_ENABLED_SCOUTS_PER_TEAM
 
 
+def _resolve_enabled_scout_limit(canonical_team_id: int, config_layers: Sequence[dict]) -> int:
+    configured = resolve_max_enabled_scouts(config_layers)
+    trial_limit = trial_enabled_scout_cap(canonical_team_id)
+    return min(configured, trial_limit) if trial_limit is not None else configured
+
+
 def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     """One flag-payload read → this project's enabled-scout ceiling.
 
@@ -583,7 +674,9 @@ def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     """
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    return resolve_max_enabled_scouts([team_configs.get(canonical_team_id) or {}, _default_team_config(payload)])
+    return _resolve_enabled_scout_limit(
+        canonical_team_id, [team_configs.get(canonical_team_id) or {}, _default_team_config(payload)]
+    )
 
 
 # Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's
@@ -710,6 +803,69 @@ def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
     return _resolve_withheld_skills(canonical_team_id, team_configs, _default_team_config(payload))
 
 
+def _resolve_setup_default_skills(
+    team_id: int, team_configs: dict[int, dict], default_team_config: dict
+) -> list[str] | None:
+    """The `setup_default_skills` list for a team, most-specific layer first.
+
+    Replace-not-merge like `withheld_skills`: the first layer carrying a valid `list[str]` wins, and
+    a malformed value falls through to the next layer. `None` when neither layer sets one.
+    """
+    for source in ((team_configs.get(team_id) or {}), default_team_config):
+        raw = source.get(TEAM_CONFIG_SETUP_DEFAULT_SKILLS)
+        if isinstance(raw, list) and all(isinstance(name, str) for name in raw):
+            return list(raw)
+    return None
+
+
+def setup_default_skills_for_team(canonical_team_id: int) -> list[str]:
+    """The canonical scouts Inbox quick setup should enable for this (canonical) team, general first.
+
+    General is always included because quick activation is refused without it. A listed name is
+    dropped when it is not a canonical scout, is a system scout, is withheld from the team, or is
+    being retired. The list is cut to fit the setup draft and the team's enabled-scout cap, so
+    activation never fails on a cap the draft could have respected. A missing payload or key gives
+    general only.
+    """
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    default_team_config = _default_team_config(payload)
+    listed = _resolve_setup_default_skills(canonical_team_id, team_configs, default_team_config) or []
+    withheld = _resolve_withheld_skills(canonical_team_id, team_configs, default_team_config)
+    canonical = canonical_skill_names()
+    skills = [SETUP_REQUIRED_SKILL]
+    for name in listed:
+        if (
+            name not in skills
+            and name in canonical
+            and name not in SYSTEM_SCOUT_NAMES
+            and name not in withheld
+            and canonical_deprecation_for(name) is None
+        ):
+            skills.append(name)
+    skills = skills[:MAX_SETUP_DEFAULT_SKILLS]
+    if len(skills) == 1:
+        return skills
+
+    max_enabled = _resolve_enabled_scout_limit(
+        canonical_team_id, [team_configs.get(canonical_team_id) or {}, default_team_config]
+    )
+    enabled = set(
+        SignalScoutConfig.objects.for_team(canonical_team_id).filter(enabled=True).values_list("skill_name", flat=True)
+    )
+    # Setup never disables a scout, so every enabled config keeps its slot. Only a scout that setup
+    # turns on takes a free slot, and general takes one first because activation needs it.
+    free_slots = max_enabled - len(enabled) - (SETUP_REQUIRED_SKILL not in enabled)
+    selected = [SETUP_REQUIRED_SKILL]
+    for name in skills[1:]:
+        if name in enabled:
+            selected.append(name)
+        elif free_slots > 0:
+            selected.append(name)
+            free_slots -= 1
+    return selected
+
+
 def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[str]]:
     """One flag-payload read → `(seed_config_layers, withheld_skills)` for the on-demand `sync` path.
 
@@ -807,11 +963,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     A skipped team is never enrolled. Otherwise enrolled iff the wildcard is set (everyone is in —
     the UI gates whether they actually HAVE configs) or the team is in the explicit allowlist.
     Canonicalizes child-env ids the same way the coordinator does (`_is_team_enrolled`)."""
-    if _is_team_enrolled(canonical_team_id, enrollment.skip):
+    if enrollment.drained or _is_team_enrolled(canonical_team_id, enrollment.skip):
         return False
     if enrollment.wildcard:
         return True
-    return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+    return _is_team_enrolled(canonical_team_id, enrollment.explicit) or ResearchAccessPolicy.enrolled(canonical_team_id)
 
 
 def team_is_enrolled(canonical_team_id: int) -> bool:
@@ -883,8 +1039,8 @@ def resolve_team_metadata(canonical_team_id: int) -> ScoutTeamMetadata:
             max_runs_per_day=max_runs_per_day,
             runs_today=runs_today,
             runs_remaining_today=runs_remaining_today,
-            max_enabled_scouts=resolve_max_enabled_scouts(
-                [team_configs.get(canonical_team_id) or {}, default_team_config]
+            max_enabled_scouts=_resolve_enabled_scout_limit(
+                canonical_team_id, [team_configs.get(canonical_team_id) or {}, default_team_config]
             ),
         ),
     )

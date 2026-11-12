@@ -2,6 +2,7 @@ import json
 import uuid
 import hashlib
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -14,11 +15,8 @@ import dlt
 import pyarrow
 import pendulum
 import dlt.common
-import dlt.extract
 import dlt.common.libs
 import dlt.common.libs.pyarrow
-import dlt.extract.incremental
-import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
 from structlog.types import FilteringBoundLogger
 
@@ -34,9 +32,23 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
+from products.warehouse_sources.backend.self_managed_access import assert_adoption_keeps_access
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
+    companion_resource_name,
+    history_naming_of,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    not_another_schemas_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import (
+    lock_schema_for_history_registration,
+    run_pending_access_rules_copy,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -49,11 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.query_folder_state
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import (
-    DataWarehouseTableCreatedVia,
-    DataWarehouseTableFormat,
-    ExternalDataSourceType,
-)
+from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat, SourceKey
 
 LOGGER = get_logger(__name__)
 
@@ -190,16 +198,15 @@ def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
 
 
 dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
-dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar  # ty: ignore[invalid-assignment]
 
 
-@dataclass
+@dataclass(frozen=False)
 class PipelineInputs:
     source_id: uuid.UUID
     run_id: str
     schema_id: uuid.UUID
     dataset_name: str
-    job_type: ExternalDataSourceType
+    job_type: SourceKey
     team_id: int
 
 
@@ -292,20 +299,24 @@ def _record_storage_delta(job: ExternalDataJob, storage_delta_mib: Optional[floa
 
 
 def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -> DataWarehouseTable | None:
-    """The schema's linked table, unless the link is its `_cdc` companion.
+    """The schema's linked table, unless the link is its history table.
 
-    cdc_only links the schema to its companion table. Reusing that link after a switch to a mode that
-    writes the consolidated table would publish the consolidated data under the companion's record,
+    cdc_only links the schema to its history table. Reusing that link after a switch to a mode that
+    writes the consolidated table would publish the consolidated data under the history table's record,
     and the consolidated table would never get a record of its own. A pinned folder can give the
-    schema's own table the companion's name, and then the link is right.
+    schema's own table the legacy history name, and then the link is right.
     """
     table = schema.table
     if table is None:
         return None
     names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-    table_name = build_table_name(pipeline, names.table_storage_name)
-    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
-    return None if table.name == companion_name != table_name else table
+    if table.name == build_table_name(pipeline, names.table_storage_name):
+        return table
+    if table.is_history_table:
+        return None
+    # A history table registered before the marker existed carries only its legacy name.
+    legacy_name = build_table_name(pipeline, companion_resource_name(schema.name, LEGACY_HISTORY_NAMING))
+    return None if table.name == legacy_name else table
 
 
 def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) -> DataWarehouseTable | None:
@@ -514,6 +525,10 @@ async def validate_schema_and_update_table(
                 update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
                 if table.external_data_source_id is None:
                     # A self-managed table this schema replaces reads its own bucket until now.
+                    # Adoption makes the table resolve through the source's rules. Checked here, after
+                    # the row count that can block for minutes, so a rule change has the least time
+                    # to land between the check and the save.
+                    assert_adoption_keeps_access(table, job.pipeline)
                     update_fields.extend(table.adopt_into_source(job.pipeline))
                     logger.info(f"Adopted self-managed table {table.id} into source {job.pipeline.id}")
                 if live_size_mib is not None:
@@ -647,6 +662,7 @@ async def register_cdc_companion_table(
     set_as_schema_table: bool = False,
     live_row_count: Optional[int] = None,
     live_size_mib: Optional[float] = None,
+    project_columns: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
 ) -> None:
     """Create or update a standalone DataWarehouseTable for a CDC companion resource (e.g. `{schema_name}_cdc`).
 
@@ -685,12 +701,19 @@ async def register_cdc_companion_table(
             # when the cluster is degraded, so holding a Postgres transaction open across them is
             # what produced minutes-long "idle in transaction" connections.
             # Find existing companion table (not schema.table) by name
-            companion_table: DataWarehouseTable | None = DataWarehouseTable.objects.filter(
+            same_name = DataWarehouseTable.objects.filter(
                 team_id=team_id,
                 name=companion_table_name,
                 external_data_source_id=job.pipeline.id,
                 deleted=False,
-            ).first()
+            )
+            companion_table: DataWarehouseTable | None = not_another_schemas_table(same_name, schema_id).first()
+            if companion_table is None and same_name.exists():
+                # Another schema's table has this name. Taking its record would point it at this history,
+                # and a second record of the same name would hide one of them.
+                raise HistoryTableNameTakenError(
+                    f"{companion_table_name} is already the name of another table of this source"
+                )
 
             previous_queryable_folder = companion_table.queryable_folder if companion_table else None
             storage_delta_mib = _storage_delta_mib(companion_table, live_size_mib)
@@ -715,15 +738,47 @@ async def register_cdc_companion_table(
                 retry_on_db_connection_drop(
                     lambda: table.save(update_fields=update_fields, internally_computed_url_pattern=True)
                 )
+                run_pending_access_rules_copy(schema_id, team_id, table)
             else:
-                logger.debug(f"Creating CDC companion table: {companion_table_name}")
-                companion_table = DataWarehouseTable.objects.create(
-                    external_data_source_id=job.pipeline.id,
-                    created_via=DataWarehouseTableCreatedVia.SOURCE,
-                    size_in_s3_mib=live_size_mib,
-                    options={HISTORY_TABLE_OPTION: True},
-                    **table_params,
-                )
+                # The table and the access rules it waits for commit together, so it is never readable without them.
+                with transaction.atomic():
+                    lock_schema_for_history_registration(schema_id, team_id)
+                    # A registration that overlapped this one may have created the table while this one waited.
+                    registered = not_another_schemas_table(
+                        DataWarehouseTable.objects.filter(
+                            team_id=team_id,
+                            name=companion_table_name,
+                            external_data_source_id=job.pipeline.id,
+                            deleted=False,
+                        ),
+                        schema_id,
+                    ).first()
+                    if registered is None:
+                        logger.debug(f"Creating CDC companion table: {companion_table_name}")
+                        companion_table = DataWarehouseTable(
+                            external_data_source_id=job.pipeline.id,
+                            created_via=DataWarehouseTableCreatedVia.SOURCE,
+                            size_in_s3_mib=live_size_mib,
+                            **table_params,
+                        )
+                        # The batches carry the validity columns of the naming this run chose for the table.
+                        companion_table.mark_as_history_table(
+                            ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
+                        )
+                        companion_table.save()
+                    else:
+                        previous_queryable_folder = registered.queryable_folder
+                        storage_delta_mib = _storage_delta_mib(registered, live_size_mib)
+                        companion_table = registered
+                        companion_table.format = table_format
+                        companion_table.url_pattern = new_url_pattern
+                        companion_table.queryable_folder = queryable_folder
+                        companion_table.mark_as_history_table()
+                        companion_table.save(
+                            update_fields=["format", "url_pattern", "queryable_folder", "options"],
+                            internally_computed_url_pattern=True,
+                        )
+                    run_pending_access_rules_copy(schema_id, team_id, companion_table)
             _record_storage_delta(job, storage_delta_mib)
             _record_query_folder_pointer(
                 schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
@@ -733,6 +788,8 @@ async def register_cdc_companion_table(
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
             existing_columns = companion_table.columns or {}
             columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+            if project_columns is not None:
+                columns = project_columns(columns)
 
             def _persist_columns() -> None:
                 with transaction.atomic():

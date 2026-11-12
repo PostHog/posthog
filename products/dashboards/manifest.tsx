@@ -6,10 +6,14 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import type { DashboardsTab } from '../../frontend/src/scenes/dashboard/dashboards/dashboardsLogic'
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Dashboards',
+    activityDescribers: {
+        [ActivityScope.DASHBOARD]: () =>
+            import('./frontend/dashboardActivityDescriber').then((module) => module.dashboardActivityDescriber),
+    },
     urls: {
         dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
         dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
@@ -29,7 +33,7 @@ export const manifest: ProductManifest = {
             name: 'Dashboard',
             iconType: 'dashboard' as FileSystemIconType,
             href: (ref: string) => urls.dashboard(ref),
-            iconColor: ['var(--color-product-dashboards-light)'],
+            iconColor: ['var(--color-product-dashboards-light)', 'var(--color-product-dashboards-dark)'],
             filterKey: 'dashboard',
         },
     },
@@ -39,7 +43,10 @@ export const manifest: ProductManifest = {
             type: 'dashboard',
             href: urls.dashboards() + '#newDashboard=modal',
             iconType: 'dashboard' as FileSystemIconType,
-            iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-dashboards-light)',
+                'var(--color-product-dashboards-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Dashboard',
             sceneKeys: ['Dashboards', 'Dashboard'],
         },
@@ -51,9 +58,9 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             type: 'dashboard',
             iconType: 'dashboard',
-            iconColor: ['var(--color-product-dashboards-light)'],
+            iconColor: ['var(--color-product-dashboards-light)', 'var(--color-product-dashboards-dark)'],
             href: urls.dashboards(),
-            searchKeywords: ['boards', 'charts'],
+            searchKeywords: ['boards'],
             searchTabs: [
                 { name: 'My dashboards', href: urls.dashboards('yours') },
                 {

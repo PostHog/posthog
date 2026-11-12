@@ -27,6 +27,7 @@ import {
 import { SendCalendar } from '../SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from '../SendCalendar/SendCalendarTabLabel'
 import { NewWorkflowModal } from '../Workflows/NewWorkflowModal'
+import { BroadcastAudienceSuggestions } from './audienceSuggestions/BroadcastAudienceSuggestions'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
@@ -56,6 +57,7 @@ export function BroadcastsScene(): JSX.Element {
         content: (
             <>
                 <BroadcastsFeaturePreview />
+                <BroadcastAudienceSuggestions />
                 <BroadcastsTable />
             </>
         ),

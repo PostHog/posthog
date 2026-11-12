@@ -3,26 +3,22 @@ import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import type { HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { ConversionGoalEditor } from '../../Workflows/hogflows/steps/components/ConversionGoalEditor'
 import { DEFAULT_BROADCAST_CONVERSION, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 export function BroadcastGoalStep(): JSX.Element {
-    const { goalEnabled, conversion, stepValidationErrors, tags } = useValues(broadcastWizardLogic)
+    const { goalEnabled, conversion, stepValidationErrors, tags, channel } = useValues(broadcastWizardLogic)
     const { setGoalEnabled, setConversion, setTags } = useActions(broadcastWizardLogic)
-    const { tags: allTags } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="m-0 text-xl font-semibold">Do you want to measure a conversion goal?</h2>
                 <p className="m-0 text-secondary">
-                    A goal counts recipients who do something after receiving the email, like signing up or making a
-                    purchase.
+                    A goal counts recipients who do something after receiving the{' '}
+                    {channel === 'push' ? 'notification' : 'email'}, like signing up or making a purchase.
                 </p>
             </div>
 
@@ -66,14 +62,7 @@ export function BroadcastGoalStep(): JSX.Element {
                         list by tag.
                     </p>
                 </div>
-                <ObjectTags
-                    tags={tags}
-                    onChange={setTags}
-                    onEdit={loadTagsIfNeeded}
-                    saving={false}
-                    tagsAvailable={allTags.filter((tag: string) => !tags.includes(tag))}
-                    data-attr="broadcast-wizard-tags"
-                />
+                <ObjectTags tags={tags} onChange={setTags} saving={false} data-attr="broadcast-wizard-tags" />
             </div>
         </div>
     )

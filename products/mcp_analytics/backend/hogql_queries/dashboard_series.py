@@ -115,6 +115,7 @@ class MCPToolCallsAndErrorsQueryRunner(AnalyticsQueryRunner[MCPToolCallsAndError
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=self.build_hogql_context(),
             )
 
         results = [
@@ -192,6 +193,7 @@ class MCPToolCallBreakdownQueryRunner(AnalyticsQueryRunner[MCPToolCallBreakdownQ
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=self.build_hogql_context(),
             )
 
         results = [

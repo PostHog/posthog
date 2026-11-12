@@ -5,8 +5,9 @@ import asyncio
 from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from typing import Any, ClassVar
+from uuid import UUID
 
 import pytest
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.test import override_settings
 
+import httpx
 from posthoganalytics import Posthog
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
@@ -25,13 +27,17 @@ from products.posthog_ai.eval_harness.engines.types import (
     ExperimentResult,
     ExperimentSpec,
     NullCaseHooks,
+    ScorerResult,
 )
 from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
+from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
+from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
+from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
 from products.tasks.backend.facade.agents import TurnPollTimeout
 
 
@@ -82,6 +88,9 @@ class _StubReporter:
         case_results: Sequence[Any] = (),
     ) -> None:
         self.summaries.append((experiment_name, summary, error_count))
+
+    async def record_posthog_offline_result(self, experiment_name: str, status: str, *, url: str | None = None) -> None:
+        pass
 
 
 class _StubEngine:
@@ -226,6 +235,46 @@ def test_one_shot_slots_bound_concurrency(tmp_path: Path, monkeypatch: pytest.Mo
     assert max_active == 1
 
 
+def test_trace_upload_does_not_block_infrastructure_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    upload_started = Event()
+    release_upload = Event()
+    cleanup_done = Event()
+
+    def blocked_upload(*args: Any, **kwargs: Any) -> None:
+        upload_started.set()
+        assert release_upload.wait(timeout=5)
+
+    monkeypatch.setenv("OPT_OUT_CAPTURE", "")
+    monkeypatch.setattr("products.posthog_ai.eval_harness.harness.lifecycle.TRACE_SHUTDOWN_TIMEOUT_SECONDS", 0)
+    with (
+        patch("posthoganalytics.Posthog", side_effect=partial(Posthog, flush_at=1, enable_local_evaluation=False)),
+        patch("posthoganalytics.consumer.batch_post", side_effect=blocked_upload),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
+        patch("products.posthog_ai.eval_harness.harness.lifecycle._git", return_value=""),
+    ):
+        harness = SandboxedEvalHarness(parse_args([]))
+        harness._stack.callback(cleanup_done.set)
+        harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
+        client = harness._posthog_client
+        assert client is not None
+        closer = Thread(target=harness._stack.close, daemon=True)
+        try:
+            client.capture(event="$ai_trace", distinct_id="test", properties={"$ai_trace_id": "test-trace"})
+            client.flush(timeout_seconds=0)
+            assert upload_started.wait(timeout=5)
+            closer.start()
+            assert cleanup_done.wait(timeout=2)
+            assert not release_upload.is_set()
+        finally:
+            release_upload.set()
+            if closer.ident is not None:
+                closer.join(timeout=5)
+            else:
+                harness._stack.close()
+            client.shutdown()
+        assert not closer.is_alive()
+
+
 def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         return {}
@@ -235,7 +284,10 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.parametrize("opt_out_capture", ["", "1"])
-def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str) -> None:
+@pytest.mark.parametrize("trace_destination", ["matching", "other_project", "other_host"])
+def test_run_routes_through_the_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str, trace_destination: str
+) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
@@ -248,9 +300,24 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
             loop.call_soon_threadsafe(loop_progress.set)
             loop_progress_during_flush.append(loop_progress.wait(timeout=5))
 
-        with patch.object(Posthog, "flush", side_effect=blocking_flush):
+        server = OfflineServer()
+        delivery = OfflineEvalDelivery(run.ctx.reporter, upload_timeout=5)
+        run.ctx.offline_delivery = delivery
+        with (
+            patch.object(Posthog, "flush", side_effect=blocking_flush),
+            patch("httpx.AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(server.respond))),
+        ):
             assert await run.run() is canned
+            await delivery.drain()
         assert all(loop_progress_during_flush)
+        assert server.status == "completed"
+        item = next(iter(server.items.values()))
+        outcome = next(iter(server.results.values()))
+        assert isinstance(item, dict)
+        assert isinstance(outcome, dict)
+        linked = trace_destination == "matching"
+        assert item.get("application_trace_id") == ("trace-1" if linked else None)
+        assert outcome.get("evaluator_trace_id") == ("judge-trace" if linked else None)
 
     canned = ExperimentResult(
         summary=EvalSummary(engine_name="stub", experiment_name="one-shot-test", scores={}),
@@ -259,12 +326,19 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
                 input={"name": "c1", "prompt": "the prompt"},
                 output={"last_message": "done"},
                 scores={"correctness": 1.0},
+                metadata={"trace_id": "trace-1", "scorer_trace_ids": {"correctness": "judge-trace"}},
+                scorer_results={"correctness": ScorerResult(status="ok", value=1.0, evaluator_trace_id="judge-trace")},
             )
         ],
     )
     monkeypatch.setenv("OPT_OUT_CAPTURE", opt_out_capture)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_API_KEY", "test-only-token")
+    monkeypatch.setenv(
+        "POSTHOG_OFFLINE_EVAL_HOST",
+        "https://posthog.example.com" if trace_destination == "other_host" else "https://us.posthog.com",
+    )
     engine = _StubEngine(canned)
     reporter = _StubReporter()
 
@@ -286,18 +360,30 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
             runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
             for run in runs:
                 run.engine = engine
+                run.offline_suite = OfflineEvalSuite(
+                    key="test/trace-links",
+                    project_id=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID + (trace_destination == "other_project"),
+                    scorer_kinds={"correctness": "numeric"},
+                    scorer_versions={"correctness": UUID(int=1)},
+                )
                 run.agent_trace_id_lookup["c1"] = "trace-1"
                 run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
                 asyncio.run(run_suite(run))
             assert settings.TEST
             assert settings.AI_GATEWAY_REDIS_URL is None
             assert ctx.posthog_client is not None
-            assert ctx.posthog_client.disabled
-            ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")
+            assert ctx.posthog_client.disabled == bool(opt_out_capture)
 
         assert create_client.call_count == 1
 
-    batch_post.assert_not_called()
+    if opt_out_capture:
+        batch_post.assert_not_called()
+    else:
+        assert batch_post.call_count == 2
+        for call in batch_post.call_args_list:
+            event = call.kwargs["batch"][0]
+            assert event["event"] == "$ai_trace"
+            assert event["properties"]["$ai_trace_id"] == "trace-1"
 
     assert len(engine.calls) == 2
     for experiment in engine.calls:

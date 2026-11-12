@@ -213,6 +213,7 @@ export namespace Schemas {
         inCohortVia: InCohortVia | null;
         inlineCohortCalculation: InlineCohortCalculation | null;
         materializationMode: MaterializationMode | null;
+        materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
@@ -324,6 +325,7 @@ export namespace Schemas {
     export type ResolvedDateRangeResponse = {
         date_from: string;
         date_to: string;
+        read_from?: (string | null) | undefined;
     };
     export type QueryTiming = {
         /**
@@ -346,6 +348,33 @@ export namespace Schemas {
          */
         table_name: string;
         uses_history_table?: (boolean | null) | undefined;
+    };
+    export type WarehouseSuggestionNoteKind = "materialize" | "unmaterialize";
+    export type WarehouseSuggestionNote = {
+        /**
+         * Whether this user can edit the view, which accepting the suggestion needs.
+         */
+        can_act: boolean;
+        /**
+         * The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`.
+         */
+        id: string;
+        /**
+         * What the suggestion proposes.
+         */
+        kind: WarehouseSuggestionNoteKind;
+        /**
+         * Plain-language note for the person, with the next step.
+         */
+        message: string;
+        /**
+         * Absolute link to the view's page in Models.
+         */
+        url: string;
+        /**
+         * The view's current name.
+         */
+        view_name: string;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -372,6 +401,13 @@ export namespace Schemas {
         table_name: string;
         type?: string | undefined;
     };
+    export type BreakdownNotAppliedWarning = {
+        /**
+         * Human-readable warning shown to the user
+         */
+        message: string;
+        type?: string | undefined;
+    };
     export type ActorsQueryResponse = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
@@ -395,9 +431,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -442,9 +483,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -544,6 +590,33 @@ export namespace Schemas {
         operator: AccountsTableThresholdOperator;
         value: number;
     };
+    export type AccountsTableCustomPropertyDisplayType =
+        | "text"
+        | "link"
+        | "number"
+        | "currency"
+        | "percent"
+        | "date"
+        | "datetime"
+        | "boolean"
+        | "select";
+    export type AccountsTableCustomPropertyOption = {
+        color: string;
+        id?: (string | null) | undefined;
+        label: string;
+    };
+    export type AccountsTableCustomPropertySource = { id: string };
+    export type AccountsTableCustomPropertyDefinition = {
+        description?: (string | null) | undefined;
+        display_type: AccountsTableCustomPropertyDisplayType;
+        has_workflow_reference: boolean;
+        id: string;
+        is_big_number?: (boolean | null) | undefined;
+        is_canonical: boolean;
+        name: string;
+        options?: (Array<AccountsTableCustomPropertyOption> | null) | undefined;
+        source?: (AccountsTableCustomPropertySource | null) | undefined;
+    };
     export type AccountsTableCustomPropertyOperator =
         | "exact"
         | "is_not"
@@ -614,6 +687,13 @@ export namespace Schemas {
         tagNames: Array<string>;
     };
     export type AccountsTableUnassignedFilter = Partial<{ kind: string }>;
+    export type AccountsTableRelationshipDefinition = {
+        description?: (string | null) | undefined;
+        id: string;
+        is_controlled: boolean;
+        is_single_holder?: (boolean | null) | undefined;
+        name: string;
+    };
     export type AccountsTableRow = {
         /**
          * Requested direct Account fields, keyed by their typed field reference.
@@ -642,6 +722,19 @@ export namespace Schemas {
         tags?: (Array<string> | null) | undefined;
     };
     export type AccountsTableQueryResponse = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -651,6 +744,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -660,9 +756,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -713,6 +814,7 @@ export namespace Schemas {
                   | AccountsTableCustomPropertyFilter
               > | null)
             | undefined;
+        ignoreMissingDefinitions?: (boolean | null) | undefined;
         includeChurned?: (boolean | null) | undefined;
         includeIgnored?: (boolean | null) | undefined;
         kind?: string | undefined;
@@ -729,6 +831,7 @@ export namespace Schemas {
         response?: (AccountsTableQueryResponse | null) | undefined;
         sort?: (AccountsTableSort | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
+        useDefaultColumns?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     /**
@@ -1966,6 +2069,7 @@ export namespace Schemas {
         series_label?: (string | null) | undefined;
     };
     export type TrendsQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -1981,9 +2085,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2602,9 +2711,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2778,9 +2892,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2971,9 +3090,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3141,9 +3265,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3188,6 +3317,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type StickinessQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3201,9 +3331,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3294,6 +3429,7 @@ export namespace Schemas {
         toggledLifecycles: Array<LifecycleToggle> | null;
     }>;
     export type LifecycleQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3307,9 +3443,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3539,15 +3680,23 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
     export type WebAnalyticsSampling = Partial<{
         enabled: boolean | null;
         forceSamplingRate: SamplingRate | null;
+    }>;
+    export type WebAnalyticsQueryModifiers = Partial<{
+        useDimensionalTables: boolean | null;
     }>;
     export type WebStatsTableQuery = {
         aggregation_group_type_index?: (number | null) | undefined;
@@ -3589,6 +3738,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebAnalyticsItemKind =
         | "unit"
@@ -3626,9 +3776,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3664,6 +3819,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type InsightActorsQuery = {
         breakdown?: (string | Array<string> | number | null) | undefined;
@@ -3741,6 +3897,30 @@ export namespace Schemas {
             | BehavioralPropertyFilter
         >;
         response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
+    export type ExperimentWarehouseNativeUnitBinding = {
+        /**
+         * Which ids represent that unit, such as `billing_customer_id`.
+         */
+        id_namespace: string;
+        /**
+         * What was randomized, as a stable project-scoped label such as `customer` or `account`.
+         */
+        unit_type: string;
+    };
+    export type ExperimentWarehouseNativeExposureConfig = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        kind?: string | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
     export type MultipleVariantHandling = "exclude" | "first_seen";
@@ -3834,6 +4014,33 @@ export namespace Schemas {
         timestamp_field: string;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeMathType = "total" | "sum";
+    export type ExperimentWarehouseNativeNode = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        custom_name?: (string | null) | undefined;
+        kind?: string | undefined;
+        math?: (ExperimentWarehouseNativeMathType | null) | undefined;
+        math_property?: (string | null) | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        unit: ExperimentWarehouseNativeUnitBinding;
+        version?: (number | null) | undefined;
+    };
+    export type ExperimentMetricValueFormatType =
+        | "currency"
+        | "duration"
+        | "duration_ms"
+        | "percentage"
+        | "percentage_scaled";
+    export type ExperimentMetricValueFormat = {
+        type: ExperimentMetricValueFormatType;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3850,10 +4057,15 @@ export namespace Schemas {
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
-        source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        source:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentFunnelMetric = {
@@ -3877,6 +4089,7 @@ export namespace Schemas {
         series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentMetricOutlierHandling = Partial<{
@@ -3890,7 +4103,11 @@ export namespace Schemas {
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
             | undefined;
-        denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        denominator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         denominator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -3900,13 +4117,18 @@ export namespace Schemas {
         kind?: string | undefined;
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
-        numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        numerator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentExposureNode = Partial<{
@@ -3943,6 +4165,33 @@ export namespace Schemas {
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
+        version?: (number | null) | undefined;
+    };
+    export type ExperimentQuantileMetric = {
+        breakdownFilter?: (BreakdownFilter | null) | undefined;
+        conversion_window?: (number | null) | undefined;
+        conversion_window_unit?:
+            | (FunnelConversionWindowTimeUnit | null)
+            | undefined;
+        fingerprint?: (string | null) | undefined;
+        goal?: (ExperimentMetricGoal | null) | undefined;
+        isSharedMetric?: (boolean | null) | undefined;
+        kind?: string | undefined;
+        metric_type?: string | undefined;
+        name?: (string | null) | undefined;
+        /**
+         * Quantile level, for example 0.9 for p90.
+         */
+        quantile: number;
+        response?: (Record<string, unknown> | null) | undefined;
+        sharedMetricId?: (number | null) | undefined;
+        /**
+         * Must set `math_property`, the numeric property to take the quantile of. `math` is ignored.
+         */
+        source: EventsNode | ActionsNode;
+        uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type PrecomputationMode = "precomputed" | "direct";
@@ -3965,6 +4214,7 @@ export namespace Schemas {
         key: string;
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
         sum: number;
@@ -3985,6 +4235,7 @@ export namespace Schemas {
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
         p_value?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         significant?: (boolean | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
@@ -4006,6 +4257,7 @@ export namespace Schemas {
         method?: string | undefined;
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         significant?: (boolean | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
@@ -4031,52 +4283,16 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
-    export type ExperimentSignificanceCode =
-        | "significant"
-        | "not_enough_exposure"
-        | "low_win_probability"
-        | "high_loss"
-        | "high_p_value";
-    export type ExperimentVariantTrendsBaseStats = {
-        absolute_exposure: number;
-        count: number;
-        exposure: number;
-        key: string;
-    };
-    export type ExperimentVariantFunnelsBaseStats = {
-        failure_count: number;
-        key: string;
-        success_count: number;
-    };
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
         clickhouse_sql: string | null;
-        credible_intervals: Record<string, Array<number>> | null;
         hogql: string | null;
-        insight: Array<Record<string, unknown>> | null;
         is_precomputed: boolean | null;
         kind: string;
-        metric:
-            | (
-                  | ExperimentMeanMetric
-                  | ExperimentFunnelMetric
-                  | ExperimentRatioMetric
-                  | ExperimentRetentionMetric
-              )
-            | null;
-        p_value: number | null;
-        probability: Record<string, number> | null;
-        significance_code: ExperimentSignificanceCode | null;
-        significant: boolean | null;
-        stats_version: number | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
-            | null;
-        variants:
-            | Array<ExperimentVariantTrendsBaseStats>
-            | Array<ExperimentVariantFunnelsBaseStats>
             | null;
         warnings: Array<DataWarehouseSyncWarning> | null;
     }>;
@@ -4087,7 +4303,8 @@ export namespace Schemas {
             | ExperimentMeanMetric
             | ExperimentFunnelMetric
             | ExperimentRatioMetric
-            | ExperimentRetentionMetric;
+            | ExperimentRetentionMetric
+            | ExperimentQuantileMetric;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         precomputation_mode?: (PrecomputationMode | null) | undefined;
@@ -4097,7 +4314,12 @@ export namespace Schemas {
     };
     export type ExperimentActorsQuery = {
         exposureConfig?:
-            | (ExperimentEventExposureConfig | ActionsNode | null)
+            | (
+                  | ExperimentEventExposureConfig
+                  | ActionsNode
+                  | ExperimentWarehouseNativeExposureConfig
+                  | null
+              )
             | undefined;
         featureFlagKey?: (string | null) | undefined;
         funnelStep?: (number | null) | undefined;
@@ -4271,6 +4493,7 @@ export namespace Schemas {
         ch_table_names?: (Array<string> | null) | undefined;
         errors: Array<HogQLNotice>;
         index_usage?: (Array<PredicateIndexUsage> | null) | undefined;
+        internalError?: (boolean | null) | undefined;
         isUsingIndices?: (QueryIndexUsage | null) | undefined;
         isValid?: (boolean | null) | undefined;
         notices: Array<HogQLNotice>;
@@ -4303,6 +4526,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   DataWarehouseSyncWarning | AccessControlFilterWarning
@@ -4323,6 +4549,7 @@ export namespace Schemas {
         kind?: string | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
+        offset?: (number | null) | undefined;
         query: string;
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
@@ -4525,12 +4752,21 @@ export namespace Schemas {
         | "minimum"
         | "maximum"
         | "custom";
+    export type BICatalogMetricStatus = "approved" | "proposed";
     export type BICategoryGroup = { name: string; values: Array<string> };
     export type Operator1 = "AND" | "OR";
     export type BIConditionGroup = {
         filters: Array<string>;
         groups: Array<BIConditionGroup>;
         operator: Operator1;
+    };
+    export type CatalogMetricContext = {
+        id: string;
+        isDrifted: boolean;
+        owner?: (string | null) | undefined;
+        status: BICatalogMetricStatus;
+        unit: string;
+        updatedAt?: (string | null) | undefined;
     };
     export type BIDateBucket =
         | "minute"
@@ -4682,12 +4918,16 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
+        description: string | null;
         displayType: DisplayType | null;
+        excludeFromTotal: boolean | null;
         label: string | null;
         trendLine: boolean | null;
+        valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
@@ -4723,6 +4963,7 @@ export namespace Schemas {
     };
     export type BIConfig = {
         catalogMetric?: (string | null) | undefined;
+        catalogMetricContext?: (CatalogMetricContext | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -4818,6 +5059,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        annotationsScope: AnnotationScope | null;
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
@@ -5734,6 +5976,10 @@ export namespace Schemas {
          */
         updated_at: string | null;
     };
+    /**
+     * * `history_over_limit` - History over limit
+     */
+    export type CohortRealtimeUnavailableReasonEnum = "history_over_limit";
     export type CohortRealtimeReadiness = {
         /**
          * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
@@ -5755,6 +6001,16 @@ export namespace Schemas {
          * The build preparing the cohort. Null unless the state is `building` or `rebuilding`.
          */
         build: CohortHistoryBuild | null;
+        /**
+         * A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+         *
+         * * `history_over_limit` - History over limit
+         */
+        reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
+        /**
+         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         */
+        history_limit_days: number | null;
     };
     export type SearchMatchTypeEnum = "exact" | "similar";
     export type Cohort = {
@@ -6395,6 +6651,25 @@ export namespace Schemas {
         > | null;
     }>;
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum =
+        | "second"
+        | "minute"
+        | "hour"
+        | "day"
+        | "week"
+        | "month"
+        | "quarter"
+        | "year";
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -6405,6 +6680,10 @@ export namespace Schemas {
         date_from: string | null;
         date_to: string | null;
         properties: unknown;
+        breakdown_filter: BreakdownFilter | null;
+        interval: IntervalTypeEnum | NullEnum;
+        compareFilter: CompareFilter | null;
+        filterTestAccounts: boolean | null;
     }>;
     export type _DashboardPatchTileLayoutBoxOpenApi = {
         /**
@@ -6632,7 +6911,7 @@ export namespace Schemas {
     };
     export type MetricsTableWidgetConfig = Partial<{
         dateRange: WidgetDateRange | null;
-        groupBy: string | null;
+        groupBy: string | Array<string> | null;
         columns: Array<MetricsTableColumn>;
         interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
         orderByColumn: number;
@@ -6667,7 +6946,13 @@ export namespace Schemas {
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
+        /**
+         * ID of the dashboard tile.
+         */
         id: number;
+        /**
+         * ID of the dashboard the tile sits on.
+         */
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
@@ -6701,9 +6986,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6730,9 +7020,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6759,9 +7054,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6788,6 +7088,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -6818,9 +7121,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6850,9 +7158,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6876,9 +7189,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6901,9 +7219,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6933,9 +7256,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6968,9 +7296,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6993,9 +7326,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7021,9 +7359,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7042,6 +7385,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -7058,9 +7402,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7068,6 +7417,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -7081,9 +7431,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7221,9 +7576,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7269,9 +7629,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7341,9 +7706,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7366,9 +7736,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7396,13 +7771,31 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
     export type Response20 = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -7412,6 +7805,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -7421,9 +7817,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7554,9 +7955,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7731,9 +8137,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7773,9 +8184,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7812,6 +8228,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebBotsBreakdown = "Crawler" | "Path";
     export type WebBotsTableQueryResponse = {
@@ -7833,9 +8250,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7872,6 +8294,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebGoalsQueryResponse = {
         columns?: (Array<unknown> | null) | undefined;
@@ -7899,9 +8322,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7938,6 +8366,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebVitalsQuery = {
         aggregation_group_type_index?: (number | null) | undefined;
@@ -7980,6 +8409,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebVitalsMetric = "INP" | "LCP" | "CLS" | "FCP";
     export type WebVitalsPercentile = "p75" | "p90" | "p99";
@@ -8003,9 +8433,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8044,6 +8479,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type Filters = Partial<{
         dateRange: DateRange | null;
@@ -8076,9 +8512,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8115,9 +8556,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8251,6 +8697,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -8267,9 +8714,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8315,11 +8767,13 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type MarketingAnalyticsAggregatedQueryResponse = {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -8333,9 +8787,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8378,6 +8837,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
@@ -8417,9 +8877,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8449,6 +8914,7 @@ export namespace Schemas {
         personId?: (string | null) | undefined;
         response?: (ErrorTrackingQueryResponse | null) | undefined;
         searchQuery?: (string | null) | undefined;
+        severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status?: (ErrorTrackingIssueStatus | string | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
         useQueryV2?: (boolean | null) | undefined;
@@ -8477,9 +8943,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8511,9 +8982,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8580,9 +9056,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8642,9 +9123,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8692,9 +9178,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8962,6 +9453,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum =
         | "agent_reported"
@@ -8980,7 +9472,8 @@ export namespace Schemas {
         | "turn_ended_without_response"
         | "subscription_usage_limit"
         | "task_spend_limit"
-        | "agent_error";
+        | "agent_error"
+        | "ActiveSessionCapError";
     /**
      * * `active` - Active
      * * `paused` - Paused
@@ -9132,6 +9625,10 @@ export namespace Schemas {
                         prompt: string;
                         judge_method?:
                             | (("llm" | "decision") | null)
+                            | undefined;
+                        include_media?: boolean | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
                             | undefined;
                     }
                   | {
@@ -9669,7 +10166,8 @@ export namespace Schemas {
         | ExperimentMeanMetric
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
-        | ExperimentRetentionMetric;
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric;
     /**
      * A shared metric's link to one experiment, as the experiment API returns it.
      */
@@ -9783,7 +10281,8 @@ export namespace Schemas {
         | "funnel"
         | "mean"
         | "ratio"
-        | "retention";
+        | "retention"
+        | "quantile";
     export type Kind3 = "EventsNode" | "ActionsNode" | "ExperimentExposureNode";
     export type ExperimentApiRetentionStart = {
         event?: (string | null) | undefined;
@@ -9824,6 +10323,7 @@ export namespace Schemas {
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
+        quantile?: (number | null) | undefined;
         retention_window_end?: (number | null) | undefined;
         retention_window_start?: (number | null) | undefined;
         retention_window_unit?:
@@ -9836,6 +10336,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
     };
     /**
      * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
@@ -9857,9 +10358,14 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -9867,6 +10373,9 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared
+     * * `stale_experiment` - Stale Experiment
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9878,16 +10387,24 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
+        | "exposure_filter_on_dynamic_cohort"
         | "srm"
         | "zero_exposures"
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
         | "new_flag_no_traffic"
-        | "early_significance";
+        | "early_significance"
+        | "metrics_not_matured"
+        | "flag_shared"
+        | "stale_experiment";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9906,6 +10423,9 @@ export namespace Schemas {
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
      * * `edit_release_conditions` - Edit Release Conditions
+     * * `end_experiment` - End Experiment
+     * * `freeze_exposure` - Freeze Exposure
+     * * `move_start_date` - Move Start Date
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -9915,7 +10435,63 @@ export namespace Schemas {
         | "add_primary_metric"
         | "add_secondary_metric"
         | "edit_exposure_criteria"
-        | "edit_release_conditions";
+        | "edit_release_conditions"
+        | "end_experiment"
+        | "freeze_exposure"
+        | "move_start_date";
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `stale_experiment` - Stale Experiment
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum =
+        | "flag_state"
+        | "flag_shared"
+        | "flag_history"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run"
+        | "flag_variants_mismatch"
+        | "forced_variant_release_condition"
+        | "new_flag_no_traffic"
+        | "no_metric"
+        | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "metric_all_zero"
+        | "exposure_criteria_cannot_match"
+        | "exposure_filters"
+        | "early_significance"
+        | "metrics_not_matured"
+        | "stale_experiment"
+        | "zero_exposures"
+        | "test_account_filter_removes_exposures"
+        | "srm"
+        | "unserved_variant_exposures"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentHealthFinding = {
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -9929,9 +10505,14 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
@@ -9939,12 +10520,19 @@ export namespace Schemas {
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
+         * * `flag_shared` - Flag Shared
+         * * `stale_experiment` - Stale Experiment
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
          */
         subcode: string | null;
+        /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          *
@@ -9973,44 +10561,37 @@ export namespace Schemas {
          * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
          */
         diagnostic_ref: string | null;
+        /**
+         * The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
+         *
+         * * `flag_state` - Flag State
+         * * `flag_shared` - Flag Shared
+         * * `flag_history` - Flag History
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
+         * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
+         * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+         * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
+         * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
+         */
+        check: ExperimentHealthCheckKeyEnum;
     };
-    /**
-     * * `flag_state` - Flag State
-     * * `flag_history` - Flag History
-     * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `flag_variants_mismatch` - Flag Variants Mismatch
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `no_metric` - No Metric
-     * * `metric_event_not_ingested` - Metric Event Not Ingested
-     * * `metric_cannot_compile` - Metric Cannot Compile
-     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-     * * `early_significance` - Early Significance
-     * * `zero_exposures` - Zero Exposures
-     * * `srm` - Srm
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share
-     */
-    export type ExperimentHealthCheckKeyEnum =
-        | "flag_state"
-        | "flag_history"
-        | "split_changed_mid_run"
-        | "bucketing_changed_mid_run"
-        | "release_conditions_changed_mid_run"
-        | "flag_variants_mismatch"
-        | "forced_variant_release_condition"
-        | "new_flag_no_traffic"
-        | "no_metric"
-        | "metric_event_not_ingested"
-        | "metric_cannot_compile"
-        | "exposure_criteria_cannot_match"
-        | "early_significance"
-        | "zero_exposures"
-        | "srm"
-        | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
     /**
      * * `passed` - Passed
      * * `finding` - Finding
@@ -10022,11 +10603,235 @@ export namespace Schemas {
         | "finding"
         | "not_applicable"
         | "not_checked";
+    /**
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     */
+    export type ExperimentHealthValueKeyEnum =
+        | "exposed_count"
+        | "compared_count"
+        | "multiple_variant_count"
+        | "multiple_variant_percentage"
+        | "multiple_variant_handling"
+        | "p_value"
+        | "since_launch_hours"
+        | "exposed_without_test_account_filter_count"
+        | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage"
+        | "only_count_matured_users"
+        | "primary_metric_count"
+        | "waiting_metric_count"
+        | "metric_count"
+        | "completed_metric_count"
+        | "failed_metric_count"
+        | "calculated_at"
+        | "flag_active"
+        | "flag_deleted"
+        | "flag_rolled_out"
+        | "shipped_variant"
+        | "flag_last_called_at"
+        | "since_start_hours"
+        | "daily_calculation_ends_at"
+        | "metric_name"
+        | "metric_role"
+        | "ratio_side"
+        | "sample_count"
+        | "planned_sample_count"
+        | "data_hours"
+        | "variant"
+        | "difference_percentage"
+        | "detectable_difference_percentage"
+        | "significant"
+        | "forced_condition_count"
+        | "matched_count"
+        | "variant_matched_count"
+        | "forced_count"
+        | "forced_percentage"
+        | "traffic_since_at"
+        | "changed_at"
+        | "before_exposure";
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthRuleSideEnum = "above" | "below";
+    /**
+     * * `chi_squared` - Chi-squared goodness-of-fit test
+     */
+    export type ExperimentHealthRuleTestEnum = "chi_squared";
+    export type ExperimentHealthRuleMinimum = {
+        /**
+         * The key in `values` that must reach the threshold before the check judges.
+         *
+         * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+         * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+         * * `multiple_variant_count` - Users or groups exposed to more than one variant
+         * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+         * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+         * * `p_value` - P-value of the sample ratio test
+         * * `since_launch_hours` - Hours since launch
+         * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+         * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
+         * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+         * * `metric_count` - Metrics that the calculation computes
+         * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+         * * `failed_metric_count` - Metrics whose latest calculation failed
+         * * `calculated_at` - When the latest calculation of the metrics finished
+         * * `flag_active` - Whether the feature flag is enabled
+         * * `flag_deleted` - Whether the feature flag is deleted
+         * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+         * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         */
+        value: ExperimentHealthValueKeyEnum;
+        /**
+         * The value that the key must reach. Below it, the check reports no finding.
+         */
+        threshold: number;
+    };
+    export type ExperimentHealthCheckRule = {
+        /**
+         * The key in `values` that the check compares with the threshold.
+         *
+         * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+         * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+         * * `multiple_variant_count` - Users or groups exposed to more than one variant
+         * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+         * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+         * * `p_value` - P-value of the sample ratio test
+         * * `since_launch_hours` - Hours since launch
+         * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+         * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
+         * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+         * * `metric_count` - Metrics that the calculation computes
+         * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+         * * `failed_metric_count` - Metrics whose latest calculation failed
+         * * `calculated_at` - When the latest calculation of the metrics finished
+         * * `flag_active` - Whether the feature flag is enabled
+         * * `flag_deleted` - Whether the feature flag is deleted
+         * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+         * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         */
+        value: ExperimentHealthValueKeyEnum;
+        /**
+         * The threshold, in the unit that the suffix of the key gives.
+         */
+        threshold: number;
+        /**
+         * above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+         *
+         * * `above` - Finding above the threshold
+         * * `below` - Finding below the threshold
+         */
+        warns: ExperimentHealthRuleSideEnum;
+        /**
+         * The statistical test that computes the value, for example chi_squared. Null for a count or a share.
+         *
+         * * `chi_squared` - Chi-squared goodness-of-fit test
+         */
+        test: ExperimentHealthRuleTestEnum | NullEnum;
+        /**
+         * What the check needs before it judges. Null when the check judges from the first value.
+         */
+        minimum: ExperimentHealthRuleMinimum | null;
+    };
     export type ExperimentHealthCheckResult = {
         /**
          * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
          *
          * * `flag_state` - Flag State
+         * * `flag_shared` - Flag Shared
          * * `flag_history` - Flag History
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -10037,18 +10842,29 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
-         * What the check looks at, for example 'Feature flag variants'.
+         * The problem the check looks for, for example 'Metrics not set up'.
          */
         name: string;
+        /**
+         * What the check looks for and why it matters. The same for every experiment and every status.
+         */
+        description: string;
         /**
          * passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
          *
@@ -10062,6 +10878,69 @@ export namespace Schemas {
          * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
          */
         reason: string | null;
+        /**
+         * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
+         */
+        values: Record<string, string | number | boolean | null>;
+        /**
+         * How the check decides. The same for every experiment and every status. Null for a check without a numeric rule.
+         */
+        rule: ExperimentHealthCheckRule | null;
+        /**
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         */
+        rows: Array<Record<string, string | number | boolean | null>>;
+    };
+    export type ExperimentHealthReleaseCondition = {
+        /**
+         * The share of the users matching the condition set's filters who get the flag, from 0 to 100.
+         */
+        rollout_percentage: number;
+        /**
+         * The number of filters a user must match, such as properties and cohorts. 0 matches all users.
+         */
+        property_count: number;
+        /**
+         * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+         */
+        aggregation_group_type_index: number | null;
+    };
+    export type ExperimentHealthSetup = {
+        /**
+         * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
+         */
+        release_conditions: Array<ExperimentHealthReleaseCondition>;
+        /**
+         * Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set.
+         */
+        early_exit: boolean;
+        /**
+         * The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+         *
+         * * `distinct_id` - User ID (default)
+         * * `device_id` - Device ID
+         */
+        bucketing_identifier: BucketingIdentifierEnum;
+        /**
+         * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
+         */
+        aggregation_group_type_index: number | null;
+        /**
+         * The flag's `evaluation_runtime`. Null on the flag reads as all.
+         *
+         * * `server` - Server
+         * * `client` - Client
+         * * `all` - All
+         */
+        evaluation_runtime: EvaluationRuntimeEnum;
+        /**
+         * The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none.
+         */
+        evaluation_contexts: Array<string>;
+        /**
+         * The flag's 'Persist flag across authentication steps' setting.
+         */
+        ensure_experience_continuity: boolean;
     };
     export type ExperimentHealth = {
         /**
@@ -10072,6 +10951,7 @@ export namespace Schemas {
          * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
          */
         checks: Array<ExperimentHealthCheckResult>;
+        setup?: (ExperimentHealthSetup | null) | undefined;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -10119,6 +10999,15 @@ export namespace Schemas {
          */
         feature_flag_key: string;
         feature_flag: MinimalFeatureFlag & unknown;
+        /**
+         * Full experiment representation for the detail, create, and update endpoints.
+         *
+         * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+         * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+         * fields, and refreshes stale action names while serializing. The list endpoint uses the
+         * leaner ``ExperimentBasicSerializer`` instead.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
@@ -10403,29 +11292,81 @@ export namespace Schemas {
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
+    export type ExperimentExposureHealthValueKey =
+        | "exposed_count"
+        | "compared_count"
+        | "multiple_variant_count"
+        | "multiple_variant_percentage"
+        | "multiple_variant_handling"
+        | "p_value"
+        | "since_launch_hours"
+        | "exposed_without_test_account_filter_count"
+        | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage";
+    export type ExperimentExposureHealthRuleMinimum = {
+        /**
+         * The value that the key must reach. Below it, the check reports no finding.
+         */
+        threshold: number;
+        /**
+         * The key in `values` that must reach the threshold before the check judges.
+         */
+        value: ExperimentExposureHealthValueKey;
+    };
+    export type ExperimentExposureHealthRuleSide = "above" | "below";
+    export type ExperimentExposureHealthCheckRule = {
+        /**
+         * What the check needs before it judges. Null when the check judges from the first value.
+         */
+        minimum: ExperimentExposureHealthRuleMinimum | null;
+        /**
+         * The statistical test that computes the value. Null for a count or a share.
+         */
+        test: string | null;
+        /**
+         * The threshold, in the unit that the suffix of the key gives.
+         */
+        threshold: number;
+        /**
+         * The key in `values` that the check compares with the threshold.
+         */
+        value: ExperimentExposureHealthValueKey;
+        /**
+         * above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+         */
+        warns: ExperimentExposureHealthRuleSide;
+    };
     export type ExperimentExposureHealthCheckStatus =
         | "passed"
         | "finding"
         | "not_applicable"
         | "not_checked";
     export type ExperimentExposureHealthCheck = {
+        description?: (string | null) | undefined;
         /**
          * Stable identifier of the check.
          */
         key: ExperimentExposureHealthCheckKey;
         /**
-         * What the check looks at, as the health panel lists it.
+         * The problem the check looks for, as the health panel lists it.
          */
         name: string;
         /**
          * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
          */
         reason: string | null;
+        rule?: (ExperimentExposureHealthCheckRule | null) | undefined;
         /**
          * passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed.
          */
         status: ExperimentExposureHealthCheckStatus;
+        values?:
+            | (Record<string, string | number | boolean | null> | null)
+            | undefined;
     };
     export type ExperimentExposureHealthFindingActionKind =
         | "open_feature_flag"
@@ -10436,7 +11377,9 @@ export namespace Schemas {
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -10446,6 +11389,7 @@ export namespace Schemas {
          * The actions that fix the problem, in order of preference.
          */
         actions: Array<ExperimentExposureHealthFindingActionKind>;
+        check?: (ExperimentExposureHealthCheckKey | null) | undefined;
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
          */
@@ -10462,6 +11406,10 @@ export namespace Schemas {
          * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
          */
         evidence: Record<string, string | number | null>;
+        /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          */
@@ -10487,6 +11435,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        exposed_by_library?: (Record<string, number> | null) | undefined;
         health_checks?:
             | (Array<ExperimentExposureHealthCheck> | null)
             | undefined;
@@ -10584,6 +11533,10 @@ export namespace Schemas {
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
         feature_flag?: ExperimentFeatureFlagInput | undefined;
+        /**
+         * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -10773,7 +11726,7 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type ExternalDataSchemaSyncFrequencyEnum =
+    export type SettableSyncFrequencyEnum =
         | "never"
         | "5min"
         | "15min"
@@ -10814,6 +11767,10 @@ export namespace Schemas {
         label: string | null;
         table: Record<string, unknown> | null;
         /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         */
+        table_id: string | null;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
@@ -10824,6 +11781,10 @@ export namespace Schemas {
         latest_error: string | null;
         incremental: boolean;
         status: string | null;
+        /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -10845,9 +11806,7 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
-        sync_frequency?:
-            | (ExternalDataSchemaSyncFrequencyEnum | NullEnum)
-            | undefined;
+        sync_frequency?: (SettableSyncFrequencyEnum | NullEnum) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -10874,6 +11833,10 @@ export namespace Schemas {
          */
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        copy_access_rules_to_history?: boolean | undefined;
+        /**
          * Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
          *
          * * `missing_primary_key` - Missing primary key
@@ -10881,9 +11844,17 @@ export namespace Schemas {
          */
         incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | NullEnum;
         /**
+         * Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`.
+         */
+        webhook_not_registered: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         enabled_columns?: (Array<string> | null) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        masked_columns?: (Array<string> | null) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -10911,11 +11882,40 @@ export namespace Schemas {
             name: string;
             data_type?: string | undefined;
             is_nullable?: boolean | undefined;
+            sensitivity?:
+                | (
+                      | (
+                            | "email"
+                            | "phone"
+                            | "name"
+                            | "address"
+                            | "date_of_birth"
+                            | "ip_address"
+                            | "token"
+                            | "secret"
+                            | "card_number"
+                            | "null"
+                        )
+                      | null
+                  )
+                | undefined;
         }>;
         /**
          * Whether exact source-side column metadata is available for safe source-query projection.
          */
         source_column_metadata_available: boolean;
+        /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         */
+        history_table_name: string | null;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        drop_history_table?: boolean | undefined;
+        /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
+         */
+        registered_history_table_name: string | null;
         /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
@@ -10929,6 +11929,7 @@ export namespace Schemas {
             user_access_level: string | null;
             api_version: string | null;
             supported_api_versions: Array<string>;
+            file_name: string | null;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -10964,6 +11965,7 @@ export namespace Schemas {
         primary_key_columns?: (Array<string> | null) | undefined;
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         enabled_columns?: (Array<string> | null) | undefined;
+        masked_columns?: (Array<string> | null) | undefined;
         row_filters?:
             | (Array<{
                   column: string;
@@ -10986,2831 +11988,6 @@ export namespace Schemas {
         schemas: Array<ExternalDataSourceBulkUpdateSchema>;
     };
     /**
-     * * `Ashby` - Ashby
-     * * `Supabase` - Supabase
-     * * `CustomerIO` - CustomerIO
-     * * `Github` - Github
-     * * `Stripe` - Stripe
-     * * `Hubspot` - Hubspot
-     * * `Postgres` - Postgres
-     * * `Zendesk` - Zendesk
-     * * `Snowflake` - Snowflake
-     * * `Salesforce` - Salesforce
-     * * `MySQL` - MySQL
-     * * `MongoDB` - MongoDB
-     * * `MSSQL` - MSSQL
-     * * `Vitally` - Vitally
-     * * `BigQuery` - BigQuery
-     * * `Chargebee` - Chargebee
-     * * `Clerk` - Clerk
-     * * `GoogleAds` - GoogleAds
-     * * `GoogleSearchConsole` - GoogleSearchConsole
-     * * `TemporalIO` - TemporalIO
-     * * `DoIt` - DoIt
-     * * `GoogleSheets` - GoogleSheets
-     * * `MetaAds` - MetaAds
-     * * `Klaviyo` - Klaviyo
-     * * `Mailchimp` - Mailchimp
-     * * `Braze` - Braze
-     * * `Mailjet` - Mailjet
-     * * `Redshift` - Redshift
-     * * `Polar` - Polar
-     * * `RevenueCat` - RevenueCat
-     * * `LinkedinAds` - LinkedinAds
-     * * `RedditAds` - RedditAds
-     * * `TikTokAds` - TikTokAds
-     * * `BingAds` - BingAds
-     * * `Shopify` - Shopify
-     * * `Attio` - Attio
-     * * `SnapchatAds` - SnapchatAds
-     * * `Linear` - Linear
-     * * `LiteLLM` - LiteLLM
-     * * `Intercom` - Intercom
-     * * `Amplitude` - Amplitude
-     * * `Mixpanel` - Mixpanel
-     * * `Jira` - Jira
-     * * `ActiveCampaign` - ActiveCampaign
-     * * `Marketo` - Marketo
-     * * `Adjust` - Adjust
-     * * `AppsFlyer` - AppsFlyer
-     * * `Freshdesk` - Freshdesk
-     * * `GoogleAnalytics` - GoogleAnalytics
-     * * `Pipedrive` - Pipedrive
-     * * `SendGrid` - SendGrid
-     * * `Slack` - Slack
-     * * `PagerDuty` - PagerDuty
-     * * `Asana` - Asana
-     * * `Notion` - Notion
-     * * `Airtable` - Airtable
-     * * `Greenhouse` - Greenhouse
-     * * `BambooHR` - BambooHR
-     * * `Lever` - Lever
-     * * `GitLab` - GitLab
-     * * `Datadog` - Datadog
-     * * `Sentry` - Sentry
-     * * `Pendo` - Pendo
-     * * `FullStory` - FullStory
-     * * `AmazonAds` - AmazonAds
-     * * `PinterestAds` - PinterestAds
-     * * `AppleSearchAds` - AppleSearchAds
-     * * `QuickBooks` - QuickBooks
-     * * `Xero` - Xero
-     * * `NetSuite` - NetSuite
-     * * `WooCommerce` - WooCommerce
-     * * `BigCommerce` - BigCommerce
-     * * `PayPal` - PayPal
-     * * `Square` - Square
-     * * `Zoom` - Zoom
-     * * `Trello` - Trello
-     * * `TrafficStars` - TrafficStars
-     * * `Monday` - Monday
-     * * `ClickUp` - ClickUp
-     * * `Confluence` - Confluence
-     * * `Recurly` - Recurly
-     * * `SalesLoft` - SalesLoft
-     * * `Outreach` - Outreach
-     * * `Gong` - Gong
-     * * `Calendly` - Calendly
-     * * `Typeform` - Typeform
-     * * `UnityAds` - UnityAds
-     * * `Iterable` - Iterable
-     * * `ZohoCRM` - ZohoCRM
-     * * `Close` - Close
-     * * `Oracle` - Oracle
-     * * `DynamoDB` - DynamoDB
-     * * `Elasticsearch` - Elasticsearch
-     * * `Kafka` - Kafka
-     * * `LaunchDarkly` - LaunchDarkly
-     * * `Braintree` - Braintree
-     * * `Recharge` - Recharge
-     * * `HelpScout` - HelpScout
-     * * `Gorgias` - Gorgias
-     * * `Instagram` - Instagram
-     * * `YouTubeAnalytics` - YouTubeAnalytics
-     * * `FacebookPages` - FacebookPages
-     * * `TwitterAds` - TwitterAds
-     * * `Workday` - Workday
-     * * `ServiceNow` - ServiceNow
-     * * `Pardot` - Pardot
-     * * `Copper` - Copper
-     * * `Front` - Front
-     * * `ChartMogul` - ChartMogul
-     * * `Zuora` - Zuora
-     * * `Paddle` - Paddle
-     * * `CircleCI` - CircleCI
-     * * `CockroachDB` - CockroachDB
-     * * `Firebase` - Firebase
-     * * `AzureBlob` - AzureBlob
-     * * `GoogleDrive` - GoogleDrive
-     * * `OneDrive` - OneDrive
-     * * `SharePoint` - SharePoint
-     * * `Box` - Box
-     * * `SFTP` - SFTP
-     * * `MicrosoftTeams` - MicrosoftTeams
-     * * `Aircall` - Aircall
-     * * `Webflow` - Webflow
-     * * `Okta` - Okta
-     * * `Auth0` - Auth0
-     * * `Productboard` - Productboard
-     * * `Smartsheet` - Smartsheet
-     * * `Wrike` - Wrike
-     * * `Plaid` - Plaid
-     * * `SurveyMonkey` - SurveyMonkey
-     * * `Eventbrite` - Eventbrite
-     * * `Everflow` - Everflow
-     * * `RingCentral` - RingCentral
-     * * `Twilio` - Twilio
-     * * `Freshsales` - Freshsales
-     * * `Shortcut` - Shortcut
-     * * `ConvertKit` - ConvertKit
-     * * `Drip` - Drip
-     * * `CampaignMonitor` - CampaignMonitor
-     * * `MailerLite` - MailerLite
-     * * `Omnisend` - Omnisend
-     * * `Brevo` - Brevo
-     * * `Postmark` - Postmark
-     * * `Granola` - Granola
-     * * `BuildBetter` - BuildBetter
-     * * `Convex` - Convex
-     * * `ClickHouse` - ClickHouse
-     * * `Plain` - Plain
-     * * `Resend` - Resend
-     * * `PgAnalyze` - PgAnalyze
-     * * `WorkOS` - WorkOS
-     * * `AmazonS3` - AmazonS3
-     * * `GoogleCloudStorage` - GoogleCloudStorage
-     * * `Databricks` - Databricks
-     * * `Dynamics365` - Dynamics365
-     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-     * * `Db2` - Db2
-     * * `Heap` - Heap
-     * * `AdobeAnalytics` - AdobeAnalytics
-     * * `Matomo` - Matomo
-     * * `Optimizely` - Optimizely
-     * * `Adyen` - Adyen
-     * * `GoCardless` - GoCardless
-     * * `Mollie` - Mollie
-     * * `CheckoutCom` - CheckoutCom
-     * * `Branch` - Branch
-     * * `Criteo` - Criteo
-     * * `Outbrain` - Outbrain
-     * * `Taboola` - Taboola
-     * * `AdRoll` - AdRoll
-     * * `DisplayVideo360` - DisplayVideo360
-     * * `GoogleAdManager` - GoogleAdManager
-     * * `CampaignManager360` - CampaignManager360
-     * * `SearchAds360` - SearchAds360
-     * * `AdobeCommerce` - AdobeCommerce
-     * * `AmazonSellingPartner` - AmazonSellingPartner
-     * * `Ebay` - Ebay
-     * * `Commercetools` - Commercetools
-     * * `LightspeedRetail` - LightspeedRetail
-     * * `Shipmail` - Shipmail
-     * * `ShipStation` - ShipStation
-     * * `ConstantContact` - ConstantContact
-     * * `Mailgun` - Mailgun
-     * * `Eloqua` - Eloqua
-     * * `Sailthru` - Sailthru
-     * * `Ortto` - Ortto
-     * * `Attentive` - Attentive
-     * * `Kustomer` - Kustomer
-     * * `Dixa` - Dixa
-     * * `Gladly` - Gladly
-     * * `Qualtrics` - Qualtrics
-     * * `AzureDevOps` - AzureDevOps
-     * * `RoktAds` - RoktAds
-     * * `Rollbar` - Rollbar
-     * * `Opsgenie` - Opsgenie
-     * * `IncidentIo` - IncidentIo
-     * * `Pingdom` - Pingdom
-     * * `Cloudflare` - Cloudflare
-     * * `CloudflareD1` - CloudflareD1
-     * * `CosmosDB` - CosmosDB
-     * * `PlanetScaleMySQL` - PlanetScaleMySQL
-     * * `PlanetScalePostgres` - PlanetScalePostgres
-     * * `Plane` - Plane
-     * * `Scarf` - Scarf
-     * * `SapHana` - SapHana
-     * * `Rippling` - Rippling
-     * * `HiBob` - HiBob
-     * * `Personio` - Personio
-     * * `Deel` - Deel
-     * * `AdpWorkforceNow` - AdpWorkforceNow
-     * * `Paylocity` - Paylocity
-     * * `Gusto` - Gusto
-     * * `CultureAmp` - CultureAmp
-     * * `Lattice` - Lattice
-     * * `SageIntacct` - SageIntacct
-     * * `FreshBooks` - FreshBooks
-     * * `Expensify` - Expensify
-     * * `Ramp` - Ramp
-     * * `Brex` - Brex
-     * * `Coupa` - Coupa
-     * * `SapConcur` - SapConcur
-     * * `Apollo` - Apollo
-     * * `Crunchbase` - Crunchbase
-     * * `ZoomInfo` - ZoomInfo
-     * * `Clari` - Clari
-     * * `Chorus` - Chorus
-     * * `Coda` - Coda
-     * * `Guru` - Guru
-     * * `Dropbox` - Dropbox
-     * * `Docusign` - Docusign
-     * * `PandaDoc` - PandaDoc
-     * * `SapErp` - SapErp
-     * * `SapSuccessFactors` - SapSuccessFactors
-     * * `OracleEbs` - OracleEbs
-     * * `OracleFusion` - OracleFusion
-     * * `AmazonSNS` - AmazonSNS
-     * * `AmazonEventBridge` - AmazonEventBridge
-     * * `AmazonSQS` - AmazonSQS
-     * * `AmazonKinesis` - AmazonKinesis
-     * * `AmazonCloudWatch` - AmazonCloudWatch
-     * * `OpenAIAds` - OpenAIAds
-     * * `OneHundredMs` - OneHundredMs
-     * * `SevenShifts` - SevenShifts
-     * * `AcuityScheduling` - AcuityScheduling
-     * * `AgileCRM` - AgileCRM
-     * * `Aha` - Aha
-     * * `Airbyte` - Airbyte
-     * * `Akeneo` - Akeneo
-     * * `Algolia` - Algolia
-     * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-     * * `ApifyDataset` - ApifyDataset
-     * * `Appcues` - Appcues
-     * * `Appfigures` - Appfigures
-     * * `Appfollow` - Appfollow
-     * * `Apptivo` - Apptivo
-     * * `AssemblyAI` - AssemblyAI
-     * * `Awin` - Awin
-     * * `AwsCloudTrail` - AwsCloudTrail
-     * * `AzureTableStorage` - AzureTableStorage
-     * * `Babelforce` - Babelforce
-     * * `Basecamp` - Basecamp
-     * * `Beamer` - Beamer
-     * * `BigMailer` - BigMailer
-     * * `Bluetally` - Bluetally
-     * * `BoldSign` - BoldSign
-     * * `BreezyHR` - BreezyHR
-     * * `Bugsnag` - Bugsnag
-     * * `Buildkite` - Buildkite
-     * * `Bunny` - Bunny
-     * * `Buzzsprout` - Buzzsprout
-     * * `CalCom` - CalCom
-     * * `CallRail` - CallRail
-     * * `Campayn` - Campayn
-     * * `Canny` - Canny
-     * * `CapsuleCRM` - CapsuleCRM
-     * * `CaptainData` - CaptainData
-     * * `CartCom` - CartCom
-     * * `CastorEDC` - CastorEDC
-     * * `Chameleon` - Chameleon
-     * * `Chargedesk` - Chargedesk
-     * * `Chargify` - Chargify
-     * * `Chift` - Chift
-     * * `Churnkey` - Churnkey
-     * * `Cin7` - Cin7
-     * * `CiscoMeraki` - CiscoMeraki
-     * * `Clazar` - Clazar
-     * * `Clockify` - Clockify
-     * * `Clockodo` - Clockodo
-     * * `Cloudbeds` - Cloudbeds
-     * * `Coassemble` - Coassemble
-     * * `Codefresh` - Codefresh
-     * * `Concord` - Concord
-     * * `ConfigCat` - ConfigCat
-     * * `Couchbase` - Couchbase
-     * * `Curve` - Curve
-     * * `Customerly` - Customerly
-     * * `Datascope` - Datascope
-     * * `Dbt` - Dbt
-     * * `Demodesk` - Demodesk
-     * * `Deputy` - Deputy
-     * * `DevinAI` - DevinAI
-     * * `Docuseal` - Docuseal
-     * * `Dolibarr` - Dolibarr
-     * * `Dremio` - Dremio
-     * * `DropboxSign` - DropboxSign
-     * * `Dwolla` - Dwolla
-     * * `EConomic` - EConomic
-     * * `Easypost` - Easypost
-     * * `Easypromos` - Easypromos
-     * * `Elasticemail` - Elasticemail
-     * * `EmailOctopus` - EmailOctopus
-     * * `EmploymentHero` - EmploymentHero
-     * * `Encharge` - Encharge
-     * * `Eventee` - Eventee
-     * * `Eventzilla` - Eventzilla
-     * * `Everhour` - Everhour
-     * * `EZOfficeInventory` - EZOfficeInventory
-     * * `Factorial` - Factorial
-     * * `Fastbill` - Fastbill
-     * * `Fastly` - Fastly
-     * * `Fauna` - Fauna
-     * * `Feishu` - Feishu
-     * * `Fillout` - Fillout
-     * * `Finage` - Finage
-     * * `Firebolt` - Firebolt
-     * * `FireHydrant` - FireHydrant
-     * * `Fleetio` - Fleetio
-     * * `Flexmail` - Flexmail
-     * * `Flexport` - Flexport
-     * * `FloatApp` - FloatApp
-     * * `Flowlu` - Flowlu
-     * * `Formbricks` - Formbricks
-     * * `Framer` - Framer
-     * * `FreeAgent` - FreeAgent
-     * * `Freightview` - Freightview
-     * * `Freshcaller` - Freshcaller
-     * * `Freshchat` - Freshchat
-     * * `Freshservice` - Freshservice
-     * * `Fulcrum` - Fulcrum
-     * * `GainsightCs` - GainsightCs
-     * * `GainsightPx` - GainsightPx
-     * * `GitBook` - GitBook
-     * * `Glassfrog` - Glassfrog
-     * * `Goldcast` - Goldcast
-     * * `GoLogin` - GoLogin
-     * * `Grafana` - Grafana
-     * * `GreytHr` - GreytHr
-     * * `Gridly` - Gridly
-     * * `Harness` - Harness
-     * * `Height` - Height
-     * * `Hellobaton` - Hellobaton
-     * * `HighLevel` - HighLevel
-     * * `HoorayHR` - HoorayHR
-     * * `Hubplanner` - Hubplanner
-     * * `Humanitix` - Humanitix
-     * * `Huntr` - Huntr
-     * * `Inflowinventory` - Inflowinventory
-     * * `InforNexus` - InforNexus
-     * * `Insightful` - Insightful
-     * * `Insightly` - Insightly
-     * * `Instantly` - Instantly
-     * * `Instatus` - Instatus
-     * * `Intruder` - Intruder
-     * * `Invoiced` - Invoiced
-     * * `Invoiceninja` - Invoiceninja
-     * * `JamfPro` - JamfPro
-     * * `JobNimbus` - JobNimbus
-     * * `Jotform` - Jotform
-     * * `JudgeMeReviews` - JudgeMeReviews
-     * * `JustCall` - JustCall
-     * * `JustSift` - JustSift
-     * * `K6Cloud` - K6Cloud
-     * * `Katana` - Katana
-     * * `Keka` - Keka
-     * * `Kisi` - Kisi
-     * * `Kissmetrics` - Kissmetrics
-     * * `Klarna` - Klarna
-     * * `Klaus` - Klaus
-     * * `Lago` - Lago
-     * * `Leadfeeder` - Leadfeeder
-     * * `Lemlist` - Lemlist
-     * * `LessAnnoyingCRM` - LessAnnoyingCRM
-     * * `LinkedinPages` - LinkedinPages
-     * * `Linkrunner` - Linkrunner
-     * * `Linnworks` - Linnworks
-     * * `Lob` - Lob
-     * * `Lokalise` - Lokalise
-     * * `Looker` - Looker
-     * * `Luma` - Luma
-     * * `MailerSend` - MailerSend
-     * * `Mailosaur` - Mailosaur
-     * * `Mailtrap` - Mailtrap
-     * * `Mantle` - Mantle
-     * * `Mention` - Mention
-     * * `MercadoAds` - MercadoAds
-     * * `Merge` - Merge
-     * * `Metabase` - Metabase
-     * * `Metricool` - Metricool
-     * * `MicrosoftDataverse` - MicrosoftDataverse
-     * * `MicrosoftEntraId` - MicrosoftEntraId
-     * * `MicrosoftLists` - MicrosoftLists
-     * * `Miro` - Miro
-     * * `Missive` - Missive
-     * * `MixMax` - MixMax
-     * * `Mode` - Mode
-     * * `Mux` - Mux
-     * * `MyHours` - MyHours
-     * * `N8n` - N8n
-     * * `Navan` - Navan
-     * * `NebiusAI` - NebiusAI
-     * * `Nexiopay` - Nexiopay
-     * * `NinjaOneRMM` - NinjaOneRMM
-     * * `NoCRM` - NoCRM
-     * * `NorthpassLMS` - NorthpassLMS
-     * * `Nutshell` - Nutshell
-     * * `Nylas` - Nylas
-     * * `Oncehub` - Oncehub
-     * * `Onepagecrm` - Onepagecrm
-     * * `OneSignal` - OneSignal
-     * * `Onfleet` - Onfleet
-     * * `OpinionStage` - OpinionStage
-     * * `OPUSWatch` - OPUSWatch
-     * * `Orb` - Orb
-     * * `Orbit` - Orbit
-     * * `Oura` - Oura
-     * * `Oveit` - Oveit
-     * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-     * * `Paperform` - Paperform
-     * * `Papersign` - Papersign
-     * * `Partnerize` - Partnerize
-     * * `PartnerStack` - PartnerStack
-     * * `PayFit` - PayFit
-     * * `Paystack` - Paystack
-     * * `Pennylane` - Pennylane
-     * * `Perk` - Perk
-     * * `PersistIq` - PersistIq
-     * * `Persona` - Persona
-     * * `Phyllo` - Phyllo
-     * * `Picqer` - Picqer
-     * * `Pipeliner` - Pipeliner
-     * * `PivotalTracker` - PivotalTracker
-     * * `Piwik` - Piwik
-     * * `Planhat` - Planhat
-     * * `Plausible` - Plausible
-     * * `Poplar` - Poplar
-     * * `PrestaShop` - PrestaShop
-     * * `Pretix` - Pretix
-     * * `Primetric` - Primetric
-     * * `Printavo` - Printavo
-     * * `Printify` - Printify
-     * * `Productive` - Productive
-     * * `Pylon` - Pylon
-     * * `Qonto` - Qonto
-     * * `Qualaroo` - Qualaroo
-     * * `Railz` - Railz
-     * * `RDStationMarketing` - RDStationMarketing
-     * * `Recruitee` - Recruitee
-     * * `Reddit` - Reddit
-     * * `ReferralHero` - ReferralHero
-     * * `RentCast` - RentCast
-     * * `Repairshopr` - Repairshopr
-     * * `ReplyIo` - ReplyIo
-     * * `RetailExpress` - RetailExpress
-     * * `Retently` - Retently
-     * * `Retreaver` - Retreaver
-     * * `RevolutMerchant` - RevolutMerchant
-     * * `RocketChat` - RocketChat
-     * * `Rocketlane` - Rocketlane
-     * * `Rootly` - Rootly
-     * * `Ruddr` - Ruddr
-     * * `SafetyCulture` - SafetyCulture
-     * * `SageHR` - SageHR
-     * * `Salesflare` - Salesflare
-     * * `SAPFieldglass` - SAPFieldglass
-     * * `SavvyCal` - SavvyCal
-     * * `Secoda` - Secoda
-     * * `Segment` - Segment
-     * * `Sendowl` - Sendowl
-     * * `SendPulse` - SendPulse
-     * * `Senseforce` - Senseforce
-     * * `Serpstat` - Serpstat
-     * * `Sharetribe` - Sharetribe
-     * * `Shippo` - Shippo
-     * * `ShopWired` - ShopWired
-     * * `Shortio` - Shortio
-     * * `Shutterstock` - Shutterstock
-     * * `SigmaComputing` - SigmaComputing
-     * * `SignNow` - SignNow
-     * * `SimpleCast` - SimpleCast
-     * * `Simplesat` - Simplesat
-     * * `Smaily` - Smaily
-     * * `SmartEngage` - SmartEngage
-     * * `Smartreach` - Smartreach
-     * * `Smartwaiver` - Smartwaiver
-     * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-     * * `SonarCloud` - SonarCloud
-     * * `SparkPost` - SparkPost
-     * * `SplitIo` - SplitIo
-     * * `SpotifyAds` - SpotifyAds
-     * * `SpotlerCRM` - SpotlerCRM
-     * * `Squarespace` - Squarespace
-     * * `Statsig` - Statsig
-     * * `Statuspage` - Statuspage
-     * * `Steam` - Steam
-     * * `Stigg` - Stigg
-     * * `Strava` - Strava
-     * * `SurveySparrow` - SurveySparrow
-     * * `Survicate` - Survicate
-     * * `Svix` - Svix
-     * * `Systeme` - Systeme
-     * * `Tavus` - Tavus
-     * * `Teamtailor` - Teamtailor
-     * * `Teamwork` - Teamwork
-     * * `Tempo` - Tempo
-     * * `Testrail` - Testrail
-     * * `Thinkific` - Thinkific
-     * * `ThinkificCourses` - ThinkificCourses
-     * * `ThriveLearning` - ThriveLearning
-     * * `Ticketmaster` - Ticketmaster
-     * * `TicketTailor` - TicketTailor
-     * * `TickTick` - TickTick
-     * * `Timely` - Timely
-     * * `Tinyemail` - Tinyemail
-     * * `Todoist` - Todoist
-     * * `Toggl` - Toggl
-     * * `TrackPMS` - TrackPMS
-     * * `Tremendous` - Tremendous
-     * * `TrustPilot` - TrustPilot
-     * * `Twitter` - Twitter
-     * * `TyntecSMS` - TyntecSMS
-     * * `Unleash` - Unleash
-     * * `UpPromote` - UpPromote
-     * * `Uptick` - Uptick
-     * * `Uservoice` - Uservoice
-     * * `Vantage` - Vantage
-     * * `Veeqo` - Veeqo
-     * * `Vercel` - Vercel
-     * * `VismaEconomic` - VismaEconomic
-     * * `VWO` - VWO
-     * * `Waiteraid` - Waiteraid
-     * * `Wasabi` - Wasabi
-     * * `WhenIWork` - WhenIWork
-     * * `Wordpress` - Wordpress
-     * * `Workable` - Workable
-     * * `Workflowmax` - Workflowmax
-     * * `Workramp` - Workramp
-     * * `Wufoo` - Wufoo
-     * * `Xsolla` - Xsolla
-     * * `YandexMetrica` - YandexMetrica
-     * * `Yotpo` - Yotpo
-     * * `Ynab` - Ynab
-     * * `Younium` - Younium
-     * * `YouSign` - YouSign
-     * * `YoutubeData` - YoutubeData
-     * * `ZapierSupportedStorage` - ZapierSupportedStorage
-     * * `ZapSign` - ZapSign
-     * * `ZendeskSell` - ZendeskSell
-     * * `ZendeskSunshine` - ZendeskSunshine
-     * * `Zenefits` - Zenefits
-     * * `Zenloop` - Zenloop
-     * * `ZohoAnalytics` - ZohoAnalytics
-     * * `ZohoBigin` - ZohoBigin
-     * * `ZohoBilling` - ZohoBilling
-     * * `ZohoBooks` - ZohoBooks
-     * * `ZohoCampaign` - ZohoCampaign
-     * * `ZohoDesk` - ZohoDesk
-     * * `ZohoExpense` - ZohoExpense
-     * * `ZohoInventory` - ZohoInventory
-     * * `ZohoInvoice` - ZohoInvoice
-     * * `ZonkaFeedback` - ZonkaFeedback
-     * * `AlphaVantage` - AlphaVantage
-     * * `Aviationstack` - Aviationstack
-     * * `Bitly` - Bitly
-     * * `Blogger` - Blogger
-     * * `Breezometer` - Breezometer
-     * * `CareQualityCommission` - CareQualityCommission
-     * * `Cimis` - Cimis
-     * * `CoinApi` - CoinApi
-     * * `CoinGecko` - CoinGecko
-     * * `CoinMarketCap` - CoinMarketCap
-     * * `DingConnect` - DingConnect
-     * * `Dockerhub` - Dockerhub
-     * * `ExchangeRatesApi` - ExchangeRatesApi
-     * * `FinancialModelling` - FinancialModelling
-     * * `Finnhub` - Finnhub
-     * * `Finnworlds` - Finnworlds
-     * * `Giphy` - Giphy
-     * * `Gmail` - Gmail
-     * * `GNews` - GNews
-     * * `GoogleCalendar` - GoogleCalendar
-     * * `GoogleClassroom` - GoogleClassroom
-     * * `GoogleDirectory` - GoogleDirectory
-     * * `GoogleForms` - GoogleForms
-     * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-     * * `GoogleTasks` - GoogleTasks
-     * * `GoogleWebfonts` - GoogleWebfonts
-     * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-     * * `HuggingFace` - HuggingFace
-     * * `IlluminaBasespace` - IlluminaBasespace
-     * * `Imagga` - Imagga
-     * * `Interzoid` - Interzoid
-     * * `IP2Whois` - IP2Whois
-     * * `KYVE` - KYVE
-     * * `Marketstack` - Marketstack
-     * * `Mendeley` - Mendeley
-     * * `Nasa` - Nasa
-     * * `NewYorkTimes` - NewYorkTimes
-     * * `NewsApi` - NewsApi
-     * * `NewsData` - NewsData
-     * * `OpenDataDc` - OpenDataDc
-     * * `OpenExchangeRates` - OpenExchangeRates
-     * * `OpenAQ` - OpenAQ
-     * * `OpenFDA` - OpenFDA
-     * * `OpenWeather` - OpenWeather
-     * * `Outlook` - Outlook
-     * * `Perigon` - Perigon
-     * * `Pexels` - Pexels
-     * * `Pocket` - Pocket
-     * * `Polygon` - Polygon
-     * * `PyPI` - PyPI
-     * * `Recreation` - Recreation
-     * * `RKICovid` - RKICovid
-     * * `Rss` - Rss
-     * * `SimFin` - SimFin
-     * * `StockData` - StockData
-     * * `Guardian` - Guardian
-     * * `TMDb` - TMDb
-     * * `TVMaze` - TVMaze
-     * * `TwelveData` - TwelveData
-     * * `Ubidots` - Ubidots
-     * * `USCensus` - USCensus
-     * * `Watchmode` - Watchmode
-     * * `WikipediaPageviews` - WikipediaPageviews
-     * * `YahooFinance` - YahooFinance
-     * * `Clarifai` - Clarifai
-     * * `Adapty` - Adapty
-     * * `Braintrust` - Braintrust
-     * * `StreamElements` - StreamElements
-     * * `Streamlabs` - Streamlabs
-     * * `Datorama` - Datorama
-     * * `Ahrefs` - Ahrefs
-     * * `Lightfield` - Lightfield
-     * * `Appstack` - Appstack
-     * * `Razorpay` - Razorpay
-     * * `Neon` - Neon
-     * * `NewRelic` - NewRelic
-     * * `Custom` - Custom
-     * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot
-     * * `Sanity` - Sanity
-     * * `Metronome` - Metronome
-     * * `Jobber` - Jobber
-     * * `Knock` - Knock
-     * * `Leexi` - Leexi
-     * * `RB2B` - RB2B
-     * * `Superwall` - Superwall
-     * * `Liana` - Liana
-     * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch
-     * * `LemonSqueezy` - LemonSqueezy
-     * * `Ikas` - Ikas
-     * * `Talkwalker` - Talkwalker
-     * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow
-     * * `Plunk` - Plunk
-     * * `Dub` - Dub
-     * * `AirOps` - AirOps
-     * * `Podium` - Podium
-     * * `Loops` - Loops
-     * * `Redis` - Redis
-     * * `Mercury` - Mercury
-     * * `Gojiberry` - Gojiberry
-     * * `Teachable` - Teachable
-     * * `PeecAI` - PeecAI
-     * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact
-     * * `AikidoSecurity` - AikidoSecurity
-     * * `Alguna` - Alguna
-     * * `Anthropic` - Anthropic
-     * * `Appwrite` - Appwrite
-     * * `BlandAI` - BlandAI
-     * * `BrowseAI` - BrowseAI
-     * * `BrowserUse` - BrowserUse
-     * * `ChartHop` - ChartHop
-     * * `Cody` - Cody
-     * * `Cursor` - Cursor
-     * * `Decagon` - Decagon
-     * * `Deepgram` - Deepgram
-     * * `ElevenLabs` - ElevenLabs
-     * * `Harvey` - Harvey
-     * * `Hyperspell` - Hyperspell
-     * * `Langfuse` - Langfuse
-     * * `LingoDev` - LingoDev
-     * * `M3ter` - M3ter
-     * * `Maxio` - Maxio
-     * * `Metorial` - Metorial
-     * * `OpenRouter` - OpenRouter
-     * * `TogetherAI` - TogetherAI
-     * * `Vapi` - Vapi
-     * * `Vespa` - Vespa
-     * * `Writesonic` - Writesonic
-     * * `Aiven` - Aiven
-     * * `Aviator` - Aviator
-     * * `Backblaze` - Backblaze
-     * * `Baseten` - Baseten
-     * * `Browserbase` - Browserbase
-     * * `Cohere` - Cohere
-     * * `DenoDeploy` - DenoDeploy
-     * * `DigitalOcean` - DigitalOcean
-     * * `E2B` - E2B
-     * * `Fintoc` - Fintoc
-     * * `Firecrawl` - Firecrawl
-     * * `FireworksAI` - FireworksAI
-     * * `FlyIo` - FlyIo
-     * * `Groq` - Groq
-     * * `GrowthBook` - GrowthBook
-     * * `Gumloop` - Gumloop
-     * * `Hatchet` - Hatchet
-     * * `Helicone` - Helicone
-     * * `Heroku` - Heroku
-     * * `Hetzner` - Hetzner
-     * * `HeyGen` - HeyGen
-     * * `Infisical` - Infisical
-     * * `Inngest` - Inngest
-     * * `KapaAI` - KapaAI
-     * * `Kernel` - Kernel
-     * * `Koyeb` - Koyeb
-     * * `LambdaLabs` - LambdaLabs
-     * * `LangSmith` - LangSmith
-     * * `Linode` - Linode
-     * * `Listmonk` - Listmonk
-     * * `LlamaCloud` - LlamaCloud
-     * * `Mem0` - Mem0
-     * * `Metriport` - Metriport
-     * * `Mintlify` - Mintlify
-     * * `MistralAI` - MistralAI
-     * * `Mono` - Mono
-     * * `Netlify` - Netlify
-     * * `Northflank` - Northflank
-     * * `OpenAI` - OpenAI
-     * * `Pinecone` - Pinecone
-     * * `PlatformSh` - PlatformSh
-     * * `PromptingCompany` - PromptingCompany
-     * * `Qdrant` - Qdrant
-     * * `Render` - Render
-     * * `Replicate` - Replicate
-     * * `RetellAI` - RetellAI
-     * * `Roark` - Roark
-     * * `RunPod` - RunPod
-     * * `ScaleAI` - ScaleAI
-     * * `Scaleway` - Scaleway
-     * * `SigNoz` - SigNoz
-     * * `Sim` - Sim
-     * * `Skyvern` - Skyvern
-     * * `Slash` - Slash
-     * * `Synthesia` - Synthesia
-     * * `Telli` - Telli
-     * * `TerraApi` - TerraApi
-     * * `TriggerDev` - TriggerDev
-     * * `Turso` - Turso
-     * * `Singular` - Singular
-     * * `Swonkie` - Swonkie
-     * * `TwelveLabs` - TwelveLabs
-     * * `Twenty` - Twenty
-     * * `Unstructured` - Unstructured
-     * * `Upstash` - Upstash
-     * * `Vellum` - Vellum
-     * * `Vultr` - Vultr
-     * * `Windmill` - Windmill
-     * * `Zep` - Zep
-     * * `Hex` - Hex
-     * * `Sumsub` - Sumsub
-     * * `GoogleChat` - GoogleChat
-     * * `Kickscale` - Kickscale
-     * * `Zellify` - Zellify
-     * * `RudderStack` - RudderStack
-     * * `DodoPayments` - DodoPayments
-     * * `Salestrics` - Salestrics
-     * * `Doppler` - Doppler
-     * * `Usersnap` - Usersnap
-     * * `Asknicely` - Asknicely
-     * * `Featurebase` - Featurebase
-     * * `Frill` - Frill
-     * * `Bettermode` - Bettermode
-     * * `Dynatrace` - Dynatrace
-     * * `Honeycomb` - Honeycomb
-     * * `SumoLogic` - SumoLogic
-     * * `LogzIO` - LogzIO
-     * * `Coralogix` - Coralogix
-     * * `BetterStack` - BetterStack
-     * * `Raygun` - Raygun
-     * * `Honeybadger` - Honeybadger
-     * * `Airbrake` - Airbrake
-     * * `Appsignal` - Appsignal
-     * * `Appdynamics` - Appdynamics
-     * * `Instana` - Instana
-     * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-     * * `Uptimerobot` - Uptimerobot
-     * * `Statuscake` - Statuscake
-     * * `Tailscale` - Tailscale
-     * * `Flagsmith` - Flagsmith
-     * * `Xmatters` - Xmatters
-     * * `Squadcast` - Squadcast
-     * * `Zenduty` - Zenduty
-     * * `Cronitor` - Cronitor
-     * * `Jenkins` - Jenkins
-     * * `Bitbucket` - Bitbucket
-     * * `Gitea` - Gitea
-     * * `Teamcity` - Teamcity
-     * * `TravisCI` - TravisCI
-     * * `Semaphore` - Semaphore
-     * * `CircleciInsights` - CircleciInsights
-     * * `OctopusDeploy` - OctopusDeploy
-     * * `Sourcegraph` - Sourcegraph
-     * * `Bitrise` - Bitrise
-     * * `Gerrit` - Gerrit
-     * * `TerraformCloud` - TerraformCloud
-     * * `PulumiCloud` - PulumiCloud
-     * * `Spacelift` - Spacelift
-     * * `Railway` - Railway
-     * * `Argocd` - Argocd
-     * * `PrefectCloud` - PrefectCloud
-     * * `DagsterCloud` - DagsterCloud
-     * * `Env0` - Env0
-     * * `Kubecost` - Kubecost
-     * * `Snyk` - Snyk
-     * * `Semgrep` - Semgrep
-     * * `Veracode` - Veracode
-     * * `Checkmarx` - Checkmarx
-     * * `Gitguardian` - Gitguardian
-     * * `QualysVmdr` - QualysVmdr
-     * * `Rapid7Insightvm` - Rapid7Insightvm
-     * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-     * * `Sentinelone` - Sentinelone
-     * * `Lacework` - Lacework
-     * * `OrcaSecurity` - OrcaSecurity
-     * * `Drata` - Drata
-     * * `Secureframe` - Secureframe
-     * * `CiscoDuo` - CiscoDuo
-     * * `Jumpcloud` - Jumpcloud
-     * * `OnePassword` - OnePassword
-     * * `Stytch` - Stytch
-     * * `Sonarqube` - Sonarqube
-     * * `Codecov` - Codecov
-     * * `Coveralls` - Coveralls
-     * * `Codacy` - Codacy
-     * * `Deepsource` - Deepsource
-     * * `Linearb` - Linearb
-     * * `Jellyfish` - Jellyfish
-     * * `Swarmia` - Swarmia
-     * * `Packagist` - Packagist
-     * * `Nuget` - Nuget
-     * * `CratesIO` - CratesIO
-     * * `SonatypeNexus` - SonatypeNexus
-     * * `JfrogArtifactory` - JfrogArtifactory
-     * * `Snowplow` - Snowplow
-     * * `WeightsAndBiases` - WeightsAndBiases
-     * * `MonteCarlo` - MonteCarlo
-     * * `Metaplane` - Metaplane
-     * * `Datahub` - Datahub
-     * * `ClickhouseCloud` - ClickhouseCloud
-     * * `ConfluentCloud` - ConfluentCloud
-     * * `KongKonnect` - KongKonnect
-     * * `Kandji` - Kandji
-     * * `Automox` - Automox
-     * * `Autumn` - Autumn
-     * * `GetStream` - GetStream
-     * * `Octolens` - Octolens
-     * * `Kajabi` - Kajabi
-     * * `Shopware` - Shopware
-     * * `Dubsado` - Dubsado
-     * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch
-     * * `Crisp` - Crisp
-     * * `Kommo` - Kommo
-     * * `Axiom` - Axiom
-     * * `Plivo` - Plivo
-     * * `DataForSEO` - DataForSEO
-     * * `Sleekplan` - Sleekplan
-     * * `AbTasty` - AbTasty
-     * * `Ably` - Ably
-     * * `AbnormalSecurity` - AbnormalSecurity
-     * * `Acast` - Acast
-     * * `Acculynx` - Acculynx
-     * * `Actionstep` - Actionstep
-     * * `Aftership` - Aftership
-     * * `AhaIdeas` - AhaIdeas
-     * * `AkamaiReporting` - AkamaiReporting
-     * * `Alation` - Alation
-     * * `Alegra` - Alegra
-     * * `Allegro` - Allegro
-     * * `AnodotCost` - AnodotCost
-     * * `Anomalo` - Anomalo
-     * * `Apaleo` - Apaleo
-     * * `Apitally` - Apitally
-     * * `AppStoreConnect` - AppStoreConnect
-     * * `Appdirect` - Appdirect
-     * * `Appfolio` - Appfolio
-     * * `Arxiv` - Arxiv
-     * * `Asaas` - Asaas
-     * * `Astronomer` - Astronomer
-     * * `Athenahealth` - Athenahealth
-     * * `Atlan` - Atlan
-     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-     * * `Avalara` - Avalara
-     * * `AwsAthena` - AwsAthena
-     * * `AwsBatch` - AwsBatch
-     * * `AwsBudgets` - AwsBudgets
-     * * `AwsCloudformation` - AwsCloudformation
-     * * `AwsComputeOptimizer` - AwsComputeOptimizer
-     * * `AwsConfig` - AwsConfig
-     * * `AwsConnect` - AwsConnect
-     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-     * * `AwsCostExplorer` - AwsCostExplorer
-     * * `AwsDocumentDB` - AwsDocumentDB
-     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-     * * `AwsGuardduty` - AwsGuardduty
-     * * `AwsHealth` - AwsHealth
-     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-     * * `AwsInspector` - AwsInspector
-     * * `AwsMacie` - AwsMacie
-     * * `AwsOrganizations` - AwsOrganizations
-     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-     * * `AwsSagemaker` - AwsSagemaker
-     * * `AwsSavingsPlans` - AwsSavingsPlans
-     * * `AwsSecurityHub` - AwsSecurityHub
-     * * `AwsSes` - AwsSes
-     * * `AwsStepFunctions` - AwsStepFunctions
-     * * `AwsSupport` - AwsSupport
-     * * `AwsSystemsManager` - AwsSystemsManager
-     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-     * * `AwsWaf` - AwsWaf
-     * * `AwsXray` - AwsXray
-     * * `AzureActivityLog` - AzureActivityLog
-     * * `AzureAdvisor` - AzureAdvisor
-     * * `AzureApiManagement` - AzureApiManagement
-     * * `AzureApplicationInsights` - AzureApplicationInsights
-     * * `AzureCostManagement` - AzureCostManagement
-     * * `AzureDataExplorer` - AzureDataExplorer
-     * * `AzureDataFactory` - AzureDataFactory
-     * * `AzureLogAnalytics` - AzureLogAnalytics
-     * * `AzureMonitorAlerts` - AzureMonitorAlerts
-     * * `AzureMonitorMetrics` - AzureMonitorMetrics
-     * * `AzureOpenaiUsage` - AzureOpenaiUsage
-     * * `AzurePolicyInsights` - AzurePolicyInsights
-     * * `AzureReservations` - AzureReservations
-     * * `AzureResourceGraph` - AzureResourceGraph
-     * * `AzureResourceHealth` - AzureResourceHealth
-     * * `AzureServiceHealth` - AzureServiceHealth
-     * * `AzureSynapse` - AzureSynapse
-     * * `BackMarket` - BackMarket
-     * * `Beehiiv` - Beehiiv
-     * * `Bigeye` - Bigeye
-     * * `BillCom` - BillCom
-     * * `Billomat` - Billomat
-     * * `BingWebmasterTools` - BingWebmasterTools
-     * * `Bitwarden` - Bitwarden
-     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-     * * `BlackboardLearn` - BlackboardLearn
-     * * `Bling` - Bling
-     * * `Bloomerang` - Bloomerang
-     * * `Blueshift` - Blueshift
-     * * `Bluesky` - Bluesky
-     * * `BolRetailer` - BolRetailer
-     * * `Boulevard` - Boulevard
-     * * `Buffer` - Buffer
-     * * `Bugherd` - Bugherd
-     * * `Buildium` - Buildium
-     * * `Buttondown` - Buttondown
-     * * `BuyMeACoffee` - BuyMeACoffee
-     * * `Calendarific` - Calendarific
-     * * `Calibre` - Calibre
-     * * `CanvasLms` - CanvasLms
-     * * `Captivate` - Captivate
-     * * `Cashfree` - Cashfree
-     * * `CastAi` - CastAi
-     * * `Catchpoint` - Catchpoint
-     * * `CdcOpenData` - CdcOpenData
-     * * `Census` - Census
-     * * `Checkly` - Checkly
-     * * `CircleSo` - CircleSo
-     * * `Classy` - Classy
-     * * `Cleartax` - Cleartax
-     * * `Clever` - Clever
-     * * `Clevertap` - Clevertap
-     * * `Cliniko` - Cliniko
-     * * `Clio` - Clio
-     * * `Clip` - Clip
-     * * `Cloudability` - Cloudability
-     * * `Cloudsmith` - Cloudsmith
-     * * `Cloudzero` - Cloudzero
-     * * `Clover` - Clover
-     * * `Codemagic` - Codemagic
-     * * `Codescene` - Codescene
-     * * `Collibra` - Collibra
-     * * `Companycam` - Companycam
-     * * `Conekta` - Conekta
-     * * `ContaAzul` - ContaAzul
-     * * `Contentsquare` - Contentsquare
-     * * `Cortex` - Cortex
-     * * `Courier` - Courier
-     * * `Crossref` - Crossref
-     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-     * * `CubeCloud` - CubeCloud
-     * * `D2lBrightspace` - D2lBrightspace
-     * * `Dayforce` - Dayforce
-     * * `Debugbear` - Debugbear
-     * * `Descope` - Descope
-     * * `Develocity` - Develocity
-     * * `Dialpad` - Dialpad
-     * * `Discord` - Discord
-     * * `Discourse` - Discourse
-     * * `Donorbox` - Donorbox
-     * * `Doorloop` - Doorloop
-     * * `Dovetail` - Dovetail
-     * * `Dragonboat` - Dragonboat
-     * * `Drchrono` - Drchrono
-     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-     * * `EcbDataPortal` - EcbDataPortal
-     * * `Emarsys` - Emarsys
-     * * `Embrace` - Embrace
-     * * `Entsoe` - Entsoe
-     * * `Eppo` - Eppo
-     * * `Etsy` - Etsy
-     * * `Eurostat` - Eurostat
-     * * `Faire` - Faire
-     * * `FarosAi` - FarosAi
-     * * `Fieldpulse` - Fieldpulse
-     * * `Fieldwire` - Fieldwire
-     * * `Filevine` - Filevine
-     * * `Finout` - Finout
-     * * `Five9` - Five9
-     * * `FlexeraCloudCost` - FlexeraCloudCost
-     * * `Flutterwave` - Flutterwave
-     * * `Fortnox` - Fortnox
-     * * `Fourthwall` - Fourthwall
-     * * `Fred` - Fred
-     * * `Frontegg` - Frontegg
-     * * `FusionAuth` - FusionAuth
-     * * `G2` - G2
-     * * `Gcore` - Gcore
-     * * `GcpApigee` - GcpApigee
-     * * `GcpArtifactRegistry` - GcpArtifactRegistry
-     * * `GcpBigtable` - GcpBigtable
-     * * `GcpChronicle` - GcpChronicle
-     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-     * * `GcpCloudBilling` - GcpCloudBilling
-     * * `GcpCloudBuild` - GcpCloudBuild
-     * * `GcpCloudDeploy` - GcpCloudDeploy
-     * * `GcpCloudDns` - GcpCloudDns
-     * * `GcpCloudFunctions` - GcpCloudFunctions
-     * * `GcpCloudLogging` - GcpCloudLogging
-     * * `GcpCloudMonitoring` - GcpCloudMonitoring
-     * * `GcpCloudRun` - GcpCloudRun
-     * * `GcpCloudSpanner` - GcpCloudSpanner
-     * * `GcpCloudSql` - GcpCloudSql
-     * * `GcpCloudTrace` - GcpCloudTrace
-     * * `GcpCloudWorkflows` - GcpCloudWorkflows
-     * * `GcpComputeEngine` - GcpComputeEngine
-     * * `GcpContainerAnalysis` - GcpContainerAnalysis
-     * * `GcpDataflow` - GcpDataflow
-     * * `GcpDataplex` - GcpDataplex
-     * * `GcpDataproc` - GcpDataproc
-     * * `GcpErrorReporting` - GcpErrorReporting
-     * * `GcpGke` - GcpGke
-     * * `GcpPubsub` - GcpPubsub
-     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-     * * `GcpRecommender` - GcpRecommender
-     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-     * * `Gdelt` - Gdelt
-     * * `GenesysCloud` - GenesysCloud
-     * * `Getdx` - Getdx
-     * * `Ghost` - Ghost
-     * * `Givebutter` - Givebutter
-     * * `Gleif` - Gleif
-     * * `GooglePlayConsole` - GooglePlayConsole
-     * * `Guesty` - Guesty
-     * * `Gumroad` - Gumroad
-     * * `HarnessCcm` - HarnessCcm
-     * * `HarnessSei` - HarnessSei
-     * * `Harvest` - Harvest
-     * * `Healthie` - Healthie
-     * * `Hitpay` - Hitpay
-     * * `Hivebrite` - Hivebrite
-     * * `Holded` - Holded
-     * * `Hostaway` - Hostaway
-     * * `HousecallPro` - HousecallPro
-     * * `Humanitec` - Humanitec
-     * * `ImfData` - ImfData
-     * * `Imperva` - Imperva
-     * * `InfluxdbCloud` - InfluxdbCloud
-     * * `Iyzico` - Iyzico
-     * * `Jobtread` - Jobtread
-     * * `Kameleoon` - Kameleoon
-     * * `KauflandMarketplace` - KauflandMarketplace
-     * * `Kestra` - Kestra
-     * * `Kick` - Kick
-     * * `Kinde` - Kinde
-     * * `Kion` - Kion
-     * * `Knowbe4` - Knowbe4
-     * * `Komodor` - Komodor
-     * * `Labelbox` - Labelbox
-     * * `Lawmatics` - Lawmatics
-     * * `Learnworlds` - Learnworlds
-     * * `LexwareOffice` - LexwareOffice
-     * * `Lightdash` - Lightdash
-     * * `Lodgify` - Lodgify
-     * * `Logicmonitor` - Logicmonitor
-     * * `Logrocket` - Logrocket
-     * * `LoopReturns` - LoopReturns
-     * * `Mastodon` - Mastodon
-     * * `Meetup` - Meetup
-     * * `Megaphone` - Megaphone
-     * * `Memberful` - Memberful
-     * * `MercadoPago` - MercadoPago
-     * * `Meteostat` - Meteostat
-     * * `Mews` - Mews
-     * * `Mezmo` - Mezmo
-     * * `Microsoft365UsageReports` - Microsoft365UsageReports
-     * * `MicrosoftAdvertising` - MicrosoftAdvertising
-     * * `MicrosoftClarity` - MicrosoftClarity
-     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-     * * `MicrosoftIntune` - MicrosoftIntune
-     * * `MicrosoftPurview` - MicrosoftPurview
-     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-     * * `MicrosoftSentinel` - MicrosoftSentinel
-     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-     * * `Midtrans` - Midtrans
-     * * `MightyNetworks` - MightyNetworks
-     * * `Mindbody` - Mindbody
-     * * `Mirakl` - Mirakl
-     * * `Moesif` - Moesif
-     * * `Moneybird` - Moneybird
-     * * `Moodle` - Moodle
-     * * `Motherduck` - Motherduck
-     * * `Mycase` - Mycase
-     * * `NagerDate` - NagerDate
-     * * `NeonCrm` - NeonCrm
-     * * `Nexhealth` - Nexhealth
-     * * `NoaaCdo` - NoaaCdo
-     * * `Nobl9` - Nobl9
-     * * `Nolt` - Nolt
-     * * `Nops` - Nops
-     * * `NpmRegistry` - NpmRegistry
-     * * `Oecd` - Oecd
-     * * `Okendo` - Okendo
-     * * `Omni` - Omni
-     * * `Onelogin` - Onelogin
-     * * `OpenDental` - OpenDental
-     * * `OpenMeteo` - OpenMeteo
-     * * `Openalex` - Openalex
-     * * `Opencorporates` - Opencorporates
-     * * `Openfec` - Openfec
-     * * `OpnPayments` - OpnPayments
-     * * `Opslevel` - Opslevel
-     * * `OttoMarket` - OttoMarket
-     * * `Ownerrez` - Ownerrez
-     * * `Pagbank` - Pagbank
-     * * `Patreon` - Patreon
-     * * `Pax8` - Pax8
-     * * `Paychex` - Paychex
-     * * `Paymob` - Paymob
-     * * `Paymongo` - Paymongo
-     * * `Phonepe` - Phonepe
-     * * `Pike13` - Pike13
-     * * `Pingone` - Pingone
-     * * `PinterestOrganic` - PinterestOrganic
-     * * `PlanningCenter` - PlanningCenter
-     * * `PluralsightFlow` - PluralsightFlow
-     * * `Podbean` - Podbean
-     * * `Postscript` - Postscript
-     * * `PowerBiAdmin` - PowerBiAdmin
-     * * `Practicepanther` - Practicepanther
-     * * `Preset` - Preset
-     * * `Procore` - Procore
-     * * `Productiv` - Productiv
-     * * `ProofpointTap` - ProofpointTap
-     * * `Propertyware` - Propertyware
-     * * `Pubnub` - Pubnub
-     * * `Quay` - Quay
-     * * `Raken` - Raken
-     * * `RedpandaCloud` - RedpandaCloud
-     * * `RentManager` - RentManager
-     * * `Reverb` - Reverb
-     * * `RocketMatter` - RocketMatter
-     * * `Rubygems` - Rubygems
-     * * `Scalr` - Scalr
-     * * `SecEdgar` - SecEdgar
-     * * `SelectStar` - SelectStar
-     * * `SemanticScholar` - SemanticScholar
-     * * `Semrush` - Semrush
-     * * `ServiceFusion` - ServiceFusion
-     * * `Servicem8` - Servicem8
-     * * `Servicetitan` - Servicetitan
-     * * `Servicetrade` - Servicetrade
-     * * `Sevdesk` - Sevdesk
-     * * `Similarweb` - Similarweb
-     * * `Simpro` - Simpro
-     * * `Sinch` - Sinch
-     * * `Singlestore` - Singlestore
-     * * `Site24x7` - Site24x7
-     * * `Sleuth` - Sleuth
-     * * `Smartlook` - Smartlook
-     * * `Smartrecruiters` - Smartrecruiters
-     * * `Smokeball` - Smokeball
-     * * `SodaCloud` - SodaCloud
-     * * `Speedcurve` - Speedcurve
-     * * `SpotIo` - SpotIo
-     * * `Sprig` - Sprig
-     * * `Sprinklr` - Sprinklr
-     * * `SproutSocial` - SproutSocial
-     * * `StackOverflowForTeams` - StackOverflowForTeams
-     * * `Stockx` - Stockx
-     * * `TackleIo` - TackleIo
-     * * `Talkdesk` - Talkdesk
-     * * `TeamupFitness` - TeamupFitness
-     * * `Tebra` - Tebra
-     * * `Telnyx` - Telnyx
-     * * `Ternary` - Ternary
-     * * `Thoughtspot` - Thoughtspot
-     * * `Thousandeyes` - Thousandeyes
-     * * `Threads` - Threads
-     * * `TiktokShop` - TiktokShop
-     * * `TinyErp` - TinyErp
-     * * `Tinybird` - Tinybird
-     * * `Tipalti` - Tipalti
-     * * `Toast` - Toast
-     * * `Torii` - Torii
-     * * `Transistor` - Transistor
-     * * `TrunkIo` - TrunkIo
-     * * `Trustradius` - Trustradius
-     * * `Twitch` - Twitch
-     * * `TwoC2p` - TwoC2p
-     * * `UkCompaniesHouse` - UkCompaniesHouse
-     * * `UkOns` - UkOns
-     * * `UnComtrade` - UnComtrade
-     * * `UsBea` - UsBea
-     * * `UsBls` - UsBls
-     * * `UsEia` - UsEia
-     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-     * * `Vanta` - Vanta
-     * * `Vendr` - Vendr
-     * * `Virtuous` - Virtuous
-     * * `Vonage` - Vonage
-     * * `WalmartMarketplace` - WalmartMarketplace
-     * * `Waydev` - Waydev
-     * * `Wayfair` - Wayfair
-     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-     * * `WhoGho` - WhoGho
-     * * `Whop` - Whop
-     * * `Wistia` - Wistia
-     * * `Wiz` - Wiz
-     * * `Wompi` - Wompi
-     * * `Workiz` - Workiz
-     * * `WorldBank` - WorldBank
-     * * `Xendit` - Xendit
-     * * `Yoco` - Yoco
-     * * `ZalandoZdirect` - ZalandoZdirect
-     * * `Zluri` - Zluri
-     * * `Zylo` - Zylo
-     * * `Tally` - Tally
-     * * `Nuntly` - Nuntly
-     * * `Vturb` - Vturb
-     * * `Meltwater` - Meltwater
-     * * `UserCom` - UserCom
-     * * `Latitude` - Latitude
-     * * `Workato` - Workato
-     * * `SideShift` - SideShift
-     * * `DuckLake` - DuckLake
-     * * `Starburst` - Starburst
-     * * `Trino` - Trino
-     * * `Easybill` - Easybill
-     * * `Bexio` - Bexio
-     * * `Umami` - Umami
-     * * `Manychat` - Manychat
-     * * `Kickstarter` - Kickstarter
-     * * `Typesense` - Typesense
-     * * `FirstPromoter` - FirstPromoter
-     * * `Zero` - Zero
-     * * `Inth` - Inth
-     * * `BCMS` - BCMS
-     * * `Convonite` - Convonite
-     * * `Hookdeck` - Hookdeck
-     * * `Billit` - Billit
-     * * `Moxie` - Moxie
-     * * `TripleWhale` - TripleWhale
-     * * `Directus` - Directus
-     * * `Clay` - Clay
-     * * `TradableBits` - TradableBits
-     * * `Swan` - Swan
-     * * `Hyros` - Hyros
-     * * `Odoo` - Odoo
-     * * `Airbridge` - Airbridge
-     * * `Snovio` - Snovio
-     * * `GoogleMerchantCenter` - GoogleMerchantCenter
-     * * `Raisely` - Raisely
-     * * `RakutenAdvertising` - RakutenAdvertising
-     * * `Zitadel` - Zitadel
-     * * `DeelFlows` - DeelFlows
-     * * `WindsorAi` - WindsorAi
-     * * `Wix` - Wix
-     * * `Sevalla` - Sevalla
-     * * `Motion` - Motion
-     * * `ImpactPartner` - ImpactPartner
-     * * `Cloudinary` - Cloudinary
-     * * `Uploadcare` - Uploadcare
-     * * `WHMCS` - WHMCS
-     * * `MSG91` - MSG91
-     * * `Depot` - Depot
-     * * `Schematic` - Schematic
-     * * `Dokploy` - Dokploy
-     * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart
-     * * `IronSourceAds` - IronSourceAds
-     * * `MicrosoftExcel` - MicrosoftExcel
-     * * `Profound` - Profound
-     * * `Airwallex` - Airwallex
-     * * `Polymarket` - Polymarket
-     * * `Kalshi` - Kalshi
-     * * `Capterra` - Capterra
-     * * `GooglePostmasterTools` - GooglePostmasterTools
-     * * `Growi` - Growi
-     * * `Clarify` - Clarify
-     * * `DatoCMS` - DatoCMS
-     * * `WPSOffice` - WPSOffice
-     * * `TeraBox` - TeraBox
-     * * `SimonData` - SimonData
-     * * `CommissionJunction` - CommissionJunction
-     * * `Liveblocks` - Liveblocks
-     * * `Livestorm` - Livestorm
-     * * `NationBuilder` - NationBuilder
-     * * `Tana` - Tana
-     * * `Zenchef` - Zenchef
-     * * `Lovable` - Lovable
-     * * `Anvil` - Anvil
-     * * `Coolify` - Coolify
-     * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato
-     * * `Medusa` - Medusa
-     * * `Membrain` - Membrain
-     * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin
-     * * `Folk` - Folk
-     * * `Cybersource` - Cybersource
-     * * `GoogleAdSense` - GoogleAdSense
-     * * `Sequenzy` - Sequenzy
-     * * `Skio` - Skio
-     * * `Smartlead` - Smartlead
-     * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo
-     * * `HeyReach` - HeyReach
-     * * `MoEngage` - MoEngage
-     * * `Monaco` - Monaco
-     * * `Oneleet` - Oneleet
-     * * `Expo` - Expo
-     * * `PostNord` - PostNord
-     * * `Commslayer` - Commslayer
-     * * `Sprinto` - Sprinto
-     * * `Gem` - Gem
-     * * `AudioGO` - AudioGO
-     * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM
-     * * `Tessitura` - Tessitura
-     * * `ChargebackStop` - ChargebackStop
-     * * `Chargeflow` - Chargeflow
-     * * `Dreamdata` - Dreamdata
-     * * `GoogleBusinessProfile` - GoogleBusinessProfile
-     * * `Ledyer` - Ledyer
-     * * `Supermetrics` - Supermetrics
-     * * `SQLite` - SQLite
-     * * `Modal` - Modal
-     * * `Vimeo` - Vimeo
-     * * `Scrunch` - Scrunch
-     * * `Loom` - Loom
-     * * `Arcade` - Arcade
-     * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino
-     * * `ChessCom` - ChessCom
-     * * `Userback` - Userback
-     * * `Rewardful` - Rewardful
-     * * `Tracklution` - Tracklution
-     * * `StackAdapt` - StackAdapt
-     * * `CheckHQ` - CheckHQ
-     * * `RainforestPay` - RainforestPay
-     * * `Wise` - Wise
-     * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam
-     * * `NaverAds` - NaverAds
-     * * `ChannelIO` - ChannelIO
-     * * `Airship` - Airship
-     * * `Creem` - Creem
-     * * `Leantime` - Leantime
-     * * `Testomatio` - Testomatio
-     * * `GoogleAdMob` - GoogleAdMob
-     * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM
-     * * `CloudflareR2` - CloudflareR2
-     * * `Particle` - Particle
-     * * `FileUpload` - FileUpload
-     * * `Dripify` - Dripify
-     * * `AwsS3Tables` - AwsS3Tables
-     * * `Beacons` - Beacons
-     * * `WooPayments` - WooPayments
-     */
-    export type ExternalDataSourceTypeEnum =
-        | "Ashby"
-        | "Supabase"
-        | "CustomerIO"
-        | "Github"
-        | "Stripe"
-        | "Hubspot"
-        | "Postgres"
-        | "Zendesk"
-        | "Snowflake"
-        | "Salesforce"
-        | "MySQL"
-        | "MongoDB"
-        | "MSSQL"
-        | "Vitally"
-        | "BigQuery"
-        | "Chargebee"
-        | "Clerk"
-        | "GoogleAds"
-        | "GoogleSearchConsole"
-        | "TemporalIO"
-        | "DoIt"
-        | "GoogleSheets"
-        | "MetaAds"
-        | "Klaviyo"
-        | "Mailchimp"
-        | "Braze"
-        | "Mailjet"
-        | "Redshift"
-        | "Polar"
-        | "RevenueCat"
-        | "LinkedinAds"
-        | "RedditAds"
-        | "TikTokAds"
-        | "BingAds"
-        | "Shopify"
-        | "Attio"
-        | "SnapchatAds"
-        | "Linear"
-        | "LiteLLM"
-        | "Intercom"
-        | "Amplitude"
-        | "Mixpanel"
-        | "Jira"
-        | "ActiveCampaign"
-        | "Marketo"
-        | "Adjust"
-        | "AppsFlyer"
-        | "Freshdesk"
-        | "GoogleAnalytics"
-        | "Pipedrive"
-        | "SendGrid"
-        | "Slack"
-        | "PagerDuty"
-        | "Asana"
-        | "Notion"
-        | "Airtable"
-        | "Greenhouse"
-        | "BambooHR"
-        | "Lever"
-        | "GitLab"
-        | "Datadog"
-        | "Sentry"
-        | "Pendo"
-        | "FullStory"
-        | "AmazonAds"
-        | "PinterestAds"
-        | "AppleSearchAds"
-        | "QuickBooks"
-        | "Xero"
-        | "NetSuite"
-        | "WooCommerce"
-        | "BigCommerce"
-        | "PayPal"
-        | "Square"
-        | "Zoom"
-        | "Trello"
-        | "TrafficStars"
-        | "Monday"
-        | "ClickUp"
-        | "Confluence"
-        | "Recurly"
-        | "SalesLoft"
-        | "Outreach"
-        | "Gong"
-        | "Calendly"
-        | "Typeform"
-        | "UnityAds"
-        | "Iterable"
-        | "ZohoCRM"
-        | "Close"
-        | "Oracle"
-        | "DynamoDB"
-        | "Elasticsearch"
-        | "Kafka"
-        | "LaunchDarkly"
-        | "Braintree"
-        | "Recharge"
-        | "HelpScout"
-        | "Gorgias"
-        | "Instagram"
-        | "YouTubeAnalytics"
-        | "FacebookPages"
-        | "TwitterAds"
-        | "Workday"
-        | "ServiceNow"
-        | "Pardot"
-        | "Copper"
-        | "Front"
-        | "ChartMogul"
-        | "Zuora"
-        | "Paddle"
-        | "CircleCI"
-        | "CockroachDB"
-        | "Firebase"
-        | "AzureBlob"
-        | "GoogleDrive"
-        | "OneDrive"
-        | "SharePoint"
-        | "Box"
-        | "SFTP"
-        | "MicrosoftTeams"
-        | "Aircall"
-        | "Webflow"
-        | "Okta"
-        | "Auth0"
-        | "Productboard"
-        | "Smartsheet"
-        | "Wrike"
-        | "Plaid"
-        | "SurveyMonkey"
-        | "Eventbrite"
-        | "Everflow"
-        | "RingCentral"
-        | "Twilio"
-        | "Freshsales"
-        | "Shortcut"
-        | "ConvertKit"
-        | "Drip"
-        | "CampaignMonitor"
-        | "MailerLite"
-        | "Omnisend"
-        | "Brevo"
-        | "Postmark"
-        | "Granola"
-        | "BuildBetter"
-        | "Convex"
-        | "ClickHouse"
-        | "Plain"
-        | "Resend"
-        | "PgAnalyze"
-        | "WorkOS"
-        | "AmazonS3"
-        | "GoogleCloudStorage"
-        | "Databricks"
-        | "Dynamics365"
-        | "SalesforceMarketingCloud"
-        | "Db2"
-        | "Heap"
-        | "AdobeAnalytics"
-        | "Matomo"
-        | "Optimizely"
-        | "Adyen"
-        | "GoCardless"
-        | "Mollie"
-        | "CheckoutCom"
-        | "Branch"
-        | "Criteo"
-        | "Outbrain"
-        | "Taboola"
-        | "AdRoll"
-        | "DisplayVideo360"
-        | "GoogleAdManager"
-        | "CampaignManager360"
-        | "SearchAds360"
-        | "AdobeCommerce"
-        | "AmazonSellingPartner"
-        | "Ebay"
-        | "Commercetools"
-        | "LightspeedRetail"
-        | "Shipmail"
-        | "ShipStation"
-        | "ConstantContact"
-        | "Mailgun"
-        | "Eloqua"
-        | "Sailthru"
-        | "Ortto"
-        | "Attentive"
-        | "Kustomer"
-        | "Dixa"
-        | "Gladly"
-        | "Qualtrics"
-        | "AzureDevOps"
-        | "RoktAds"
-        | "Rollbar"
-        | "Opsgenie"
-        | "IncidentIo"
-        | "Pingdom"
-        | "Cloudflare"
-        | "CloudflareD1"
-        | "CosmosDB"
-        | "PlanetScaleMySQL"
-        | "PlanetScalePostgres"
-        | "Plane"
-        | "Scarf"
-        | "SapHana"
-        | "Rippling"
-        | "HiBob"
-        | "Personio"
-        | "Deel"
-        | "AdpWorkforceNow"
-        | "Paylocity"
-        | "Gusto"
-        | "CultureAmp"
-        | "Lattice"
-        | "SageIntacct"
-        | "FreshBooks"
-        | "Expensify"
-        | "Ramp"
-        | "Brex"
-        | "Coupa"
-        | "SapConcur"
-        | "Apollo"
-        | "Crunchbase"
-        | "ZoomInfo"
-        | "Clari"
-        | "Chorus"
-        | "Coda"
-        | "Guru"
-        | "Dropbox"
-        | "Docusign"
-        | "PandaDoc"
-        | "SapErp"
-        | "SapSuccessFactors"
-        | "OracleEbs"
-        | "OracleFusion"
-        | "AmazonSNS"
-        | "AmazonEventBridge"
-        | "AmazonSQS"
-        | "AmazonKinesis"
-        | "AmazonCloudWatch"
-        | "OpenAIAds"
-        | "OneHundredMs"
-        | "SevenShifts"
-        | "AcuityScheduling"
-        | "AgileCRM"
-        | "Aha"
-        | "Airbyte"
-        | "Akeneo"
-        | "Algolia"
-        | "AlpacaBrokerAPI"
-        | "ApifyDataset"
-        | "Appcues"
-        | "Appfigures"
-        | "Appfollow"
-        | "Apptivo"
-        | "AssemblyAI"
-        | "Awin"
-        | "AwsCloudTrail"
-        | "AzureTableStorage"
-        | "Babelforce"
-        | "Basecamp"
-        | "Beamer"
-        | "BigMailer"
-        | "Bluetally"
-        | "BoldSign"
-        | "BreezyHR"
-        | "Bugsnag"
-        | "Buildkite"
-        | "Bunny"
-        | "Buzzsprout"
-        | "CalCom"
-        | "CallRail"
-        | "Campayn"
-        | "Canny"
-        | "CapsuleCRM"
-        | "CaptainData"
-        | "CartCom"
-        | "CastorEDC"
-        | "Chameleon"
-        | "Chargedesk"
-        | "Chargify"
-        | "Chift"
-        | "Churnkey"
-        | "Cin7"
-        | "CiscoMeraki"
-        | "Clazar"
-        | "Clockify"
-        | "Clockodo"
-        | "Cloudbeds"
-        | "Coassemble"
-        | "Codefresh"
-        | "Concord"
-        | "ConfigCat"
-        | "Couchbase"
-        | "Curve"
-        | "Customerly"
-        | "Datascope"
-        | "Dbt"
-        | "Demodesk"
-        | "Deputy"
-        | "DevinAI"
-        | "Docuseal"
-        | "Dolibarr"
-        | "Dremio"
-        | "DropboxSign"
-        | "Dwolla"
-        | "EConomic"
-        | "Easypost"
-        | "Easypromos"
-        | "Elasticemail"
-        | "EmailOctopus"
-        | "EmploymentHero"
-        | "Encharge"
-        | "Eventee"
-        | "Eventzilla"
-        | "Everhour"
-        | "EZOfficeInventory"
-        | "Factorial"
-        | "Fastbill"
-        | "Fastly"
-        | "Fauna"
-        | "Feishu"
-        | "Fillout"
-        | "Finage"
-        | "Firebolt"
-        | "FireHydrant"
-        | "Fleetio"
-        | "Flexmail"
-        | "Flexport"
-        | "FloatApp"
-        | "Flowlu"
-        | "Formbricks"
-        | "Framer"
-        | "FreeAgent"
-        | "Freightview"
-        | "Freshcaller"
-        | "Freshchat"
-        | "Freshservice"
-        | "Fulcrum"
-        | "GainsightCs"
-        | "GainsightPx"
-        | "GitBook"
-        | "Glassfrog"
-        | "Goldcast"
-        | "GoLogin"
-        | "Grafana"
-        | "GreytHr"
-        | "Gridly"
-        | "Harness"
-        | "Height"
-        | "Hellobaton"
-        | "HighLevel"
-        | "HoorayHR"
-        | "Hubplanner"
-        | "Humanitix"
-        | "Huntr"
-        | "Inflowinventory"
-        | "InforNexus"
-        | "Insightful"
-        | "Insightly"
-        | "Instantly"
-        | "Instatus"
-        | "Intruder"
-        | "Invoiced"
-        | "Invoiceninja"
-        | "JamfPro"
-        | "JobNimbus"
-        | "Jotform"
-        | "JudgeMeReviews"
-        | "JustCall"
-        | "JustSift"
-        | "K6Cloud"
-        | "Katana"
-        | "Keka"
-        | "Kisi"
-        | "Kissmetrics"
-        | "Klarna"
-        | "Klaus"
-        | "Lago"
-        | "Leadfeeder"
-        | "Lemlist"
-        | "LessAnnoyingCRM"
-        | "LinkedinPages"
-        | "Linkrunner"
-        | "Linnworks"
-        | "Lob"
-        | "Lokalise"
-        | "Looker"
-        | "Luma"
-        | "MailerSend"
-        | "Mailosaur"
-        | "Mailtrap"
-        | "Mantle"
-        | "Mention"
-        | "MercadoAds"
-        | "Merge"
-        | "Metabase"
-        | "Metricool"
-        | "MicrosoftDataverse"
-        | "MicrosoftEntraId"
-        | "MicrosoftLists"
-        | "Miro"
-        | "Missive"
-        | "MixMax"
-        | "Mode"
-        | "Mux"
-        | "MyHours"
-        | "N8n"
-        | "Navan"
-        | "NebiusAI"
-        | "Nexiopay"
-        | "NinjaOneRMM"
-        | "NoCRM"
-        | "NorthpassLMS"
-        | "Nutshell"
-        | "Nylas"
-        | "Oncehub"
-        | "Onepagecrm"
-        | "OneSignal"
-        | "Onfleet"
-        | "OpinionStage"
-        | "OPUSWatch"
-        | "Orb"
-        | "Orbit"
-        | "Oura"
-        | "Oveit"
-        | "PabblySubscriptionsBilling"
-        | "Paperform"
-        | "Papersign"
-        | "Partnerize"
-        | "PartnerStack"
-        | "PayFit"
-        | "Paystack"
-        | "Pennylane"
-        | "Perk"
-        | "PersistIq"
-        | "Persona"
-        | "Phyllo"
-        | "Picqer"
-        | "Pipeliner"
-        | "PivotalTracker"
-        | "Piwik"
-        | "Planhat"
-        | "Plausible"
-        | "Poplar"
-        | "PrestaShop"
-        | "Pretix"
-        | "Primetric"
-        | "Printavo"
-        | "Printify"
-        | "Productive"
-        | "Pylon"
-        | "Qonto"
-        | "Qualaroo"
-        | "Railz"
-        | "RDStationMarketing"
-        | "Recruitee"
-        | "Reddit"
-        | "ReferralHero"
-        | "RentCast"
-        | "Repairshopr"
-        | "ReplyIo"
-        | "RetailExpress"
-        | "Retently"
-        | "Retreaver"
-        | "RevolutMerchant"
-        | "RocketChat"
-        | "Rocketlane"
-        | "Rootly"
-        | "Ruddr"
-        | "SafetyCulture"
-        | "SageHR"
-        | "Salesflare"
-        | "SAPFieldglass"
-        | "SavvyCal"
-        | "Secoda"
-        | "Segment"
-        | "Sendowl"
-        | "SendPulse"
-        | "Senseforce"
-        | "Serpstat"
-        | "Sharetribe"
-        | "Shippo"
-        | "ShopWired"
-        | "Shortio"
-        | "Shutterstock"
-        | "SigmaComputing"
-        | "SignNow"
-        | "SimpleCast"
-        | "Simplesat"
-        | "Smaily"
-        | "SmartEngage"
-        | "Smartreach"
-        | "Smartwaiver"
-        | "SolarwindsServiceDesk"
-        | "SonarCloud"
-        | "SparkPost"
-        | "SplitIo"
-        | "SpotifyAds"
-        | "SpotlerCRM"
-        | "Squarespace"
-        | "Statsig"
-        | "Statuspage"
-        | "Steam"
-        | "Stigg"
-        | "Strava"
-        | "SurveySparrow"
-        | "Survicate"
-        | "Svix"
-        | "Systeme"
-        | "Tavus"
-        | "Teamtailor"
-        | "Teamwork"
-        | "Tempo"
-        | "Testrail"
-        | "Thinkific"
-        | "ThinkificCourses"
-        | "ThriveLearning"
-        | "Ticketmaster"
-        | "TicketTailor"
-        | "TickTick"
-        | "Timely"
-        | "Tinyemail"
-        | "Todoist"
-        | "Toggl"
-        | "TrackPMS"
-        | "Tremendous"
-        | "TrustPilot"
-        | "Twitter"
-        | "TyntecSMS"
-        | "Unleash"
-        | "UpPromote"
-        | "Uptick"
-        | "Uservoice"
-        | "Vantage"
-        | "Veeqo"
-        | "Vercel"
-        | "VismaEconomic"
-        | "VWO"
-        | "Waiteraid"
-        | "Wasabi"
-        | "WhenIWork"
-        | "Wordpress"
-        | "Workable"
-        | "Workflowmax"
-        | "Workramp"
-        | "Wufoo"
-        | "Xsolla"
-        | "YandexMetrica"
-        | "Yotpo"
-        | "Ynab"
-        | "Younium"
-        | "YouSign"
-        | "YoutubeData"
-        | "ZapierSupportedStorage"
-        | "ZapSign"
-        | "ZendeskSell"
-        | "ZendeskSunshine"
-        | "Zenefits"
-        | "Zenloop"
-        | "ZohoAnalytics"
-        | "ZohoBigin"
-        | "ZohoBilling"
-        | "ZohoBooks"
-        | "ZohoCampaign"
-        | "ZohoDesk"
-        | "ZohoExpense"
-        | "ZohoInventory"
-        | "ZohoInvoice"
-        | "ZonkaFeedback"
-        | "AlphaVantage"
-        | "Aviationstack"
-        | "Bitly"
-        | "Blogger"
-        | "Breezometer"
-        | "CareQualityCommission"
-        | "Cimis"
-        | "CoinApi"
-        | "CoinGecko"
-        | "CoinMarketCap"
-        | "DingConnect"
-        | "Dockerhub"
-        | "ExchangeRatesApi"
-        | "FinancialModelling"
-        | "Finnhub"
-        | "Finnworlds"
-        | "Giphy"
-        | "Gmail"
-        | "GNews"
-        | "GoogleCalendar"
-        | "GoogleClassroom"
-        | "GoogleDirectory"
-        | "GoogleForms"
-        | "GooglePageSpeedInsights"
-        | "GoogleTasks"
-        | "GoogleWebfonts"
-        | "GoogleWorkspaceAdminReports"
-        | "HuggingFace"
-        | "IlluminaBasespace"
-        | "Imagga"
-        | "Interzoid"
-        | "IP2Whois"
-        | "KYVE"
-        | "Marketstack"
-        | "Mendeley"
-        | "Nasa"
-        | "NewYorkTimes"
-        | "NewsApi"
-        | "NewsData"
-        | "OpenDataDc"
-        | "OpenExchangeRates"
-        | "OpenAQ"
-        | "OpenFDA"
-        | "OpenWeather"
-        | "Outlook"
-        | "Perigon"
-        | "Pexels"
-        | "Pocket"
-        | "Polygon"
-        | "PyPI"
-        | "Recreation"
-        | "RKICovid"
-        | "Rss"
-        | "SimFin"
-        | "StockData"
-        | "Guardian"
-        | "TMDb"
-        | "TVMaze"
-        | "TwelveData"
-        | "Ubidots"
-        | "USCensus"
-        | "Watchmode"
-        | "WikipediaPageviews"
-        | "YahooFinance"
-        | "Clarifai"
-        | "Adapty"
-        | "Braintrust"
-        | "StreamElements"
-        | "Streamlabs"
-        | "Datorama"
-        | "Ahrefs"
-        | "Lightfield"
-        | "Appstack"
-        | "Razorpay"
-        | "Neon"
-        | "NewRelic"
-        | "Custom"
-        | "Tile38"
-        | "Chatwoot"
-        | "Sanity"
-        | "Metronome"
-        | "Jobber"
-        | "Knock"
-        | "Leexi"
-        | "RB2B"
-        | "Superwall"
-        | "Liana"
-        | "TawkTo"
-        | "Hightouch"
-        | "LemonSqueezy"
-        | "Ikas"
-        | "Talkwalker"
-        | "NextdoorAds"
-        | "AppLovin"
-        | "Baserow"
-        | "Plunk"
-        | "Dub"
-        | "AirOps"
-        | "Podium"
-        | "Loops"
-        | "Redis"
-        | "Mercury"
-        | "Gojiberry"
-        | "Teachable"
-        | "PeecAI"
-        | "Healthchecks"
-        | "Impact"
-        | "AikidoSecurity"
-        | "Alguna"
-        | "Anthropic"
-        | "Appwrite"
-        | "BlandAI"
-        | "BrowseAI"
-        | "BrowserUse"
-        | "ChartHop"
-        | "Cody"
-        | "Cursor"
-        | "Decagon"
-        | "Deepgram"
-        | "ElevenLabs"
-        | "Harvey"
-        | "Hyperspell"
-        | "Langfuse"
-        | "LingoDev"
-        | "M3ter"
-        | "Maxio"
-        | "Metorial"
-        | "OpenRouter"
-        | "TogetherAI"
-        | "Vapi"
-        | "Vespa"
-        | "Writesonic"
-        | "Aiven"
-        | "Aviator"
-        | "Backblaze"
-        | "Baseten"
-        | "Browserbase"
-        | "Cohere"
-        | "DenoDeploy"
-        | "DigitalOcean"
-        | "E2B"
-        | "Fintoc"
-        | "Firecrawl"
-        | "FireworksAI"
-        | "FlyIo"
-        | "Groq"
-        | "GrowthBook"
-        | "Gumloop"
-        | "Hatchet"
-        | "Helicone"
-        | "Heroku"
-        | "Hetzner"
-        | "HeyGen"
-        | "Infisical"
-        | "Inngest"
-        | "KapaAI"
-        | "Kernel"
-        | "Koyeb"
-        | "LambdaLabs"
-        | "LangSmith"
-        | "Linode"
-        | "Listmonk"
-        | "LlamaCloud"
-        | "Mem0"
-        | "Metriport"
-        | "Mintlify"
-        | "MistralAI"
-        | "Mono"
-        | "Netlify"
-        | "Northflank"
-        | "OpenAI"
-        | "Pinecone"
-        | "PlatformSh"
-        | "PromptingCompany"
-        | "Qdrant"
-        | "Render"
-        | "Replicate"
-        | "RetellAI"
-        | "Roark"
-        | "RunPod"
-        | "ScaleAI"
-        | "Scaleway"
-        | "SigNoz"
-        | "Sim"
-        | "Skyvern"
-        | "Slash"
-        | "Synthesia"
-        | "Telli"
-        | "TerraApi"
-        | "TriggerDev"
-        | "Turso"
-        | "Singular"
-        | "Swonkie"
-        | "TwelveLabs"
-        | "Twenty"
-        | "Unstructured"
-        | "Upstash"
-        | "Vellum"
-        | "Vultr"
-        | "Windmill"
-        | "Zep"
-        | "Hex"
-        | "Sumsub"
-        | "GoogleChat"
-        | "Kickscale"
-        | "Zellify"
-        | "RudderStack"
-        | "DodoPayments"
-        | "Salestrics"
-        | "Doppler"
-        | "Usersnap"
-        | "Asknicely"
-        | "Featurebase"
-        | "Frill"
-        | "Bettermode"
-        | "Dynatrace"
-        | "Honeycomb"
-        | "SumoLogic"
-        | "LogzIO"
-        | "Coralogix"
-        | "BetterStack"
-        | "Raygun"
-        | "Honeybadger"
-        | "Airbrake"
-        | "Appsignal"
-        | "Appdynamics"
-        | "Instana"
-        | "SplunkObservabilityCloud"
-        | "Uptimerobot"
-        | "Statuscake"
-        | "Tailscale"
-        | "Flagsmith"
-        | "Xmatters"
-        | "Squadcast"
-        | "Zenduty"
-        | "Cronitor"
-        | "Jenkins"
-        | "Bitbucket"
-        | "Gitea"
-        | "Teamcity"
-        | "TravisCI"
-        | "Semaphore"
-        | "CircleciInsights"
-        | "OctopusDeploy"
-        | "Sourcegraph"
-        | "Bitrise"
-        | "Gerrit"
-        | "TerraformCloud"
-        | "PulumiCloud"
-        | "Spacelift"
-        | "Railway"
-        | "Argocd"
-        | "PrefectCloud"
-        | "DagsterCloud"
-        | "Env0"
-        | "Kubecost"
-        | "Snyk"
-        | "Semgrep"
-        | "Veracode"
-        | "Checkmarx"
-        | "Gitguardian"
-        | "QualysVmdr"
-        | "Rapid7Insightvm"
-        | "TenableVulnerabilityManagement"
-        | "Sentinelone"
-        | "Lacework"
-        | "OrcaSecurity"
-        | "Drata"
-        | "Secureframe"
-        | "CiscoDuo"
-        | "Jumpcloud"
-        | "OnePassword"
-        | "Stytch"
-        | "Sonarqube"
-        | "Codecov"
-        | "Coveralls"
-        | "Codacy"
-        | "Deepsource"
-        | "Linearb"
-        | "Jellyfish"
-        | "Swarmia"
-        | "Packagist"
-        | "Nuget"
-        | "CratesIO"
-        | "SonatypeNexus"
-        | "JfrogArtifactory"
-        | "Snowplow"
-        | "WeightsAndBiases"
-        | "MonteCarlo"
-        | "Metaplane"
-        | "Datahub"
-        | "ClickhouseCloud"
-        | "ConfluentCloud"
-        | "KongKonnect"
-        | "Kandji"
-        | "Automox"
-        | "Autumn"
-        | "GetStream"
-        | "Octolens"
-        | "Kajabi"
-        | "Shopware"
-        | "Dubsado"
-        | "Campfire"
-        | "PromptWatch"
-        | "Crisp"
-        | "Kommo"
-        | "Axiom"
-        | "Plivo"
-        | "DataForSEO"
-        | "Sleekplan"
-        | "AbTasty"
-        | "Ably"
-        | "AbnormalSecurity"
-        | "Acast"
-        | "Acculynx"
-        | "Actionstep"
-        | "Aftership"
-        | "AhaIdeas"
-        | "AkamaiReporting"
-        | "Alation"
-        | "Alegra"
-        | "Allegro"
-        | "AnodotCost"
-        | "Anomalo"
-        | "Apaleo"
-        | "Apitally"
-        | "AppStoreConnect"
-        | "Appdirect"
-        | "Appfolio"
-        | "Arxiv"
-        | "Asaas"
-        | "Astronomer"
-        | "Athenahealth"
-        | "Atlan"
-        | "AutodeskConstructionCloud"
-        | "Avalara"
-        | "AwsAthena"
-        | "AwsBatch"
-        | "AwsBudgets"
-        | "AwsCloudformation"
-        | "AwsComputeOptimizer"
-        | "AwsConfig"
-        | "AwsConnect"
-        | "AwsCostAndUsageReport"
-        | "AwsCostAnomalyDetection"
-        | "AwsCostExplorer"
-        | "AwsDocumentDB"
-        | "AwsGlueDataCatalog"
-        | "AwsGuardduty"
-        | "AwsHealth"
-        | "AwsIamAccessAnalyzer"
-        | "AwsInspector"
-        | "AwsMacie"
-        | "AwsOrganizations"
-        | "AwsRdsPerformanceInsights"
-        | "AwsSagemaker"
-        | "AwsSavingsPlans"
-        | "AwsSecurityHub"
-        | "AwsSes"
-        | "AwsStepFunctions"
-        | "AwsSupport"
-        | "AwsSystemsManager"
-        | "AwsTrustedAdvisor"
-        | "AwsWaf"
-        | "AwsXray"
-        | "AzureActivityLog"
-        | "AzureAdvisor"
-        | "AzureApiManagement"
-        | "AzureApplicationInsights"
-        | "AzureCostManagement"
-        | "AzureDataExplorer"
-        | "AzureDataFactory"
-        | "AzureLogAnalytics"
-        | "AzureMonitorAlerts"
-        | "AzureMonitorMetrics"
-        | "AzureOpenaiUsage"
-        | "AzurePolicyInsights"
-        | "AzureReservations"
-        | "AzureResourceGraph"
-        | "AzureResourceHealth"
-        | "AzureServiceHealth"
-        | "AzureSynapse"
-        | "BackMarket"
-        | "Beehiiv"
-        | "Bigeye"
-        | "BillCom"
-        | "Billomat"
-        | "BingWebmasterTools"
-        | "Bitwarden"
-        | "BlackbaudRaisersEdgeNxt"
-        | "BlackboardLearn"
-        | "Bling"
-        | "Bloomerang"
-        | "Blueshift"
-        | "Bluesky"
-        | "BolRetailer"
-        | "Boulevard"
-        | "Buffer"
-        | "Bugherd"
-        | "Buildium"
-        | "Buttondown"
-        | "BuyMeACoffee"
-        | "Calendarific"
-        | "Calibre"
-        | "CanvasLms"
-        | "Captivate"
-        | "Cashfree"
-        | "CastAi"
-        | "Catchpoint"
-        | "CdcOpenData"
-        | "Census"
-        | "Checkly"
-        | "CircleSo"
-        | "Classy"
-        | "Cleartax"
-        | "Clever"
-        | "Clevertap"
-        | "Cliniko"
-        | "Clio"
-        | "Clip"
-        | "Cloudability"
-        | "Cloudsmith"
-        | "Cloudzero"
-        | "Clover"
-        | "Codemagic"
-        | "Codescene"
-        | "Collibra"
-        | "Companycam"
-        | "Conekta"
-        | "ContaAzul"
-        | "Contentsquare"
-        | "Cortex"
-        | "Courier"
-        | "Crossref"
-        | "CrowdstrikeFalcon"
-        | "CubeCloud"
-        | "D2lBrightspace"
-        | "Dayforce"
-        | "Debugbear"
-        | "Descope"
-        | "Develocity"
-        | "Dialpad"
-        | "Discord"
-        | "Discourse"
-        | "Donorbox"
-        | "Doorloop"
-        | "Dovetail"
-        | "Dragonboat"
-        | "Drchrono"
-        | "Dynamics365BusinessCentral"
-        | "EcbDataPortal"
-        | "Emarsys"
-        | "Embrace"
-        | "Entsoe"
-        | "Eppo"
-        | "Etsy"
-        | "Eurostat"
-        | "Faire"
-        | "FarosAi"
-        | "Fieldpulse"
-        | "Fieldwire"
-        | "Filevine"
-        | "Finout"
-        | "Five9"
-        | "FlexeraCloudCost"
-        | "Flutterwave"
-        | "Fortnox"
-        | "Fourthwall"
-        | "Fred"
-        | "Frontegg"
-        | "FusionAuth"
-        | "G2"
-        | "Gcore"
-        | "GcpApigee"
-        | "GcpArtifactRegistry"
-        | "GcpBigtable"
-        | "GcpChronicle"
-        | "GcpCloudAssetInventory"
-        | "GcpCloudBilling"
-        | "GcpCloudBuild"
-        | "GcpCloudDeploy"
-        | "GcpCloudDns"
-        | "GcpCloudFunctions"
-        | "GcpCloudLogging"
-        | "GcpCloudMonitoring"
-        | "GcpCloudRun"
-        | "GcpCloudSpanner"
-        | "GcpCloudSql"
-        | "GcpCloudTrace"
-        | "GcpCloudWorkflows"
-        | "GcpComputeEngine"
-        | "GcpContainerAnalysis"
-        | "GcpDataflow"
-        | "GcpDataplex"
-        | "GcpDataproc"
-        | "GcpErrorReporting"
-        | "GcpGke"
-        | "GcpPubsub"
-        | "GcpRecaptchaEnterprise"
-        | "GcpRecommender"
-        | "GcpSecurityCommandCenter"
-        | "Gdelt"
-        | "GenesysCloud"
-        | "Getdx"
-        | "Ghost"
-        | "Givebutter"
-        | "Gleif"
-        | "GooglePlayConsole"
-        | "Guesty"
-        | "Gumroad"
-        | "HarnessCcm"
-        | "HarnessSei"
-        | "Harvest"
-        | "Healthie"
-        | "Hitpay"
-        | "Hivebrite"
-        | "Holded"
-        | "Hostaway"
-        | "HousecallPro"
-        | "Humanitec"
-        | "ImfData"
-        | "Imperva"
-        | "InfluxdbCloud"
-        | "Iyzico"
-        | "Jobtread"
-        | "Kameleoon"
-        | "KauflandMarketplace"
-        | "Kestra"
-        | "Kick"
-        | "Kinde"
-        | "Kion"
-        | "Knowbe4"
-        | "Komodor"
-        | "Labelbox"
-        | "Lawmatics"
-        | "Learnworlds"
-        | "LexwareOffice"
-        | "Lightdash"
-        | "Lodgify"
-        | "Logicmonitor"
-        | "Logrocket"
-        | "LoopReturns"
-        | "Mastodon"
-        | "Meetup"
-        | "Megaphone"
-        | "Memberful"
-        | "MercadoPago"
-        | "Meteostat"
-        | "Mews"
-        | "Mezmo"
-        | "Microsoft365UsageReports"
-        | "MicrosoftAdvertising"
-        | "MicrosoftClarity"
-        | "MicrosoftDefenderCloudApps"
-        | "MicrosoftDefenderEndpoint"
-        | "MicrosoftDefenderForCloud"
-        | "MicrosoftIntune"
-        | "MicrosoftPurview"
-        | "MicrosoftPurviewAudit"
-        | "MicrosoftSentinel"
-        | "MicrosoftTeamsCallRecords"
-        | "Midtrans"
-        | "MightyNetworks"
-        | "Mindbody"
-        | "Mirakl"
-        | "Moesif"
-        | "Moneybird"
-        | "Moodle"
-        | "Motherduck"
-        | "Mycase"
-        | "NagerDate"
-        | "NeonCrm"
-        | "Nexhealth"
-        | "NoaaCdo"
-        | "Nobl9"
-        | "Nolt"
-        | "Nops"
-        | "NpmRegistry"
-        | "Oecd"
-        | "Okendo"
-        | "Omni"
-        | "Onelogin"
-        | "OpenDental"
-        | "OpenMeteo"
-        | "Openalex"
-        | "Opencorporates"
-        | "Openfec"
-        | "OpnPayments"
-        | "Opslevel"
-        | "OttoMarket"
-        | "Ownerrez"
-        | "Pagbank"
-        | "Patreon"
-        | "Pax8"
-        | "Paychex"
-        | "Paymob"
-        | "Paymongo"
-        | "Phonepe"
-        | "Pike13"
-        | "Pingone"
-        | "PinterestOrganic"
-        | "PlanningCenter"
-        | "PluralsightFlow"
-        | "Podbean"
-        | "Postscript"
-        | "PowerBiAdmin"
-        | "Practicepanther"
-        | "Preset"
-        | "Procore"
-        | "Productiv"
-        | "ProofpointTap"
-        | "Propertyware"
-        | "Pubnub"
-        | "Quay"
-        | "Raken"
-        | "RedpandaCloud"
-        | "RentManager"
-        | "Reverb"
-        | "RocketMatter"
-        | "Rubygems"
-        | "Scalr"
-        | "SecEdgar"
-        | "SelectStar"
-        | "SemanticScholar"
-        | "Semrush"
-        | "ServiceFusion"
-        | "Servicem8"
-        | "Servicetitan"
-        | "Servicetrade"
-        | "Sevdesk"
-        | "Similarweb"
-        | "Simpro"
-        | "Sinch"
-        | "Singlestore"
-        | "Site24x7"
-        | "Sleuth"
-        | "Smartlook"
-        | "Smartrecruiters"
-        | "Smokeball"
-        | "SodaCloud"
-        | "Speedcurve"
-        | "SpotIo"
-        | "Sprig"
-        | "Sprinklr"
-        | "SproutSocial"
-        | "StackOverflowForTeams"
-        | "Stockx"
-        | "TackleIo"
-        | "Talkdesk"
-        | "TeamupFitness"
-        | "Tebra"
-        | "Telnyx"
-        | "Ternary"
-        | "Thoughtspot"
-        | "Thousandeyes"
-        | "Threads"
-        | "TiktokShop"
-        | "TinyErp"
-        | "Tinybird"
-        | "Tipalti"
-        | "Toast"
-        | "Torii"
-        | "Transistor"
-        | "TrunkIo"
-        | "Trustradius"
-        | "Twitch"
-        | "TwoC2p"
-        | "UkCompaniesHouse"
-        | "UkOns"
-        | "UnComtrade"
-        | "UsBea"
-        | "UsBls"
-        | "UsEia"
-        | "UsTreasuryFiscalData"
-        | "Vanta"
-        | "Vendr"
-        | "Virtuous"
-        | "Vonage"
-        | "WalmartMarketplace"
-        | "Waydev"
-        | "Wayfair"
-        | "WhatsappBusinessManagement"
-        | "WhoGho"
-        | "Whop"
-        | "Wistia"
-        | "Wiz"
-        | "Wompi"
-        | "Workiz"
-        | "WorldBank"
-        | "Xendit"
-        | "Yoco"
-        | "ZalandoZdirect"
-        | "Zluri"
-        | "Zylo"
-        | "Tally"
-        | "Nuntly"
-        | "Vturb"
-        | "Meltwater"
-        | "UserCom"
-        | "Latitude"
-        | "Workato"
-        | "SideShift"
-        | "DuckLake"
-        | "Starburst"
-        | "Trino"
-        | "Easybill"
-        | "Bexio"
-        | "Umami"
-        | "Manychat"
-        | "Kickstarter"
-        | "Typesense"
-        | "FirstPromoter"
-        | "Zero"
-        | "Inth"
-        | "BCMS"
-        | "Convonite"
-        | "Hookdeck"
-        | "Billit"
-        | "Moxie"
-        | "TripleWhale"
-        | "Directus"
-        | "Clay"
-        | "TradableBits"
-        | "Swan"
-        | "Hyros"
-        | "Odoo"
-        | "Airbridge"
-        | "Snovio"
-        | "GoogleMerchantCenter"
-        | "Raisely"
-        | "RakutenAdvertising"
-        | "Zitadel"
-        | "DeelFlows"
-        | "WindsorAi"
-        | "Wix"
-        | "Sevalla"
-        | "Motion"
-        | "ImpactPartner"
-        | "Cloudinary"
-        | "Uploadcare"
-        | "WHMCS"
-        | "MSG91"
-        | "Depot"
-        | "Schematic"
-        | "Dokploy"
-        | "Hootsuite"
-        | "WisprFlow"
-        | "SamCart"
-        | "IronSourceAds"
-        | "MicrosoftExcel"
-        | "Profound"
-        | "Airwallex"
-        | "Polymarket"
-        | "Kalshi"
-        | "Capterra"
-        | "GooglePostmasterTools"
-        | "Growi"
-        | "Clarify"
-        | "DatoCMS"
-        | "WPSOffice"
-        | "TeraBox"
-        | "SimonData"
-        | "CommissionJunction"
-        | "Liveblocks"
-        | "Livestorm"
-        | "NationBuilder"
-        | "Tana"
-        | "Zenchef"
-        | "Lovable"
-        | "Anvil"
-        | "Coolify"
-        | "SocialPilot"
-        | "Strato"
-        | "Medusa"
-        | "Membrain"
-        | "RecallAI"
-        | "Tenjin"
-        | "Folk"
-        | "Cybersource"
-        | "GoogleAdSense"
-        | "Sequenzy"
-        | "Skio"
-        | "Smartlead"
-        | "Substack"
-        | "ElectricityMaps"
-        | "Amplemarket"
-        | "Quo"
-        | "HeyReach"
-        | "MoEngage"
-        | "Monaco"
-        | "Oneleet"
-        | "Expo"
-        | "PostNord"
-        | "Commslayer"
-        | "Sprinto"
-        | "Gem"
-        | "AudioGO"
-        | "ExactOnline"
-        | "LettrLabs"
-        | "GrafanaIRM"
-        | "Tessitura"
-        | "ChargebackStop"
-        | "Chargeflow"
-        | "Dreamdata"
-        | "GoogleBusinessProfile"
-        | "Ledyer"
-        | "Supermetrics"
-        | "SQLite"
-        | "Modal"
-        | "Vimeo"
-        | "Scrunch"
-        | "Loom"
-        | "Arcade"
-        | "Neo4j"
-        | "TestDino"
-        | "ChessCom"
-        | "Userback"
-        | "Rewardful"
-        | "Tracklution"
-        | "StackAdapt"
-        | "CheckHQ"
-        | "RainforestPay"
-        | "Wise"
-        | "LaravelCloud"
-        | "Northbeam"
-        | "NaverAds"
-        | "ChannelIO"
-        | "Airship"
-        | "Creem"
-        | "Leantime"
-        | "Testomatio"
-        | "GoogleAdMob"
-        | "Klar"
-        | "ConectoCRM"
-        | "CloudflareR2"
-        | "Particle"
-        | "FileUpload"
-        | "Dripify"
-        | "AwsS3Tables"
-        | "Beacons"
-        | "WooPayments";
-    /**
      * * `web` - web
      * * `api` - api
      * * `mcp` - mcp
@@ -13819,1420 +11996,8 @@ export namespace Schemas {
     export type ExternalDataSourceCreate = {
         /**
          * The source type (e.g. 'Postgres', 'Stripe').
-         *
-         * * `Ashby` - Ashby
-         * * `Supabase` - Supabase
-         * * `CustomerIO` - CustomerIO
-         * * `Github` - Github
-         * * `Stripe` - Stripe
-         * * `Hubspot` - Hubspot
-         * * `Postgres` - Postgres
-         * * `Zendesk` - Zendesk
-         * * `Snowflake` - Snowflake
-         * * `Salesforce` - Salesforce
-         * * `MySQL` - MySQL
-         * * `MongoDB` - MongoDB
-         * * `MSSQL` - MSSQL
-         * * `Vitally` - Vitally
-         * * `BigQuery` - BigQuery
-         * * `Chargebee` - Chargebee
-         * * `Clerk` - Clerk
-         * * `GoogleAds` - GoogleAds
-         * * `GoogleSearchConsole` - GoogleSearchConsole
-         * * `TemporalIO` - TemporalIO
-         * * `DoIt` - DoIt
-         * * `GoogleSheets` - GoogleSheets
-         * * `MetaAds` - MetaAds
-         * * `Klaviyo` - Klaviyo
-         * * `Mailchimp` - Mailchimp
-         * * `Braze` - Braze
-         * * `Mailjet` - Mailjet
-         * * `Redshift` - Redshift
-         * * `Polar` - Polar
-         * * `RevenueCat` - RevenueCat
-         * * `LinkedinAds` - LinkedinAds
-         * * `RedditAds` - RedditAds
-         * * `TikTokAds` - TikTokAds
-         * * `BingAds` - BingAds
-         * * `Shopify` - Shopify
-         * * `Attio` - Attio
-         * * `SnapchatAds` - SnapchatAds
-         * * `Linear` - Linear
-         * * `LiteLLM` - LiteLLM
-         * * `Intercom` - Intercom
-         * * `Amplitude` - Amplitude
-         * * `Mixpanel` - Mixpanel
-         * * `Jira` - Jira
-         * * `ActiveCampaign` - ActiveCampaign
-         * * `Marketo` - Marketo
-         * * `Adjust` - Adjust
-         * * `AppsFlyer` - AppsFlyer
-         * * `Freshdesk` - Freshdesk
-         * * `GoogleAnalytics` - GoogleAnalytics
-         * * `Pipedrive` - Pipedrive
-         * * `SendGrid` - SendGrid
-         * * `Slack` - Slack
-         * * `PagerDuty` - PagerDuty
-         * * `Asana` - Asana
-         * * `Notion` - Notion
-         * * `Airtable` - Airtable
-         * * `Greenhouse` - Greenhouse
-         * * `BambooHR` - BambooHR
-         * * `Lever` - Lever
-         * * `GitLab` - GitLab
-         * * `Datadog` - Datadog
-         * * `Sentry` - Sentry
-         * * `Pendo` - Pendo
-         * * `FullStory` - FullStory
-         * * `AmazonAds` - AmazonAds
-         * * `PinterestAds` - PinterestAds
-         * * `AppleSearchAds` - AppleSearchAds
-         * * `QuickBooks` - QuickBooks
-         * * `Xero` - Xero
-         * * `NetSuite` - NetSuite
-         * * `WooCommerce` - WooCommerce
-         * * `BigCommerce` - BigCommerce
-         * * `PayPal` - PayPal
-         * * `Square` - Square
-         * * `Zoom` - Zoom
-         * * `Trello` - Trello
-         * * `TrafficStars` - TrafficStars
-         * * `Monday` - Monday
-         * * `ClickUp` - ClickUp
-         * * `Confluence` - Confluence
-         * * `Recurly` - Recurly
-         * * `SalesLoft` - SalesLoft
-         * * `Outreach` - Outreach
-         * * `Gong` - Gong
-         * * `Calendly` - Calendly
-         * * `Typeform` - Typeform
-         * * `UnityAds` - UnityAds
-         * * `Iterable` - Iterable
-         * * `ZohoCRM` - ZohoCRM
-         * * `Close` - Close
-         * * `Oracle` - Oracle
-         * * `DynamoDB` - DynamoDB
-         * * `Elasticsearch` - Elasticsearch
-         * * `Kafka` - Kafka
-         * * `LaunchDarkly` - LaunchDarkly
-         * * `Braintree` - Braintree
-         * * `Recharge` - Recharge
-         * * `HelpScout` - HelpScout
-         * * `Gorgias` - Gorgias
-         * * `Instagram` - Instagram
-         * * `YouTubeAnalytics` - YouTubeAnalytics
-         * * `FacebookPages` - FacebookPages
-         * * `TwitterAds` - TwitterAds
-         * * `Workday` - Workday
-         * * `ServiceNow` - ServiceNow
-         * * `Pardot` - Pardot
-         * * `Copper` - Copper
-         * * `Front` - Front
-         * * `ChartMogul` - ChartMogul
-         * * `Zuora` - Zuora
-         * * `Paddle` - Paddle
-         * * `CircleCI` - CircleCI
-         * * `CockroachDB` - CockroachDB
-         * * `Firebase` - Firebase
-         * * `AzureBlob` - AzureBlob
-         * * `GoogleDrive` - GoogleDrive
-         * * `OneDrive` - OneDrive
-         * * `SharePoint` - SharePoint
-         * * `Box` - Box
-         * * `SFTP` - SFTP
-         * * `MicrosoftTeams` - MicrosoftTeams
-         * * `Aircall` - Aircall
-         * * `Webflow` - Webflow
-         * * `Okta` - Okta
-         * * `Auth0` - Auth0
-         * * `Productboard` - Productboard
-         * * `Smartsheet` - Smartsheet
-         * * `Wrike` - Wrike
-         * * `Plaid` - Plaid
-         * * `SurveyMonkey` - SurveyMonkey
-         * * `Eventbrite` - Eventbrite
-         * * `Everflow` - Everflow
-         * * `RingCentral` - RingCentral
-         * * `Twilio` - Twilio
-         * * `Freshsales` - Freshsales
-         * * `Shortcut` - Shortcut
-         * * `ConvertKit` - ConvertKit
-         * * `Drip` - Drip
-         * * `CampaignMonitor` - CampaignMonitor
-         * * `MailerLite` - MailerLite
-         * * `Omnisend` - Omnisend
-         * * `Brevo` - Brevo
-         * * `Postmark` - Postmark
-         * * `Granola` - Granola
-         * * `BuildBetter` - BuildBetter
-         * * `Convex` - Convex
-         * * `ClickHouse` - ClickHouse
-         * * `Plain` - Plain
-         * * `Resend` - Resend
-         * * `PgAnalyze` - PgAnalyze
-         * * `WorkOS` - WorkOS
-         * * `AmazonS3` - AmazonS3
-         * * `GoogleCloudStorage` - GoogleCloudStorage
-         * * `Databricks` - Databricks
-         * * `Dynamics365` - Dynamics365
-         * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
-         * * `Db2` - Db2
-         * * `Heap` - Heap
-         * * `AdobeAnalytics` - AdobeAnalytics
-         * * `Matomo` - Matomo
-         * * `Optimizely` - Optimizely
-         * * `Adyen` - Adyen
-         * * `GoCardless` - GoCardless
-         * * `Mollie` - Mollie
-         * * `CheckoutCom` - CheckoutCom
-         * * `Branch` - Branch
-         * * `Criteo` - Criteo
-         * * `Outbrain` - Outbrain
-         * * `Taboola` - Taboola
-         * * `AdRoll` - AdRoll
-         * * `DisplayVideo360` - DisplayVideo360
-         * * `GoogleAdManager` - GoogleAdManager
-         * * `CampaignManager360` - CampaignManager360
-         * * `SearchAds360` - SearchAds360
-         * * `AdobeCommerce` - AdobeCommerce
-         * * `AmazonSellingPartner` - AmazonSellingPartner
-         * * `Ebay` - Ebay
-         * * `Commercetools` - Commercetools
-         * * `LightspeedRetail` - LightspeedRetail
-         * * `Shipmail` - Shipmail
-         * * `ShipStation` - ShipStation
-         * * `ConstantContact` - ConstantContact
-         * * `Mailgun` - Mailgun
-         * * `Eloqua` - Eloqua
-         * * `Sailthru` - Sailthru
-         * * `Ortto` - Ortto
-         * * `Attentive` - Attentive
-         * * `Kustomer` - Kustomer
-         * * `Dixa` - Dixa
-         * * `Gladly` - Gladly
-         * * `Qualtrics` - Qualtrics
-         * * `AzureDevOps` - AzureDevOps
-         * * `RoktAds` - RoktAds
-         * * `Rollbar` - Rollbar
-         * * `Opsgenie` - Opsgenie
-         * * `IncidentIo` - IncidentIo
-         * * `Pingdom` - Pingdom
-         * * `Cloudflare` - Cloudflare
-         * * `CloudflareD1` - CloudflareD1
-         * * `CosmosDB` - CosmosDB
-         * * `PlanetScaleMySQL` - PlanetScaleMySQL
-         * * `PlanetScalePostgres` - PlanetScalePostgres
-         * * `Plane` - Plane
-         * * `Scarf` - Scarf
-         * * `SapHana` - SapHana
-         * * `Rippling` - Rippling
-         * * `HiBob` - HiBob
-         * * `Personio` - Personio
-         * * `Deel` - Deel
-         * * `AdpWorkforceNow` - AdpWorkforceNow
-         * * `Paylocity` - Paylocity
-         * * `Gusto` - Gusto
-         * * `CultureAmp` - CultureAmp
-         * * `Lattice` - Lattice
-         * * `SageIntacct` - SageIntacct
-         * * `FreshBooks` - FreshBooks
-         * * `Expensify` - Expensify
-         * * `Ramp` - Ramp
-         * * `Brex` - Brex
-         * * `Coupa` - Coupa
-         * * `SapConcur` - SapConcur
-         * * `Apollo` - Apollo
-         * * `Crunchbase` - Crunchbase
-         * * `ZoomInfo` - ZoomInfo
-         * * `Clari` - Clari
-         * * `Chorus` - Chorus
-         * * `Coda` - Coda
-         * * `Guru` - Guru
-         * * `Dropbox` - Dropbox
-         * * `Docusign` - Docusign
-         * * `PandaDoc` - PandaDoc
-         * * `SapErp` - SapErp
-         * * `SapSuccessFactors` - SapSuccessFactors
-         * * `OracleEbs` - OracleEbs
-         * * `OracleFusion` - OracleFusion
-         * * `AmazonSNS` - AmazonSNS
-         * * `AmazonEventBridge` - AmazonEventBridge
-         * * `AmazonSQS` - AmazonSQS
-         * * `AmazonKinesis` - AmazonKinesis
-         * * `AmazonCloudWatch` - AmazonCloudWatch
-         * * `OpenAIAds` - OpenAIAds
-         * * `OneHundredMs` - OneHundredMs
-         * * `SevenShifts` - SevenShifts
-         * * `AcuityScheduling` - AcuityScheduling
-         * * `AgileCRM` - AgileCRM
-         * * `Aha` - Aha
-         * * `Airbyte` - Airbyte
-         * * `Akeneo` - Akeneo
-         * * `Algolia` - Algolia
-         * * `AlpacaBrokerAPI` - AlpacaBrokerAPI
-         * * `ApifyDataset` - ApifyDataset
-         * * `Appcues` - Appcues
-         * * `Appfigures` - Appfigures
-         * * `Appfollow` - Appfollow
-         * * `Apptivo` - Apptivo
-         * * `AssemblyAI` - AssemblyAI
-         * * `Awin` - Awin
-         * * `AwsCloudTrail` - AwsCloudTrail
-         * * `AzureTableStorage` - AzureTableStorage
-         * * `Babelforce` - Babelforce
-         * * `Basecamp` - Basecamp
-         * * `Beamer` - Beamer
-         * * `BigMailer` - BigMailer
-         * * `Bluetally` - Bluetally
-         * * `BoldSign` - BoldSign
-         * * `BreezyHR` - BreezyHR
-         * * `Bugsnag` - Bugsnag
-         * * `Buildkite` - Buildkite
-         * * `Bunny` - Bunny
-         * * `Buzzsprout` - Buzzsprout
-         * * `CalCom` - CalCom
-         * * `CallRail` - CallRail
-         * * `Campayn` - Campayn
-         * * `Canny` - Canny
-         * * `CapsuleCRM` - CapsuleCRM
-         * * `CaptainData` - CaptainData
-         * * `CartCom` - CartCom
-         * * `CastorEDC` - CastorEDC
-         * * `Chameleon` - Chameleon
-         * * `Chargedesk` - Chargedesk
-         * * `Chargify` - Chargify
-         * * `Chift` - Chift
-         * * `Churnkey` - Churnkey
-         * * `Cin7` - Cin7
-         * * `CiscoMeraki` - CiscoMeraki
-         * * `Clazar` - Clazar
-         * * `Clockify` - Clockify
-         * * `Clockodo` - Clockodo
-         * * `Cloudbeds` - Cloudbeds
-         * * `Coassemble` - Coassemble
-         * * `Codefresh` - Codefresh
-         * * `Concord` - Concord
-         * * `ConfigCat` - ConfigCat
-         * * `Couchbase` - Couchbase
-         * * `Curve` - Curve
-         * * `Customerly` - Customerly
-         * * `Datascope` - Datascope
-         * * `Dbt` - Dbt
-         * * `Demodesk` - Demodesk
-         * * `Deputy` - Deputy
-         * * `DevinAI` - DevinAI
-         * * `Docuseal` - Docuseal
-         * * `Dolibarr` - Dolibarr
-         * * `Dremio` - Dremio
-         * * `DropboxSign` - DropboxSign
-         * * `Dwolla` - Dwolla
-         * * `EConomic` - EConomic
-         * * `Easypost` - Easypost
-         * * `Easypromos` - Easypromos
-         * * `Elasticemail` - Elasticemail
-         * * `EmailOctopus` - EmailOctopus
-         * * `EmploymentHero` - EmploymentHero
-         * * `Encharge` - Encharge
-         * * `Eventee` - Eventee
-         * * `Eventzilla` - Eventzilla
-         * * `Everhour` - Everhour
-         * * `EZOfficeInventory` - EZOfficeInventory
-         * * `Factorial` - Factorial
-         * * `Fastbill` - Fastbill
-         * * `Fastly` - Fastly
-         * * `Fauna` - Fauna
-         * * `Feishu` - Feishu
-         * * `Fillout` - Fillout
-         * * `Finage` - Finage
-         * * `Firebolt` - Firebolt
-         * * `FireHydrant` - FireHydrant
-         * * `Fleetio` - Fleetio
-         * * `Flexmail` - Flexmail
-         * * `Flexport` - Flexport
-         * * `FloatApp` - FloatApp
-         * * `Flowlu` - Flowlu
-         * * `Formbricks` - Formbricks
-         * * `Framer` - Framer
-         * * `FreeAgent` - FreeAgent
-         * * `Freightview` - Freightview
-         * * `Freshcaller` - Freshcaller
-         * * `Freshchat` - Freshchat
-         * * `Freshservice` - Freshservice
-         * * `Fulcrum` - Fulcrum
-         * * `GainsightCs` - GainsightCs
-         * * `GainsightPx` - GainsightPx
-         * * `GitBook` - GitBook
-         * * `Glassfrog` - Glassfrog
-         * * `Goldcast` - Goldcast
-         * * `GoLogin` - GoLogin
-         * * `Grafana` - Grafana
-         * * `GreytHr` - GreytHr
-         * * `Gridly` - Gridly
-         * * `Harness` - Harness
-         * * `Height` - Height
-         * * `Hellobaton` - Hellobaton
-         * * `HighLevel` - HighLevel
-         * * `HoorayHR` - HoorayHR
-         * * `Hubplanner` - Hubplanner
-         * * `Humanitix` - Humanitix
-         * * `Huntr` - Huntr
-         * * `Inflowinventory` - Inflowinventory
-         * * `InforNexus` - InforNexus
-         * * `Insightful` - Insightful
-         * * `Insightly` - Insightly
-         * * `Instantly` - Instantly
-         * * `Instatus` - Instatus
-         * * `Intruder` - Intruder
-         * * `Invoiced` - Invoiced
-         * * `Invoiceninja` - Invoiceninja
-         * * `JamfPro` - JamfPro
-         * * `JobNimbus` - JobNimbus
-         * * `Jotform` - Jotform
-         * * `JudgeMeReviews` - JudgeMeReviews
-         * * `JustCall` - JustCall
-         * * `JustSift` - JustSift
-         * * `K6Cloud` - K6Cloud
-         * * `Katana` - Katana
-         * * `Keka` - Keka
-         * * `Kisi` - Kisi
-         * * `Kissmetrics` - Kissmetrics
-         * * `Klarna` - Klarna
-         * * `Klaus` - Klaus
-         * * `Lago` - Lago
-         * * `Leadfeeder` - Leadfeeder
-         * * `Lemlist` - Lemlist
-         * * `LessAnnoyingCRM` - LessAnnoyingCRM
-         * * `LinkedinPages` - LinkedinPages
-         * * `Linkrunner` - Linkrunner
-         * * `Linnworks` - Linnworks
-         * * `Lob` - Lob
-         * * `Lokalise` - Lokalise
-         * * `Looker` - Looker
-         * * `Luma` - Luma
-         * * `MailerSend` - MailerSend
-         * * `Mailosaur` - Mailosaur
-         * * `Mailtrap` - Mailtrap
-         * * `Mantle` - Mantle
-         * * `Mention` - Mention
-         * * `MercadoAds` - MercadoAds
-         * * `Merge` - Merge
-         * * `Metabase` - Metabase
-         * * `Metricool` - Metricool
-         * * `MicrosoftDataverse` - MicrosoftDataverse
-         * * `MicrosoftEntraId` - MicrosoftEntraId
-         * * `MicrosoftLists` - MicrosoftLists
-         * * `Miro` - Miro
-         * * `Missive` - Missive
-         * * `MixMax` - MixMax
-         * * `Mode` - Mode
-         * * `Mux` - Mux
-         * * `MyHours` - MyHours
-         * * `N8n` - N8n
-         * * `Navan` - Navan
-         * * `NebiusAI` - NebiusAI
-         * * `Nexiopay` - Nexiopay
-         * * `NinjaOneRMM` - NinjaOneRMM
-         * * `NoCRM` - NoCRM
-         * * `NorthpassLMS` - NorthpassLMS
-         * * `Nutshell` - Nutshell
-         * * `Nylas` - Nylas
-         * * `Oncehub` - Oncehub
-         * * `Onepagecrm` - Onepagecrm
-         * * `OneSignal` - OneSignal
-         * * `Onfleet` - Onfleet
-         * * `OpinionStage` - OpinionStage
-         * * `OPUSWatch` - OPUSWatch
-         * * `Orb` - Orb
-         * * `Orbit` - Orbit
-         * * `Oura` - Oura
-         * * `Oveit` - Oveit
-         * * `PabblySubscriptionsBilling` - PabblySubscriptionsBilling
-         * * `Paperform` - Paperform
-         * * `Papersign` - Papersign
-         * * `Partnerize` - Partnerize
-         * * `PartnerStack` - PartnerStack
-         * * `PayFit` - PayFit
-         * * `Paystack` - Paystack
-         * * `Pennylane` - Pennylane
-         * * `Perk` - Perk
-         * * `PersistIq` - PersistIq
-         * * `Persona` - Persona
-         * * `Phyllo` - Phyllo
-         * * `Picqer` - Picqer
-         * * `Pipeliner` - Pipeliner
-         * * `PivotalTracker` - PivotalTracker
-         * * `Piwik` - Piwik
-         * * `Planhat` - Planhat
-         * * `Plausible` - Plausible
-         * * `Poplar` - Poplar
-         * * `PrestaShop` - PrestaShop
-         * * `Pretix` - Pretix
-         * * `Primetric` - Primetric
-         * * `Printavo` - Printavo
-         * * `Printify` - Printify
-         * * `Productive` - Productive
-         * * `Pylon` - Pylon
-         * * `Qonto` - Qonto
-         * * `Qualaroo` - Qualaroo
-         * * `Railz` - Railz
-         * * `RDStationMarketing` - RDStationMarketing
-         * * `Recruitee` - Recruitee
-         * * `Reddit` - Reddit
-         * * `ReferralHero` - ReferralHero
-         * * `RentCast` - RentCast
-         * * `Repairshopr` - Repairshopr
-         * * `ReplyIo` - ReplyIo
-         * * `RetailExpress` - RetailExpress
-         * * `Retently` - Retently
-         * * `Retreaver` - Retreaver
-         * * `RevolutMerchant` - RevolutMerchant
-         * * `RocketChat` - RocketChat
-         * * `Rocketlane` - Rocketlane
-         * * `Rootly` - Rootly
-         * * `Ruddr` - Ruddr
-         * * `SafetyCulture` - SafetyCulture
-         * * `SageHR` - SageHR
-         * * `Salesflare` - Salesflare
-         * * `SAPFieldglass` - SAPFieldglass
-         * * `SavvyCal` - SavvyCal
-         * * `Secoda` - Secoda
-         * * `Segment` - Segment
-         * * `Sendowl` - Sendowl
-         * * `SendPulse` - SendPulse
-         * * `Senseforce` - Senseforce
-         * * `Serpstat` - Serpstat
-         * * `Sharetribe` - Sharetribe
-         * * `Shippo` - Shippo
-         * * `ShopWired` - ShopWired
-         * * `Shortio` - Shortio
-         * * `Shutterstock` - Shutterstock
-         * * `SigmaComputing` - SigmaComputing
-         * * `SignNow` - SignNow
-         * * `SimpleCast` - SimpleCast
-         * * `Simplesat` - Simplesat
-         * * `Smaily` - Smaily
-         * * `SmartEngage` - SmartEngage
-         * * `Smartreach` - Smartreach
-         * * `Smartwaiver` - Smartwaiver
-         * * `SolarwindsServiceDesk` - SolarwindsServiceDesk
-         * * `SonarCloud` - SonarCloud
-         * * `SparkPost` - SparkPost
-         * * `SplitIo` - SplitIo
-         * * `SpotifyAds` - SpotifyAds
-         * * `SpotlerCRM` - SpotlerCRM
-         * * `Squarespace` - Squarespace
-         * * `Statsig` - Statsig
-         * * `Statuspage` - Statuspage
-         * * `Steam` - Steam
-         * * `Stigg` - Stigg
-         * * `Strava` - Strava
-         * * `SurveySparrow` - SurveySparrow
-         * * `Survicate` - Survicate
-         * * `Svix` - Svix
-         * * `Systeme` - Systeme
-         * * `Tavus` - Tavus
-         * * `Teamtailor` - Teamtailor
-         * * `Teamwork` - Teamwork
-         * * `Tempo` - Tempo
-         * * `Testrail` - Testrail
-         * * `Thinkific` - Thinkific
-         * * `ThinkificCourses` - ThinkificCourses
-         * * `ThriveLearning` - ThriveLearning
-         * * `Ticketmaster` - Ticketmaster
-         * * `TicketTailor` - TicketTailor
-         * * `TickTick` - TickTick
-         * * `Timely` - Timely
-         * * `Tinyemail` - Tinyemail
-         * * `Todoist` - Todoist
-         * * `Toggl` - Toggl
-         * * `TrackPMS` - TrackPMS
-         * * `Tremendous` - Tremendous
-         * * `TrustPilot` - TrustPilot
-         * * `Twitter` - Twitter
-         * * `TyntecSMS` - TyntecSMS
-         * * `Unleash` - Unleash
-         * * `UpPromote` - UpPromote
-         * * `Uptick` - Uptick
-         * * `Uservoice` - Uservoice
-         * * `Vantage` - Vantage
-         * * `Veeqo` - Veeqo
-         * * `Vercel` - Vercel
-         * * `VismaEconomic` - VismaEconomic
-         * * `VWO` - VWO
-         * * `Waiteraid` - Waiteraid
-         * * `Wasabi` - Wasabi
-         * * `WhenIWork` - WhenIWork
-         * * `Wordpress` - Wordpress
-         * * `Workable` - Workable
-         * * `Workflowmax` - Workflowmax
-         * * `Workramp` - Workramp
-         * * `Wufoo` - Wufoo
-         * * `Xsolla` - Xsolla
-         * * `YandexMetrica` - YandexMetrica
-         * * `Yotpo` - Yotpo
-         * * `Ynab` - Ynab
-         * * `Younium` - Younium
-         * * `YouSign` - YouSign
-         * * `YoutubeData` - YoutubeData
-         * * `ZapierSupportedStorage` - ZapierSupportedStorage
-         * * `ZapSign` - ZapSign
-         * * `ZendeskSell` - ZendeskSell
-         * * `ZendeskSunshine` - ZendeskSunshine
-         * * `Zenefits` - Zenefits
-         * * `Zenloop` - Zenloop
-         * * `ZohoAnalytics` - ZohoAnalytics
-         * * `ZohoBigin` - ZohoBigin
-         * * `ZohoBilling` - ZohoBilling
-         * * `ZohoBooks` - ZohoBooks
-         * * `ZohoCampaign` - ZohoCampaign
-         * * `ZohoDesk` - ZohoDesk
-         * * `ZohoExpense` - ZohoExpense
-         * * `ZohoInventory` - ZohoInventory
-         * * `ZohoInvoice` - ZohoInvoice
-         * * `ZonkaFeedback` - ZonkaFeedback
-         * * `AlphaVantage` - AlphaVantage
-         * * `Aviationstack` - Aviationstack
-         * * `Bitly` - Bitly
-         * * `Blogger` - Blogger
-         * * `Breezometer` - Breezometer
-         * * `CareQualityCommission` - CareQualityCommission
-         * * `Cimis` - Cimis
-         * * `CoinApi` - CoinApi
-         * * `CoinGecko` - CoinGecko
-         * * `CoinMarketCap` - CoinMarketCap
-         * * `DingConnect` - DingConnect
-         * * `Dockerhub` - Dockerhub
-         * * `ExchangeRatesApi` - ExchangeRatesApi
-         * * `FinancialModelling` - FinancialModelling
-         * * `Finnhub` - Finnhub
-         * * `Finnworlds` - Finnworlds
-         * * `Giphy` - Giphy
-         * * `Gmail` - Gmail
-         * * `GNews` - GNews
-         * * `GoogleCalendar` - GoogleCalendar
-         * * `GoogleClassroom` - GoogleClassroom
-         * * `GoogleDirectory` - GoogleDirectory
-         * * `GoogleForms` - GoogleForms
-         * * `GooglePageSpeedInsights` - GooglePageSpeedInsights
-         * * `GoogleTasks` - GoogleTasks
-         * * `GoogleWebfonts` - GoogleWebfonts
-         * * `GoogleWorkspaceAdminReports` - GoogleWorkspaceAdminReports
-         * * `HuggingFace` - HuggingFace
-         * * `IlluminaBasespace` - IlluminaBasespace
-         * * `Imagga` - Imagga
-         * * `Interzoid` - Interzoid
-         * * `IP2Whois` - IP2Whois
-         * * `KYVE` - KYVE
-         * * `Marketstack` - Marketstack
-         * * `Mendeley` - Mendeley
-         * * `Nasa` - Nasa
-         * * `NewYorkTimes` - NewYorkTimes
-         * * `NewsApi` - NewsApi
-         * * `NewsData` - NewsData
-         * * `OpenDataDc` - OpenDataDc
-         * * `OpenExchangeRates` - OpenExchangeRates
-         * * `OpenAQ` - OpenAQ
-         * * `OpenFDA` - OpenFDA
-         * * `OpenWeather` - OpenWeather
-         * * `Outlook` - Outlook
-         * * `Perigon` - Perigon
-         * * `Pexels` - Pexels
-         * * `Pocket` - Pocket
-         * * `Polygon` - Polygon
-         * * `PyPI` - PyPI
-         * * `Recreation` - Recreation
-         * * `RKICovid` - RKICovid
-         * * `Rss` - Rss
-         * * `SimFin` - SimFin
-         * * `StockData` - StockData
-         * * `Guardian` - Guardian
-         * * `TMDb` - TMDb
-         * * `TVMaze` - TVMaze
-         * * `TwelveData` - TwelveData
-         * * `Ubidots` - Ubidots
-         * * `USCensus` - USCensus
-         * * `Watchmode` - Watchmode
-         * * `WikipediaPageviews` - WikipediaPageviews
-         * * `YahooFinance` - YahooFinance
-         * * `Clarifai` - Clarifai
-         * * `Adapty` - Adapty
-         * * `Braintrust` - Braintrust
-         * * `StreamElements` - StreamElements
-         * * `Streamlabs` - Streamlabs
-         * * `Datorama` - Datorama
-         * * `Ahrefs` - Ahrefs
-         * * `Lightfield` - Lightfield
-         * * `Appstack` - Appstack
-         * * `Razorpay` - Razorpay
-         * * `Neon` - Neon
-         * * `NewRelic` - NewRelic
-         * * `Custom` - Custom
-         * * `Tile38` - Tile38
-         * * `Chatwoot` - Chatwoot
-         * * `Sanity` - Sanity
-         * * `Metronome` - Metronome
-         * * `Jobber` - Jobber
-         * * `Knock` - Knock
-         * * `Leexi` - Leexi
-         * * `RB2B` - RB2B
-         * * `Superwall` - Superwall
-         * * `Liana` - Liana
-         * * `TawkTo` - TawkTo
-         * * `Hightouch` - Hightouch
-         * * `LemonSqueezy` - LemonSqueezy
-         * * `Ikas` - Ikas
-         * * `Talkwalker` - Talkwalker
-         * * `NextdoorAds` - NextdoorAds
-         * * `AppLovin` - AppLovin
-         * * `Baserow` - Baserow
-         * * `Plunk` - Plunk
-         * * `Dub` - Dub
-         * * `AirOps` - AirOps
-         * * `Podium` - Podium
-         * * `Loops` - Loops
-         * * `Redis` - Redis
-         * * `Mercury` - Mercury
-         * * `Gojiberry` - Gojiberry
-         * * `Teachable` - Teachable
-         * * `PeecAI` - PeecAI
-         * * `Healthchecks` - Healthchecks
-         * * `Impact` - Impact
-         * * `AikidoSecurity` - AikidoSecurity
-         * * `Alguna` - Alguna
-         * * `Anthropic` - Anthropic
-         * * `Appwrite` - Appwrite
-         * * `BlandAI` - BlandAI
-         * * `BrowseAI` - BrowseAI
-         * * `BrowserUse` - BrowserUse
-         * * `ChartHop` - ChartHop
-         * * `Cody` - Cody
-         * * `Cursor` - Cursor
-         * * `Decagon` - Decagon
-         * * `Deepgram` - Deepgram
-         * * `ElevenLabs` - ElevenLabs
-         * * `Harvey` - Harvey
-         * * `Hyperspell` - Hyperspell
-         * * `Langfuse` - Langfuse
-         * * `LingoDev` - LingoDev
-         * * `M3ter` - M3ter
-         * * `Maxio` - Maxio
-         * * `Metorial` - Metorial
-         * * `OpenRouter` - OpenRouter
-         * * `TogetherAI` - TogetherAI
-         * * `Vapi` - Vapi
-         * * `Vespa` - Vespa
-         * * `Writesonic` - Writesonic
-         * * `Aiven` - Aiven
-         * * `Aviator` - Aviator
-         * * `Backblaze` - Backblaze
-         * * `Baseten` - Baseten
-         * * `Browserbase` - Browserbase
-         * * `Cohere` - Cohere
-         * * `DenoDeploy` - DenoDeploy
-         * * `DigitalOcean` - DigitalOcean
-         * * `E2B` - E2B
-         * * `Fintoc` - Fintoc
-         * * `Firecrawl` - Firecrawl
-         * * `FireworksAI` - FireworksAI
-         * * `FlyIo` - FlyIo
-         * * `Groq` - Groq
-         * * `GrowthBook` - GrowthBook
-         * * `Gumloop` - Gumloop
-         * * `Hatchet` - Hatchet
-         * * `Helicone` - Helicone
-         * * `Heroku` - Heroku
-         * * `Hetzner` - Hetzner
-         * * `HeyGen` - HeyGen
-         * * `Infisical` - Infisical
-         * * `Inngest` - Inngest
-         * * `KapaAI` - KapaAI
-         * * `Kernel` - Kernel
-         * * `Koyeb` - Koyeb
-         * * `LambdaLabs` - LambdaLabs
-         * * `LangSmith` - LangSmith
-         * * `Linode` - Linode
-         * * `Listmonk` - Listmonk
-         * * `LlamaCloud` - LlamaCloud
-         * * `Mem0` - Mem0
-         * * `Metriport` - Metriport
-         * * `Mintlify` - Mintlify
-         * * `MistralAI` - MistralAI
-         * * `Mono` - Mono
-         * * `Netlify` - Netlify
-         * * `Northflank` - Northflank
-         * * `OpenAI` - OpenAI
-         * * `Pinecone` - Pinecone
-         * * `PlatformSh` - PlatformSh
-         * * `PromptingCompany` - PromptingCompany
-         * * `Qdrant` - Qdrant
-         * * `Render` - Render
-         * * `Replicate` - Replicate
-         * * `RetellAI` - RetellAI
-         * * `Roark` - Roark
-         * * `RunPod` - RunPod
-         * * `ScaleAI` - ScaleAI
-         * * `Scaleway` - Scaleway
-         * * `SigNoz` - SigNoz
-         * * `Sim` - Sim
-         * * `Skyvern` - Skyvern
-         * * `Slash` - Slash
-         * * `Synthesia` - Synthesia
-         * * `Telli` - Telli
-         * * `TerraApi` - TerraApi
-         * * `TriggerDev` - TriggerDev
-         * * `Turso` - Turso
-         * * `Singular` - Singular
-         * * `Swonkie` - Swonkie
-         * * `TwelveLabs` - TwelveLabs
-         * * `Twenty` - Twenty
-         * * `Unstructured` - Unstructured
-         * * `Upstash` - Upstash
-         * * `Vellum` - Vellum
-         * * `Vultr` - Vultr
-         * * `Windmill` - Windmill
-         * * `Zep` - Zep
-         * * `Hex` - Hex
-         * * `Sumsub` - Sumsub
-         * * `GoogleChat` - GoogleChat
-         * * `Kickscale` - Kickscale
-         * * `Zellify` - Zellify
-         * * `RudderStack` - RudderStack
-         * * `DodoPayments` - DodoPayments
-         * * `Salestrics` - Salestrics
-         * * `Doppler` - Doppler
-         * * `Usersnap` - Usersnap
-         * * `Asknicely` - Asknicely
-         * * `Featurebase` - Featurebase
-         * * `Frill` - Frill
-         * * `Bettermode` - Bettermode
-         * * `Dynatrace` - Dynatrace
-         * * `Honeycomb` - Honeycomb
-         * * `SumoLogic` - SumoLogic
-         * * `LogzIO` - LogzIO
-         * * `Coralogix` - Coralogix
-         * * `BetterStack` - BetterStack
-         * * `Raygun` - Raygun
-         * * `Honeybadger` - Honeybadger
-         * * `Airbrake` - Airbrake
-         * * `Appsignal` - Appsignal
-         * * `Appdynamics` - Appdynamics
-         * * `Instana` - Instana
-         * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
-         * * `Uptimerobot` - Uptimerobot
-         * * `Statuscake` - Statuscake
-         * * `Tailscale` - Tailscale
-         * * `Flagsmith` - Flagsmith
-         * * `Xmatters` - Xmatters
-         * * `Squadcast` - Squadcast
-         * * `Zenduty` - Zenduty
-         * * `Cronitor` - Cronitor
-         * * `Jenkins` - Jenkins
-         * * `Bitbucket` - Bitbucket
-         * * `Gitea` - Gitea
-         * * `Teamcity` - Teamcity
-         * * `TravisCI` - TravisCI
-         * * `Semaphore` - Semaphore
-         * * `CircleciInsights` - CircleciInsights
-         * * `OctopusDeploy` - OctopusDeploy
-         * * `Sourcegraph` - Sourcegraph
-         * * `Bitrise` - Bitrise
-         * * `Gerrit` - Gerrit
-         * * `TerraformCloud` - TerraformCloud
-         * * `PulumiCloud` - PulumiCloud
-         * * `Spacelift` - Spacelift
-         * * `Railway` - Railway
-         * * `Argocd` - Argocd
-         * * `PrefectCloud` - PrefectCloud
-         * * `DagsterCloud` - DagsterCloud
-         * * `Env0` - Env0
-         * * `Kubecost` - Kubecost
-         * * `Snyk` - Snyk
-         * * `Semgrep` - Semgrep
-         * * `Veracode` - Veracode
-         * * `Checkmarx` - Checkmarx
-         * * `Gitguardian` - Gitguardian
-         * * `QualysVmdr` - QualysVmdr
-         * * `Rapid7Insightvm` - Rapid7Insightvm
-         * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
-         * * `Sentinelone` - Sentinelone
-         * * `Lacework` - Lacework
-         * * `OrcaSecurity` - OrcaSecurity
-         * * `Drata` - Drata
-         * * `Secureframe` - Secureframe
-         * * `CiscoDuo` - CiscoDuo
-         * * `Jumpcloud` - Jumpcloud
-         * * `OnePassword` - OnePassword
-         * * `Stytch` - Stytch
-         * * `Sonarqube` - Sonarqube
-         * * `Codecov` - Codecov
-         * * `Coveralls` - Coveralls
-         * * `Codacy` - Codacy
-         * * `Deepsource` - Deepsource
-         * * `Linearb` - Linearb
-         * * `Jellyfish` - Jellyfish
-         * * `Swarmia` - Swarmia
-         * * `Packagist` - Packagist
-         * * `Nuget` - Nuget
-         * * `CratesIO` - CratesIO
-         * * `SonatypeNexus` - SonatypeNexus
-         * * `JfrogArtifactory` - JfrogArtifactory
-         * * `Snowplow` - Snowplow
-         * * `WeightsAndBiases` - WeightsAndBiases
-         * * `MonteCarlo` - MonteCarlo
-         * * `Metaplane` - Metaplane
-         * * `Datahub` - Datahub
-         * * `ClickhouseCloud` - ClickhouseCloud
-         * * `ConfluentCloud` - ConfluentCloud
-         * * `KongKonnect` - KongKonnect
-         * * `Kandji` - Kandji
-         * * `Automox` - Automox
-         * * `Autumn` - Autumn
-         * * `GetStream` - GetStream
-         * * `Octolens` - Octolens
-         * * `Kajabi` - Kajabi
-         * * `Shopware` - Shopware
-         * * `Dubsado` - Dubsado
-         * * `Campfire` - Campfire
-         * * `PromptWatch` - PromptWatch
-         * * `Crisp` - Crisp
-         * * `Kommo` - Kommo
-         * * `Axiom` - Axiom
-         * * `Plivo` - Plivo
-         * * `DataForSEO` - DataForSEO
-         * * `Sleekplan` - Sleekplan
-         * * `AbTasty` - AbTasty
-         * * `Ably` - Ably
-         * * `AbnormalSecurity` - AbnormalSecurity
-         * * `Acast` - Acast
-         * * `Acculynx` - Acculynx
-         * * `Actionstep` - Actionstep
-         * * `Aftership` - Aftership
-         * * `AhaIdeas` - AhaIdeas
-         * * `AkamaiReporting` - AkamaiReporting
-         * * `Alation` - Alation
-         * * `Alegra` - Alegra
-         * * `Allegro` - Allegro
-         * * `AnodotCost` - AnodotCost
-         * * `Anomalo` - Anomalo
-         * * `Apaleo` - Apaleo
-         * * `Apitally` - Apitally
-         * * `AppStoreConnect` - AppStoreConnect
-         * * `Appdirect` - Appdirect
-         * * `Appfolio` - Appfolio
-         * * `Arxiv` - Arxiv
-         * * `Asaas` - Asaas
-         * * `Astronomer` - Astronomer
-         * * `Athenahealth` - Athenahealth
-         * * `Atlan` - Atlan
-         * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
-         * * `Avalara` - Avalara
-         * * `AwsAthena` - AwsAthena
-         * * `AwsBatch` - AwsBatch
-         * * `AwsBudgets` - AwsBudgets
-         * * `AwsCloudformation` - AwsCloudformation
-         * * `AwsComputeOptimizer` - AwsComputeOptimizer
-         * * `AwsConfig` - AwsConfig
-         * * `AwsConnect` - AwsConnect
-         * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
-         * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
-         * * `AwsCostExplorer` - AwsCostExplorer
-         * * `AwsDocumentDB` - AwsDocumentDB
-         * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
-         * * `AwsGuardduty` - AwsGuardduty
-         * * `AwsHealth` - AwsHealth
-         * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
-         * * `AwsInspector` - AwsInspector
-         * * `AwsMacie` - AwsMacie
-         * * `AwsOrganizations` - AwsOrganizations
-         * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
-         * * `AwsSagemaker` - AwsSagemaker
-         * * `AwsSavingsPlans` - AwsSavingsPlans
-         * * `AwsSecurityHub` - AwsSecurityHub
-         * * `AwsSes` - AwsSes
-         * * `AwsStepFunctions` - AwsStepFunctions
-         * * `AwsSupport` - AwsSupport
-         * * `AwsSystemsManager` - AwsSystemsManager
-         * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
-         * * `AwsWaf` - AwsWaf
-         * * `AwsXray` - AwsXray
-         * * `AzureActivityLog` - AzureActivityLog
-         * * `AzureAdvisor` - AzureAdvisor
-         * * `AzureApiManagement` - AzureApiManagement
-         * * `AzureApplicationInsights` - AzureApplicationInsights
-         * * `AzureCostManagement` - AzureCostManagement
-         * * `AzureDataExplorer` - AzureDataExplorer
-         * * `AzureDataFactory` - AzureDataFactory
-         * * `AzureLogAnalytics` - AzureLogAnalytics
-         * * `AzureMonitorAlerts` - AzureMonitorAlerts
-         * * `AzureMonitorMetrics` - AzureMonitorMetrics
-         * * `AzureOpenaiUsage` - AzureOpenaiUsage
-         * * `AzurePolicyInsights` - AzurePolicyInsights
-         * * `AzureReservations` - AzureReservations
-         * * `AzureResourceGraph` - AzureResourceGraph
-         * * `AzureResourceHealth` - AzureResourceHealth
-         * * `AzureServiceHealth` - AzureServiceHealth
-         * * `AzureSynapse` - AzureSynapse
-         * * `BackMarket` - BackMarket
-         * * `Beehiiv` - Beehiiv
-         * * `Bigeye` - Bigeye
-         * * `BillCom` - BillCom
-         * * `Billomat` - Billomat
-         * * `BingWebmasterTools` - BingWebmasterTools
-         * * `Bitwarden` - Bitwarden
-         * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
-         * * `BlackboardLearn` - BlackboardLearn
-         * * `Bling` - Bling
-         * * `Bloomerang` - Bloomerang
-         * * `Blueshift` - Blueshift
-         * * `Bluesky` - Bluesky
-         * * `BolRetailer` - BolRetailer
-         * * `Boulevard` - Boulevard
-         * * `Buffer` - Buffer
-         * * `Bugherd` - Bugherd
-         * * `Buildium` - Buildium
-         * * `Buttondown` - Buttondown
-         * * `BuyMeACoffee` - BuyMeACoffee
-         * * `Calendarific` - Calendarific
-         * * `Calibre` - Calibre
-         * * `CanvasLms` - CanvasLms
-         * * `Captivate` - Captivate
-         * * `Cashfree` - Cashfree
-         * * `CastAi` - CastAi
-         * * `Catchpoint` - Catchpoint
-         * * `CdcOpenData` - CdcOpenData
-         * * `Census` - Census
-         * * `Checkly` - Checkly
-         * * `CircleSo` - CircleSo
-         * * `Classy` - Classy
-         * * `Cleartax` - Cleartax
-         * * `Clever` - Clever
-         * * `Clevertap` - Clevertap
-         * * `Cliniko` - Cliniko
-         * * `Clio` - Clio
-         * * `Clip` - Clip
-         * * `Cloudability` - Cloudability
-         * * `Cloudsmith` - Cloudsmith
-         * * `Cloudzero` - Cloudzero
-         * * `Clover` - Clover
-         * * `Codemagic` - Codemagic
-         * * `Codescene` - Codescene
-         * * `Collibra` - Collibra
-         * * `Companycam` - Companycam
-         * * `Conekta` - Conekta
-         * * `ContaAzul` - ContaAzul
-         * * `Contentsquare` - Contentsquare
-         * * `Cortex` - Cortex
-         * * `Courier` - Courier
-         * * `Crossref` - Crossref
-         * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
-         * * `CubeCloud` - CubeCloud
-         * * `D2lBrightspace` - D2lBrightspace
-         * * `Dayforce` - Dayforce
-         * * `Debugbear` - Debugbear
-         * * `Descope` - Descope
-         * * `Develocity` - Develocity
-         * * `Dialpad` - Dialpad
-         * * `Discord` - Discord
-         * * `Discourse` - Discourse
-         * * `Donorbox` - Donorbox
-         * * `Doorloop` - Doorloop
-         * * `Dovetail` - Dovetail
-         * * `Dragonboat` - Dragonboat
-         * * `Drchrono` - Drchrono
-         * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
-         * * `EcbDataPortal` - EcbDataPortal
-         * * `Emarsys` - Emarsys
-         * * `Embrace` - Embrace
-         * * `Entsoe` - Entsoe
-         * * `Eppo` - Eppo
-         * * `Etsy` - Etsy
-         * * `Eurostat` - Eurostat
-         * * `Faire` - Faire
-         * * `FarosAi` - FarosAi
-         * * `Fieldpulse` - Fieldpulse
-         * * `Fieldwire` - Fieldwire
-         * * `Filevine` - Filevine
-         * * `Finout` - Finout
-         * * `Five9` - Five9
-         * * `FlexeraCloudCost` - FlexeraCloudCost
-         * * `Flutterwave` - Flutterwave
-         * * `Fortnox` - Fortnox
-         * * `Fourthwall` - Fourthwall
-         * * `Fred` - Fred
-         * * `Frontegg` - Frontegg
-         * * `FusionAuth` - FusionAuth
-         * * `G2` - G2
-         * * `Gcore` - Gcore
-         * * `GcpApigee` - GcpApigee
-         * * `GcpArtifactRegistry` - GcpArtifactRegistry
-         * * `GcpBigtable` - GcpBigtable
-         * * `GcpChronicle` - GcpChronicle
-         * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
-         * * `GcpCloudBilling` - GcpCloudBilling
-         * * `GcpCloudBuild` - GcpCloudBuild
-         * * `GcpCloudDeploy` - GcpCloudDeploy
-         * * `GcpCloudDns` - GcpCloudDns
-         * * `GcpCloudFunctions` - GcpCloudFunctions
-         * * `GcpCloudLogging` - GcpCloudLogging
-         * * `GcpCloudMonitoring` - GcpCloudMonitoring
-         * * `GcpCloudRun` - GcpCloudRun
-         * * `GcpCloudSpanner` - GcpCloudSpanner
-         * * `GcpCloudSql` - GcpCloudSql
-         * * `GcpCloudTrace` - GcpCloudTrace
-         * * `GcpCloudWorkflows` - GcpCloudWorkflows
-         * * `GcpComputeEngine` - GcpComputeEngine
-         * * `GcpContainerAnalysis` - GcpContainerAnalysis
-         * * `GcpDataflow` - GcpDataflow
-         * * `GcpDataplex` - GcpDataplex
-         * * `GcpDataproc` - GcpDataproc
-         * * `GcpErrorReporting` - GcpErrorReporting
-         * * `GcpGke` - GcpGke
-         * * `GcpPubsub` - GcpPubsub
-         * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
-         * * `GcpRecommender` - GcpRecommender
-         * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
-         * * `Gdelt` - Gdelt
-         * * `GenesysCloud` - GenesysCloud
-         * * `Getdx` - Getdx
-         * * `Ghost` - Ghost
-         * * `Givebutter` - Givebutter
-         * * `Gleif` - Gleif
-         * * `GooglePlayConsole` - GooglePlayConsole
-         * * `Guesty` - Guesty
-         * * `Gumroad` - Gumroad
-         * * `HarnessCcm` - HarnessCcm
-         * * `HarnessSei` - HarnessSei
-         * * `Harvest` - Harvest
-         * * `Healthie` - Healthie
-         * * `Hitpay` - Hitpay
-         * * `Hivebrite` - Hivebrite
-         * * `Holded` - Holded
-         * * `Hostaway` - Hostaway
-         * * `HousecallPro` - HousecallPro
-         * * `Humanitec` - Humanitec
-         * * `ImfData` - ImfData
-         * * `Imperva` - Imperva
-         * * `InfluxdbCloud` - InfluxdbCloud
-         * * `Iyzico` - Iyzico
-         * * `Jobtread` - Jobtread
-         * * `Kameleoon` - Kameleoon
-         * * `KauflandMarketplace` - KauflandMarketplace
-         * * `Kestra` - Kestra
-         * * `Kick` - Kick
-         * * `Kinde` - Kinde
-         * * `Kion` - Kion
-         * * `Knowbe4` - Knowbe4
-         * * `Komodor` - Komodor
-         * * `Labelbox` - Labelbox
-         * * `Lawmatics` - Lawmatics
-         * * `Learnworlds` - Learnworlds
-         * * `LexwareOffice` - LexwareOffice
-         * * `Lightdash` - Lightdash
-         * * `Lodgify` - Lodgify
-         * * `Logicmonitor` - Logicmonitor
-         * * `Logrocket` - Logrocket
-         * * `LoopReturns` - LoopReturns
-         * * `Mastodon` - Mastodon
-         * * `Meetup` - Meetup
-         * * `Megaphone` - Megaphone
-         * * `Memberful` - Memberful
-         * * `MercadoPago` - MercadoPago
-         * * `Meteostat` - Meteostat
-         * * `Mews` - Mews
-         * * `Mezmo` - Mezmo
-         * * `Microsoft365UsageReports` - Microsoft365UsageReports
-         * * `MicrosoftAdvertising` - MicrosoftAdvertising
-         * * `MicrosoftClarity` - MicrosoftClarity
-         * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
-         * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
-         * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
-         * * `MicrosoftIntune` - MicrosoftIntune
-         * * `MicrosoftPurview` - MicrosoftPurview
-         * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
-         * * `MicrosoftSentinel` - MicrosoftSentinel
-         * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
-         * * `Midtrans` - Midtrans
-         * * `MightyNetworks` - MightyNetworks
-         * * `Mindbody` - Mindbody
-         * * `Mirakl` - Mirakl
-         * * `Moesif` - Moesif
-         * * `Moneybird` - Moneybird
-         * * `Moodle` - Moodle
-         * * `Motherduck` - Motherduck
-         * * `Mycase` - Mycase
-         * * `NagerDate` - NagerDate
-         * * `NeonCrm` - NeonCrm
-         * * `Nexhealth` - Nexhealth
-         * * `NoaaCdo` - NoaaCdo
-         * * `Nobl9` - Nobl9
-         * * `Nolt` - Nolt
-         * * `Nops` - Nops
-         * * `NpmRegistry` - NpmRegistry
-         * * `Oecd` - Oecd
-         * * `Okendo` - Okendo
-         * * `Omni` - Omni
-         * * `Onelogin` - Onelogin
-         * * `OpenDental` - OpenDental
-         * * `OpenMeteo` - OpenMeteo
-         * * `Openalex` - Openalex
-         * * `Opencorporates` - Opencorporates
-         * * `Openfec` - Openfec
-         * * `OpnPayments` - OpnPayments
-         * * `Opslevel` - Opslevel
-         * * `OttoMarket` - OttoMarket
-         * * `Ownerrez` - Ownerrez
-         * * `Pagbank` - Pagbank
-         * * `Patreon` - Patreon
-         * * `Pax8` - Pax8
-         * * `Paychex` - Paychex
-         * * `Paymob` - Paymob
-         * * `Paymongo` - Paymongo
-         * * `Phonepe` - Phonepe
-         * * `Pike13` - Pike13
-         * * `Pingone` - Pingone
-         * * `PinterestOrganic` - PinterestOrganic
-         * * `PlanningCenter` - PlanningCenter
-         * * `PluralsightFlow` - PluralsightFlow
-         * * `Podbean` - Podbean
-         * * `Postscript` - Postscript
-         * * `PowerBiAdmin` - PowerBiAdmin
-         * * `Practicepanther` - Practicepanther
-         * * `Preset` - Preset
-         * * `Procore` - Procore
-         * * `Productiv` - Productiv
-         * * `ProofpointTap` - ProofpointTap
-         * * `Propertyware` - Propertyware
-         * * `Pubnub` - Pubnub
-         * * `Quay` - Quay
-         * * `Raken` - Raken
-         * * `RedpandaCloud` - RedpandaCloud
-         * * `RentManager` - RentManager
-         * * `Reverb` - Reverb
-         * * `RocketMatter` - RocketMatter
-         * * `Rubygems` - Rubygems
-         * * `Scalr` - Scalr
-         * * `SecEdgar` - SecEdgar
-         * * `SelectStar` - SelectStar
-         * * `SemanticScholar` - SemanticScholar
-         * * `Semrush` - Semrush
-         * * `ServiceFusion` - ServiceFusion
-         * * `Servicem8` - Servicem8
-         * * `Servicetitan` - Servicetitan
-         * * `Servicetrade` - Servicetrade
-         * * `Sevdesk` - Sevdesk
-         * * `Similarweb` - Similarweb
-         * * `Simpro` - Simpro
-         * * `Sinch` - Sinch
-         * * `Singlestore` - Singlestore
-         * * `Site24x7` - Site24x7
-         * * `Sleuth` - Sleuth
-         * * `Smartlook` - Smartlook
-         * * `Smartrecruiters` - Smartrecruiters
-         * * `Smokeball` - Smokeball
-         * * `SodaCloud` - SodaCloud
-         * * `Speedcurve` - Speedcurve
-         * * `SpotIo` - SpotIo
-         * * `Sprig` - Sprig
-         * * `Sprinklr` - Sprinklr
-         * * `SproutSocial` - SproutSocial
-         * * `StackOverflowForTeams` - StackOverflowForTeams
-         * * `Stockx` - Stockx
-         * * `TackleIo` - TackleIo
-         * * `Talkdesk` - Talkdesk
-         * * `TeamupFitness` - TeamupFitness
-         * * `Tebra` - Tebra
-         * * `Telnyx` - Telnyx
-         * * `Ternary` - Ternary
-         * * `Thoughtspot` - Thoughtspot
-         * * `Thousandeyes` - Thousandeyes
-         * * `Threads` - Threads
-         * * `TiktokShop` - TiktokShop
-         * * `TinyErp` - TinyErp
-         * * `Tinybird` - Tinybird
-         * * `Tipalti` - Tipalti
-         * * `Toast` - Toast
-         * * `Torii` - Torii
-         * * `Transistor` - Transistor
-         * * `TrunkIo` - TrunkIo
-         * * `Trustradius` - Trustradius
-         * * `Twitch` - Twitch
-         * * `TwoC2p` - TwoC2p
-         * * `UkCompaniesHouse` - UkCompaniesHouse
-         * * `UkOns` - UkOns
-         * * `UnComtrade` - UnComtrade
-         * * `UsBea` - UsBea
-         * * `UsBls` - UsBls
-         * * `UsEia` - UsEia
-         * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
-         * * `Vanta` - Vanta
-         * * `Vendr` - Vendr
-         * * `Virtuous` - Virtuous
-         * * `Vonage` - Vonage
-         * * `WalmartMarketplace` - WalmartMarketplace
-         * * `Waydev` - Waydev
-         * * `Wayfair` - Wayfair
-         * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
-         * * `WhoGho` - WhoGho
-         * * `Whop` - Whop
-         * * `Wistia` - Wistia
-         * * `Wiz` - Wiz
-         * * `Wompi` - Wompi
-         * * `Workiz` - Workiz
-         * * `WorldBank` - WorldBank
-         * * `Xendit` - Xendit
-         * * `Yoco` - Yoco
-         * * `ZalandoZdirect` - ZalandoZdirect
-         * * `Zluri` - Zluri
-         * * `Zylo` - Zylo
-         * * `Tally` - Tally
-         * * `Nuntly` - Nuntly
-         * * `Vturb` - Vturb
-         * * `Meltwater` - Meltwater
-         * * `UserCom` - UserCom
-         * * `Latitude` - Latitude
-         * * `Workato` - Workato
-         * * `SideShift` - SideShift
-         * * `DuckLake` - DuckLake
-         * * `Starburst` - Starburst
-         * * `Trino` - Trino
-         * * `Easybill` - Easybill
-         * * `Bexio` - Bexio
-         * * `Umami` - Umami
-         * * `Manychat` - Manychat
-         * * `Kickstarter` - Kickstarter
-         * * `Typesense` - Typesense
-         * * `FirstPromoter` - FirstPromoter
-         * * `Zero` - Zero
-         * * `Inth` - Inth
-         * * `BCMS` - BCMS
-         * * `Convonite` - Convonite
-         * * `Hookdeck` - Hookdeck
-         * * `Billit` - Billit
-         * * `Moxie` - Moxie
-         * * `TripleWhale` - TripleWhale
-         * * `Directus` - Directus
-         * * `Clay` - Clay
-         * * `TradableBits` - TradableBits
-         * * `Swan` - Swan
-         * * `Hyros` - Hyros
-         * * `Odoo` - Odoo
-         * * `Airbridge` - Airbridge
-         * * `Snovio` - Snovio
-         * * `GoogleMerchantCenter` - GoogleMerchantCenter
-         * * `Raisely` - Raisely
-         * * `RakutenAdvertising` - RakutenAdvertising
-         * * `Zitadel` - Zitadel
-         * * `DeelFlows` - DeelFlows
-         * * `WindsorAi` - WindsorAi
-         * * `Wix` - Wix
-         * * `Sevalla` - Sevalla
-         * * `Motion` - Motion
-         * * `ImpactPartner` - ImpactPartner
-         * * `Cloudinary` - Cloudinary
-         * * `Uploadcare` - Uploadcare
-         * * `WHMCS` - WHMCS
-         * * `MSG91` - MSG91
-         * * `Depot` - Depot
-         * * `Schematic` - Schematic
-         * * `Dokploy` - Dokploy
-         * * `Hootsuite` - Hootsuite
-         * * `WisprFlow` - WisprFlow
-         * * `SamCart` - SamCart
-         * * `IronSourceAds` - IronSourceAds
-         * * `MicrosoftExcel` - MicrosoftExcel
-         * * `Profound` - Profound
-         * * `Airwallex` - Airwallex
-         * * `Polymarket` - Polymarket
-         * * `Kalshi` - Kalshi
-         * * `Capterra` - Capterra
-         * * `GooglePostmasterTools` - GooglePostmasterTools
-         * * `Growi` - Growi
-         * * `Clarify` - Clarify
-         * * `DatoCMS` - DatoCMS
-         * * `WPSOffice` - WPSOffice
-         * * `TeraBox` - TeraBox
-         * * `SimonData` - SimonData
-         * * `CommissionJunction` - CommissionJunction
-         * * `Liveblocks` - Liveblocks
-         * * `Livestorm` - Livestorm
-         * * `NationBuilder` - NationBuilder
-         * * `Tana` - Tana
-         * * `Zenchef` - Zenchef
-         * * `Lovable` - Lovable
-         * * `Anvil` - Anvil
-         * * `Coolify` - Coolify
-         * * `SocialPilot` - SocialPilot
-         * * `Strato` - Strato
-         * * `Medusa` - Medusa
-         * * `Membrain` - Membrain
-         * * `RecallAI` - RecallAI
-         * * `Tenjin` - Tenjin
-         * * `Folk` - Folk
-         * * `Cybersource` - Cybersource
-         * * `GoogleAdSense` - GoogleAdSense
-         * * `Sequenzy` - Sequenzy
-         * * `Skio` - Skio
-         * * `Smartlead` - Smartlead
-         * * `Substack` - Substack
-         * * `ElectricityMaps` - ElectricityMaps
-         * * `Amplemarket` - Amplemarket
-         * * `Quo` - Quo
-         * * `HeyReach` - HeyReach
-         * * `MoEngage` - MoEngage
-         * * `Monaco` - Monaco
-         * * `Oneleet` - Oneleet
-         * * `Expo` - Expo
-         * * `PostNord` - PostNord
-         * * `Commslayer` - Commslayer
-         * * `Sprinto` - Sprinto
-         * * `Gem` - Gem
-         * * `AudioGO` - AudioGO
-         * * `ExactOnline` - ExactOnline
-         * * `LettrLabs` - LettrLabs
-         * * `GrafanaIRM` - GrafanaIRM
-         * * `Tessitura` - Tessitura
-         * * `ChargebackStop` - ChargebackStop
-         * * `Chargeflow` - Chargeflow
-         * * `Dreamdata` - Dreamdata
-         * * `GoogleBusinessProfile` - GoogleBusinessProfile
-         * * `Ledyer` - Ledyer
-         * * `Supermetrics` - Supermetrics
-         * * `SQLite` - SQLite
-         * * `Modal` - Modal
-         * * `Vimeo` - Vimeo
-         * * `Scrunch` - Scrunch
-         * * `Loom` - Loom
-         * * `Arcade` - Arcade
-         * * `Neo4j` - Neo4j
-         * * `TestDino` - TestDino
-         * * `ChessCom` - ChessCom
-         * * `Userback` - Userback
-         * * `Rewardful` - Rewardful
-         * * `Tracklution` - Tracklution
-         * * `StackAdapt` - StackAdapt
-         * * `CheckHQ` - CheckHQ
-         * * `RainforestPay` - RainforestPay
-         * * `Wise` - Wise
-         * * `LaravelCloud` - LaravelCloud
-         * * `Northbeam` - Northbeam
-         * * `NaverAds` - NaverAds
-         * * `ChannelIO` - ChannelIO
-         * * `Airship` - Airship
-         * * `Creem` - Creem
-         * * `Leantime` - Leantime
-         * * `Testomatio` - Testomatio
-         * * `GoogleAdMob` - GoogleAdMob
-         * * `Klar` - Klar
-         * * `ConectoCRM` - ConectoCRM
-         * * `CloudflareR2` - CloudflareR2
-         * * `Particle` - Particle
-         * * `FileUpload` - FileUpload
-         * * `Dripify` - Dripify
-         * * `AwsS3Tables` - AwsS3Tables
-         * * `Beacons` - Beacons
-         * * `WooPayments` - WooPayments
          */
-        source_type: ExternalDataSourceTypeEnum;
+        source_type: string;
         /**
          * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
          */
@@ -15285,7 +12050,10 @@ export namespace Schemas {
         status: string;
         client_secret: string;
         account_id: string;
-        source_type: ExternalDataSourceTypeEnum & unknown;
+        /**
+         * The source type (e.g. 'Postgres', 'Stripe').
+         */
+        source_type: string;
         latest_error: string | null;
         /**
          * Mixin for serializers to add user access control fields
@@ -15335,9 +12103,17 @@ export namespace Schemas {
         user_access_level: string | null;
         supports_webhooks: boolean;
         /**
+         * Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables.
+         */
+        webhook_not_registered: boolean;
+        /**
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         */
+        file_name: string | null;
         /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          */
@@ -15579,11 +12355,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "transactional_email_keys";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -15688,6 +12466,7 @@ export namespace Schemas {
      * * `conditional_branch` - conditional_branch
      * * `random_cohort_branch` - random_cohort_branch
      * * `exit` - exit
+     * * `email_sandbox` - email_sandbox
      */
     export type HogFlowActionTypeEnum =
         | "trigger"
@@ -15700,7 +12479,8 @@ export namespace Schemas {
         | "wait_until_time_window"
         | "conditional_branch"
         | "random_cohort_branch"
-        | "exit";
+        | "exit"
+        | "email_sandbox";
     export type HogFlowAction = {
         /**
          * Unique node ID within the workflow.
@@ -15716,7 +12496,7 @@ export namespace Schemas {
         updated_at?: number | undefined;
         filters?: (HogFunctionFilters | null) | undefined;
         /**
-         * One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+         * One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit | email_sandbox.
          *
          * * `trigger` - trigger
          * * `function` - function
@@ -15729,10 +12509,11 @@ export namespace Schemas {
          * * `conditional_branch` - conditional_branch
          * * `random_cohort_branch` - random_cohort_branch
          * * `exit` - exit
+         * * `email_sandbox` - email_sandbox
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -16023,6 +12804,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `transactional_email_keys` - Transactional email keys
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -16192,7 +12974,9 @@ export namespace Schemas {
      * Warnings attached to the query response that produced an insight's results.
      */
     export type _InsightResultWarnings = Array<
-        DataWarehouseSyncWarning | AccessControlFilterWarning
+        | DataWarehouseSyncWarning
+        | AccessControlFilterWarning
+        | BreakdownNotAppliedWarning
     >;
     export type TileFilters = Partial<{
         breakdown_filter: BreakdownFilter | null;
@@ -16318,10 +13102,24 @@ export namespace Schemas {
         query_status: unknown;
         hogql: string | null;
         types: Array<unknown> | null;
+        /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         */
         resolved_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;
+        /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         */
+        resolved_compare_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         */
+        action_names: Record<string, string> | null;
         /**
          * What ClickHouse read for this insight's last slow run, with the findings of its query scan.
          */
@@ -16351,114 +13149,28 @@ export namespace Schemas {
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
     /**
-     * * `anthropic` - Anthropic
-     * * `apple-ads` - Apple Ads
-     * * `apns` - Apple Push
-     * * `aws-redshift` - Aws Redshift
-     * * `aws-s3` - Aws S3
-     * * `azure-blob` - Azure Blob
-     * * `bing-ads` - Bing Ads
-     * * `clickup` - Clickup
-     * * `customerio-app` - Customerio App
-     * * `customerio-track` - Customerio Track
-     * * `customerio-webhook` - Customerio Webhook
-     * * `databricks` - Databricks
-     * * `email` - Email
-     * * `firebase` - Firebase
-     * * `github` - Github
-     * * `gitlab` - Gitlab
-     * * `google-ads` - Google Ads
-     * * `google-analytics` - Google Analytics
-     * * `google-calendar` - Google Calendar
-     * * `google-cloud-service-account` - Google Cloud Service Account
-     * * `google-cloud-storage` - Google Cloud Storage
-     * * `google-pubsub` - Google Pubsub
-     * * `google-search-console` - Google Search Console
-     * * `google-sheets` - Google Sheets
-     * * `helpscout` - Helpscout
-     * * `hubspot` - Hubspot
-     * * `instagram` - Instagram
-     * * `intercom` - Intercom
-     * * `jira` - Jira
-     * * `linear` - Linear
-     * * `linkedin-ads` - Linkedin Ads
-     * * `meta-ads` - Meta Ads
-     * * `pardot` - Pardot
-     * * `pinterest-ads` - Pinterest Ads
-     * * `postgresql` - Postgresql
-     * * `posthog` - Posthog
-     * * `reddit-ads` - Reddit Ads
-     * * `twitter-ads` - Twitter Ads
-     * * `resend` - Resend
-     * * `s3-compatible` - S3 Compatible
-     * * `salesforce` - Salesforce
-     * * `slack` - Slack
-     * * `slack-posthog-code` - Slack Posthog Code
-     * * `snapchat` - Snapchat
-     * * `snowflake` - Snowflake
-     * * `stripe` - Stripe
-     * * `tiktok-ads` - Tiktok Ads
-     * * `twilio` - Twilio
-     * * `vercel` - Vercel
-     * * `youtube-analytics` - Youtube Analytics
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
      */
-    export type IntegrationKindEnum =
-        | "anthropic"
-        | "apple-ads"
-        | "apns"
-        | "aws-redshift"
-        | "aws-s3"
-        | "azure-blob"
-        | "bing-ads"
-        | "clickup"
-        | "customerio-app"
-        | "customerio-track"
-        | "customerio-webhook"
-        | "databricks"
-        | "email"
-        | "firebase"
-        | "github"
-        | "gitlab"
-        | "google-ads"
-        | "google-analytics"
-        | "google-calendar"
-        | "google-cloud-service-account"
-        | "google-cloud-storage"
-        | "google-pubsub"
-        | "google-search-console"
-        | "google-sheets"
-        | "helpscout"
-        | "hubspot"
-        | "instagram"
-        | "intercom"
-        | "jira"
-        | "linear"
-        | "linkedin-ads"
-        | "meta-ads"
-        | "pardot"
-        | "pinterest-ads"
-        | "postgresql"
-        | "posthog"
-        | "reddit-ads"
-        | "twitter-ads"
-        | "resend"
-        | "s3-compatible"
-        | "salesforce"
-        | "slack"
-        | "slack-posthog-code"
-        | "snapchat"
-        | "snowflake"
-        | "stripe"
-        | "tiktok-ads"
-        | "twilio"
-        | "vercel"
-        | "youtube-analytics";
+    export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
     /**
      * Standard Integration serializer.
      */
     export type IntegrationConfig = {
         id: number;
-        kind: IntegrationKindEnum;
+        /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         */
+        kind: string;
+        /**
+         * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `token` - Token
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */
@@ -16479,6 +13191,10 @@ export namespace Schemas {
          * GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
          */
         installation_status: InstallationStatusEnum | NullEnum;
+        /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         */
+        needs_webhook_reconnect: boolean | null;
     };
     /**
      * * `burst` - burst
@@ -16513,6 +13229,10 @@ export namespace Schemas {
     export type MCPServerInstallation = {
         id: string;
         template_id: string | null;
+        /**
+         * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+         */
+        gateway_server_id: string | null;
         name: string;
         /**
          * Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template).
@@ -17002,13 +13722,15 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
         | "provisioned"
-        | "connector";
+        | "connector"
+        | "device_login";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -17122,6 +13844,7 @@ export namespace Schemas {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -17720,6 +14443,7 @@ export namespace Schemas {
         | "America/Coral_Harbour"
         | "America/Cordoba"
         | "America/Costa_Rica"
+        | "America/Coyhaique"
         | "America/Creston"
         | "America/Cuiaba"
         | "America/Curacao"
@@ -18320,6 +15044,12 @@ export namespace Schemas {
          * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
          */
         uses_most_specific_access_resolution: boolean | null;
+        ip_restrictions?: Array<string> | undefined;
+        ip_restrictions_enabled?: boolean | undefined;
+        /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         */
+        ip_restrictions_warning: string | null;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
@@ -18410,6 +15140,7 @@ export namespace Schemas {
         locked_value: boolean;
     };
     export type PaginatedCommentList = {
+        count: number;
         next?: (string | null) | undefined;
         previous?: (string | null) | undefined;
         results: Array<Comment>;
@@ -18786,6 +15517,17 @@ export namespace Schemas {
         | "posthog_mobile"
         | "posthog_web";
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack
+     */
+    export type TaskClientEnum =
+        | "posthog_desktop"
+        | "posthog_mobile"
+        | "posthog_web"
+        | "slack";
+    /**
      * Detail response for a task.
      *
      * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
@@ -18882,6 +15624,22 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client_at?: (string | null) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -19006,6 +15764,28 @@ export namespace Schemas {
          * server-side.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_client_at?: (string | null) | undefined;
         /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
@@ -19238,6 +16018,10 @@ export namespace Schemas {
          * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
+        /**
+         * How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only.
+         */
+        personal_api_keys_limit: number;
     };
     export type PaginatedUserList = {
         count: number;
@@ -19321,6 +16105,10 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
@@ -19365,6 +16153,7 @@ export namespace Schemas {
         end_date: string | null;
         feature_flag_key: string;
         feature_flag: ExperimentFeatureFlagInput;
+        feature_flag_rule_id: string | null;
         holdout: ExperimentHoldout & unknown;
         holdout_id: number | null;
         exposure_cohort: number | null;
@@ -19417,7 +16206,7 @@ export namespace Schemas {
         status: string;
         client_secret: string;
         account_id: string;
-        source_type: ExternalDataSourceTypeEnum & unknown;
+        source_type: string;
         latest_error: string | null;
         prefix: string | null;
         description: string | null;
@@ -19433,12 +16222,30 @@ export namespace Schemas {
             unknown;
         user_access_level: string | null;
         supports_webhooks: boolean;
+        webhook_not_registered: boolean;
         supports_column_selection: boolean;
+        file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
     }>;
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum =
+        | "errors"
+        | "metrics"
+        | "planned"
+        | "wrong_configuration"
+        | "other";
     export type PatchedFeatureFlagPartialUpdateRequestSchema = Partial<{
+        ask_rollback_reason: boolean;
+        rollback_reason: RollbackReasonEnum | NullEnum;
+        rollback_reason_note: string | null;
         key: string;
         name: string;
         filters: FeatureFlagFiltersSchema;
@@ -19450,6 +16257,7 @@ export namespace Schemas {
         ensure_experience_continuity: boolean | null;
         evaluation_runtime: EvaluationRuntimeEnum | NullEnum;
         bucketing_identifier: BucketingIdentifierEnum | NullEnum;
+        version: number;
     }>;
     export type PatchedHogFlowSchedule = Partial<{
         id: string;
@@ -19536,6 +16344,11 @@ export namespace Schemas {
             date_from: string;
             date_to: string;
         }> | null;
+        resolved_compare_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        action_names: Record<string, string> | null;
         query_scan: unknown;
         warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
@@ -19772,6 +16585,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -19843,6 +16657,9 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -19870,7 +16687,10 @@ export namespace Schemas {
         | "workflow"
         | "space_setup"
         | "business_knowledge"
-        | "metrics_import";
+        | "metrics_import"
+        | "knowledge_writer"
+        | "context_layer"
+        | "feature_flags";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -20025,6 +16845,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         requires_credential_review: boolean;
+        personal_api_keys_limit: number;
     }>;
     export type PersonRecord = {
         /**
@@ -20116,6 +16937,7 @@ export namespace Schemas {
         default_email_integration_id: number | null;
         marketing_frequency_cap_max_messages: number | null;
         marketing_frequency_cap_window_days: number | null;
+        marketing_frequency_cap_hold_hours: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
@@ -20131,6 +16953,10 @@ export namespace Schemas {
     export type ProjectBackwardCompat = {
         id: number;
         organization: string;
+        /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         */
+        is_ai_data_processing_approved: boolean | null;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -20753,6 +17579,11 @@ export namespace Schemas {
         values: Array<PropertyItem>;
     };
     /**
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow
+     */
+    export type PublicTaskSourceKindEnum = "signal_report" | "hog_flow";
+    /**
      * One desktop-only MCP server relayed into the run — a name only, never configuration.
      */
     export type RelayedMcpServer = { name: string };
@@ -20780,6 +17611,17 @@ export namespace Schemas {
         | "remove"
         | "replace"
         | "confirm";
+    /**
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum =
+        | "wrong_area"
+        | "already_covered"
+        | "unavailable"
+        | "other";
     export type ReviewerState = {
         /**
          * Current reviewer artefact ID, or null before the first list.
@@ -20867,6 +17709,8 @@ export namespace Schemas {
          */
         content: Array<SuggestedReviewerEntryWrite>;
         targets?: Array<SuggestedReviewerEntryWrite> | undefined;
+        removal_reason?: ReviewerRemovalReasonEnum | undefined;
+        removal_note?: string | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -20930,6 +17774,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         iteration_frequency_days?: (number | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        repeat_until_stopped?: (boolean | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
          */
@@ -21240,6 +18088,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -21293,6 +18142,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -21333,6 +18183,36 @@ export namespace Schemas {
         rates: Record<string, unknown>;
         per_question_stats?: Array<unknown> | undefined;
     };
+    export type TaskRunOptionsRepository = {
+        /**
+         * GitHub repository in `organization/repo` format.
+         */
+        name: string;
+        initial_branch?: (string | null) | undefined;
+    };
+    export type TaskRunOptionsRequest = Partial<{
+        runtime: TaskRuntimeEnum;
+        adapter: RuntimeAdapterEnum;
+        model: string;
+        reasoning_effort: ReasoningEffortEnum;
+        repositories: Array<TaskRunOptionsRepository>;
+        output_schema: Record<string, unknown>;
+        permission_mode: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+        auto_publish: boolean;
+    }>;
+    export type TaskSourceRequest = {
+        /**
+         * The kind of row the task starts from. It must be the kind the profile takes.
+         *
+         * * `signal_report` - Signal Report
+         * * `hog_flow` - Hog Flow
+         */
+        kind: PublicTaskSourceKindEnum;
+        /**
+         * ID of that row. It must belong to the current project.
+         */
+        id: string;
+    };
     export type TaskCreate = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -21365,6 +18245,10 @@ export namespace Schemas {
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
         runtime: TaskRuntimeEnum;
+        profile: string;
+        options: TaskRunOptionsRequest & unknown;
+        source: TaskSourceRequest & unknown;
+        idempotency_key: string;
     }>;
     /**
      * Detail response for a task.
@@ -21463,6 +18347,22 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client_at?: (string | null) | undefined;
         /**
          * Detail response for a task.
          *
@@ -21658,6 +18558,20 @@ export namespace Schemas {
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        last_client_at?: (string | null) | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
@@ -22480,11 +19394,13 @@ export namespace Endpoints {
                 active: "STALE" | "false" | "true";
                 archived: "false" | "true";
                 created_by_id: string;
+                deleted: "false" | "true";
                 eligible_for_experiment: "true";
                 evaluation_runtime: "all" | "client" | "server";
                 excluded_properties: string;
                 excluded_tags: string;
                 has_evaluation_contexts: "false" | "true";
+                ids: string;
                 key: string;
                 limit: number;
                 offset: number;
@@ -22599,7 +19515,9 @@ export namespace Endpoints {
                 created_at: string;
                 created_by: string;
                 id: string;
+                latest_send_first: boolean;
                 limit: number;
+                name: string;
                 offset: number;
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
@@ -22667,12 +19585,13 @@ export namespace Endpoints {
         responses: { 204: unknown };
     };
     /**
-     * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+     * Run a workflow with a `schedule` or `manual` trigger now, once.
      *
-     * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-     * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-     * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-     * the scheduler itself applies in `internal_process_due_schedules`.
+     * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+     * workflow runs for the calling user, as the trigger button in the editor does. Other
+     * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+     * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+     * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
      *
      * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
      * after a timed-out request): a repeat with the same key returns the first call's result
@@ -23020,8 +19939,8 @@ export namespace Endpoints {
      * Get survey response statistics for a specific survey.
      *
      * Args:
-     *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-     *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     *     date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+     *     date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
      *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
      *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
      *
@@ -23088,7 +20007,10 @@ export namespace Endpoints {
                     | "workflow"
                     | "space_setup"
                     | "business_knowledge"
-                    | "metrics_import";
+                    | "metrics_import"
+                    | "knowledge_writer"
+                    | "context_layer"
+                    | "feature_flags";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23103,11 +20025,14 @@ export namespace Endpoints {
                 search: string;
                 sources: Array<
                     | "autoresearch"
+                    | "context_layer"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"
+                    | "feature_flags"
                     | "hogdesk"
                     | "image_builder"
+                    | "knowledge_writer"
                     | "loop"
                     | "mcp_analytics"
                     | "onboarding"
@@ -23160,9 +20085,11 @@ export namespace Endpoints {
             body: Schemas.TaskCreate;
         };
         responses: {
+            200: Schemas.TaskCreateResponseDTO;
             201: Schemas.TaskCreateResponseDTO;
             402: Schemas.TaskRunErrorResponse;
             403: Schemas.TaskRunErrorResponse;
+            409: Schemas.TaskRunErrorResponse;
             429: Schemas.TaskRunErrorResponse;
             503: Schemas.TaskRunErrorResponse;
         };

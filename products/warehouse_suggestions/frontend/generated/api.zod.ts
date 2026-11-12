@@ -56,6 +56,21 @@ export const WarehouseSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
         ),
+    delete_view: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread.'
+        ),
+})
+
+export const WarehouseSuggestionsAssignCreateBody = /* @__PURE__ */ zod.object({
+    assignee_id: zod
+        .number()
+        .nullable()
+        .describe(
+            'ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.'
+        ),
 })
 
 export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
@@ -72,4 +87,13 @@ export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object(
         .max(warehouseSuggestionsDismissCreateBodyNoteMax)
         .optional()
         .describe('Optional note about the dismissal.'),
+})
+
+export const WarehouseSuggestionsSurfaceMoreCreateBody = /* @__PURE__ */ zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .describe('\* `models` - Models\n\* `catalog` - Data catalog')
+        .describe(
+            'Page to show more suggestions on. Only the kinds that page shows are picked.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
 })

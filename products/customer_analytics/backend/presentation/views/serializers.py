@@ -1271,6 +1271,11 @@ class AccountNotebookSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     last_modified_at = serializers.DateTimeField(read_only=True)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text="Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.",
+    )
 
     class Meta:
         dataclass = AccountNotebookView
@@ -1285,7 +1290,19 @@ class AccountNotebookSerializer(DataclassSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "tags",
         ]
+
+
+class AccountNotebookUpdateSerializer(serializers.Serializer):
+    """Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,
+    since a note's title comes from its first line."""
+
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text="Replaces the notebook's tags. Omit to leave them untouched.",
+    )
 
 
 class AccountNoteSerializer(DataclassSerializer):
@@ -1298,11 +1315,21 @@ class AccountNoteSerializer(DataclassSerializer):
     account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
     account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the note, if known.")
+    tags = serializers.ListField(child=serializers.CharField(), read_only=True, help_text="Tag names on the note.")
 
     class Meta:
         dataclass = AccountNoteView
         ref_name = "AccountNote"
-        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
+        fields = [
+            "short_id",
+            "title",
+            "created_at",
+            "last_modified_at",
+            "account_id",
+            "account_name",
+            "created_by",
+            "tags",
+        ]
 
 
 class ChannelSummaryMessageSerializer(serializers.Serializer):
@@ -1778,12 +1805,15 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     workflow_id = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="Temporal workflow identifier associated with the current account sync phase.",
+        help_text="Staff-only Temporal workflow identifier of the run. Null for non-staff users.",
     )
     workflow_run_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="Temporal run identifier associated with the current account sync phase.",
+        help_text=(
+            "Identifier of the worker job that executed the run. Person and group runs use it to find "
+            "the run's progress log lines. Null for runs recorded before it was stored."
+        ),
     )
     temporal_url = serializers.URLField(
         read_only=True,

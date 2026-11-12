@@ -1,9 +1,12 @@
+from datetime import date
 from ipaddress import IPv4Address, IPv6Address
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from clickhouse_driver.columns.datecolumn import DateColumn
 
 from posthog.hogql.query_stats import query_stats_scope
 
@@ -14,9 +17,9 @@ from posthog.clickhouse.client.connection import (
     Workload,
     get_default_clickhouse_workload_type,
 )
-from posthog.clickhouse.client.execute import query_with_columns, sync_execute
+from posthog.clickhouse.client.execute import clickhouse_query_counter, query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, QueryCounter, tags_context
 
 
 @pytest.fixture
@@ -48,6 +51,7 @@ def llm_analytics_slots():
         (Workload.DEFAULT, AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
         (Workload.ONLINE, AccessMethod.PROJECT_SECRET_API_KEY, Workload.OFFLINE, ClickHouseUser.API),
         (Workload.LOGS, AccessMethod.PERSONAL_API_KEY, Workload.LOGS, ClickHouseUser.API),
+        (Workload.METRICS, None, Workload.METRICS, ClickHouseUser.APP),
     ],
 )
 def test_process_query_task_workload_routing(
@@ -55,7 +59,7 @@ def test_process_query_task_workload_routing(
 ):
     # The async query worker forces app traffic onto the online cluster while API-key traffic
     # keeps the offline routing it gets when run synchronously. Neither may override
-    # cluster-pinned workloads: LOGS-workload tables only exist on the logs cluster.
+    # cluster-pinned workloads: logs and metrics tables only exist on their own clusters.
     with tags_context(kind="celery", id="posthog.tasks.tasks.process_query_task", access_method=access_method):
         sync_execute("SELECT 1", workload=workload, flush=False)
 
@@ -83,11 +87,12 @@ def test_celery_cache_warming_workload_routing(client_from_pool, access_method, 
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
         (Workload.LOGS, Workload.LOGS),
+        (Workload.METRICS, Workload.METRICS),
     ],
 )
 def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):
     # The ENDPOINTS tag reroutes queries to the endpoints cluster, but must not override
-    # the LOGS cluster pin either.
+    # a logs or metrics cluster pin either.
     with tags_context(kind="request", id="api/endpoint", workload=Workload.ENDPOINTS):
         sync_execute("SELECT 1", workload=workload, flush=False)
 
@@ -117,18 +122,44 @@ def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, 
 
 
 @pytest.mark.parametrize(
-    "tagged_ch_user,feature,requested_ch_user,expected_ch_user",
+    "tagged_ch_user,feature,service_name,requested_ch_user,expected_ch_user",
     [
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
-        (None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.META, ClickHouseUser.META),
-        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
-        (None, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
+        (
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+            None,
+            None,
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ),
+        (None, None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, None, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, None, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        (None, Feature.CACHE_WARMUP, None, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
+        (
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+            None,
+            "temporal-worker-max-ai",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ),
+        (None, None, "temporal-worker-max-ai", ClickHouseUser.DEFAULT, ClickHouseUser.MAX_AI),
     ],
 )
-def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, feature, requested_ch_user, expected_ch_user):
+def test_tagged_ch_user_routing(
+    client_from_pool: MagicMock,
+    tagged_ch_user: ClickHouseUser | None,
+    feature: Feature | None,
+    service_name: str | None,
+    requested_ch_user: ClickHouseUser,
+    expected_ch_user: ClickHouseUser,
+) -> None:
     with tags_context(
-        product=Product.PRODUCT_ANALYTICS, feature=feature, kind="temporal", id="alerts", ch_user=tagged_ch_user
+        product=Product.PRODUCT_ANALYTICS,
+        feature=feature,
+        kind="temporal",
+        id="alerts",
+        ch_user=tagged_ch_user,
+        service_name=service_name,
     ):
         sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
 
@@ -228,6 +259,35 @@ def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, ex
     assert stats.workload() == expected_workload
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_sync_execute_records_query_counts_and_durations(client_from_pool, fails: bool) -> None:
+    counter = QueryCounter()
+    client = client_from_pool.return_value.__enter__.return_value
+    durations = iter([0.01, 0.125])
+
+    with patch("posthog.clickhouse.client.execute.perf_counter", return_value=0.0) as clock:
+
+        def execute(*args: Any, **kwargs: Any) -> list[tuple[int]]:
+            clock.return_value += next(durations)
+            if fails:
+                raise ValueError("Query failed")
+            return [(1,)]
+
+        client.execute.side_effect = execute
+        with clickhouse_query_counter(counter):
+            for _ in range(2):
+                if fails:
+                    with pytest.raises(ValueError, match="Query failed"):
+                        sync_execute("SELECT 1", workload=Workload.ONLINE, flush=False)
+                else:
+                    assert sync_execute("SELECT 1", workload=Workload.ONLINE, flush=False) == [(1,)]
+
+    assert counter.count == 2
+    assert counter.query_time_ms == pytest.approx(135.0)
+    assert counter.max_query_time_ms == pytest.approx(125.0)
+    assert counter.slow_count == 1
+
+
 @pytest.mark.parametrize(
     "types,row,expected",
     [
@@ -255,3 +315,22 @@ def test_query_with_columns_removes_columns_by_type(types, row, expected):
         rows = query_with_columns("SELECT *", column_types_to_remove=("IPv4", "IPv6"))
 
     assert rows == [expected]
+
+
+@pytest.mark.parametrize(
+    "raw_day_number_hex,expected",
+    [
+        ("aeba0500", date(2998, 1, 1)),
+        ("8c29f5ff", date(25, 5, 17)),
+    ],
+)
+def test_sync_execute_decodes_date32_outside_driver_default_range(raw_day_number_hex, expected):
+    # RowBinary keeps the raw day number, the same way ClickHouse 26.9+ passes through out-of-range
+    # Parquet and CAST values. The driver's default lookup table stops at 1900-2299.
+    lookup_size = len(DateColumn.date_lut)
+
+    rows = sync_execute(f"SELECT d FROM format(RowBinary, 'd Date32', unhex('{raw_day_number_hex}'))", flush=False)
+
+    assert rows == [(expected,)]
+    # The lookup is shared by every query in the process, so out-of-range days must not be cached in it.
+    assert len(DateColumn.date_lut) == lookup_size

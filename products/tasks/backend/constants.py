@@ -23,6 +23,8 @@ UPSTREAM_RETRYABLE_ERROR_CATEGORIES = (
     "upstream_rate_limited",
 )
 
+TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
 # ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
@@ -30,6 +32,7 @@ UPSTREAM_RETRYABLE_ERROR_CATEGORIES = (
 GITHUB_PR_URL_PREFIX = "https://github.com/"
 ARTIFACT_OPEN_NETWORK_WRITER_KEY = "written_with_open_network"
 ARTIFACT_SCRIPT_SHA256_KEY = "script_sha256"
+FINAL_MESSAGE_MAX_CHARS = 20_000
 
 
 def is_html_artifact(name: str, content_type: str) -> bool:
@@ -69,6 +72,8 @@ PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+# Separate from `store_skills`, which is also empty when the store is on and the user owns no skills.
+STORE_SKILLS_BRIDGE_STATE_KEY = "store_skills_bridge"
 AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
 # Matches the cap PostHog Code applies to its local personalization.
 AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000
@@ -239,9 +244,7 @@ OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS: dict[str, str] = {
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
 CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
 
-SnapshotKind = Literal["filesystem", "directory"]
-SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
-SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
+RESUME_SNAPSHOT_KIND = "directory"
 DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
 # Directory a sandbox clones repositories under, as `<root>/<organization>/<repository>`. Anything
 # that tells an agent where its checkout is must read it from here (see `sandbox_repo_path`), or a

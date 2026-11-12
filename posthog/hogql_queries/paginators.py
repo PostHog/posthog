@@ -12,7 +12,13 @@ from posthog.hogql.constants import (
     get_default_limit_for_context,
     get_max_limit_for_context,
 )
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
+
+OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE = (
+    "An offset only applies to a HogQL query that uses the default row limit: no LIMIT, UNION, raw SQL, or alert. "
+    "Put the OFFSET in the SQL instead."
+)
 
 
 def get_query_limit(query: ast.SelectQuery | ast.SelectSetQuery) -> int | None:
@@ -53,6 +59,17 @@ class HogQLHasMorePaginator:
         default_rows = get_default_limit_for_context(limit_context)
         limit = min(max_rows, default_rows if (limit is None or limit <= 0) else limit)
         return cls(limit=limit, offset=offset, limit_context=limit_context)
+
+    @classmethod
+    def for_hogql_query(
+        cls, query: ast.SelectQuery | ast.SelectSetQuery, *, limit_context: LimitContext, offset: int | None = None
+    ) -> "HogQLHasMorePaginator | None":
+        is_alert = limit_context == LimitContext.SQL_ALERT
+        if not is_alert and isinstance(query, ast.SelectQuery) and not query.limit:
+            return cls.from_limit_context(limit_context=limit_context, offset=offset)
+        if offset:
+            raise ExposedHogQLError(OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE)
+        return cls.from_alert_query(query, limit_context=limit_context) if is_alert else None
 
     @classmethod
     def from_alert_query(
@@ -115,6 +132,7 @@ class HogQLHasMorePaginator:
             execute_hogql_query(
                 query=self.paginate(query),
                 query_type=query_type,
+                returned_row_limit=self.limit,
                 **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
             ),
         )
@@ -328,6 +346,7 @@ class HogQLCursorPaginator:
             execute_hogql_query(
                 query=self.paginate(query),
                 query_type=query_type,
+                returned_row_limit=self.limit,
                 **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
             ),
         )

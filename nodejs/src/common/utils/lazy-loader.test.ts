@@ -261,6 +261,88 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(2)
         })
 
+        it('drops expired entries from memory on the next lookup', async () => {
+            loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2' }).mockResolvedValueOnce({ key3: 'value3' })
+            await lazyLoader.getMany(['key1', 'key2'])
+
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            await lazyLoader.get('key3')
+
+            expect(lazyLoader.getCache()).toEqual({ key3: 'value3' })
+            expect(lazyLoader['cacheSize']).toBe(1)
+        })
+
+        describe('a lookup still waiting when another lookup drops expired entries', () => {
+            const setupSlowLoader = (): {
+                lazy: LazyLoader<string>
+                loaderCalledWith: (key: string) => Promise<void>
+                release: (key: string, values: Record<string, string>) => Promise<void>
+            } => {
+                const resolvers = new Map<string, (values: Record<string, string>) => void>()
+                const waiters = new Map<string, () => void>()
+                const lazy = new LazyLoader<string>({
+                    name: 'test',
+                    loader: (keys) =>
+                        new Promise((resolve) => {
+                            for (const key of keys) {
+                                resolvers.set(key, resolve)
+                                waiters.get(key)?.()
+                            }
+                        }),
+                    refreshAgeMs: 30_000,
+                    refreshJitterMs: 0,
+                    bufferMs: 0,
+                })
+                const loaderCalledWith = (key: string): Promise<void> =>
+                    resolvers.has(key) ? Promise.resolve() : new Promise((resolve) => waiters.set(key, resolve))
+                const release = async (key: string, values: Record<string, string>): Promise<void> => {
+                    await loaderCalledWith(key)
+                    resolvers.get(key)!(values)
+                }
+                return { lazy, loaderCalledWith, release }
+            }
+
+            const dropExpiredEntries = async (
+                lazy: LazyLoader<string>,
+                release: (key: string, values: Record<string, string>) => Promise<void>
+            ): Promise<void> => {
+                jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+                const lookup = lazy.get('other')
+                await release('other', { other: 'OTHER' })
+                await lookup
+            }
+
+            it('keeps a value it already had from the cache', async () => {
+                const { lazy, loaderCalledWith, release } = setupSlowLoader()
+                const first = lazy.get('a')
+                await release('a', { a: 'A' })
+                await first
+
+                jest.spyOn(Date, 'now').mockReturnValue(start + 29_000)
+                const both = lazy.getMany(['a', 'b'])
+                await loaderCalledWith('b')
+                await dropExpiredEntries(lazy, release)
+                await release('b', { b: 'B' })
+
+                expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
+            })
+
+            it('keeps a value that finished loading before its other keys', async () => {
+                const { lazy, loaderCalledWith, release } = setupSlowLoader()
+                const first = lazy.get('a')
+                await loaderCalledWith('a')
+                const both = lazy.getMany(['a', 'b'])
+                await loaderCalledWith('b')
+
+                await release('a', { a: 'A' })
+                await first
+                await dropExpiredEntries(lazy, release)
+                await release('b', { b: 'B' })
+
+                expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
+            })
+        })
+
         it('respects custom refreshAge', async () => {
             const customLoader = new LazyLoader({
                 name: 'test',
@@ -525,9 +607,9 @@ describe('LazyLoader', () => {
             loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2', key3: 'value3' })
             await customLoader.getMany(['key1', 'key2', 'key3'])
 
-            // Reloading an expired key replaces its entry rather than adding one, so the cache is
-            // still at maxSize and nothing live gets evicted.
-            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            // Reloading a key replaces its entry rather than adding one, so the cache is still at
+            // maxSize and nothing live gets evicted.
+            customLoader.markForRefresh('key1')
             loader.mockResolvedValueOnce({ key1: 'value1-refreshed' })
             await customLoader.get('key1')
 

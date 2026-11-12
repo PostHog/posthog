@@ -4,6 +4,8 @@ from uuid import UUID
 
 import pytest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
@@ -621,6 +623,24 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type(
             "SELECT JSONExtract('{\"num\": 42}', 'not_a_type')",
             ast.StringType(nullable=False),
+        )
+
+    @parameterized.expand(
+        [
+            ("Float32", ast.FloatType(nullable=False)),
+            ("Nullable(UInt8)", ast.IntegerType(nullable=True)),
+        ]
+    )
+    def test_resolver_infers_trino_json_extract_keys_and_values_clickhouse_type(
+        self, type_name: str, value_type: ast.ConstantType
+    ) -> None:
+        self._assert_first_column_type(
+            f"SELECT JSONExtractKeysAndValues('{{\"a\": 1}}', '{type_name}')",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.TupleType(nullable=False, item_types=[ast.StringType(nullable=False), value_type]),
+            ),
+            dialect="trino",
         )
 
     def test_resolver_infers_json_helper_function_types(self) -> None:

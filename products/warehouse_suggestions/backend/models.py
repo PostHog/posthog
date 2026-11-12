@@ -33,10 +33,14 @@ class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         max_length=16, choices=WarehouseSuggestionStatus.choices, default=WarehouseSuggestionStatus.PROPOSED.value
     )
     surfaced_at = models.DateTimeField(null=True, blank=True)
+    surfaced_on_demand = models.BooleanField(default=False, db_default=False)
     reviewed_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    assignee = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     dismissal_reason = models.CharField(
         max_length=16, choices=WarehouseSuggestionDismissalReason.choices, null=True, blank=True
     )

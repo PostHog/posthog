@@ -4,9 +4,10 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import (
+    FLAG_OWNER_EXPERIMENT,
     FLAG_OWNER_SURVEY,
     assert_flag_available_for,
     flag_owner_kind,
@@ -21,7 +22,7 @@ class TestFlagOwnership(APIBaseTest):
         return FeatureFlag.objects.create(team=self.team, key=key, name=key, created_by=self.user)
 
     def _own_by_experiment(self, flag: FeatureFlag) -> None:
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
 
     def _own_by_survey_targeting(self, flag: FeatureFlag) -> None:
         Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
@@ -39,7 +40,7 @@ class TestFlagOwnership(APIBaseTest):
         ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag, archived=True)
 
     def _own_by_deleted_experiment(self, flag: FeatureFlag) -> None:
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
 
     def _own_by_early_access(self, flag: FeatureFlag) -> None:
         EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
@@ -88,6 +89,27 @@ class TestFlagOwnership(APIBaseTest):
 
         assert "configuration format that a survey cannot use yet" in str(cm.exception)
 
+    @parameterized.expand(
+        [
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, True),
+            ("unsupported_document", {"version": 3}, False),
+        ]
+    )
+    def test_only_a_config_version_2_flag_is_available_to_a_caller_that_links_a_rule(
+        self, _name: str, filters: dict, available: bool
+    ) -> None:
+        flag = self._flag("with-rules")
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters)
+        flag.refresh_from_db()
+
+        if available:
+            assert_flag_available_for(flag, product=FLAG_OWNER_EXPERIMENT, links_a_rule=True)
+        else:
+            with self.assertRaises(serializers.ValidationError):
+                assert_flag_available_for(flag, product=FLAG_OWNER_EXPERIMENT, links_a_rule=True)
+        with self.assertRaises(serializers.ValidationError):
+            assert_flag_available_for(flag, product=FLAG_OWNER_EXPERIMENT)
+
     def test_guard_allows_a_free_flag(self) -> None:
         assert_flag_available_for(self._flag("free"), product=FLAG_OWNER_SURVEY)
 
@@ -101,7 +123,7 @@ class TestFlagOwnership(APIBaseTest):
 class TestSurveyFlagAdoptionGuard(APIBaseTest):
     def test_survey_cannot_adopt_a_flag_another_product_owns(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -138,7 +160,7 @@ class TestSurveyFlagAdoptionGuard(APIBaseTest):
         assert created.status_code == 201, created.json()
 
         flag = FeatureFlag.objects.create(team=self.team, key="taken-by-experiment", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{created.json()['id']}/",

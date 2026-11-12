@@ -6,8 +6,8 @@ from celery import shared_task
 
 from posthog.celery_queues import CeleryQueue
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import User
-from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
@@ -23,6 +23,7 @@ from products.slack_app.backend.logic.interview_recruitment import (
     linked_posthog_user,
     offer_frustration_invite,
 )
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 from products.slack_app.backend.slack_link_unfurl import add_artifact_image_to_unfurl, start_unfurl_charts
 from products.slack_app.backend.temporal.types import SlackUnfurlChartRequest
 
@@ -66,8 +67,11 @@ def refresh_user_github_repository_cache(*, user_integration_id: str) -> None:
     github.sync_repository_cache(min_refresh_interval_seconds=REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS)
 
 
-def _load_integration(integration_id: int, team_id: int) -> Integration | None:
-    return Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
+def _load_integration(integration_id: int, team_id: int) -> WorkspaceIntegration | None:
+    try:
+        return with_teams([IntegrationManager.slack.oauth.get(team_id, integration_id)])[0]
+    except IntegrationNotFound:
+        return None
 
 
 @shared_task(ignore_result=True)

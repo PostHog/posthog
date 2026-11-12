@@ -11,11 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
+    AddInsightToDashboardRequestApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyDashboardGroupRequestApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
     CreateTextTileRequestApi,
+    DashboardActivitySummaryApi,
     DashboardApi,
     DashboardBulkDeleteRequestApi,
     DashboardBulkDeleteResponseApi,
@@ -23,7 +26,11 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
+    DashboardTileBasicApi,
+    DashboardsActivitySummaryRetrieveParams,
+    DashboardsAddInsightCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
+    DashboardsCopyGroupCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
@@ -47,12 +54,10 @@ import type {
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
-    DataColorThemesListParams,
     DeleteTileRequestApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
-    PaginatedDataColorThemeListApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
@@ -407,6 +412,117 @@ export const dashboardsDestroy = async (
     return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardsActivitySummaryRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsActivitySummaryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/activity_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/activity_summary/`
+}
+
+/**
+ * Signals for judging whether a dashboard is still in use: its last logged change and recent human views in the app. Auto refreshes, API reads and subscriptions are not views.
+ */
+export const dashboardsActivitySummaryRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsActivitySummaryRetrieveParams,
+    options?: RequestInit
+): Promise<DashboardActivitySummaryApi> => {
+    return apiMutator<DashboardActivitySummaryApi>(getDashboardsActivitySummaryRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardsAddInsightCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsAddInsightCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/add_insight/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/add_insight/`
+}
+
+/**
+ * Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard and view access to the insight. Returns the tile. Adding an insight the dashboard already shows returns its tile unchanged, and adding one that was removed from the dashboard restores its tile with its old layout. To take an insight off a dashboard, use delete_tile.
+ */
+export const dashboardsAddInsightCreate = async (
+    projectId: string,
+    id: number,
+    addInsightToDashboardRequestApi: AddInsightToDashboardRequestApi,
+    params?: DashboardsAddInsightCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileBasicApi> => {
+    return apiMutator<DashboardTileBasicApi>(getDashboardsAddInsightCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addInsightToDashboardRequestApi),
+    })
+}
+
+export const getDashboardsCopyGroupCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCopyGroupCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/copy_group/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/copy_group/`
+}
+
+/**
+ * Copy a group of tiles and its settings to another dashboard.
+ */
+export const dashboardsCopyGroupCreate = async (
+    projectId: string,
+    id: number,
+    copyDashboardGroupRequestApi: CopyDashboardGroupRequestApi,
+    params?: DashboardsCopyGroupCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsCopyGroupCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyDashboardGroupRequestApi),
     })
 }
 
@@ -1068,28 +1184,12 @@ export const dashboardsWidgetCatalogRetrieve = async (
     })
 }
 
-export const getDataColorThemesListUrl = (projectId: string, params?: DataColorThemesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_color_themes/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_color_themes/`
+export const getDataColorThemesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_color_themes/`
 }
 
-export const dataColorThemesList = async (
-    projectId: string,
-    params?: DataColorThemesListParams,
-    options?: RequestInit
-): Promise<PaginatedDataColorThemeListApi> => {
-    return apiMutator<PaginatedDataColorThemeListApi>(getDataColorThemesListUrl(projectId, params), {
+export const dataColorThemesList = async (projectId: string, options?: RequestInit): Promise<DataColorThemeApi[]> => {
+    return apiMutator<DataColorThemeApi[]>(getDataColorThemesListUrl(projectId), {
         ...options,
         method: 'GET',
     })

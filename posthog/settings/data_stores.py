@@ -32,6 +32,8 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+POSTGRES_ENGINE = "posthog.db_backends.postgresql"
+
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -46,7 +48,7 @@ def postgres_config(host: str) -> dict:
     """
 
     return {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": POSTGRES_ENGINE,
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
@@ -85,7 +87,7 @@ else:
 
 if DATABASE_URL:
     DATABASES: dict[str, dict[str, Any]] = {
-        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+        "default": dict(dj_database_url.config(default=DATABASE_URL, engine=POSTGRES_ENGINE, conn_max_age=0))
     }
 
     if DISABLE_SERVER_SIDE_CURSORS:
@@ -298,6 +300,7 @@ elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
+
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
@@ -342,6 +345,8 @@ CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
+# In deployed cloud, the live raw_sessions_v3 MergeTree is on this satellite cluster.
+CLICKHOUSE_SESSIONS_CLUSTER: str = os.getenv("CLICKHOUSE_SESSIONS_CLUSTER", "sessions")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
@@ -381,6 +386,7 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+CLICKHOUSE_METRICS_CLUSTER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER", "metrics")
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
 # The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
 # table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
@@ -396,6 +402,20 @@ CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
+# The metrics cluster serves Workload.METRICS reads. Every setting falls back to the logs cluster's, which holds the
+# same metrics4 tables, so reads stay on the logs cluster until a deployment sets CLICKHOUSE_METRICS_CLUSTER_HOST.
+CLICKHOUSE_METRICS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_HOST", CLICKHOUSE_LOGS_CLUSTER_HOST)
+CLICKHOUSE_METRICS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_PORT", CLICKHOUSE_LOGS_CLUSTER_PORT)
+CLICKHOUSE_METRICS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_METRICS_CLUSTER_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
+CLICKHOUSE_METRICS_CLUSTER_PASSWORD: str = os.getenv(
+    "CLICKHOUSE_METRICS_CLUSTER_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD
+)
+CLICKHOUSE_METRICS_CLUSTER_DATABASE: str = (
+    CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_METRICS_DATABASE", CLICKHOUSE_LOGS_CLUSTER_DATABASE)
+)
+CLICKHOUSE_METRICS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_METRICS_CLUSTER_SECURE", CLICKHOUSE_LOGS_CLUSTER_SECURE, type_cast=str_to_bool
+)
 CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
     "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool
 )
@@ -407,6 +427,11 @@ SNUFFLE_APM_URL: str = os.getenv("SNUFFLE_APM_URL", "")
 SNUFFLE_APM_USER: str = os.getenv("SNUFFLE_APM_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
 SNUFFLE_APM_PASSWORD: str = os.getenv("SNUFFLE_APM_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
 SNUFFLE_APM_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_APM_TIMEOUT_SECONDS", 60, type_cast=int)
+# PromQL goes to the Snuffle next to the metrics cluster. Each setting falls back to the logs Snuffle's, which
+# reads the same metrics4 tables, so PromQL stays there until a deployment sets SNUFFLE_METRICS_URL.
+SNUFFLE_METRICS_URL: str = os.getenv("SNUFFLE_METRICS_URL", SNUFFLE_APM_URL)
+SNUFFLE_METRICS_USER: str = os.getenv("SNUFFLE_METRICS_USER", SNUFFLE_APM_USER)
+SNUFFLE_METRICS_PASSWORD: str = os.getenv("SNUFFLE_METRICS_PASSWORD", SNUFFLE_APM_PASSWORD)
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
@@ -698,12 +723,6 @@ TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
-HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
-    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
-)
-HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
-    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
-)
 
 MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
 
@@ -774,9 +793,44 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Destination replay claims must read what they wrote: a replica that still serves an
+# expired or released claim would let a second sender queue the same replay.
+CACHES["cdp_invocation_replay"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# The signup throttle reads its per-IP history, changes it and writes it back under a lock. A lagging
+# replica would hand it a stale history, and the write-back would erase another request's reservation.
+CACHES["signup_throttle"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
 # A replica that lags would hide the result and the lock, so another tile would run the same query again.
 CACHES["metrics_variable_options"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Warehouse destination connect tokens are polled right after they are written, and completion claims a
+# token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
+CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# A PostHog Admin result is read once, right after the operation stores it. A lagging replica would report it
+# as already shown, and a result can hold a password that the control plane returns only once.
+CACHES["admin_console_results"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
+# job as unknown, and the client treats that as expired, so read from the writer.
+CACHES["aeo_prompt_suggestions"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
 }
@@ -847,7 +901,12 @@ if TEST:
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["cdp_invocation_replay"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
+    CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["aeo_prompt_suggestions"] = CACHES["default"]
+    CACHES["signup_throttle"] = CACHES["default"]
+    CACHES["admin_console_results"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
@@ -863,6 +922,12 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 )
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
+
+CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS: int | None = get_from_env(
+    "CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS", optional=True, type_cast=int
+)
+if CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS is not None and CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS <= 0:
+    raise ImproperlyConfigured("CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS must be a positive integer.")
 
 WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(

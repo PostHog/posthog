@@ -4,6 +4,7 @@ export type LineageSearchMode = 'search' | 'upstream' | 'downstream' | 'both'
 
 export interface ParsedLineageSearch {
     mode: LineageSearchMode
+    anchorNodeId?: string
     /** The name to anchor lineage traversal on, or the term to match for plain search */
     term: string
 }
@@ -140,7 +141,9 @@ export function orderedNodesForLineageSearch(
     if (parsed.mode === 'search' || !parsed.term) {
         return null
     }
-    const anchor = matchNodesByName(nodes, parsed.term)[0]
+    const anchor = parsed.anchorNodeId
+        ? nodes.find((node) => node.id === parsed.anchorNodeId)
+        : matchNodesByName(nodes, parsed.term)[0]
     if (!anchor) {
         return []
     }
@@ -175,4 +178,27 @@ export function nodeIdsForLineageSearch(
 /** Keeps only edges whose endpoints both survived filtering, so no edge dangles. */
 export function edgesWithinNodes(edges: DataModelingEdge[], nodeIds: Set<string>): DataModelingEdge[] {
     return edges.filter((edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id))
+}
+
+const RENDERED_RESULT_LIMIT = 50
+
+export function searchResultCountLabel(count: number, mode: LineageSearchMode): string {
+    return mode === 'search'
+        ? `${count} ${count === 1 ? 'result' : 'results'}`
+        : `${count} ${count === 1 ? 'model' : 'models'} · ${mode === 'both' ? 'both directions' : mode}`
+}
+
+export function searchResultWindow(
+    results: DataModelingNode[],
+    selectedResultId: string | undefined
+): { selectedPosition: number; renderedResults: DataModelingNode[] } {
+    const selectedPosition = results.findIndex((node) => node.id === selectedResultId) + 1
+    // A one-letter term matches most of a large warehouse, and only about eight rows fit. Render a
+    // window that holds the selection instead of one button per match, so arrow navigation still
+    // reaches every result and the list never mounts thousands of buttons.
+    const windowStart = Math.min(
+        Math.max(0, selectedPosition - 1 - Math.floor(RENDERED_RESULT_LIMIT / 2)),
+        Math.max(0, results.length - RENDERED_RESULT_LIMIT)
+    )
+    return { selectedPosition, renderedResults: results.slice(windowStart, windowStart + RENDERED_RESULT_LIMIT) }
 }

@@ -13,6 +13,12 @@ class DevTokenSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the token was minted.")
     expires_at = serializers.DateTimeField(allow_null=True, help_text="When the gateway stops accepting the token.")
     revoked_at = serializers.DateTimeField(allow_null=True, help_text="When the token was revoked, if it was.")
+    spent_usd = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        allow_null=True,
+        help_text="What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.",
+    )
     status = serializers.ChoiceField(
         choices=DevTokenStatus.choices, help_text="Whether the token still works: live, revoked or expired."
     )
@@ -26,13 +32,18 @@ class DevTokenSerializer(serializers.Serializer):
 
 class DevTokenUsageSerializer(serializers.Serializer):
     daily_cap_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Most token caps one user can mint in 24 hours, in USD."
+        max_digits=10, decimal_places=2, help_text="Most budget one user can use in 24 hours, in USD."
     )
     used_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Token caps the user minted in the last 24 hours, in USD."
+        max_digits=10,
+        decimal_places=2,
+        help_text="Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.",
     )
     token_cap_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Cap of each new token, in USD."
+        max_digits=10, decimal_places=2, help_text="Largest cap of a new token, in USD."
+    )
+    token_cap_min_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Budget that must be left to create a token, in USD."
     )
     ttl_seconds = serializers.IntegerField(help_text="Lifetime of each new token, in seconds.")
     tokens = DevTokenSerializer(
@@ -54,7 +65,7 @@ class DevUserUsageSerializer(serializers.Serializer):
     live_tokens = serializers.IntegerField(help_text="Tokens that are neither revoked nor expired.")
     revoked_30d = serializers.IntegerField(help_text="Tokens minted in the last 30 days that were revoked.")
     reserved_usd_24h = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Token caps minted in the last 24 hours, in USD."
+        max_digits=10, decimal_places=2, help_text="Budget counted for tokens minted in the last 24 hours, in USD."
     )
     spend_usd_24h = serializers.DecimalField(
         max_digits=12, decimal_places=6, help_text="Settled gateway spend in the last 24 hours, in USD."

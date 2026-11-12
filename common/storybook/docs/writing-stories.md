@@ -63,6 +63,15 @@ An action dispatched from a story can run after the snapshot, or a load that fin
 A decorator in a story or meta, such as `mswDecorator`, sits inside all of them.
 Before each render, Storybook also waits for the Inter and RoundHog fonts. Canvas charts measure text when they paint and never paint again after a font arrives.
 
+## Parameter types
+
+`frontend/src/@types/storybook-parameters.d.ts` types every parameter that a global decorator or the test runner reads, including each `testOptions` key.
+The typecheck rejects an unknown key, so a typo such as `testOptions: { skip: true }` fails before it can silently do nothing.
+When a decorator or the runner starts to read a new parameter, add it to that file.
+The file lives under `frontend/` on purpose: story files resolve a different copy of the `storybook` package from `common/storybook/`, and a type declared from there never reaches them.
+
+A file-local parameter, read only by that file's own `render` or decorator, has no type. Read it through a `Decorator`, whose `parameters` accept any key.
+
 ## How story and meta parameters combine
 
 Storybook merges a story's `parameters` into the meta's.
@@ -82,7 +91,7 @@ parameters: { featureFlags: { 'bool-flag': true, 'my-experiment': 'test' } } // 
 
 - The default is no flags, so every flag is off.
 - `featureFlagLogic` reads the persisted flags on mount and keeps them under every later flag load, so a pinned variant survives the empty flag callback posthog-js fires on load.
-- `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV` and `INTERNAL_FEEDBACK_WIDGET`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
+- `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
 - A component that reads flags from a different posthog-js instance, such as the toolbar, needs that instance's own override. `Toolbar.stories.tsx` calls `toolbarPosthogJS.featureFlags.overrideFeatureFlags` for this reason.
 - The parameter only sets the flag. When the render also depends on other runtime state, such as localStorage, an `APP_CONTEXT` field or a logic that has to resolve an entry, set that up too. A small wrapper in the story file can set the state and mount the logic before it renders the component. Don't add test-only props to the production component.
 
@@ -157,6 +166,7 @@ parameters: {
 - `docs`, `controls`, `actions` and `options` are standard Storybook parameters for the Storybook UI. The runner ignores them.
 - `parameters.msw.mocks` works only with `mswDecorator` on the story or meta. No global decorator reads it. See [Mocking data](mocking-data.md).
 - A parameter that only one file uses, such as `narrow`, `width` or `tab`, is read by that file's own `render` or `beforeEach`. Read the file before you copy one.
+- A derived story that needs a base story's mocks imports a shared `Mocks` constant, for example `BI_MODE_WORKSHEET_MOCKS` in `SQLEditorScene.stories.tsx`. Don't read them back out of `BaseStory.parameters.msw.mocks`.
 
 ## Story functions: `render`, `play`, `beforeEach`, `loaders`
 

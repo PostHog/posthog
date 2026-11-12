@@ -412,7 +412,6 @@ export const MetricsQueryCreateParams = () => zod.object({
 
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
-export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 
@@ -444,6 +443,10 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
+export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
+
+export const metricsQueryCreateBodyQueryOneLimitMax = 100
+
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
@@ -472,9 +475,9 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .describe(
                     '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                 )
-                .default(metricsQueryCreateBodyQueryOneAggregationDefault)
+                .optional()
                 .describe(
-                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
             rangeFunction: zod
                 .union([
@@ -693,17 +696,38 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .describe(
                     "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) \/ a'. Supports + - \* \/ and parentheses; division by zero yields 0. When set, only the formula result series are returned."
                 ),
+            promql: zod
+                .string()
+                .max(metricsQueryCreateBodyQueryOnePromqlMax)
+                .nullish()
+                .describe(
+                    "PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero."
+                ),
             dateFrom: zod
                 .string()
                 .optional()
                 .describe(
-                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo."
+                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo."
                 ),
             dateTo: zod
                 .string()
                 .optional()
                 .describe(
                     'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
+                ),
+            dropEmptySeries: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    "Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsQueryCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe(
+                    "Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries."
                 ),
         })
         .describe('The metric query to execute.'),
@@ -720,21 +744,41 @@ export const MetricsValuesRetrieveParams = () => zod.object({
         ),
 })
 
+export const metricsValuesRetrieveQueryFirstSeenDefault = false
+export const metricsValuesRetrieveQueryFoldHistogramsDefault = false
 export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
+export const metricsValuesRetrieveQueryMatchDefault = `substring`
 export const metricsValuesRetrieveQueryServiceMax = 1024
 
+export const metricsValuesRetrieveQuerySparklinesDefault = true
 export const metricsValuesRetrieveQueryValueDefault = ``
 export const metricsValuesRetrieveQueryValueMax = 255
 
 export const MetricsValuesRetrieveQueryParams = () => zod.object({
+    first_seen: zod
+        .boolean()
+        .default(metricsValuesRetrieveQueryFirstSeenDefault)
+        .describe('Add `first_seen`: the earliest hour each name arrived in, within retention.'),
+    fold_histograms: zod
+        .boolean()
+        .default(metricsValuesRetrieveQueryFoldHistogramsDefault)
+        .describe(
+            "Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page."
+        ),
     limit: zod
         .number()
         .min(1)
         .max(metricsValuesRetrieveQueryLimitMax)
         .default(metricsValuesRetrieveQueryLimitDefault)
         .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    match: zod
+        .enum(['substring', 'prefix', 'regex'])
+        .default(metricsValuesRetrieveQueryMatchDefault)
+        .describe(
+            'How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.\n\n\* `substring` - substring\n\* `prefix` - prefix\n\* `regex` - regex'
+        ),
     service: zod
         .string()
         .max(metricsValuesRetrieveQueryServiceMax)
@@ -742,9 +786,17 @@ export const MetricsValuesRetrieveQueryParams = () => zod.object({
         .describe(
             'Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.'
         ),
+    sparklines: zod
+        .boolean()
+        .default(metricsValuesRetrieveQuerySparklinesDefault)
+        .describe(
+            'Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.'
+        ),
     value: zod
         .string()
         .max(metricsValuesRetrieveQueryValueMax)
         .default(metricsValuesRetrieveQueryValueDefault)
-        .describe('Substring filter (case-insensitive) applied to metric names.'),
+        .describe(
+            'Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.'
+        ),
 })

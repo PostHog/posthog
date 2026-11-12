@@ -190,24 +190,16 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
             preferences={str(newsletter.id): PreferenceStatus.OPTED_IN.value},
         )
 
-        # Mock globally unsubscribed customers
-        mock_client.get_globally_unsubscribed_customers.side_effect = [
-            {
-                "identifiers": [
-                    {"email": "unsubbed1@example.com"},
-                    {"email": "unsubbed2@example.com"},
-                ],
+        mock_client.get_suppressions.return_value = []
+        unsubscribed_pages = {
+            None: {
+                "identifiers": [{"email": "unsubbed1@example.com"}, {"email": "unsubbed2@example.com"}],
                 "next": "cursor123",
             },
-            {
-                "identifiers": [
-                    {"email": "unsubbed3@example.com"},
-                ],
-                "next": "",
-            },
-        ]
+            "cursor123": {"identifiers": [{"email": "unsubbed3@example.com"}], "next": ""},
+        }
+        mock_client.get_globally_unsubscribed_customers.side_effect = lambda limit, start: unsubscribed_pages[start]
 
-        # Run import
         result = self.service.import_api_data()
 
         # Check results
@@ -232,10 +224,18 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         assert pref1.get_preference(str(cat1.id)) == PreferenceStatus.OPTED_IN
         assert pref1.get_preference(str(cat2.id)) == PreferenceStatus.NO_PREFERENCE
         assert pref1.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+        new_recipients = {
+            pref.identifier: pref.preferences
+            for pref in MessageRecipientPreference.objects.filter(
+                team_id=self.team.id, identifier__in=["unsubbed2@example.com", "unsubbed3@example.com"]
+            )
+        }
+        assert new_recipients == {
+            "unsubbed2@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+            "unsubbed3@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        }
 
-    def test_save_csv_batch_with_existing_preferences(self):
-        """Test batch saving when some users already have preferences"""
-        # Create a category
+    def test_csv_import_merges_existing_preferences_and_repeated_rows(self):
         cat1 = MessageCategory.objects.create(
             team=self.team,
             key="customerio_topic_1",
@@ -243,35 +243,39 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
             category_type=MessageCategoryType.MARKETING,
             created_by=self.user,
         )
-
-        # Create an existing preference for user1
-        existing_pref = MessageRecipientPreference.objects.create(
+        MessageRecipientPreference.objects.create(
             team_id=self.team.id,
             identifier="user1@example.com",
             preferences={"other_cat": PreferenceStatus.OPTED_OUT.value},
         )
+        csv_content = """email,id,cio_subscription_preferences
+user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
+user2@example.com,cio_2,"{""topics"": {""topic_1"": false}}"
+user3@example.com,cio_3,"{""topics"": {""topic_1"": false}}"
+user3@example.com,cio_4,"{""topics"": {""topic_1"": false}}"
+user2@example.com,cio_2,"{""topics"": {""topic_1"": true}}"
+user4@example.com,cio_5,"{""topics"": {""topic_1"": true}}"
+user4@example.com,cio_5,"{""topics"": {""topic_1"": false}}"
+user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
+user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
+"""
 
-        # Create batch data
-        batch = [
-            ("user1@example.com", [str(cat1.id)]),  # Existing user
-            ("user2@example.com", [str(cat1.id)]),  # New user
-            ("user3@example.com", [str(cat1.id), str(cat1.id)]),  # Duplicate categories
-        ]
+        result = self.service.process_preferences_csv(StringIO(csv_content))
 
-        # Save batch
-        prefs_count = self.service._save_csv_batch(batch)
-
-        # Check results
-        assert prefs_count == 3
-
-        # Check existing user's preferences were updated
-        existing_pref.refresh_from_db()
-        assert existing_pref.preferences["other_cat"] == PreferenceStatus.OPTED_OUT.value
-        assert existing_pref.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
-
-        # Check new users were created
-        new_pref = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user2@example.com")
-        assert new_pref.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
+        assert result["status"] == "completed"
+        assert result["users_with_optouts"] == 4
+        assert result["users_skipped"] == 1
+        assert result["preferences_updated"] == 4
+        assert result["total_unique_users"] == 5
+        opted_out = PreferenceStatus.OPTED_OUT.value
+        assert {
+            pref.identifier: pref.preferences for pref in MessageRecipientPreference.objects.filter(team=self.team)
+        } == {
+            "user1@example.com": {"other_cat": opted_out, str(cat1.id): opted_out},
+            "user2@example.com": {str(cat1.id): opted_out},
+            "user3@example.com": {str(cat1.id): opted_out},
+            "user4@example.com": {str(cat1.id): opted_out},
+        }
 
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
     def test_api_import_global_unsubscribe_without_topics(self, mock_client_class) -> None:
@@ -307,10 +311,39 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team, identifier="removed@example.com", suppressed=False, deleted=True
         )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team,
+            identifier="earlier@example.com",
+            source=SuppressionSource.BOUNCE,
+            reason="Imported from Customer.io (bounced)",
+            suppressed=True,
+        )
+        bounced_at, earlier_at, spam_at = 1700000000, 1700100000, 1700200000
         pages = {
-            ("bounces", 0): [{"email": " Bounced@Example.com "}, {"email": "manual@example.com"}],
-            ("bounces", 2): [{"email": "removed@example.com"}],
-            ("spam_reports", 0): [{"email": "spam@example.com"}],
+            ("bounces", 0): [
+                {
+                    "email": " Bounced@Example.com ",
+                    "created": bounced_at,
+                    "status": "550",
+                    "reason": "Recipient address rejected: user unknown",
+                },
+                {
+                    "email": "manual@example.com",
+                    "created": bounced_at,
+                    "status": "550",
+                    "reason": "Recipient address rejected: user unknown",
+                },
+            ],
+            ("bounces", 2): [
+                {
+                    "email": "removed@example.com",
+                    "created": bounced_at,
+                    "status": "550",
+                    "reason": "Recipient address rejected: user unknown",
+                },
+                {"email": "earlier@example.com", "created": earlier_at, "status": "550", "reason": "Mailbox full"},
+            ],
+            ("spam_reports", 0): [{"email": "spam@example.com", "created": spam_at, "status": "", "reason": ""}],
         }
 
         def get_suppressions(suppression_type: str, limit: int, offset: int) -> list[dict]:
@@ -338,7 +371,47 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
             "spam@example.com": (SuppressionSource.COMPLAINT, True, False),
             "manual@example.com": (SuppressionSource.MANUAL, True, False),
             "removed@example.com": (SuppressionSource.BOUNCE, False, True),
+            "earlier@example.com": (SuppressionSource.BOUNCE, True, False),
         }
+        details = {
+            row.identifier: (
+                row.suppressed_at and int(row.suppressed_at.timestamp()),
+                row.last_bounce_at and int(row.last_bounce_at.timestamp()),
+                row.last_bounce_diagnostic,
+            )
+            for row in MessageSuppression.objects.for_team(self.team.id).filter(
+                identifier__in=["bounced@example.com", "spam@example.com", "earlier@example.com", "manual@example.com"]
+            )
+        }
+        assert details["bounced@example.com"] == (
+            bounced_at,
+            bounced_at,
+            "550 Recipient address rejected: user unknown",
+        )
+        assert details["spam@example.com"] == (spam_at, None, None)
+        assert details["earlier@example.com"] == (earlier_at, earlier_at, "550 Mailbox full")
+        assert details["manual@example.com"][2] is None
+
+    @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_api_import_saves_suppressions_before_a_killed_unsubscribe_step(self, mock_client_class: MagicMock) -> None:
+        class RequestKilled(BaseException):
+            pass
+
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = []
+        mock_client.get_suppressions.side_effect = lambda suppression_type, limit, offset: (
+            [{"email": "bounced@example.com"}] if (suppression_type, offset) == ("bounces", 0) else []
+        )
+        mock_client.get_globally_unsubscribed_customers.side_effect = RequestKilled()
+
+        with self.assertRaises(RequestKilled):
+            CustomerIOImportService(self.team.id, self.api_key, self.user.id).import_api_data()
+
+        assert list(MessageSuppression.objects.for_team(self.team.id).values_list("identifier", flat=True)) == [
+            "bounced@example.com"
+        ]
 
     def test_process_csv_without_categories(self):
         """Test CSV processing when no categories exist"""
@@ -355,31 +428,22 @@ user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
         assert result["status"] == "failed"
         assert "No categories found" in result["details"]
 
-    def test_unique_user_tracking_across_api_and_csv(self):
-        """Test that unique users are tracked correctly across API and CSV imports"""
-        # Simulate API import adding users
-        self.service.all_processed_users.add("user1@example.com")
-        self.service.all_processed_users.add("user2@example.com")
-
-        # Create category for CSV processing
-        MessageCategory.objects.create(
-            team=self.team,
-            key="customerio_topic_1",
-            name="Marketing",
-            category_type=MessageCategoryType.MARKETING,
-            created_by=self.user,
-        )
-
-        # Create CSV with overlapping and new users
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_unique_user_tracking_across_api_and_csv(self, mock_client_class: MagicMock) -> None:
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = [{"id": "1", "identifier": "topic_1", "name": "Marketing"}]
+        mock_client.get_suppressions.return_value = []
+        mock_client.get_globally_unsubscribed_customers.return_value = {
+            "identifiers": [{"email": "user1@example.com"}, {"email": "user2@example.com"}],
+        }
         csv_content = """email,id,cio_subscription_preferences
 user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
 user3@example.com,cio_3,"{""topics"": {""topic_1"": false}}"
-user2@example.com,cio_2,""
 """
 
-        # Process CSV
+        assert self.service.import_api_data()["status"] == "completed"
         result = self.service.process_preferences_csv(StringIO(csv_content))
 
-        # Check unique users count
-        assert result["total_unique_users"] == 3  # user1, user2, user3 (no duplicates)
-        assert len(self.service.all_processed_users) == 3
+        assert result["status"] == "completed"
+        assert result["total_unique_users"] == 3

@@ -1719,6 +1719,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -1869,6 +1871,8 @@ export interface QueryStatusApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
@@ -1913,6 +1917,29 @@ export interface DataWarehouseSourceUsageApi {
     uses_history_table?: boolean | null
 }
 
+export type WarehouseSuggestionNoteKindApi =
+    (typeof WarehouseSuggestionNoteKindApi)[keyof typeof WarehouseSuggestionNoteKindApi]
+
+export const WarehouseSuggestionNoteKindApi = {
+    Materialize: 'materialize',
+    Unmaterialize: 'unmaterialize',
+} as const
+
+export interface WarehouseSuggestionNoteApi {
+    /** Whether this user can edit the view, which accepting the suggestion needs. */
+    can_act: boolean
+    /** The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`. */
+    id: string
+    /** What the suggestion proposes. */
+    kind: WarehouseSuggestionNoteKindApi
+    /** Plain-language note for the person, with the next step. */
+    message: string
+    /** Absolute link to the view's page in Models. */
+    url: string
+    /** The view's current name. */
+    view_name: string
+}
+
 export interface DataWarehouseSyncWarningApi {
     /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
     data_is_current?: boolean | null
@@ -1941,15 +1968,24 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export interface BreakdownNotAppliedWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'breakdown_not_applied'
+}
+
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -1969,8 +2005,10 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     types?: unknown[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+    warehouse_suggestions?: WarehouseSuggestionNoteApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | BreakdownNotAppliedWarningApi)[] | null
 }
 
 export interface WebAnalyticsSamplingApi {
@@ -1987,6 +2025,11 @@ export interface QueryLogTagsApi {
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
     scene?: string | null
+}
+
+export interface WebAnalyticsQueryModifiersApi {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean | null
 }
 
 export interface MarketingAnalyticsTableQueryApi {
@@ -2035,6 +2078,8 @@ export interface MarketingAnalyticsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface ConversionRecordingsRequestApi {
