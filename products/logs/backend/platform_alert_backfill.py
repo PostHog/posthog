@@ -180,7 +180,8 @@ def backfill_platform_alert_configurations(
 
 @frozen
 class FirstEnabledBackfill:
-    # How many copies each team had to change, or would have with a dry run.
+    """How many copies each team had to change, or would have with a dry run, and the teams that failed."""
+
     matched: dict[int, int]
     failed_team_ids: tuple[int, ...]
 
@@ -192,7 +193,6 @@ def backfill_copies_first_enabled_at(*, team_ids: Collection[int] | None, dry_ru
     matched: dict[int, int] = {}
     failed: list[int] = []
     for team_id in team_ids if team_ids is not None else team_ids_with_copies(SourceKind.LOGS):
-        # One team the write fails for must not stop the rest.
         try:
             matched[team_id] = match_first_enabled_at(
                 source_kind=SourceKind.LOGS,

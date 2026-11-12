@@ -439,8 +439,7 @@ def update_owned_copy(
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if first_enabled_at is not None and configuration.first_enabled_at != first_enabled_at:
-            # `update()` rather than `save()`, so the copy logs no second edit. The source row's time wins
-            # over the stamp this edit's own enable wrote a moment later.
+            # `update()` so that correcting the stamp logs no second edit of the copy.
             PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration.id).update(
                 first_enabled_at=first_enabled_at
             )
