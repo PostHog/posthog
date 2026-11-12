@@ -696,59 +696,8 @@ export class EmailTrackingService {
                 return { outcome: 'rejected', status, body }
             }
 
-            for (const metric of metrics || []) {
-                await this.trackMetric({
-                    functionId: metric.functionId,
-                    invocationId: metric.invocationId,
-                    actionId: metric.actionId,
-                    parentRunId: metric.parentRunId,
-                    distinctId: metric.distinctId,
-                    metricName: metric.metricName,
-                    source: 'ses',
-                    properties: metric.properties,
-                    timestamp: metric.timestamp,
-                    instanceIdOverride: metric.instanceIdOverride,
-                    deferFlush: true,
-                    workflowVersion: metric.workflowVersion,
-                    verifiedTeamId: metric.teamId,
-                })
-            }
-
-            // Wrapped so a failure here doesn't skip the suppression writes below.
-            try {
-                await this.trackLogs(
-                    (logEntries || []).map((entry) => ({
-                        functionId: entry.functionId,
-                        invocationId: entry.invocationId,
-                        parentRunId: entry.parentRunId,
-                        level: entry.level,
-                        message: entry.message,
-                    }))
-                )
-            } catch (error) {
-                logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
-                emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
-            }
-
-            // Best-effort like the writes around it: queue never throws.
-            if (this.emailStatusService && emailStatusUpdates?.length) {
-                for (const update of emailStatusUpdates) {
-                    const teamId = parseInt(update.teamId, 10)
-                    if (Number.isNaN(teamId)) {
-                        continue
-                    }
-                    this.emailStatusService.queue({
-                        teamId,
-                        messageId: update.invocationId,
-                        status: update.status,
-                        reason: update.reason,
-                        statusAt: new Date(update.timestamp),
-                    })
-                }
-            }
-
-            // Feed bounces, complaints and successful deliveries into the suppression list. A failure here
-            // fails the notification only when the suppression service says it retries. Deliveries are
+            // Feed bounces, complaints and successful deliveries into the suppression list before queueing anything:
+            // a retried write fails the notification, whose redelivery must not count it twice. Deliveries are
             // processed first so a delivery + bounce in the same batch nets out conservatively
             // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
@@ -802,6 +751,56 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
                 if (error instanceof SuppressionWriteError) {
                     throw error
+                }
+            }
+
+            for (const metric of metrics || []) {
+                await this.trackMetric({
+                    functionId: metric.functionId,
+                    invocationId: metric.invocationId,
+                    actionId: metric.actionId,
+                    parentRunId: metric.parentRunId,
+                    distinctId: metric.distinctId,
+                    metricName: metric.metricName,
+                    source: 'ses',
+                    properties: metric.properties,
+                    timestamp: metric.timestamp,
+                    instanceIdOverride: metric.instanceIdOverride,
+                    deferFlush: true,
+                    workflowVersion: metric.workflowVersion,
+                    verifiedTeamId: metric.teamId,
+                })
+            }
+
+            try {
+                await this.trackLogs(
+                    (logEntries || []).map((entry) => ({
+                        functionId: entry.functionId,
+                        invocationId: entry.invocationId,
+                        parentRunId: entry.parentRunId,
+                        level: entry.level,
+                        message: entry.message,
+                    }))
+                )
+            } catch (error) {
+                logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
+            }
+
+            // Best-effort like the writes around it: queue never throws.
+            if (this.emailStatusService && emailStatusUpdates?.length) {
+                for (const update of emailStatusUpdates) {
+                    const teamId = parseInt(update.teamId, 10)
+                    if (Number.isNaN(teamId)) {
+                        continue
+                    }
+                    this.emailStatusService.queue({
+                        teamId,
+                        messageId: update.invocationId,
+                        status: update.status,
+                        reason: update.reason,
+                        statusAt: new Date(update.timestamp),
+                    })
                 }
             }
 

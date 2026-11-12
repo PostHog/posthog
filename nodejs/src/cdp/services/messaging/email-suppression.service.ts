@@ -21,7 +21,7 @@ const cdpEmailSuppressionWriteFailures = new Counter({
     labelNames: ['write', 'outcome'],
 })
 
-type SuppressionWrite = 'transient_bounce' | 'hard_bounce' | 'complaint' | 'delivery_reset' | 'global_hard_bounce_clear'
+type SuppressionWrite = 'transient_bounce' | 'hard_bounce' | 'complaint'
 
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
@@ -559,7 +559,7 @@ export class EmailSuppressionService {
               AND transient_bounce_count > 0
               AND (last_bounce_at IS NULL OR ($3::timestamptz IS NOT NULL AND last_bounce_at < $3::timestamptz))
         `
-        await this.write('delivery_reset', teamId, async () => {
+        try {
             await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 query,
@@ -567,7 +567,9 @@ export class EmailSuppressionService {
                 'resetBounceCounts'
             )
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        })
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
+        }
 
         if (!clearGlobal) {
             return
@@ -575,7 +577,7 @@ export class EmailSuppressionService {
 
         // A delivery proves the address exists. The timestamp guard stops a late, older delivery from
         // clearing a fresh bounce.
-        await this.write('global_hard_bounce_clear', teamId, async () => {
+        try {
             const result = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `DELETE FROM posthog_emailhardbounce
@@ -588,7 +590,9 @@ export class EmailSuppressionService {
             if (result.rowCount) {
                 cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_cleared' }, result.rowCount)
             }
-        })
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to clear global hard bounces on delivery', { teamId, error })
+        }
     }
 
     private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
