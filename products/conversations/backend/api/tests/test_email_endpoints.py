@@ -2141,7 +2141,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         self._run_reply(
             ticket,
-            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph\n\n```\ncurl https://example.com/api\n```",
+            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph with \\*no emphasis\\*\n\n```\ncurl https://example.com/api\n```",
         )
 
         message = message_from_bytes(mock_send_mime.call_args.args[1])
@@ -2154,6 +2154,12 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert "<br" in html
         assert html.count("<p>") == 2
         assert "<code>curl https://example.com/api\r\n</code>" in html
+        assert "*no emphasis*" in html and "<em>" not in html
+
+        text_part = next(part for part in message.walk() if part.get_content_type() == "text/plain")
+        text_payload = text_part.get_payload(decode=True)
+        assert isinstance(text_payload, bytes)
+        assert "New paragraph with *no emphasis*" in text_payload.decode()
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):
