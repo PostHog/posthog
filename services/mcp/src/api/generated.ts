@@ -14978,6 +14978,7 @@ export namespace Schemas {
       AnalyticsAll: 'analytics_all',
       AnalyticsMine: 'analytics_mine',
       Collections: 'collections',
+      Dashboards: 'dashboards',
       Alerts: 'alerts',
       Subscriptions: 'subscriptions',
       ProductAnalytics: 'product_analytics',

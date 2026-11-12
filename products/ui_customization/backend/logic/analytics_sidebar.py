@@ -29,6 +29,7 @@ DEFAULT_LAYOUT = AnalyticsFragmentLayout(
                 _page(AnalyticsPage.ANALYTICS_ALL),
                 _page(AnalyticsPage.ANALYTICS_MINE),
                 _page(AnalyticsPage.COLLECTIONS),
+                _page(AnalyticsPage.DASHBOARDS),
             ],
         ),
         AnalyticsFragmentSection(id="pinned", title="Pinned", items=[_list(AnalyticsListSource.PINNED)]),

@@ -5,8 +5,9 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
+import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { fileSystemTypes, getTreeItemsProducts } from '~/products'
+import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
@@ -183,8 +184,20 @@ export function fileSystemEntryToAnalytics(
     }
 }
 
-// pinned: sidebar `iconType` values from the product manifests, in the order the sidebar lists them.
+// pinned: sidebar `iconType` values from the product manifests. These ready-made analytics open from the Analytics
+// pane only, so the Products list leaves them out.
 export const FROM_POSTHOG_ICON_TYPES = ['web_analytics', 'marketing_analytics', 'mcp_analytics'] as const
+
+// The order By PostHog lists its pages in, after Product analytics. Each is a page of the Products tab.
+const BY_POSTHOG_ICON_TYPES = [
+    'session_replay',
+    'web_analytics',
+    'activity',
+    'heatmap',
+    'sql_editor',
+    'marketing_analytics',
+    'mcp_analytics',
+] as const
 
 export interface FromPostHogItem {
     key: string
@@ -193,20 +206,12 @@ export interface FromPostHogItem {
     item: FileSystemImport
 }
 
-// Canvases open only under the Today navigation.
-const ANALYTICS_TYPE_PAGES: Record<AnalyticsType, { href: () => string; flag?: string }> = {
-    canvas: { href: () => urls.canvases(), flag: FEATURE_FLAGS.TODAY_RAIL_NAV },
-    dashboard: { href: () => urls.dashboards() },
-    insight: { href: () => urls.savedInsights() },
-    notebook: { href: () => urls.notebooks() },
-}
-
 export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boolean {
     return (FROM_POSTHOG_ICON_TYPES as readonly string[]).includes(item.iconType ?? '')
 }
 
 export function fromPostHogProducts(): FromPostHogItem[] {
-    const products = getTreeItemsProducts()
+    const products = getNavProductPages()
     // Product analytics has no page of its own in the manifest; its ready-made analysis is the home dashboard.
     const productAnalytics = products.find((product) => product.type === 'insight' && product.href === urls.insights())
     const home: FromPostHogItem[] = productAnalytics
@@ -226,12 +231,7 @@ export function fromPostHogProducts(): FromPostHogItem[] {
         : []
     return [
         ...home,
-        ...ANALYTICS_TYPES.map(({ type, pluralLabel }): FromPostHogItem => {
-            const { flag } = ANALYTICS_TYPE_PAGES[type]
-            const href = ANALYTICS_TYPE_PAGES[type].href()
-            return { key: `${type}s`, label: pluralLabel, href, item: { path: pluralLabel, type, href, flag } }
-        }),
-        ...FROM_POSTHOG_ICON_TYPES.flatMap((iconType) => {
+        ...BY_POSTHOG_ICON_TYPES.flatMap((iconType) => {
             const item = products.find((product) => product.iconType === iconType)
             return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
         }),

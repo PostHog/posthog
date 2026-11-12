@@ -25,6 +25,13 @@
                             "kind": "page",
                             "page": "collections"
                         }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "dashboards"
+                        }
                     }
                 ]
             },
