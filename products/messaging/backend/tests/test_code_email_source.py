@@ -398,7 +398,7 @@ class TestDetectCodeEmailSource(BaseTest):
             "https://github.com/acme/web/blob/HEAD/src/emails/welcome.ts#L12",
             "detected",
         )
-        find.assert_called_once_with("welcome")
+        find.assert_called_once_with("welcome", deadline=None)
         assert self._reported(capture) == [
             {"team_id": self.team.id, "outcome": "linked", "attempt": 1, "installations": 1, "candidate_files": 1}
         ]
@@ -406,7 +406,7 @@ class TestDetectCodeEmailSource(BaseTest):
 
     @parameterized.expand([("linked", "https://gitlab.example.com/acme/web/-/blob/main/mail.ts"), ("unlinked", None)])
     def test_keeps_what_a_person_chose_while_it_searched(self, retry, find, _flag, capture, _name, person_link) -> None:
-        def person_sets_the_link(_literal: str) -> ExactCodeSearchResult:
+        def person_sets_the_link(_literal: str, **_: Any) -> ExactCodeSearchResult:
             TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(id=self.key.id).update(
                 source_url=person_link, source_origin="manual"
             )
@@ -453,13 +453,17 @@ class TestDetectCodeEmailSource(BaseTest):
         self.key.refresh_from_db()
         assert self.key.source_url is None
 
-    @parameterized.expand(["flag_off", "key_too_long_to_search", "already_linked", "link_cleared", "no_github"])
+    @parameterized.expand(
+        ["flag_off", "key_too_long_to_search", "key_spans_lines", "already_linked", "link_cleared", "no_github"]
+    )
     def test_skips_the_search(self, retry, find, flag, capture, case) -> None:
         key = self.key
         if case == "flag_off":
             flag.return_value = False
         elif case == "key_too_long_to_search":
             key = self._key("k" * (MAX_LITERAL_LENGTH + 1))
+        elif case == "key_spans_lines":
+            key = self._key("pass\nword")
         elif case == "already_linked":
             TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(id=key.id).update(
                 source_url="https://example.com/mail.ts"

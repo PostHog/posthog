@@ -6,13 +6,15 @@ import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { codeEmailLogic } from './codeEmailLogic'
+import { DetectedSourceTag } from './DetectedSourceTag'
+import { FindInGitHubButton } from './FindInGitHubButton'
+import { SourceEditor } from './SourceEditor'
 import { parseSourceFile, repoUrl } from './sourceFile'
-import { SourceFileForm } from './SourceFileForm'
 
 /** The file in your repository that sends this email, or a way to link it. */
 export function SourceRow(): JSX.Element | null {
-    const { codeEmail, saving, sourceFormOpen, editDisabledReason } = useValues(codeEmailLogic)
-    const { linkSourceFile, setSourceFormOpen } = useActions(codeEmailLogic)
+    const { codeEmail, sourceFormOpen, editDisabledReason } = useValues(codeEmailLogic)
+    const { setSourceFormOpen } = useActions(codeEmailLogic)
     if (!codeEmail) {
         return null
     }
@@ -23,7 +25,7 @@ export function SourceRow(): JSX.Element | null {
             visible={sourceFormOpen && !editDisabledReason}
             onClickOutside={() => setSourceFormOpen(false)}
             placement="bottom-start"
-            overlay={<SourceFileForm initialUrl={codeEmail.source_url} saving={saving} onSave={linkSourceFile} />}
+            overlay={<SourceEditor />}
         >
             <div className="flex flex-wrap items-center gap-1 text-secondary min-w-0" data-attr="code-email-source-row">
                 <IconCode className="shrink-0" />
@@ -40,6 +42,7 @@ export function SourceRow(): JSX.Element | null {
                         >
                             Link source file
                         </LemonButton>
+                        <FindInGitHubButton />
                     </>
                 ) : repo ? (
                     <>
@@ -52,6 +55,7 @@ export function SourceRow(): JSX.Element | null {
                                 {file.repo}
                             </Link>
                         </span>
+                        <DetectedSourceTag />
                     </>
                 ) : (
                     <span className="flex items-center gap-1 min-w-0">

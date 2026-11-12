@@ -6,10 +6,12 @@ candidates only: each one is read and kept when the literal appears exactly.
 """
 
 import re
+import time
 from itertools import islice
 from urllib.parse import quote
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 
@@ -42,21 +44,26 @@ class ExactCodeSearchResult:
     complete: bool
 
 
+def is_searchable_literal(literal: str) -> bool:
+    return bool(literal.strip()) and len(literal) <= MAX_LITERAL_LENGTH and literal.splitlines() == [literal]
+
+
 class GitHubExactCodeSearch:
     def __init__(self, github: GitHubIntegration) -> None:
         self.github = github
 
-    def find(self, literal: str) -> ExactCodeSearchResult:
+    def find(self, literal: str, *, deadline: float | None = None) -> ExactCodeSearchResult:
         """Find the files in GitHub's index of each default branch that hold ``literal`` exactly.
 
         ``literal`` must not sit inside a longer run of letters, digits, ``_`` or ``-``. Each
         matched line comes with its text and up to ``CONTEXT_LINES`` lines on either side.
         ``complete`` is False when GitHub did not return every candidate, a candidate could not be
         read, or a file held more than ``MAX_MATCHED_LINES_PER_FILE`` matches, so a caller can tell
-        "nowhere" from "not found in what was searched".
-        Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds a request.
+        "nowhere" from "not found in what was searched". Reading stops, incomplete, once ``time.monotonic()``
+        passes ``deadline``, or when the egress lane sheds a file read.
+        Raises ``GitHubEgressBudgetExhausted`` when the egress lane sheds the search itself.
         """
-        if not literal.strip() or len(literal) > MAX_LITERAL_LENGTH or literal.splitlines() != [literal]:
+        if not is_searchable_literal(literal):
             raise ValueError(f"literal must be one line of 1 to {MAX_LITERAL_LENGTH} characters")
         body = self._search(literal)
         candidates = body.get("items") or []
@@ -65,10 +72,16 @@ class GitHubExactCodeSearch:
 
         matches: list[ExactCodeMatch] = []
         for candidate in candidates:
+            if deadline is not None and time.monotonic() >= deadline:
+                complete = False
+                break
             repository = candidate["repository"]["full_name"]
             path = candidate["path"]
             try:
                 file = self.github.get_file_contents(repository, quote(path))
+            except GitHubEgressBudgetExhausted:
+                complete = False
+                break
             except (GitHubIntegrationError, UnicodeDecodeError):
                 file = None
             if file is None:

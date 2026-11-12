@@ -18,6 +18,7 @@ import type {
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
     CodeEmailApi,
+    CodeEmailSourceCandidatesApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -1119,6 +1120,28 @@ export const transactionalCodeEmailsPartialUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedCodeEmailUpdateApi),
     })
+}
+
+export const getTransactionalCodeEmailsSourceCandidatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/source_candidates/`
+}
+
+/**
+ * Search the project's connected GitHub repositories for files that use this email's key, so you can pick one to link as its source file.
+ * @summary Find the file that sends an email from code
+ */
+export const transactionalCodeEmailsSourceCandidatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CodeEmailSourceCandidatesApi> => {
+    return apiMutator<CodeEmailSourceCandidatesApi>(
+        getTransactionalCodeEmailsSourceCandidatesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTransactionalEmailLogListUrl = (projectId: string, params?: TransactionalEmailLogListParams) => {

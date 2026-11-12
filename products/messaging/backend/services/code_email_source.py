@@ -1,11 +1,12 @@
 """Find the file that sends a code email by searching the team's GitHub installations for its key.
 
 Detection links a key only when the strict search finds exactly one call site and every installation
-answered in full. Anything less leaves the key for a person to link.
+answered in full. Anything less leaves the key for a person to link, who can run the same search and pick a file.
 """
 
 import re
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Literal
@@ -22,27 +23,38 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import GitHubInstallationAccessFetchError
 from posthog.models.integration.github_code_search import (
     CONTEXT_LINES,
-    MAX_LITERAL_LENGTH,
+    ExactCodeMatch,
     ExactCodeSearchResult,
     GitHubExactCodeSearch,
     MatchedLine,
+    is_searchable_literal,
 )
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
-from products.messaging.backend.facade.contracts import CodeEmailSourceOrigin
+from products.messaging.backend.facade.contracts import (
+    CodeEmailSourceCandidate,
+    CodeEmailSourceCandidates,
+    CodeEmailSourceKeyUnsearchable,
+    CodeEmailSourceOrigin,
+    CodeEmailSourceSearchUnavailable,
+)
 from products.messaging.backend.models import TransactionalEmailKey
 
 logger = structlog.get_logger(__name__)
 
+# Target it by organization: detection checks it for a team with no person, and the picker's button for a person.
 SOURCE_DETECTION_FLAG = "workflows-code-email-source-detection"
 SOURCE_DETECTED_EVENT = "transactional email source detected"
+# After this, the picker's search starts no new GitHub request. One already running finishes, so a slow GitHub can add
+# that request's timeout and its retry.
+SOURCE_SEARCH_SECONDS = 15
 
 # "kept" means the search found one call site, but a person linked or unlinked the key before detection could write it.
 SourceDetectionOutcome = Literal["linked", "kept", "several", "none", "incomplete", "budget"]
@@ -91,8 +103,20 @@ class CallSite:
 
     @property
     def url(self) -> str:
-        # GitHub resolves HEAD to the repository's default branch, which is the branch code search indexes.
-        return f"https://github.com/{self.repository}/blob/HEAD/{quote(self.path)}#L{self.line}"
+        return _file_url(self.repository, self.path, self.line)
+
+
+def _file_url(repository: str, path: str, line: int) -> str:
+    # GitHub resolves HEAD to the repository's default branch, which is the branch code search indexes.
+    return f"https://github.com/{repository}/blob/HEAD/{quote(path)}#L{line}"
+
+
+@frozen
+class _InstallationSearches:
+    # A failed or timed-out installation is in ``results`` as an empty, incomplete search. A shed one is left out.
+    results: list[ExactCodeSearchResult]
+    shed: bool
+    answered: int
 
 
 @frozen
@@ -107,10 +131,8 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
 
     ``shed`` is True when the egress budget refused an installation's search, so that installation has no result.
     """
-    # The matched line must pass the key as the template key's value. Without this, a key used for something else
-    # near or inside a send call, such as the subject of a send of another key, links that other email's file.
-    key_argument = re.compile(rf"""{_TEMPLATE_KEY_NAME}\s*['"`]{re.escape(key)}['"`]""")
-    candidates = [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
+    key_argument = _key_argument(key)
+    candidates = _kept_matches(results)
     call_sites = [
         CallSite(repository=match.repository, path=match.path, line=line.number)
         for match in candidates
@@ -131,6 +153,16 @@ def rank_call_sites(results: Sequence[ExactCodeSearchResult], key: str, *, shed:
         call_site=call_sites[0] if outcome == "linked" else None,
         candidate_files=len(candidates),
     )
+
+
+def _kept_matches(results: Sequence[ExactCodeSearchResult]) -> list[ExactCodeMatch]:
+    return [match for result in results for match in result.matches if not _is_skipped_path(match.path)]
+
+
+def _key_argument(key: str) -> re.Pattern[str]:
+    # The matched line must pass the key as the template key's value. Without this, a key used for something else
+    # near or inside a send call, such as the subject of a send of another key, links that other email's file.
+    return re.compile(rf"""{_TEMPLATE_KEY_NAME}\s*['"`]{re.escape(key)}['"`]""")
 
 
 def _sends_key(line: MatchedLine, key_argument: re.Pattern[str]) -> bool:
@@ -165,25 +197,91 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     """Search the team's GitHub installations for a key and link the one file that sends it.
 
     Returns None when detection does not apply: the flag is off, the key is gone, already linked or unlinked by a
-    person, too long to search, or the team has no GitHub installation.
+    person, a key GitHub can't search, or the team has no GitHub installation.
     """
     team = Team.objects.filter(id=team_id).first()
     if team is None or not _detection_enabled(team):
         return None
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
     key = keys.filter(_UNTOUCHED, id=key_id).values_list("key", flat=True).first()
-    if key is None or len(key) > MAX_LITERAL_LENGTH:
+    if key is None or not is_searchable_literal(key):
         return None
     integrations = IntegrationManager.github.oauth.list(team_id)
     if not integrations:
         return None
 
+    searches = _search_installations(team_id, integrations, key, priority=Priority.BATCH)
+    detection = rank_call_sites(searches.results, key, shed=searches.shed)
+    if detection.call_site is not None:
+        # A person may link or unlink the key while the search runs, and their choice wins.
+        written = keys.filter(_UNTOUCHED, id=key_id, team_id=team_id).update(
+            source_url=detection.call_site.url, source_origin=CodeEmailSourceOrigin.DETECTED
+        )
+        if not written:
+            detection = replace(detection, outcome="kept", call_site=None)
+    _report(team, detection, attempt=attempt, installations=len(integrations))
+    return detection
+
+
+def find_source_candidates(
+    team: Team, key: str, *, readable: Callable[[IntegrationRecord], bool]
+) -> CodeEmailSourceCandidates:
+    """Search the team's GitHub installations that ``readable`` lets the person see for a key, one candidate per file.
+
+    Files with a send call come first. A search that runs out of time returns what it read, marked incomplete.
+    Raises ``CodeEmailSourceKeyUnsearchable`` for a key GitHub can't search, and
+    ``CodeEmailSourceSearchUnavailable`` when no installation answered.
+    """
+    if not is_searchable_literal(key):
+        raise CodeEmailSourceKeyUnsearchable()
+    integrations = [
+        integration for integration in IntegrationManager.github.oauth.list(team.id) if readable(integration)
+    ]
+    if not integrations:
+        return CodeEmailSourceCandidates(candidates=(), complete=True)
+    searches = _search_installations(
+        team.id, integrations, key, priority=Priority.NORMAL, deadline=time.monotonic() + SOURCE_SEARCH_SECONDS
+    )
+    if not searches.answered:
+        raise CodeEmailSourceSearchUnavailable(shed=searches.shed)
+    key_argument = _key_argument(key)
+    candidates = [_candidate(match, key_argument) for match in _kept_matches(searches.results)]
+    return CodeEmailSourceCandidates(
+        candidates=tuple(sorted(candidates, key=lambda candidate: not candidate.call_site)),
+        complete=not searches.shed and all(result.complete for result in searches.results),
+    )
+
+
+def _candidate(match: ExactCodeMatch, key_argument: re.Pattern[str]) -> CodeEmailSourceCandidate:
+    line = next((line for line in match.lines if _sends_key(line, key_argument)), match.lines[0])
+    return CodeEmailSourceCandidate(
+        repository=match.repository,
+        path=match.path,
+        line=line.number,
+        url=_file_url(match.repository, match.path, line.number),
+        call_site=_sends_key(line, key_argument),
+    )
+
+
+def _search_installations(
+    team_id: int,
+    integrations: Sequence[IntegrationRecord],
+    key: str,
+    *,
+    priority: Priority,
+    deadline: float | None = None,
+) -> _InstallationSearches:
     results: list[ExactCodeSearchResult] = []
     shed = False
+    answered = 0
     for integration in integrations:
-        github = GitHubIntegration(integration, source="transactional_email_source", priority=Priority.BATCH)
+        if deadline is not None and time.monotonic() >= deadline:
+            results.append(ExactCodeSearchResult(matches=[], complete=False))
+            continue
+        github = GitHubIntegration(integration, source="transactional_email_source", priority=priority)
         try:
-            results.append(GitHubExactCodeSearch(github).find(key))
+            results.append(GitHubExactCodeSearch(github).find(key, deadline=deadline))
+            answered += 1
         except GitHubEgressBudgetExhausted:
             shed = True
         except (
@@ -194,17 +292,7 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
         ) as error:
             logger.warning("code_email_source_search_failed", team_id=team_id, error=str(error))
             results.append(ExactCodeSearchResult(matches=[], complete=False))
-
-    detection = rank_call_sites(results, key, shed=shed)
-    if detection.call_site is not None:
-        # A person may link or unlink the key while the search runs, and their choice wins.
-        written = keys.filter(_UNTOUCHED, id=key_id, team_id=team_id).update(
-            source_url=detection.call_site.url, source_origin=CodeEmailSourceOrigin.DETECTED
-        )
-        if not written:
-            detection = replace(detection, outcome="kept", call_site=None)
-    _report(team, detection, attempt=attempt, installations=len(integrations))
-    return detection
+    return _InstallationSearches(results=results, shed=shed, answered=answered)
 
 
 def source_detection_enabled(team_id: int, *, only_locally: bool = False) -> bool:

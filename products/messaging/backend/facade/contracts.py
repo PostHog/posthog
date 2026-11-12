@@ -431,6 +431,35 @@ class CodeManagedEmailNotFound(Exception):
 
 
 @frozen
+class CodeEmailSourceCandidate:
+    """A file in a connected GitHub repository that holds a code email's key."""
+
+    repository: str
+    path: str
+    line: int
+    url: str
+    call_site: bool
+
+
+@frozen
+class CodeEmailSourceCandidates:
+    candidates: tuple[CodeEmailSourceCandidate, ...]
+    complete: bool
+
+
+class CodeEmailSourceKeyUnsearchable(Exception):
+    """GitHub can't search for the key: it is blank, spans lines, or is longer than a search allows."""
+
+
+class CodeEmailSourceSearchUnavailable(Exception):
+    """No GitHub installation answered the search."""
+
+    def __init__(self, *, shed: bool) -> None:
+        super().__init__("budget shed" if shed else "GitHub error")
+        self.shed = shed
+
+
+@frozen
 class TransactionalEmailActivityEvent:
     uuid: str
     event: str

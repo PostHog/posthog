@@ -6,7 +6,11 @@ import posthog from 'posthog-js'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { CodeEmailApi, PatchedCodeEmailUpdateApi } from 'products/messaging/frontend/generated/api.schemas'
+import type {
+    CodeEmailApi,
+    CodeEmailSourceCandidatesApi,
+    PatchedCodeEmailUpdateApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 import { codeEmailLogic } from './codeEmailLogic'
 
@@ -14,6 +18,27 @@ import { codeEmailLogic } from './codeEmailLogic'
 const TEAM_ID = 42
 const PROJECT_ID = 7
 const EMAIL_URL = `/api/projects/${TEAM_ID}/transactional_code_emails/:id/`
+const CANDIDATES_URL = `/api/projects/${TEAM_ID}/transactional_code_emails/:id/source_candidates/`
+
+const candidates: CodeEmailSourceCandidatesApi = {
+    candidates: [
+        {
+            repository: 'acme/web',
+            path: 'src/emails/receipt.ts',
+            line: 12,
+            url: 'https://github.com/acme/web/blob/HEAD/src/emails/receipt.ts#L12',
+            call_site: true,
+        },
+        {
+            repository: 'acme/web',
+            path: 'src/keys.ts',
+            line: 3,
+            url: 'https://github.com/acme/web/blob/HEAD/src/keys.ts#L3',
+            call_site: false,
+        },
+    ],
+    complete: true,
+}
 
 const stored = (fields: Partial<CodeEmailApi> = {}): CodeEmailApi => ({
     id: 'email-id',
@@ -270,6 +295,59 @@ describe('codeEmailLogic', () => {
         expect(capture).not.toHaveBeenCalledWith('code email source file linked', expect.anything())
         capture.mockRestore()
     })
+
+    it('saves the GitHub file a person picks as the link, and closes the picker', async () => {
+        const writes: PatchedCodeEmailUpdateApi[] = []
+        useMocks({
+            get: {
+                [EMAIL_URL]: stored({ source_url: 'https://github.com/acme/web/blob/HEAD/src/old.ts' }),
+                [CANDIDATES_URL]: candidates,
+            },
+            patch: {
+                [EMAIL_URL]: async ({ request }) => {
+                    const fields = (await request.json()) as PatchedCodeEmailUpdateApi
+                    writes.push(fields)
+                    return [200, stored(fields)]
+                },
+            },
+        })
+        const capture = jest.spyOn(posthog, 'capture')
+        logic = codeEmailLogic({ id: 'email-id' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.findSourceCandidates()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.sourcePickerOpen).toBe(true)
+        logic.actions.pickSourceCandidate(logic.values.sourceCandidates!.candidates[1])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(writes).toEqual([{ source_url: 'https://github.com/acme/web/blob/HEAD/src/keys.ts#L3' }])
+        expect(logic.values.codeEmail?.source_url).toEqual('https://github.com/acme/web/blob/HEAD/src/keys.ts#L3')
+        expect(logic.values.sourceFormOpen).toBe(false)
+        expect(logic.values.sourcePickerOpen).toBe(false)
+        expect(capture).toHaveBeenCalledWith('code email source file linked', { changed: true, host: 'github' })
+        capture.mockRestore()
+    })
+
+    it.each([
+        [503, 'GitHub is busy right now. Try again in a minute.', true],
+        [400, "GitHub can't search for this key.", false],
+    ])(
+        'shows why the GitHub search failed with status %s, offering a retry only when it can help',
+        async (status, detail, canRetry) => {
+            useMocks({ get: { [EMAIL_URL]: stored(), [CANDIDATES_URL]: () => [status, { detail }] } })
+            logic = codeEmailLogic({ id: 'email-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.findSourceCandidates()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.sourceCandidatesError).toEqual({ message: detail, canRetry })
+            expect(logic.values.sourceCandidates).toBeNull()
+        }
+    )
 
     describe('copying the agent prompt', () => {
         let writeText: jest.Mock
