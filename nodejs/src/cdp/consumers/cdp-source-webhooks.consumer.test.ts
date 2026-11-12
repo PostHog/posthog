@@ -19,6 +19,7 @@ import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -602,6 +603,24 @@ describe('SourceWebhooksConsumer', () => {
                 await waitForBackgroundTasks()
                 // A row here would show a run that never entered cyclotron as permanently running.
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
+            })
+
+            it('refuses to start a run when the team is over its workflow quota', async () => {
+                const billableHogFlow = await insertHogFlow(hub.postgres, {
+                    ...hogFlow,
+                    id: new UUIDT().toString(),
+                    billable_action_types: ['function'],
+                })
+                jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+
+                const res = await doPostRequest({
+                    webhookId: billableHogFlow.id,
+                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
+                })
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
             })
 
             describe('idempotency key', () => {

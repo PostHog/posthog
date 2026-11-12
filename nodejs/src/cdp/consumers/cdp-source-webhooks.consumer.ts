@@ -9,6 +9,7 @@ import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -252,6 +253,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<HogFlowTriggerOutcome> {
+        if (await this.isHogFlowQuotaLimited(hogFlow)) {
+            throw new SourceWebhookError(429, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
+        }
+
         const idempotencyKey = this.getIdempotencyKey(request, hogFlow)
         // A key belongs to one workflow, so the same key on two workflows starts a run on each.
         const scopedIdempotencyKey = idempotencyKey ? `${hogFlow.id}/${idempotencyKey}` : null

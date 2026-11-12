@@ -51,7 +51,7 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
-import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
@@ -1137,6 +1137,10 @@ export class CdpApi {
 
             if (hogFlow.trigger?.type !== 'schedule') {
                 return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
+            }
+
+            if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
+                return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
             }
 
             // Build a synthetic event for the scheduled run. Schedule triggers don't have a real

@@ -615,6 +615,27 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
         })
 
+        it.each([
+            ['a run already queued', {}],
+            ['a rerun', { rerunAttempts: 1 }],
+        ])('runs %s to the end when the team is over its workflow quota', async (_name, context) => {
+            const billableFlow = await insertHogFlow(hub.postgres, {
+                ...new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withSimpleWorkflow().build(),
+                billable_action_types: ['function', 'function_email'],
+            })
+            jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+
+            const [result] = await processor.processInvocations([
+                createSerializedHogFlowInvocation(billableFlow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                    ...context,
+                }),
+            ])
+
+            expect(result).toMatchObject({ finished: true, invocation: { hogFlow: { id: billableFlow.id } } })
+            expect(result.canceled).toBeFalsy()
+        })
+
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 

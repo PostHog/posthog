@@ -20,6 +20,7 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
@@ -309,6 +310,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             })
             counterBatchHogFlowTriggerFailed.labels({ hog_flow_id: state.hogFlowId, reason: 'missing_entity' }).inc()
             await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            return
+        }
+
+        if (await this.isHogFlowQuotaLimited(hogFlow)) {
+            await this.transitionToFailedTerminal(job, state, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
             return
         }
 
