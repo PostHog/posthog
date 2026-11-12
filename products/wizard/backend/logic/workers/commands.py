@@ -6,6 +6,7 @@ from django.conf import settings
 
 from posthog.utils import get_instance_region
 
+from products.wizard.backend.facade.config import WIZARD_PULL_REQUEST_BRANCH_PREFIX
 from products.wizard.backend.facade.validation import is_context_mill_version, is_executable_wizard_version
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.config import (
@@ -147,7 +148,7 @@ def build_read_handoff_command(run_id: UUID) -> str:
 
 
 def pull_request_branch(run_id: UUID) -> str:
-    return f"posthog/wizard-{run_id.hex[:12]}"
+    return f"{WIZARD_PULL_REQUEST_BRANCH_PREFIX}{run_id.hex[:12]}"
 
 
 def _wizard_region() -> str:

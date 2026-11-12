@@ -1,9 +1,17 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
-import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailType,
+    EmailAttachmentMetadata,
+    MAX_EMAIL_ATTACHMENTS,
+} from '~/cdp/schema/cyclotron'
+import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
 
 export const MAX_COPY_RECIPIENTS = 10
+export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
+export const ATTACHMENT_CONTENT_TYPE_MAX_LENGTH = 78
+export const ATTACHMENT_CONTENT_ID_MAX_LENGTH = 78
 
 export const RECIPIENT_ADDRESS_PATTERN =
     /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
@@ -13,6 +21,121 @@ const CopyRecipientsSchema = z
     .max(MAX_COPY_RECIPIENTS)
     .readonly()
     .optional()
+
+export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
+    '.ade',
+    '.adp',
+    '.app',
+    '.asp',
+    '.bas',
+    '.bat',
+    '.cer',
+    '.chm',
+    '.cmd',
+    '.com',
+    '.cpl',
+    '.crt',
+    '.csh',
+    '.der',
+    '.exe',
+    '.fxp',
+    '.gadget',
+    '.hlp',
+    '.hta',
+    '.inf',
+    '.ins',
+    '.isp',
+    '.its',
+    '.js',
+    '.jse',
+    '.ksh',
+    '.lib',
+    '.lnk',
+    '.mad',
+    '.maf',
+    '.mag',
+    '.mam',
+    '.maq',
+    '.mar',
+    '.mas',
+    '.mat',
+    '.mau',
+    '.mav',
+    '.maw',
+    '.mda',
+    '.mdb',
+    '.mde',
+    '.mdt',
+    '.mdw',
+    '.mdz',
+    '.msc',
+    '.msh',
+    '.msh1',
+    '.msh2',
+    '.mshxml',
+    '.msh1xml',
+    '.msh2xml',
+    '.msi',
+    '.msp',
+    '.mst',
+    '.ops',
+    '.pcd',
+    '.pif',
+    '.plg',
+    '.prf',
+    '.prg',
+    '.reg',
+    '.scf',
+    '.scr',
+    '.sct',
+    '.shb',
+    '.shs',
+    '.sys',
+    '.ps1',
+    '.ps1xml',
+    '.ps2',
+    '.ps2xml',
+    '.psc1',
+    '.psc2',
+    '.tmp',
+    '.url',
+    '.vb',
+    '.vbe',
+    '.vbs',
+    '.vps',
+    '.vsmacros',
+    '.vss',
+    '.vst',
+    '.vsw',
+    '.vxd',
+    '.ws',
+    '.wsc',
+    '.wsf',
+    '.wsh',
+    '.xnk',
+])
+
+const lastExtension = (filename: string): string => {
+    const dot = filename.lastIndexOf('.')
+    return dot === -1 ? '' : filename.slice(dot).toLowerCase()
+}
+
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
+const withoutControlCharacters = (field: string) =>
+    [
+        (value: string) => !CONTROL_CHARACTERS.test(value),
+        { message: `${field} cannot contain control characters` },
+    ] as const
+
+const attachmentHeaderValue = (field: string, maxLength: number) => {
+    const message = `${field} needs 1 to ${maxLength} characters`
+    return z
+        .string()
+        .min(1, { message })
+        .max(maxLength, { message })
+        .refine(...withoutControlCharacters(field))
+        .optional()
+}
 
 export const AcceptedSendSchema = z
     .object({
@@ -39,13 +162,40 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        attachments: z
+            .array(
+                z
+                    .object({
+                        sha256: z.string().regex(SHA256_HEX),
+                        filename: z
+                            .string()
+                            .min(1)
+                            .max(ATTACHMENT_FILENAME_MAX_LENGTH, {
+                                message: `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`,
+                            })
+                            .refine(...withoutControlCharacters('filename'))
+                            .refine((filename) => !SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS.has(lastExtension(filename)), {
+                                error: (issue) => {
+                                    const filename = String(issue.input)
+                                    return `SES does not send ${lastExtension(filename)} files, so ${filename} cannot be attached`
+                                },
+                            }),
+                        content_type: attachmentHeaderValue('content_type', ATTACHMENT_CONTENT_TYPE_MAX_LENGTH),
+                        content_id: attachmentHeaderValue('content_id', ATTACHMENT_CONTENT_ID_MAX_LENGTH),
+                    })
+                    .strict()
+                    .readonly()
+            )
+            .max(MAX_EMAIL_ATTACHMENTS)
+            .readonly()
+            .optional(),
     })
     .strict()
     .readonly()
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
-export type QueuedSend = AcceptedSend & { attachments?: readonly EmailAttachmentMetadata[] }
+export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
 
 export const acceptedSendEmailFields = (
     send: QueuedSend | undefined
@@ -63,6 +213,10 @@ export const acceptedSendEmailFields = (
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 
+const ScheduledAtSchema = z.string().datetime({ offset: true })
+
+export const RescheduleRequestSchema = z.object({ scheduled_at: ScheduledAtSchema })
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
@@ -72,10 +226,12 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
+    scheduled_at: ScheduledAtSchema.optional(),
 })
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
+export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 
@@ -91,22 +247,35 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
     issue.code === 'invalid_format' &&
     (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
-export type TransactionalEmailOutcome =
-    | 'queued'
-    | 'replayed'
+export type TransactionalSendRefusal =
     | 'idempotency_key_in_flight'
     | 'idempotency_key_reused'
     | 'idempotency_unavailable'
-    | 'not_configured'
-    | 'unauthorized'
-    | 'invalid_request'
-    | 'not_found'
     | 'not_sendable'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_unreachable'
+    | 'invalid_scheduled_at'
+
+export type TransactionalEmailOutcome =
+    | 'queued'
+    | 'replayed'
+    | TransactionalSendRefusal
+    | 'not_configured'
+    | 'unauthorized'
+    | 'invalid_request'
+    | 'not_found'
+    | 'field_not_accepted'
+    | 'workflow_can_wait'
+    | 'workflow_shape_not_supported'
+    | 'attachment_not_uploaded'
+    | 'message_too_large'
+    | 'email_render_limit_exceeded'
+    | 'utm_value_too_long'
+    | 'email_body_too_many_tags'
+    | 'delivery_unavailable'
     | 'error'
 
 export const transactionalEmailRequestsTotal = new Counter({
@@ -122,6 +291,7 @@ export const TRANSACTIONAL_EMAIL_STAGES = [
     'build',
     'idempotency',
     'checks',
+    'attachments',
     'queue_insert',
     'metrics_flush',
 ] as const
@@ -129,7 +299,7 @@ export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
     labelNames: ['stage'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })

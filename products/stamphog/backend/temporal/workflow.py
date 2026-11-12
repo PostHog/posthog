@@ -49,6 +49,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         refresh_review_evidence,
         refuse_on_pre_gates,
         rereview_after_external_review_finished,
+        reuse_withheld_verdict,
         review_in_sandbox,
         run_review_in_sandbox,
         signal_review_started,
@@ -87,6 +88,29 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     start_to_close_timeout=POST_VERDICT_TIMEOUT,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
+
+            # A visible request can publish a verdict a silent run withheld for this head. The check
+            # runs before the sandbox starts, because a reused verdict needs no sandbox. It is only a
+            # shortcut, so a timeout or a lost worker falls through to the normal review.
+            if workflow.patched("stamphog-reuse-withheld-verdict"):
+                try:
+                    reuse = await workflow.execute_activity(
+                        reuse_withheld_verdict,
+                        input,
+                        start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning(f"stamphog verdict reuse failed for run {input.review_run_id}")
+                    reuse = {"reused": False}
+                if reuse["reused"]:
+                    result = await workflow.execute_activity(
+                        post_verdict,
+                        input,
+                        start_to_close_timeout=POST_VERDICT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                    return {"status": "completed", "verdict": result["verdict"]}
 
             # The sandbox and the PR head fetch need nothing the next steps produce, so they start now
             # and run beside the context fetch. The checkout starts once the context holds the merge

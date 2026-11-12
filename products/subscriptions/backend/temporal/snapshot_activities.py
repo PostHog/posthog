@@ -318,6 +318,7 @@ def _capture_summary_generated_event(
                 distinct_id=distinct_id,
                 event="subscription_ai_summary_generated",
                 properties={
+                    "$update_person_last_seen_at": False,
                     "subscription_id": subscription.id,
                     "team_id": subscription.team_id,
                     "delivery_id": delivery_id,

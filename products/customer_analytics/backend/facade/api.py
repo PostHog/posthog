@@ -109,6 +109,7 @@ from products.customer_analytics.backend.facade.enums import (
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
+    account_automations as _account_automations_logic,
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     account_views as _account_views_logic,
@@ -204,6 +205,7 @@ from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, sa
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
+    get_viewable_workflow_ids,
 )
 from products.workflows.backend.facade.contracts import HogFlowReference
 
@@ -1798,7 +1800,7 @@ def _to_sync_run_view(
         sync_phase=run.phase,
         attempt=run.attempt,
         workflow_id=run.workflow_id if include_temporal_url else None,
-        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id,
         temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
@@ -3975,6 +3977,22 @@ def get_account_for_view(
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     return _to_account_details(account)
+
+
+def list_account_automations(
+    *, team: Team, account_id: str, user_access_control: UserAccessControl, page: PageRequest
+) -> Page[contracts.AccountAutomation]:
+    account = get_account_for_view(
+        team_id=team.pk, account_id=account_id, user_access_control=user_access_control, required_level="viewer"
+    )
+    return _account_automations_logic.list_account_runs(
+        team=team,
+        account_id=str(account.id),
+        external_id=account.external_id,
+        workflow_ids=get_viewable_workflow_ids(team_id=team.pk, user_access_control=user_access_control),
+        user_access_control=user_access_control,
+        page=page,
+    )
 
 
 def get_account_for_view_by_external_id(

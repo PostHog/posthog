@@ -11,6 +11,8 @@ const READ_BUDGET_MS = 30_000
 const KMS_CONCURRENCY = 8
 /** A tombstone written after this is seen within this time, as the v3 row cache bounds it. */
 const CACHE_LIFETIME_MS = 300_000
+// The recorder holds an unwrapped key for as long, so both lanes stop using a key KMS no longer unwraps together.
+const UNWRAPPED_LIFETIME_MS = 1_800_000
 
 type Item = Record<string, AttributeValue>
 
@@ -49,6 +51,14 @@ export function teamMonthKeyExpiresAtMs(keyMonth: string): number {
  */
 export class TeamMonthKeys {
     private readonly cache = new LRUCache<string, TeamMonthKey>({ max: 10_000, ttl: CACHE_LIFETIME_MS })
+    /**
+     * The plaintext of each wrapped key that KMS has unwrapped. It outlives `cache`, so a read after the cache lifetime
+     * asks KMS only when the row holds other wrapped bytes. A row that is gone or a tombstone removes its entry.
+     */
+    private readonly unwrapped = new LRUCache<string, { wrapped: Buffer; key: Buffer }>({
+        max: 10_000,
+        ttl: UNWRAPPED_LIFETIME_MS,
+    })
     private readonly pending = new Map<string, PendingRead>()
     private readonly kmsConcurrency = pLimit(KMS_CONCURRENCY)
     private nextKmsRequestAt = 0
@@ -81,7 +91,9 @@ export class TeamMonthKeys {
             const result = this.resolve(teamId, keyMonth, controller.signal).then((key) => {
                 // Only a key row and a tombstone are held, as in the v3 row cache.
                 if (key.status !== 'missing') {
-                    this.cache.set(id, key)
+                    // A reused plaintext is held no longer than the plaintext itself.
+                    const plaintextLeftMs = key.status === 'ok' ? this.unwrapped.getRemainingTTL(id) : Infinity
+                    this.cache.set(id, key, { ttl: Math.max(1, Math.min(CACHE_LIFETIME_MS, plaintextLeftMs)) })
                 }
                 return key
             })
@@ -120,15 +132,23 @@ export class TeamMonthKeys {
             }),
             { abortSignal: AbortSignal.any([deadline, AbortSignal.timeout(DYNAMODB_TIMEOUT_MS)]) }
         )
+        const id = `${teamId}:${keyMonth}`
         if (!stored.Item) {
+            this.unwrapped.delete(id)
             return { status: 'missing' }
         }
         if (stored.Item.deleted?.BOOL === true) {
+            this.unwrapped.delete(id)
             return { status: 'deleted' }
         }
         const wrapped = stored.Item.wrapped_key?.B
         if (!wrapped?.length) {
+            this.unwrapped.delete(id)
             throw new Error('a v4 team month row has no wrapped key')
+        }
+        const held = this.unwrapped.get(id)
+        if (held?.wrapped.equals(wrapped)) {
+            return { status: 'ok', key: held.key }
         }
         const decrypted = await this.kmsRequest(deadline, (abortSignal) =>
             this.kms.send(
@@ -143,7 +163,9 @@ export class TeamMonthKeys {
         if (decrypted.Plaintext?.length !== 32) {
             throw new Error('KMS returned an invalid v4 plaintext key')
         }
-        return { status: 'ok', key: Buffer.from(decrypted.Plaintext) }
+        const key = Buffer.from(decrypted.Plaintext)
+        this.unwrapped.set(id, { wrapped: Buffer.from(wrapped), key })
+        return { status: 'ok', key }
     }
 
     private async kmsRequest<T>(deadline: AbortSignal, send: (abortSignal: AbortSignal) => Promise<T>): Promise<T> {

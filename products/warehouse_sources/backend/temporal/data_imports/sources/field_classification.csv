@@ -415,6 +415,7 @@ Eloqua,,,,,,eloqua
 EmailOctopus,api_key,,,,,email-octopus
 Emarsys,,,,,,emarsys
 Embrace,api_token app_id region,,,,,embrace
+Emplifi,,,,,,emplifi
 EmploymentHero,,,,,,employment-hero
 Encharge,,,,,,encharge
 Entsoe,,,,,,entsoe
@@ -1082,7 +1083,7 @@ Salesflare,api_key,,,,,salesflare
 Salesforce,,salesforce_integration_id,,,,salesforce
 SalesforceMarketingCloud,,,,,,salesforce-marketing-cloud
 Salestrics,,,,,,salestrics
-SamCart,,,,,,sam-cart
+SamCart,api_key,,,,,sam-cart
 Sanity,project_id dataset api_token,,,,,sanity
 SapConcur,,,,,,sap-concur
 SapErp,,,,,,sap-erp

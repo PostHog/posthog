@@ -868,9 +868,9 @@ class InsightSearchNode(AssistantNode):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1-mini",
-            temperature=0.7,
-            max_completion_tokens=1000,
+            model="gpt-6-luna",
+            reasoning_effort="low",
+            max_completion_tokens=4096,
             streaming=False,
             stream_usage=False,
             max_retries=3,

@@ -971,7 +971,6 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("definition", _NULLABLE_STRING),
     ("definition_kind", _NULLABLE_STRING),
     ("owner", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("source_insight_short_id", _NULLABLE_STRING),
     ("last_run_at", _NULLABLE_STRING),
@@ -1157,7 +1156,6 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
                     json.dumps(metric.definition) if metric.definition else None,
                     metric.definition_kind,
                     metric.owner.email if metric.owner else None,
-                    metric.confidence,
                     metric.reasoning,
                     metric.source_insight_short_id,
                     metric.last_run_at.isoformat() if metric.last_run_at else None,
@@ -1982,9 +1980,6 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
             description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
         ),
         "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
-        ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,

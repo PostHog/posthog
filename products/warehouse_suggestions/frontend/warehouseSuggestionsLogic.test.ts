@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -553,6 +554,24 @@ describe('warehouseSuggestionsLogic', () => {
 
         expect(mockList).toHaveBeenCalledWith(expect.any(String), { status: 'proposed', surface })
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
+    })
+
+    it('tags its events with the placement it was mounted for', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        logic = warehouseSuggestionsLogic({ surface: 'models', placement: 'overview' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
+
+        logic.actions.openReview()
+
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestions viewed',
+            expect.objectContaining({ surface: 'models', placement: 'overview' })
+        )
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestion review opened',
+            expect.objectContaining({ placement: 'overview' })
+        )
     })
 
     it('sums time and bytes across every view, including views that save both', async () => {
