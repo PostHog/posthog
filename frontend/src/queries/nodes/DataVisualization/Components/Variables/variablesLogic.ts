@@ -60,6 +60,7 @@ const convertValueToCorrectType = (value: unknown, type: VariableType): unknown 
 export interface variablesLogicValues {
     query: VisualizationNode // dataVisualizationLogic
     variables: Variable[] // variableDataLogic
+    variablesLoaded: boolean // variableDataLogic
     variablesLoading: boolean // variableDataLogic
     editorQuery: string | null
     filteredVariables: (Variable & {
@@ -187,7 +188,12 @@ export const variablesLogic = kea<variablesLogicType>([
     key((props) => props.key),
     connect(() => ({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['loadVariables']],
-        values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
+        values: [
+            dataVisualizationLogic,
+            ['query'],
+            variableDataLogic,
+            ['variables', 'variablesLoading', 'variablesLoaded'],
+        ],
     })),
     actions(({ values }) => ({
         addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -219,7 +225,10 @@ export const variablesLogic = kea<variablesLogicType>([
             }
 
             values.internalSelectedVariables.forEach((variable) => {
-                if (!variables.map((n) => n.variableId).includes(variable.variableId)) {
+                if (
+                    !variables.some((n) => n.variableId === variable.variableId) &&
+                    (props.readOnly || values.queryVariableCodeNames.includes(variable.code_name ?? ''))
+                ) {
                     actions._removeVariable(variable.variableId)
                 }
             })
@@ -237,8 +246,10 @@ export const variablesLogic = kea<variablesLogicType>([
                     return [...state, { ...variable }]
                 },
                 _addVariable: (state, { variable }) => {
-                    if (state.find((n) => variable.variableId === n.variableId)) {
-                        return state
+                    if (state.some((selected) => selected.variableId === variable.variableId)) {
+                        return state.map((selected) =>
+                            selected.variableId === variable.variableId ? { ...variable } : selected
+                        )
                     }
 
                     return [...state, { ...variable }]
@@ -469,7 +480,9 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
-            const variables = values.internalSelectedVariables
+            const variables = values.internalSelectedVariables.filter(
+                (variable) => props.readOnly || values.queryVariableCodeNames.includes(variable.code_name ?? '')
+            )
 
             const query: VisualizationNode = {
                 ...props.sourceQuery,
@@ -513,21 +526,21 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
-            const syncedVariables = syncSelectedVariablesToQuery(
-                query,
-                values.variables,
-                values.internalSelectedVariables
-            )
+            if (values.variablesLoaded) {
+                const syncedVariables = syncSelectedVariablesToQuery(
+                    query,
+                    values.variables,
+                    values.internalSelectedVariables
+                )
 
-            if (objectsEqual(syncedVariables, values.internalSelectedVariables)) {
-                return
+                if (!objectsEqual(syncedVariables, values.internalSelectedVariables)) {
+                    actions.addVariables(syncedVariables)
+                }
             }
-
-            actions.addVariables(syncedVariables)
             actions.updateSourceQuery()
         },
         variables: (variables: Variable[]) => {
-            if (values.editorQuery === null || !variables.length) {
+            if (values.editorQuery === null || !values.variablesLoaded) {
                 return
             }
 
@@ -537,11 +550,9 @@ export const variablesLogic = kea<variablesLogicType>([
                 values.internalSelectedVariables
             )
 
-            if (objectsEqual(syncedVariables, values.internalSelectedVariables)) {
-                return
+            if (!objectsEqual(syncedVariables, values.internalSelectedVariables)) {
+                actions.addVariables(syncedVariables)
             }
-
-            actions.addVariables(syncedVariables)
             actions.updateSourceQuery()
         },
     })),
