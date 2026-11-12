@@ -3,6 +3,5 @@ owners: []
 rules:
     - match:
           - '/eventsRetentionDeletionWarningLogic.*'
-          - '/panel-layout/navbar/EventsRetentionDeletionWarning.*'
           - '/today/todayProjectMenuLogic.test.ts'
       owners: team-product-analytics

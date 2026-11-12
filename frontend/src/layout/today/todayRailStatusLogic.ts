@@ -25,7 +25,7 @@ export interface todayRailStatusLogicValues {
     healthSummary: HealthIssueSummary | null // healthSummaryLogic
     snoozedCount: number // healthSummaryLogic
     unsnoozedCount: number // healthSummaryLogic
-    triggerBadgeStatus: HelpBadgeStatus // helpMenuLogic
+    healthBadgeStatus: HelpBadgeStatus // helpMenuLogic
     pendingInvitesLabel: string | null // pendingInvitesLogic
     postHogStatusBadgeStatus: PostHogStatusBadgeStatus // posthogStatusLogic
     postHogStatusTooltip: string | null // posthogStatusLogic
@@ -47,7 +47,7 @@ export interface todayRailStatusLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         statusSeverity: (postHogStatusBadgeStatus: PostHogStatusBadgeStatus) => TodayRailSeverity
         statusText: (postHogStatusTooltip: string | null, preflight: PreflightStatus | null) => string | null
-        healthSeverity: (triggerBadgeStatus: HelpBadgeStatus) => TodayRailSeverity
+        healthSeverity: (healthBadgeStatus: any) => TodayRailSeverity
         healthText: (
             healthSummary: HealthIssueSummary | null,
             unsnoozedCount: number,
@@ -85,7 +85,7 @@ export const todayRailStatusLogic = kea<todayRailStatusLogicType>([
             posthogStatusLogic,
             ['postHogStatusTooltip', 'postHogStatusBadgeStatus'],
             helpMenuLogic,
-            ['triggerBadgeStatus'],
+            ['healthBadgeStatus'],
             healthSummaryLogic,
             ['healthSummary', 'unsnoozedCount', 'snoozedCount'],
             preflightLogic,
@@ -108,7 +108,7 @@ export const todayRailStatusLogic = kea<todayRailStatusLogicType>([
                 tooltip ?? (preflight?.is_debug ? 'All systems operational' : null),
         ],
         healthSeverity: [
-            (s) => [s.triggerBadgeStatus],
+            (s) => [s.healthBadgeStatus],
             (status: HelpBadgeStatus): TodayRailSeverity => severityFromBadgeStatus(status),
         ],
         healthText: [

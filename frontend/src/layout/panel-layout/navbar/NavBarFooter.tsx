@@ -17,7 +17,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { EventsRetentionDeletionWarning } from './EventsRetentionDeletionWarning'
 import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
 
 // Flag-gated, so users without the flag skip the wizard chunk on every page.
@@ -41,7 +40,6 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
             >
                 <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                 <PostHogTeamCohortBanner isCollapsed={isLayoutNavCollapsed} />
-                <EventsRetentionDeletionWarning isCollapsed={isLayoutNavCollapsed} />
             </div>
 
             <NavPanelAdvertisement />

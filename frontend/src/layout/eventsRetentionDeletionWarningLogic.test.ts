@@ -2,6 +2,9 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -134,5 +137,25 @@ describe('eventsRetentionDeletionWarningLogic', () => {
         }).toDispatchActions(['loadScheduledDeletionSuccess'])
 
         expect(logic.values.alertVisible).toBe(true)
+    })
+
+    it.each([
+        ['the old navigation clears the More badge', false, false, ''],
+        ['the new navigation leaves its project menu dot', true, true, '!'],
+    ])('opening More in %s', async (_name, todayRailNav, alertVisibleAfterOpen, moreBadgeAfterOpen) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
+        })
+        const logic = mountLogic(RETENTION)
+        helpMenuLogic.mount()
+        await expectLogic(logic).toDispatchActions(['loadScheduledDeletionSuccess'])
+        expect(helpMenuLogic.values.triggerBadgeContent).toBe('!')
+
+        helpMenuLogic.actions.setHelpMenuOpen(true)
+
+        expect(logic.values.alertVisible).toBe(alertVisibleAfterOpen)
+        expect(helpMenuLogic.values.triggerBadgeContent).toBe(moreBadgeAfterOpen)
+        expect(logic.values.warning).toEqual(WARNING)
     })
 })
