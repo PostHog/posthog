@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 from collections.abc import Sequence
 from typing import Any
@@ -8,6 +9,7 @@ import pytest
 
 from products.posthog_ai.eval_harness.log_parser import SKILL_TOOL_NAME
 from products.posthog_ai.eval_harness.scorers import (
+    ANY_CLEAN_QUERY_SCOPE,
     AnswerToolCallNot,
     ServerUsed,
     SourcesAvoided,
@@ -27,18 +29,20 @@ from products.posthog_ai.evals.error_tracking.scorers import (
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 
 
-def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
+def _raw_tool_log(calls: Sequence[tuple[Any, ...]], *, parallel: bool = False) -> str:
     """Build an ACP log. A fourth tuple element overrides the result status.
 
     ``"failed"`` is what makes ``ToolCall.is_error`` true, which every scorer here
-    uses to ignore an attempt the agent made and lost.
+    uses to ignore an attempt the agent made and lost. ``parallel`` starts every call
+    before any result arrives, so all calls share one assistant message.
     """
-    lines = []
+    starts: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for index, call in enumerate(calls, start=1):
         name, raw_input, raw_output = call[0], call[1], call[2]
         result_status = call[3] if len(call) > 3 else "completed"
         call_id = f"call-{index}"
-        lines.append(
+        starts.append(
             {
                 "timestamp": f"2026-01-01T00:00:{index:02d}Z",
                 "notification": {
@@ -55,7 +59,7 @@ def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
                 },
             }
         )
-        lines.append(
+        results.append(
             {
                 "timestamp": f"2026-01-01T00:00:{index:02d}Z",
                 "notification": {
@@ -71,6 +75,10 @@ def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
                 },
             }
         )
+    if parallel:
+        lines = [*starts, *results]
+    else:
+        lines = [line for pair in zip(starts, results) for line in pair]
     return "\n".join(json.dumps(line) for line in lines)
 
 
@@ -316,27 +324,49 @@ _METRIC_LIST: tuple[str, dict[str, Any], str] = ("metric-list", {}, "mrr")
 _SQL_ANSWER = ("execute-sql", {"query": "SELECT sum(amount_usd) FROM crm_deals"}, "10")
 
 
+_METRIC_LOOKUP = ToolMatch(names=frozenset({"metric-list"}))
+
+
 @pytest.mark.parametrize(
-    "calls,expected_score",
+    "before,calls,parallel,expected_score",
     [
-        ([_METRIC_LIST, _SQL_ANSWER], 1.0),
-        ([_SQL_ANSWER, _METRIC_LIST], 0.0),
+        (_METRIC_LOOKUP, [_METRIC_LIST, _SQL_ANSWER], False, 1.0),
+        (_METRIC_LOOKUP, [_SQL_ANSWER, _METRIC_LIST], False, 0.0),
         # A failed lookup is not a lookup.
-        ([("metric-list", {}, "boom", "failed"), _SQL_ANSWER], 0.0),
+        (_METRIC_LOOKUP, [("metric-list", {}, "boom", "failed"), _SQL_ANSWER], False, 0.0),
         # Schema discovery SQL does not match the guarded data query pattern.
-        ([("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t"), _METRIC_LIST], None),
+        (
+            _METRIC_LOOKUP,
+            [("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t"), _METRIC_LIST],
+            False,
+            None,
+        ),
+        # Calls in one assistant message share a position, so only the call sequence orders them.
+        (_METRIC_LOOKUP, [_METRIC_LIST, _SQL_ANSWER], True, 1.0),
+        (_METRIC_LOOKUP, [_SQL_ANSWER, _METRIC_LIST], True, 0.0),
+        (ToolMatch(server="slack"), [("mcp__slack__search_messages", {}, "ok"), _SQL_ANSWER], False, 1.0),
+        (ToolMatch(server="slack"), [("mcp__posthog__metric-list", {}, "mrr"), _SQL_ANSWER], False, 0.0),
     ],
 )
 def test_tool_order_requires_the_lookup_before_the_guarded_call(
-    calls: list[tuple], expected_score: float | None
+    before: ToolMatch, calls: list[tuple], parallel: bool, expected_score: float | None
 ) -> None:
     scorer = ToolOrder(
-        before=ToolMatch(names=frozenset({"metric-list"})),
+        before=before,
         after=ToolMatch(names=frozenset({"execute-sql"}), query_pattern=r"\bfrom\s+crm_deals\b"),
         name="catalog_before_sql",
     )
 
-    assert scorer._run_eval_sync({"raw_log": _raw_tool_log(calls)}).score == expected_score
+    assert scorer._run_eval_sync({"raw_log": _raw_tool_log(calls, parallel=parallel)}).score == expected_score
+
+
+@pytest.mark.parametrize(
+    "kwargs,error",
+    [({}, ValueError), ({"query_pattern": "(unclosed"}, re.error)],
+)
+def test_tool_match_rejects_a_matcher_that_cannot_select(kwargs: dict[str, Any], error: type[Exception]) -> None:
+    with pytest.raises(error):
+        ToolMatch(**kwargs)
 
 
 @pytest.mark.parametrize(
@@ -392,15 +422,20 @@ _V3_INSPECTION = ("execute-sql", {"query": "SELECT count() FROM crm_deals_v3"}, 
 @pytest.mark.parametrize(
     "calls,scope,expected_score",
     [
-        ([_V3_INSPECTION, _SQL_ANSWER], "answer", 1.0),
+        ([_V3_INSPECTION, _SQL_ANSWER], ANY_CLEAN_QUERY_SCOPE, 1.0),
         ([_V3_INSPECTION, _SQL_ANSWER], None, 0.0),
-        ([_SQL_ANSWER, _V3_INSPECTION], "answer", 1.0),
-        ([_V3_INSPECTION], "answer", 0.0),
+        ([_SQL_ANSWER, _V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 1.0),
+        ([_V3_INSPECTION], ANY_CLEAN_QUERY_SCOPE, 0.0),
         ([_SQL_ANSWER], None, 1.0),
+        # A run that read nothing avoided nothing, in either scope.
+        ([_METRIC_LIST], None, None),
+        ([_METRIC_LIST], ANY_CLEAN_QUERY_SCOPE, None),
+        # An unknown scope is a case error, not the strict default.
+        ([_SQL_ANSWER], "answers", 0.0),
     ],
 )
 def test_sources_avoided_scopes_to_the_answer_query(
-    calls: list[tuple], scope: str | None, expected_score: float
+    calls: list[tuple], scope: str | None, expected_score: float | None
 ) -> None:
     spec: dict[str, Any] = {"tables": ["crm_deals_v3"]}
     if scope:

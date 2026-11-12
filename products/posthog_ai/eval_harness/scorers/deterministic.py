@@ -207,15 +207,19 @@ def reads_table(query: str, names: Iterable[str]) -> bool:
     return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
 
 
-def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
+def parser_for(output: dict[str, Any] | None) -> LogParser | None:
+    """The cached parser for the case's raw log, or ``None`` when the run left no log."""
     raw_log = (output or {}).get("raw_log")
     if not raw_log:
         return None
     return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
 
 
-def _call_order(call: ToolCall) -> int:
-    return call.sequence if call.sequence is not None else call.position
+def call_order(call: ToolCall) -> int:
+    """The call's place in the run. ``position`` counts messages, so it cannot order parallel calls."""
+    if call.sequence is None:
+        raise ValueError(f"Tool call {call.call_id} has no sequence, so the log cannot order it")
+    return call.sequence
 
 
 def _query(call: ToolCall) -> str:
@@ -223,7 +227,8 @@ def _query(call: ToolCall) -> str:
     return query if isinstance(query, str) else ""
 
 
-def _spec(expected: dict | None, name: str) -> dict[str, Any] | None:
+def expected_spec(expected: dict | None, name: str) -> dict[str, Any] | None:
+    """The scorer's entry in ``expected``, or ``None`` when the case does not request the scorer."""
     spec = expected.get(name) if isinstance(expected, dict) else None
     return spec if isinstance(spec, dict) else None
 
@@ -236,7 +241,7 @@ def _successful_data_queries(parser: LogParser) -> list[ToolCall]:
             for call in parser.get_tool_calls(EXECUTE_SQL_TOOL_NAME)
             if not call.is_error and not is_schema_discovery_call(call)
         ),
-        key=_call_order,
+        key=call_order,
     )
 
 
@@ -248,6 +253,12 @@ class ToolMatch:
     server: str | None = None
     query_pattern: str | None = None
     """Case-insensitive regex searched in the call's ``query`` input."""
+
+    def __post_init__(self) -> None:
+        if not self.names and self.server is None and self.query_pattern is None:
+            raise ValueError("ToolMatch needs at least one criterion, or it matches every call")
+        if self.query_pattern is not None:
+            re.compile(self.query_pattern)
 
     def matches(self, call: ToolCall) -> bool:
         if self.names and call.name not in self.names:
@@ -276,17 +287,17 @@ class ToolOrder(Scorer):
         return self._label
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        parser = _parser_for(output)
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        calls = sorted((call for call in parser.get_tool_calls() if not call.is_error), key=_call_order)
+        calls = sorted((call for call in parser.get_tool_calls() if not call.is_error), key=call_order)
         after_calls = [call for call in calls if self.after.matches(call)]
         if not after_calls:
             return Score(name=self._name(), score=None, metadata={"reason": "No guarded call ran"})
         before_calls = [call for call in calls if self.before.matches(call)]
         # A strict order, so a call that both matchers accept cannot satisfy its own prerequisite.
         early = [
-            call for call in after_calls if not any(_call_order(prior) < _call_order(call) for prior in before_calls)
+            call for call in after_calls if not any(call_order(prior) < call_order(call) for prior in before_calls)
         ]
         return Score(
             name=self._name(),
@@ -299,26 +310,51 @@ class ToolOrder(Scorer):
         )
 
 
-def _table_aliases(entry: object) -> list[str]:
-    if isinstance(entry, str):
-        return [entry]
-    if isinstance(entry, list) and all(isinstance(alias, str) for alias in entry):
-        return entry
-    return []
+TableEntry = str | list[str]
+"""A table name, or the names one table answers to (a synced table answers to ``postgres_x`` and ``postgres.x``)."""
 
 
-def _valid_tables(tables: object) -> TypeGuard[list[object]]:
+def _table_aliases(entry: TableEntry) -> list[str]:
+    return [entry] if isinstance(entry, str) else entry
+
+
+def _valid_tables(tables: object) -> TypeGuard[list[TableEntry]]:
     """A non-empty list where each entry is a table name or a non-empty list of aliases, none of them empty."""
     if not isinstance(tables, list) or not tables:
         return False
-    return all(_table_aliases(entry) and all(_table_aliases(entry)) for entry in tables)
+    return all(
+        (isinstance(entry, str) and bool(entry))
+        or (isinstance(entry, list) and bool(entry) and all(isinstance(alias, str) and alias for alias in entry))
+        for entry in tables
+    )
+
+
+@frozen
+class _TableCheck:
+    spec: dict[str, Any]
+    tables: list[TableEntry]
+    queries: list[str]
+    """The text of each successful data query, in call order."""
+
+
+def _table_check(name: str, output: dict | None, expected: dict | None) -> Score | _TableCheck:
+    """The requested tables and the run's data queries, or the ``Score`` that ends the check early."""
+    spec = expected_spec(expected, name)
+    if spec is None:
+        return Score(name=name, score=None, metadata={"reason": "not requested"})
+    tables = spec.get("tables")
+    if not _valid_tables(tables):
+        return Score(name=name, score=0.0, metadata={"reason": "invalid expected metadata"})
+    parser = parser_for(output)
+    if parser is None:
+        return Score(name=name, score=0.0, metadata={"reason": "No raw log"})
+    return _TableCheck(spec=spec, tables=tables, queries=[_query(call) for call in _successful_data_queries(parser)])
 
 
 class SourcesConsulted(Scorer):
     """Fraction of ``expected[name]["tables"]`` that a successful data query read.
 
-    An entry is a table name, or a list of names one table answers to (a synced table answers to
-    ``postgres_x`` and ``postgres.x``), and a read of any of them counts. ``score=None`` when the case
+    Each entry is a ``TableEntry``, and a read of any of its names counts. ``score=None`` when the case
     does not request the check.
     """
 
@@ -329,33 +365,32 @@ class SourcesConsulted(Scorer):
         return self._label
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _spec(expected, self._name())
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        tables = spec.get("tables")
-        if not _valid_tables(tables):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        queries = [_query(call) for call in _successful_data_queries(parser)]
-        read: list[object] = []
-        missing: list[object] = []
-        for entry in tables:
+        check = _table_check(self._name(), output, expected)
+        if isinstance(check, Score):
+            return check
+        read: list[TableEntry] = []
+        missing: list[TableEntry] = []
+        for entry in check.tables:
             aliases = _table_aliases(entry)
-            (read if any(reads_table(query, aliases) for query in queries) else missing).append(entry)
-        return Score(name=self._name(), score=len(read) / len(tables), metadata={"read": read, "missing": missing})
+            (read if any(reads_table(query, aliases) for query in check.queries) else missing).append(entry)
+        return Score(
+            name=self._name(), score=len(read) / len(check.tables), metadata={"read": read, "missing": missing}
+        )
+
+
+ANY_CLEAN_QUERY_SCOPE = "any_clean_query"
 
 
 class SourcesAvoided(Scorer):
     """Binary scorer: did the agent keep the tables in ``expected[name]["tables"]`` out of its data queries?
 
-    Entries take the same names or alias lists as ``SourcesConsulted``.
+    Entries take the same names or alias lists as ``SourcesConsulted``. The default scope fails when any
+    successful data query reads a listed table.
 
-    ``"scope": "answer"`` fails only when every successful data query reads a listed table, so the agent can
-    inspect one (to find it empty, say) before or after the query that answers. Pair it with a value check or a
-    judge, because this scope cannot tell which query the answer came from. The default scope checks every
-    successful data query.
+    ``"scope": "any_clean_query"`` fails only when every successful data query reads a listed table, so the agent
+    can inspect one (to find it empty, say) before or after the query that answers. Pair it with a value check or
+    a judge, because this scope cannot tell which query the answer came from. ``score=None`` when no data query
+    succeeded, because a run that read nothing avoided nothing.
     """
 
     def __init__(self, *, name: str = "sources_avoided"):
@@ -365,26 +400,21 @@ class SourcesAvoided(Scorer):
         return self._label
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _spec(expected, self._name())
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        tables = spec.get("tables")
-        if not _valid_tables(tables):
+        check = _table_check(self._name(), output, expected)
+        if isinstance(check, Score):
+            return check
+        scope = check.spec.get("scope")
+        if scope not in (None, ANY_CLEAN_QUERY_SCOPE):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        queries = [_query(call) for call in _successful_data_queries(parser)]
-        names = [alias for entry in tables for alias in _table_aliases(entry)]
-        offending = [query for query in queries if reads_table(query, names)]
-        if spec.get("scope") == "answer":
-            if not queries:
-                return Score(name=self._name(), score=None, metadata={"reason": "No successful data query"})
-            answered_elsewhere = len(offending) < len(queries)
-            return Score(
-                name=self._name(), score=1.0 if answered_elsewhere else 0.0, metadata={"offending_queries": offending}
-            )
-        return Score(name=self._name(), score=0.0 if offending else 1.0, metadata={"offending_queries": offending})
+        if not check.queries:
+            return Score(name=self._name(), score=None, metadata={"reason": "No successful data query"})
+        names = [alias for entry in check.tables for alias in _table_aliases(entry)]
+        offending = [query for query in check.queries if reads_table(query, names)]
+        if scope == ANY_CLEAN_QUERY_SCOPE:
+            passed = len(offending) < len(check.queries)
+        else:
+            passed = not offending
+        return Score(name=self._name(), score=1.0 if passed else 0.0, metadata={"offending_queries": offending})
 
 
 class ServerUsed(Scorer):
@@ -400,13 +430,13 @@ class ServerUsed(Scorer):
         return self._label
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _spec(expected, self._name())
+        spec = expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         server = spec.get("server")
         if not isinstance(server, str) or not server:
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        parser = _parser_for(output)
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         calls = [call.name for call in parser.get_tool_calls() if not call.is_error and call.server == server]

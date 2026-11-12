@@ -534,6 +534,7 @@ _TABLE_CHOICE = {
             ],
             1.0,
         ),
+        ("upper_case_target", [("SELECT sum(acv) FROM Postgres_Contracts_ACV", "completed")], 1.0),
     ]
 )
 def test_answer_table_queried(_name: str, queries: list[tuple[str, str]], expected_score: float) -> None:
