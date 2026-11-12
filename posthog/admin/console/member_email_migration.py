@@ -163,6 +163,10 @@ class MemberEmailMigration:
                 user = User.objects.select_for_update().get(pk=user_id)
                 if user.email != current_email or user.is_staff:
                     return "The account changed while this ran"
+                # The plan checked every row before any write. Check again with the database fold, so
+                # an earlier row of this run cannot hold an address that folds onto this one.
+                if self._is_taken(new_email, user):
+                    return "Another account already uses this email"
                 user.email = EmailNormalizer.normalize(new_email)
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])

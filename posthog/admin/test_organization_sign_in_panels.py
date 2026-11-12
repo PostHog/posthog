@@ -181,6 +181,16 @@ class TestChangeMemberEmails(BaseTest):
         assert lower.email == "grace@old.example.com"
         assert mixed.email == ("grace@new.example.com" if expected == "mixed" else "Grace@old.example.com")
 
+    def test_two_rows_cannot_take_emails_that_fold_onto_one_login(self, _send: MagicMock) -> None:
+        grace = self._create_user("grace@old.example.com")
+
+        self._change("ada@old.example.com i@new.example.com\ngrace@old.example.com \u0130@new.example.com")
+
+        self.member.refresh_from_db()
+        grace.refresh_from_db()
+        assert self.member.email == "i@new.example.com"
+        assert grace.email == "grace@old.example.com"
+
     def test_a_failed_notice_keeps_the_history_and_the_rest_of_the_list(self, send: MagicMock) -> None:
         send.side_effect = RuntimeError("broker down")
         grace = self._create_user("grace@old.example.com")
