@@ -203,8 +203,13 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
         topicQuadrantGroups: [
             (s) => [s.overview],
             (overview: AEOPromptSetOverviewApi | null): TopicQuadrantGroup[] | null =>
-                overview && overview.current.mention_rate !== null && overview.current.citation_rate !== null
-                    ? topicQuadrants(overview.topics, overview.current.mention_rate, overview.current.citation_rate)
+                // With no mentions and no citations at all, every topic would sit "above average" at zero.
+                overview && (overview.current.mention_rate || overview.current.citation_rate)
+                    ? topicQuadrants(
+                          overview.topics,
+                          overview.current.mention_rate ?? 0,
+                          overview.current.citation_rate ?? 0
+                      )
                     : null,
         ],
         hasChecks: [

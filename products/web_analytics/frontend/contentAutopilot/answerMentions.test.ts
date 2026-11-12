@@ -1,6 +1,13 @@
 import { AnswerBrand, answerMentions } from './answerMentions'
 
 const OWN: AnswerBrand = { key: 'own', name: 'Example', domain: null, isOwn: true, terms: ['Example', 'Example Cloud'] }
+const PUNCTUATED: AnswerBrand = {
+    key: 'punctuated',
+    name: 'Yahoo!',
+    domain: null,
+    isOwn: false,
+    terms: ['Yahoo!', 'C++', 'a=b:c'],
+}
 const RIVAL: AnswerBrand = {
     key: 'rival.example.org',
     name: 'Rival',
@@ -39,8 +46,22 @@ describe('answerMentions', () => {
             ],
             [['rival.example.org', 1, true]],
         ],
+        [
+            'matches names with characters that are not regex syntax, like "Yahoo!", without throwing',
+            'Yahoo! beats C++ and a=b:c.',
+            [],
+            [
+                ['Yahoo!', 'punctuated'],
+                [' beats ', null],
+                ['C++', 'punctuated'],
+                [' and ', null],
+                ['a=b:c', 'punctuated'],
+                ['.', null],
+            ],
+            [['punctuated', 3, false]],
+        ],
     ] as const)('%s', (_, text, citedUrls, segments, mentions) => {
-        const result = answerMentions(text, [OWN, RIVAL], [...citedUrls], true)
+        const result = answerMentions(text, [OWN, RIVAL, PUNCTUATED], [...citedUrls], true)
 
         expect(result.segments.map(({ text, brandKey }) => [text, brandKey])).toEqual(segments)
         expect(result.mentions.map(({ brand, count, cited }) => [brand.key, count, cited])).toEqual(mentions)

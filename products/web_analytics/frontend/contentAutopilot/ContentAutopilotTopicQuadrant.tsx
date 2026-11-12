@@ -12,11 +12,13 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 
 import type { TopicQuadrantGroup, TopicQuadrantKey, TopicQuadrantPoint } from './topicQuadrant'
 
+// Groups compare each topic with your own average, so the labels say "above" or "below" rather than claiming a topic
+// is or isn't mentioned at all.
 const LABELS: Record<TopicQuadrantKey, string> = {
-    strong: 'Mentioned and cited',
-    mentioned_not_cited: 'Mentioned, not cited',
-    cited_not_mentioned: 'Cited, not mentioned',
-    weak: 'Neither',
+    strong: 'Above average on both',
+    mentioned_not_cited: 'Mentioned more, cited less',
+    cited_not_mentioned: 'Cited more, mentioned less',
+    weak: 'Below average on both',
 }
 
 const formatRate = (value: number): string => percentage(value, 0)
@@ -78,7 +80,7 @@ export const ContentAutopilotTopicQuadrant = ({
         <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader
                 title="Topics at a glance"
-                description="Each topic against your rates across all prompts. Top right is where you are both named and linked. Pick a topic to see its prompts."
+                description="Each topic compared with your average mention and citation rates across all prompts. Pick a topic to see its prompts."
             />
             <div
                 className="h-72 min-w-0 flex flex-col p-2"

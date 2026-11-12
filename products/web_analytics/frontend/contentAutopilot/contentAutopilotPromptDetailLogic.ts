@@ -71,7 +71,8 @@ export interface contentAutopilotPromptDetailLogicValues {
     checksLoading: boolean
     checksPage: number
     citationsQuery: DataTableNode | null
-    competitorBrands: AEOBrandApi[]
+    competitorBrands: AEOBrandApi[] | null
+    competitorBrandsFailed: boolean
     competitorBrandsLoading: boolean
     consensusMatrix: PromptConsensusMatrix | null
     detailError: ContentAutopilotPromptDetailError | null
@@ -297,7 +298,7 @@ export interface contentAutopilotPromptDetailLogicMeta {
             activeEngine: string | null,
             latestChecks: Record<string, AEOPromptCheckApi>
         ) => AEOPromptCheckApi | null
-        answerBrands: (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[]) => AnswerBrand[]
+        answerBrands: (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[] | null) => AnswerBrand[]
         shownAnswerMentions: (
             shownCheck: AEOPromptCheckApi | null,
             answerBrands: AnswerBrand[]
@@ -394,8 +395,9 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 },
             },
         ],
+        // Null until the catalog answers, so "no competitors" never shows while it loads or after it fails.
         competitorBrands: [
-            [] as AEOBrandApi[],
+            null as AEOBrandApi[] | null,
             {
                 loadCompetitorBrands: async () => {
                     const page = await aeoBrandsList(String(values.currentTeamIdStrict), {
@@ -444,6 +446,13 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         ],
     })),
     reducers({
+        competitorBrandsFailed: [
+            false,
+            {
+                loadCompetitorBrands: () => false,
+                loadCompetitorBrandsFailure: () => true,
+            },
+        ],
         promptId: [
             null as string | null,
             {
@@ -588,12 +597,12 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         ],
         answerBrands: [
             (s) => [s.stats, s.competitorBrands],
-            (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[]): AnswerBrand[] => [
+            (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[] | null): AnswerBrand[] => [
                 // Own brand first, so a word both could claim highlights as ours.
                 ...(stats?.brand_names.length
                     ? [{ key: 'own', name: stats.brand_names[0], domain: null, isOwn: true, terms: stats.brand_names }]
                     : []),
-                ...competitorBrands.map((brand) => ({
+                ...(competitorBrands ?? []).map((brand) => ({
                     key: brand.id,
                     name: brand.name || brand.domain,
                     domain: brand.domain,

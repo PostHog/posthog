@@ -1,5 +1,3 @@
-import { escapeRegex } from 'lib/utils/actions'
-
 export interface AnswerBrand {
     key: string
     name: string
@@ -26,6 +24,10 @@ export interface AnswerMentions {
     /** Brands the answer names, in the order it first names them. */
     mentions: AnswerMention[]
 }
+
+// Escapes only the characters that are syntax in a pattern. The pattern uses the `u` flag, which rejects any other
+// escaped character, so a general escaper that also escapes `!`, `=` or `:` would throw on a name like "Yahoo!".
+const escapeTerm = (term: string): string => term.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')
 
 const hostOf = (url: string): string | null => {
     try {
@@ -66,7 +68,7 @@ export function answerMentions(
     }
     const pattern = [...brandByTerm.keys()]
         .sort((a, b) => b.length - a.length)
-        .map(escapeRegex)
+        .map(escapeTerm)
         .join('|')
     // Lookarounds instead of \b, so a term that starts or ends with punctuation (a domain) still matches.
     const regex = new RegExp(`(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`, 'giu')

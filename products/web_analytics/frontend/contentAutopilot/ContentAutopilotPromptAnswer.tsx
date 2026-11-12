@@ -20,6 +20,9 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
         activeEngine,
         shownCheck,
         shownAnswerMentions,
+        competitorBrands,
+        competitorBrandsLoading,
+        competitorBrandsFailed,
         selectedCheck,
         latestChecksLoading,
         latestChecksFailed,
@@ -83,7 +86,16 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                 text={shownCheck.answer_text ?? ''}
                                 mentions={shownAnswerMentions}
                             />
-                            <ContentAutopilotAnswerMentionList mentions={shownAnswerMentions?.mentions ?? []} />
+                            <ContentAutopilotAnswerMentionList
+                                mentions={shownAnswerMentions?.mentions ?? []}
+                                competitors={
+                                    competitorBrands !== null
+                                        ? 'ready'
+                                        : competitorBrandsFailed && !competitorBrandsLoading
+                                          ? 'failed'
+                                          : 'loading'
+                                }
+                            />
                         </div>
                     )}
 
