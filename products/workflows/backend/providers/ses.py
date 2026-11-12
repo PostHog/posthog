@@ -648,10 +648,13 @@ class SESProvider:
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
         *,
+        unverified_claimant_team_ids: Iterable[int] = (),
         keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
-        friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
+        friendly_tenants = {
+            self._tenant_name_for_team(t) for t in [*(org_team_ids or [team_id]), *unverified_claimant_team_ids]
+        }
         foreign_tenants = self._list_identity_tenants(domain) - friendly_tenants
         if foreign_tenants:
             raise exceptions.ValidationError(

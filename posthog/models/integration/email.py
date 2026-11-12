@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationConflict, IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import IntegrationConflict, IntegrationNotFound, IntegrationPatch, IntegrationRecord
 from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -67,6 +67,14 @@ def _refuse_another_unverified_domain(organization_id: str) -> None:
         )
 
 
+def _senders_of_other_organizations(domain: str, organization_id: str) -> list[model.Integration]:
+    return list(
+        model.Integration.objects.filter(kind="email", config__domain=domain).exclude(
+            team__organization_id=organization_id
+        )
+    )
+
+
 @frozen
 class EmailDomainStatusReport:
     check: "EmailDomainCheck"
@@ -106,16 +114,16 @@ class EmailIntegration:
         if row_writes.creator_accessor("email").exists(team_id, external_id=email_address):
             raise _duplicate_sender_error(email_address)
 
-        # Check if any other integration already exists in a different team with the same domain,
-        # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)
-        for integration in same_domain_integrations:
-            if str(integration.team.organization.id) != str(organization_id):
-                raise ValidationError(
-                    f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
-                )
+        other_organization_senders = _senders_of_other_organizations(domain, str(organization_id))
+        # Another organization's unverified claim does not block the domain. Each claimant then has to publish its
+        # own record to verify it, so a claim made without access to the domain's DNS never verifies.
+        if any(sender.config.get("verified") is True for sender in other_organization_senders):
+            raise ValidationError(
+                f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
+            )
 
-        if not same_domain_integrations.exists():
+        if not same_domain_integrations.exclude(id__in=[sender.id for sender in other_organization_senders]).exists():
             _refuse_another_unverified_domain(str(organization_id))
 
         # Create domain in the appropriate provider
@@ -135,6 +143,7 @@ class EmailIntegration:
                 mail_from_subdomain=mail_from_subdomain,
                 team_id=team_id,
                 org_team_ids=org_team_ids,
+                unverified_claimant_team_ids=[sender.team_id for sender in other_organization_senders],
                 keep_existing_mail_from=domain_in_use,
             )
         elif provider == "maildev" and settings.DEBUG:
@@ -251,10 +260,41 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: {provider}")
 
+        if verification_result.get("status") == "success" and (claimants := self._other_organization_senders()):
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                email_domain_organization_proof_published,
+                email_domain_organization_proof_record,
+            )
+
+            organization_id = self._organization_id()
+            if not email_domain_organization_proof_published(domain, organization_id=organization_id):
+                return {
+                    "status": "pending",
+                    "dnsRecords": [
+                        *verification_result["dnsRecords"],
+                        email_domain_organization_proof_record(domain, organization_id=organization_id),
+                    ],
+                }
+            self._release_claims(claimants)
+
         if verification_result.get("status") == "success":
             self._mark_domain_verified(on_domain_verified)
 
         return verification_result
+
+    def _organization_id(self) -> str:
+        return str(Team.objects.only("organization_id").get(id=self.integration.team_id).organization_id)
+
+    def _other_organization_senders(self) -> list[model.Integration]:
+        return _senders_of_other_organizations(self.integration.config["domain"], self._organization_id())
+
+    # The other claimants could not publish this organization's record, so their claims end once it verifies.
+    def _release_claims(self, claimants: Sequence[model.Integration]) -> None:
+        for claimant in claimants:
+            try:
+                row_writes.row_accessor(claimant).delete(claimant.team_id, claimant.id, ignore_usages=True)
+            except IntegrationNotFound:
+                continue
 
     def status(
         self,
@@ -275,6 +315,14 @@ class EmailIntegration:
             )
 
         check = self._check_domain()
+        if self._other_organization_senders():
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                email_domain_check_with_organization_proof,
+            )
+
+            check = email_domain_check_with_organization_proof(
+                check, domain=self.integration.config["domain"], organization_id=self._organization_id()
+            )
         # Reading the status never saves the verification. The caller records it with verify().
         unrecorded_verification = check.is_verified and not self.integration.config.get("verified")
 

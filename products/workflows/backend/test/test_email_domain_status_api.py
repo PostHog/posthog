@@ -457,6 +457,35 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         assert not self.is_verified(foreign_sender.id)
 
 
+class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        other_organization = Organization.objects.create(name="Other")
+        self.other_team = Team.objects.create(organization=other_organization, name="Other")
+        self.other_sender = EmailIntegration.create_native_integration(
+            {"email": f"hello@{DOMAIN}", "name": "Other", "provider": "ses"},
+            team_id=self.other_team.id,
+            organization_id=str(other_organization.id),
+        )
+
+    def test_only_the_organization_that_publishes_its_own_record_verifies_the_domain(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        records = self.records_to_publish(sender)
+        assert [record["kind"] for record in records if record["kind"] not in ALL_KINDS] == ["organization"]
+
+        self.publish(records, *ALL_KINDS)
+        body = self.status_body(sender)
+        assert (body["status"], record_statuses(body)["organization"]) == ("pending", ["pending"])
+        assert EmailIntegration(self.other_sender).verify()["status"] == "pending"
+        assert not self.is_verified(self.other_sender.id)
+
+        self.publish(records, "organization")
+        assert self.status_body(sender)["status"] == "verified"
+        assert self.verify(sender).status_code == status.HTTP_200_OK
+        assert self.is_verified(sender)
+        assert not Integration.objects.filter(id=self.other_sender.id).exists()
+
+
 class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
     def test_dmarc_record_hosted_in_another_zone_through_a_cname_counts(self) -> None:
         self.world.dns.add_zone("dmarc-reports.example.net")
