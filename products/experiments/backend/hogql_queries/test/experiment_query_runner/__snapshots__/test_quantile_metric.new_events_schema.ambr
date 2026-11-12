@@ -89,7 +89,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(CAST(nullIf(toString(events.properties.`$browser`), ''), 'Nullable(String)')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
