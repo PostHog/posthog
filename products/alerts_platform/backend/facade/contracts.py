@@ -1392,6 +1392,22 @@ SourceConfigLoader = Callable[[], SourceConfigSpec]
 
 
 @frozen
+class LegacyCopyExpectation:
+    """What the copy of one platform-owned alert should store, built from its source row."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    # None when the row has no platform form, such as an insight cadence the platform never runs.
+    upsert: PlatformAlertUpsert | None
+    extra_columns: Mapping[str, Any] = field(default_factory=dict)
+
+
+# One page of a source's platform-owned rows, ordered by id: `(team_id or None for every team,
+# after this id, limit)`.
+LegacyDriftSource = Callable[[int | None, UUID | None, int], Sequence[LegacyCopyExpectation]]
+
+
+@frozen
 class PlatformAlertConfigurationPage:
     """One page of configurations, with the total the reader needs to paginate."""
 
