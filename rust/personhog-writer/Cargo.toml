@@ -14,10 +14,14 @@ common-metrics = { path = "../common/metrics" }
 lifecycle = { path = "../common/lifecycle" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 personhog-coordination = { path = "../personhog-coordination" }
+personhog-property-store = { path = "../personhog-property-store" }
+personhog-common = { path = "../personhog-common" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }
+bytes = { workspace = true }
 chrono = { workspace = true }
+clap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 metrics = { workspace = true }
@@ -25,6 +29,7 @@ prost = { workspace = true }
 rdkafka = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -32,8 +37,8 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+tempfile = "3"
 health = { path = "../common/health" }
-personhog-common = { path = "../personhog-common" }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

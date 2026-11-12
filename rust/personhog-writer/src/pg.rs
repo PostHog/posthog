@@ -20,23 +20,33 @@ const ALLOWED_TABLES: &[&str] = &["personhog_person_tmp", "posthog_person"];
 pub struct PgStore {
     pool: PgPool,
     upsert_sql: String,
+    /// Without it, the properties column is `{}` on insert and update, and the meta columns are left alone.
+    properties: bool,
 }
 
 #[async_trait]
 impl PersonDb for PgStore {
     async fn execute_chunk(&self, chunk: &[Person]) -> Result<(), WriteError> {
-        let arrays = prepare_chunk(chunk)?;
+        let arrays = prepare_chunk(chunk, self.properties)?;
         run_upsert(&self.pool, &self.upsert_sql, &arrays, "chunk").await
     }
 
     async fn execute_row(&self, person: &Person) -> Result<(), WriteError> {
-        let arrays = prepare_single(person)?;
+        let arrays = prepare_single(person, self.properties)?;
         run_upsert(&self.pool, &self.upsert_sql, &arrays, "row").await
     }
 }
 
 impl PgStore {
     pub fn new(pool: PgPool, table_name: String) -> Self {
+        Self::build(pool, table_name, true)
+    }
+
+    pub fn without_properties(pool: PgPool, table_name: String) -> Self {
+        Self::build(pool, table_name, false)
+    }
+
+    fn build(pool: PgPool, table_name: String, properties: bool) -> Self {
         assert!(
             ALLOWED_TABLES.contains(&table_name.as_str()),
             "PG_TARGET_TABLE must be one of {:?}, got: {table_name}",
@@ -51,6 +61,20 @@ impl PgStore {
         // writer does), so assignment would erase real values. last_seen_at
         // takes GREATEST — which ignores NULL — because records may predate
         // the field, and the column's invariant is that it only advances.
+        let properties_set = if properties {
+            format!(
+                "properties = EXCLUDED.properties,
+                properties_last_updated_at =
+                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
+                properties_last_operation =
+                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),",
+                table = table_name
+            )
+        } else {
+            // The column is dead once properties live in SlateDB, and a row that predates the
+            // size constraint cannot be updated while it still holds them.
+            "properties = '{}'::jsonb,".to_string()
+        };
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
@@ -70,11 +94,7 @@ impl PgStore {
                    is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
-                properties = EXCLUDED.properties,
-                properties_last_updated_at =
-                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
-                properties_last_operation =
-                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
+                {properties_set}
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
@@ -84,7 +104,11 @@ impl PgStore {
             table = table_name
         );
 
-        Self { pool, upsert_sql }
+        Self {
+            pool,
+            upsert_sql,
+            properties,
+        }
     }
 }
 
@@ -98,7 +122,7 @@ impl PgStore {
 /// as produced, which post-admission is an invariant violation the caller
 /// must halt on. Nothing is ever dropped or substituted here — a silent
 /// repair would diverge PG from the cache and changelog.
-fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
+fn prepare_chunk(persons: &[Person], properties: bool) -> Result<PreparedArrays<'_>, WriteError> {
     // Bind order is lock order: the upsert acquires row locks in unnest
     // order, so binding in conflict-key order gives every flush one global
     // lock direction. Concurrent multi-row writers on overlapping persons
@@ -109,19 +133,23 @@ fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
     sorted.sort_unstable_by_key(|p| (p.team_id, p.id));
     let mut arrays = PreparedArrays::with_capacity(sorted.len());
     for person in sorted {
-        push_person(&mut arrays, person)?;
+        push_person(&mut arrays, person, properties)?;
     }
     Ok(arrays)
 }
 
 /// Build a single-row `PreparedArrays` for the per-row path.
-fn prepare_single(person: &Person) -> Result<PreparedArrays<'_>, WriteError> {
+fn prepare_single(person: &Person, properties: bool) -> Result<PreparedArrays<'_>, WriteError> {
     let mut arrays = PreparedArrays::with_capacity(1);
-    push_person(&mut arrays, person)?;
+    push_person(&mut arrays, person, properties)?;
     Ok(arrays)
 }
 
-fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(), WriteError> {
+fn push_person<'a>(
+    arrays: &mut PreparedArrays<'a>,
+    p: &'a Person,
+    with_properties: bool,
+) -> Result<(), WriteError> {
     let unbindable = |field: &str, detail: String| {
         counter!("personhog_writer_unbindable_field_total", "field" => field.to_string())
             .increment(1);
@@ -137,12 +165,17 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
     let uuid = Uuid::parse_str(&p.uuid).map_err(|e| unbindable("uuid", e.to_string()))?;
     let team_id = i32::try_from(p.team_id)
         .map_err(|_| unbindable("team_id", "exceeds the column's integer range".to_string()))?;
-    let properties =
-        bytes_to_json_str(&p.properties, "{}").map_err(|e| unbindable("properties", e))?;
-    let properties_last_updated_at = bytes_to_optional_json_str(&p.properties_last_updated_at)
-        .map_err(|e| unbindable("properties_last_updated_at", e))?;
-    let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
-        .map_err(|e| unbindable("properties_last_operation", e))?;
+    let (properties, properties_last_updated_at, properties_last_operation) = if with_properties {
+        (
+            bytes_to_json_str(&p.properties, "{}").map_err(|e| unbindable("properties", e))?,
+            bytes_to_optional_json_str(&p.properties_last_updated_at)
+                .map_err(|e| unbindable("properties_last_updated_at", e))?,
+            bytes_to_optional_json_str(&p.properties_last_operation)
+                .map_err(|e| unbindable("properties_last_operation", e))?,
+        )
+    } else {
+        ("{}", None, None)
+    };
     let created_at = epoch_ms_to_datetime(p.created_at)
         .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
     let last_seen_at = match p.last_seen_at {
@@ -435,7 +468,7 @@ mod tests {
             person_with(4, 2),
             person_with(1, 1),
         ];
-        let arrays = prepare_chunk(&persons).expect("chunk prepares");
+        let arrays = prepare_chunk(&persons, true).expect("chunk prepares");
         assert_eq!(arrays.team_ids, vec![1, 1, 2, 2]);
         assert_eq!(arrays.ids, vec![1, 3, 4, 5]);
     }
@@ -448,7 +481,7 @@ mod tests {
         let bad = person_with(2, (i32::MAX as i64) + 1);
 
         let persons = [good, bad];
-        let err = prepare_chunk(&persons).expect_err("unbindable row must error");
+        let err = prepare_chunk(&persons, true).expect_err("unbindable row must error");
         assert!(matches!(err.kind, WriteErrorKind::Data));
         assert!(err.message.contains("team_id"));
     }
@@ -457,7 +490,7 @@ mod tests {
     fn prepare_single_errors_on_malformed_uuid() {
         let mut bad = person_with(1, 42);
         bad.uuid = "not-a-uuid".to_string();
-        let err = prepare_single(&bad).expect_err("malformed uuid must error");
+        let err = prepare_single(&bad, true).expect_err("malformed uuid must error");
         assert!(matches!(err.kind, WriteErrorKind::Data));
         assert!(err.message.contains("uuid"));
     }

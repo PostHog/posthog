@@ -125,8 +125,43 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 | `personhog_writer_e2e_latency_seconds` | histogram | End-to-end latency from Kafka message creation to PG commit |
 | `personhog_writer_buffer_size` | gauge | Current buffer entries |
 | `personhog_writer_partition_offset{partition}` | gauge | Current offset per partition |
+| `personhog_writer_property_partitions_lost_total{reason}` | counter | Partitions whose offsets were left uncommitted because SlateDB could not take their rows here (reason: `ownership_lost`, or `unassigned` when the partition had no assignment on this pod) |
+| `personhog_writer_backfill_live_lag` | gauge | In `backfill` mode, the pod's changelog lag that paces the backfill topic |
+| `personhog_writer_backfill_paused` | gauge | In `backfill` mode, 1 while the backfill topic is paused for live records |
+| `personhog_writer_property_catch_ups_total{outcome, partition}` | counter | `dual` mode replays after an assignment (outcome: `finished`, `nothing_to_replay`, `lost`) |
+| `personhog_writer_property_catch_up_rows_total` | counter | Changelog rows a `dual` mode replay wrote to SlateDB |
+| `personhog_writer_property_fenced_retries_total` | counter | Property-store writes retried after another writer fenced shards this pod still owns |
+| `personhog_writer_property_not_ready_total` | counter | Property-store writes retried while their shards were still opening |
+| `personhog_backfill_rows_total{outcome}` | counter | `backfill scan`: rows `read`, and of those `written` to the topic, `deleted` (written as delete markers), `trimmed` (written after trimming) or `rejected` |
+| `personhog_backfill_ranges_total{outcome}` | counter | `backfill scan`: ranges this worker `finished` or found `already_done` |
+| `personhog_backfill_page_seconds` | histogram | `backfill scan`: one page's Postgres scan |
+| `personhog_backfill_produce_errors_total` | counter | `backfill scan`: records the backfill topic refused |
+| `personhog_verify_persons_total{outcome}` | counter | `backfill verify`: persons judged `match`, `differs`, `behind`, `missing`, `newer_in_slatedb` or `rejected` |
+| `personhog_verify_ranges_total{outcome}` | counter | `backfill verify`: ranges `finished` or found `already_done` |
 
 Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_consumer_group_topic_lag`).
+
+## Property backfill
+
+The backfill loads existing person properties into SlateDB while the production writer keeps ingesting. Every write keeps the higher version, so the order in which rows arrive does not matter.
+
+The `backfill` subcommands keep a run's plan and progress under `PROPERTY_BACKFILL_STATE_URL`, an object store outside the property store, so the state can be deleted after the cutover without touching the shards. A run id names a plan, a scan and a verification together.
+
+1. `personhog-writer backfill start` with `PROPERTY_BACKFILL_GROUP` set to a new group copies the production writer group's committed changelog offsets to it. The production writer commits only what is in Postgres, so every record below those offsets is in any snapshot taken afterwards. It refuses the production group, a group that already has commits, and a writer group missing a commit on any partition.
+2. Start writers in `backfill` mode with `KAFKA_CONSUMER_GROUP` set to that group. They read the changelog from the copied offsets and the backfill topic from its first record, with the range assignor, so one pod owns partition N of both topics. They refuse to start on a group without a commit on every changelog partition. The backfill topic pauses while the changelog lags. These writers refuse to start, and stop, while a changelog migration is draining. Take the snapshot the scanner reads after `start`.
+3. `personhog-writer backfill plan --run-id <run>` splits `PG_TARGET_TABLE` into key ranges of about `--rows-per-range` rows (default 5M), each child table of a partitioned table on its own, from a `TABLESAMPLE` of its keys. The plan is saved once under `backfill/<run>/plan`; a run keeps the plan it started with.
+4. `personhog-writer backfill scan --run-id <run> --index <n> --workers <count>` scans ranges `n`, `n + count`, and so on in primary-key order, and produces each row to `PROPERTY_BACKFILL_TOPIC` on the changelog partition that person belongs to. Run it as an Indexed Job with `--index` set to the completion index and `--workers` to the completion count, with `DATABASE_URL` pointing at the snapshot. A range records its cursor after every published page, so a restarted worker repeats at most one page, and a finished range does nothing on rerun. A row whose properties do not parse is logged by id and skipped. A document the topic would refuse is trimmed to `PROPERTIES_TRIM_TARGET` the way the leader trims one over its threshold, and logged. Progress is on the metrics port as `personhog_backfill_*`.
+5. Once the `backfill` mode writers have read the whole backfill topic and caught up on the changelog, delete them.
+6. Switch the production writer to `dual` with `PROPERTY_BACKFILL_GROUP` set to the backfill group, promptly: each newly assigned partition replays the changelog from the backfill group's committed offset up to its own group's, writing SlateDB only, while the writer continues from its own offset, and that replay grows with the time between the two steps. A replay that a crash or a reassignment interrupts runs again in full on the next owner. `PROPERTY_CATCH_UP_CONCURRENCY` replays run at once per pod.
+7. Confirm `personhog_writer_property_catch_ups_total` shows `finished` or `nothing_to_replay` for every changelog partition since the switch to `dual`; it takes minutes. Counters live on pods, so check with `increase` over the whole `dual` period, not an instant value. Then redeploy the writer in `dual` without `PROPERTY_BACKFILL_GROUP`: the gap is replayed once, and without the group no later assignment replays anything. Until the replays finish, a person whose newest record is in the gap reads as unavailable from SlateDB.
+8. `personhog-writer backfill verify --run-id <run> --index <n> --workers <count>` compares a fresh snapshot (`DATABASE_URL`) with SlateDB over the run's key ranges, judging each person by version: `match`, `differs` (same version, different content), `behind` or `missing` (SlateDB lacks a write), and `newer_in_slatedb` (written after the snapshot, which parity with the snapshot allows), and `rejected` (a row the scan could not turn into a record). `--sample-every N` checks one row in N. Divergent persons are logged by id with both versions; `personhog-writer properties get` shows the two sides of one. A finished range is skipped on rerun; delete `verify/<run>` from the state store to verify a run again. Set `PROPERTY_STORE_BLOCK_CACHE_BYTES` for this job, since it reads in key order. Switch the writer to `slatedb` only when `differs`, `behind`, `missing` and `rejected` are zero. A rejected row has properties nested past the parser's limit or too large to trim; such a person is already unwritable under personhog and loses its eventual reads at cutover, so accept a non-zero `rejected` only after checking each logged id is one of those.
+9. Switching the writer to `slatedb` is the one-way step: Postgres stops updating the property columns, and every row the writer updates from then on has `{}` in its properties column.
+
+**Remove after cutover.** Once production runs `slatedb`, these exist only for the load and can be deleted: the `backfill` storage mode and `src/backfill_mode.rs`, the dual catch-up in `src/catch_up.rs` with `PROPERTY_BACKFILL_GROUP` and `PROPERTY_CATCH_UP_CONCURRENCY`, `PROPERTY_BACKFILL_TOPIC`, `PROPERTY_BACKFILL_MAX_LIVE_LAG`, `PROPERTY_BACKFILL_STATE_URL` and `PROPERTIES_TRIM_TARGET`, the backfill topic in the consumer, and the `backfill` command in `src/backfill/`. The per-assignment generations and the cross-topic dedup rule stay; they are correctness fixes the load exposed. `personhog-writer properties get` stays as the way to look at one person's record.
+
+## Reading one person
+
+`personhog-writer properties get --team <team> --person <person>` prints the record SlateDB holds for the person and the Postgres row, with the verifier's verdict for the pair. It needs `PROPERTY_STORE_*` and `DATABASE_URL`, opens a one-off reader on the store, and runs anywhere with read access to the bucket.
 
 ## Configuration
 
@@ -136,10 +171,17 @@ Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_c
 | `KAFKA_TLS` | `false` | Enable TLS for Kafka |
 | `KAFKA_CLIENT_ID` | (empty) | Pod name for static group membership |
 | `KAFKA_CLIENT_RACK` | (empty) | Rack ID for rack-aware consumption |
+| `PROPERTY_STORAGE_MODE` | `postgres` | Where properties go. `postgres`: Postgres only. `dual`: Postgres and SlateDB (`PROPERTY_STORE_*`). `slatedb`: SlateDB only; Postgres keeps the identity columns, and the properties column is `{}` on insert and update. `backfill`: SlateDB only and nothing to Postgres, in its own consumer group (see [Property backfill](#property-backfill)). Offsets commit once every store in the mode has the batch |
+| `PROPERTY_BACKFILL_TOPIC` | (empty) | The backfill topic. `backfill` mode reads it next to the changelog, and `personhog-writer backfill scan` writes it. It must have the changelog's partition count |
+| `PROPERTY_BACKFILL_MAX_LIVE_LAG` | `10000` | In `backfill` mode, the backfill topic pauses while the pod's changelog lag exceeds this many records |
+| `PROPERTY_BACKFILL_GROUP` | (empty) | The `backfill` mode writers' consumer group, which `backfill start` starts. In `dual` mode, each newly assigned partition first replays the changelog from that group's committed offset up to this group's. Empty skips the replay; the writer's own group is refused |
+| `PROPERTY_CATCH_UP_CONCURRENCY` | `4` | How many of those replays run at once per pod; each holds a consumer with 8 MiB of prefetch |
+| `PROPERTY_BACKFILL_STATE_URL` | (empty) | Where the `backfill` subcommands keep a run's plan and progress: an object store URL that is not the property store, such as a scratch bucket. Required by those subcommands |
+| `PROPERTIES_TRIM_TARGET` | `524288` | `backfill scan` trims a document the backfill topic would refuse to this many jsonb bytes, as the leader does with one over its threshold |
 | `KAFKA_CONSUMER_GROUP` | `personhog-writer` | Consumer group ID |
 | `ETCD_ENDPOINTS` | `http://localhost:2379` | etcd endpoints; the topic comes from `config/changelog` |
 | `ETCD_PREFIX` | `/personhog/` | etcd key prefix |
-| `DATABASE_URL` | (required) | Postgres connection string |
+| `DATABASE_URL` | (required in `postgres` mode) | Postgres connection string |
 | `PG_MAX_CONNECTIONS` | `20` | Connection pool size |
 | `PG_TARGET_TABLE` | `personhog_person_tmp` | Target table (`posthog_person` for production cutover) |
 | `FLUSH_INTERVAL_MS` | `30000` | Timer-based flush interval (longer = better dedup, higher latency) |

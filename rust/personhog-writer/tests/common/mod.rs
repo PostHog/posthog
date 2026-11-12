@@ -62,12 +62,18 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
     let handle = registry
         .register("kafka".to_string(), Duration::from_secs(30))
         .await;
-    let config = common_kafka::config::KafkaConfig {
+    common_kafka::kafka_producer::create_kafka_producer(&kafka_config(KAFKA_BOOTSTRAP), handle)
+        .await
+        .expect("failed to connect to local Kafka")
+}
+
+pub fn kafka_config(hosts: &str) -> common_kafka::config::KafkaConfig {
+    common_kafka::config::KafkaConfig {
         kafka_producer_linger_ms: 0,
         kafka_producer_queue_mib: 50,
         kafka_message_timeout_ms: 5000,
         kafka_compression_codec: "none".to_string(),
-        kafka_hosts: KAFKA_BOOTSTRAP.to_string(),
+        kafka_hosts: hosts.to_string(),
         kafka_tls: false,
         kafka_producer_queue_messages: 1000,
         kafka_client_rack: String::new(),
@@ -82,10 +88,7 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         kafka_producer_partitioner: None,
         kafka_producer_acks: None,
         kafka_producer_retries: None,
-    };
-    common_kafka::kafka_producer::create_kafka_producer(&config, handle)
-        .await
-        .expect("failed to connect to local Kafka")
+    }
 }
 
 /// Connect to the local persons database.
