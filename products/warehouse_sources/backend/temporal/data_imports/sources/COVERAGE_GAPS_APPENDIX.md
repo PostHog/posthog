@@ -12494,10 +12494,10 @@ Today (5): `collaborators`, `labels`, `projects`, `sections`, `tasks`
 
 Diffed against: <https://developer.todoist.com/openapi.json>
 
-- [ ] `GET /api/v1/tasks/completed/by_completion_date` — completed tasks with completion timestamps; /tasks returns active tasks only, so throughput and completion trends are unanswerable without it (high)
-- [ ] `GET /api/v1/activities` — the activity/event log (added, completed, updated, deleted per object) — the state-transition history for every synced object (high)
-- [ ] `GET /api/v1/comments` — comments on tasks and projects, the collaboration content attached to the tasks already synced (medium)
-- [ ] `GET /api/v1/tasks/completed/by_due_date` — completions bucketed by due date, the on-time vs late view that completion-date data cannot produce alone (medium)
+- [x] `GET /api/v1/tasks/completed/by_completion_date` — completed tasks with completion timestamps; /tasks returns active tasks only, so throughput and completion trends are unanswerable without it (high)
+- [x] `GET /api/v1/activities` — the activity/event log (added, completed, updated, deleted per object) — the state-transition history for every synced object (high)
+- [x] `GET /api/v1/comments` — comments on tasks and projects, the collaboration content attached to the tasks already synced (medium)
+- [x] `GET /api/v1/tasks/completed/by_due_date` — completions bucketed by due date, the on-time vs late view that completion-date data cannot produce alone (medium) — skipped: it returns the same task objects as by_completion_date, with `due` and `completed_at`, so `completed_tasks` already answers on-time vs late
 - [ ] `GET /api/v1/projects/archived` — archived projects, without which tasks and activity referencing them resolve to nothing (medium)
 - [ ] `GET /api/v1/workspaces/users` — workspace membership join table; collaborators are per-project only, so there is no org-level user roster (medium)
 - [ ] `GET /api/v1/workspaces` — lookup resolving the workspace_id carried on projects, folders and activity (medium)
