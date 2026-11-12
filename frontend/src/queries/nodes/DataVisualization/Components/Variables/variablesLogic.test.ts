@@ -83,53 +83,59 @@ describe('variablesLogic', () => {
         logic.unmount()
     })
 
-    it('retains an unused editor value across saved-query updates and restores it when referenced again', async () => {
-        let savedQuery: VisualizationNode = {
-            kind: NodeKind.DataVisualizationNode,
-            source: {
-                kind: NodeKind.HogQLQuery,
-                query: 'SELECT {variables.region}',
-                variables: {
-                    'region-id': { variableId: 'region-id', code_name: 'region', value: 'South' },
+    it.each([false, true])(
+        'retains local values across saving and discarding edits with definitions loaded: %s',
+        async (definitionsLoaded) => {
+            let savedQuery: VisualizationNode = {
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT {variables.region}',
+                    variables: {
+                        'region-id': { variableId: 'region-id', code_name: 'region', value: 'South' },
+                    },
                 },
-            },
+            }
+            const parent = dataVisualizationLogic({
+                dataNodeCollectionId: 'variables-test',
+                key: 'variables-test',
+                query: savedQuery,
+                cachedResults: { columns: [], types: [], results: [] },
+            })
+            parent.mount()
+            const props = {
+                key: 'variables-test',
+                readOnly: false,
+                sourceQuery: savedQuery,
+                setQuery: (query: VisualizationNode) => {
+                    savedQuery = query
+                },
+            }
+            const logic = variablesLogic(props)
+            logic.mount()
+            if (definitionsLoaded) {
+                await expectLogic(variableDataLogic).toFinishAllListeners()
+            }
+            logic.actions.addVariable({ variableId: 'region-id', code_name: 'region', value: 'South' })
+            logic.actions.setEditorQuery('SELECT 1')
+            expect(savedQuery.source.variables).toEqual({})
+            variablesLogic({ ...props, sourceQuery: savedQuery })
+            await expectLogic(variableDataLogic).toFinishAllListeners()
+            expect(logic.values.variablesNotInQuery).toEqual([expect.objectContaining({ value: 'South' })])
+            logic.actions.setEditorQuery('SELECT {variables.region}')
+            expect(savedQuery.source.variables).toEqual({
+                'region-id': expect.objectContaining({ value: 'South' }),
+            })
+            const savedBeforeEdits = savedQuery
+            logic.actions.setEditorQuery('SELECT 1')
+            logic.actions.updateVariableValue('region-id', 'West', false)
+            savedQuery = savedBeforeEdits
+            variablesLogic({ ...props, sourceQuery: savedQuery })
+            logic.actions.setEditorQuery('SELECT {variables.region}')
+            expect(savedQuery.source.variables?.['region-id'].value).toBe('South')
+            expect(logic.values.variablesUsedInQuery[0].value).toBe('South')
+            logic.unmount()
+            parent.unmount()
         }
-        const parent = dataVisualizationLogic({
-            dataNodeCollectionId: 'variables-test',
-            key: 'variables-test',
-            query: savedQuery,
-            cachedResults: { columns: [], types: [], results: [] },
-        })
-        parent.mount()
-        const props = {
-            key: 'variables-test',
-            readOnly: false,
-            sourceQuery: savedQuery,
-            setQuery: (query: VisualizationNode) => {
-                savedQuery = query
-            },
-        }
-        const logic = variablesLogic(props)
-        logic.mount()
-        await expectLogic(variableDataLogic).toFinishAllListeners()
-        logic.actions.addVariable({ variableId: 'region-id', code_name: 'region', value: 'South' })
-        logic.actions.setEditorQuery('SELECT 1')
-        expect(savedQuery.source.variables).toEqual({})
-        variablesLogic({ ...props, sourceQuery: savedQuery })
-        expect(logic.values.variablesNotInQuery).toEqual([expect.objectContaining({ value: 'South' })])
-        logic.actions.setEditorQuery('SELECT {variables.region}')
-        expect(savedQuery.source.variables).toEqual({
-            'region-id': expect.objectContaining({ value: 'South' }),
-        })
-        const savedBeforeEdits = savedQuery
-        logic.actions.setEditorQuery('SELECT 1')
-        logic.actions.updateVariableValue('region-id', 'West', false)
-        savedQuery = savedBeforeEdits
-        variablesLogic({ ...props, sourceQuery: savedQuery })
-        logic.actions.setEditorQuery('SELECT {variables.region}')
-        expect(savedQuery.source.variables?.['region-id'].value).toBe('South')
-        expect(logic.values.variablesUsedInQuery[0].value).toBe('South')
-        logic.unmount()
-        parent.unmount()
-    })
+    )
 })

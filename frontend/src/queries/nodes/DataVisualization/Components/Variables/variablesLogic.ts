@@ -522,18 +522,20 @@ export const variablesLogic = kea<variablesLogicType>([
     })),
     subscriptions(({ actions, values }) => ({
         editorQuery: (query: string | null) => {
-            if (query === null || !values.variablesLoaded) {
+            if (query === null) {
                 return
             }
 
-            const syncedVariables = syncSelectedVariablesToQuery(
-                query,
-                values.variables,
-                values.internalSelectedVariables
-            )
+            if (values.variablesLoaded) {
+                const syncedVariables = syncSelectedVariablesToQuery(
+                    query,
+                    values.variables,
+                    values.internalSelectedVariables
+                )
 
-            if (!objectsEqual(syncedVariables, values.internalSelectedVariables)) {
-                actions.addVariables(syncedVariables)
+                if (!objectsEqual(syncedVariables, values.internalSelectedVariables)) {
+                    actions.addVariables(syncedVariables)
+                }
             }
             actions.updateSourceQuery()
         },
