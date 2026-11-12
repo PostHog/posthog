@@ -78,7 +78,11 @@ from products.experiments.backend.health.registry import (
     evaluate as evaluate_health,
 )
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    analysis_window,
+    analysis_window_end,
+    rule_for_query,
+)
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
@@ -92,9 +96,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     applies_test_account_filters,
     get_entity_key,
     has_positive_test_account_filter,
+    rule_exposure_criteria_error,
 )
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, exposure_flag_key
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.edits import parse_variants
 
@@ -157,11 +162,18 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
-        self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
+        self._rule = rule_for_query(self.experiment)
+        self.feature_flag_key: str = exposure_flag_key(self.experiment.feature_flag, self._rule)
         # Read from the DB flag, not the query dict, because callers pass different feature_flag
         # shapes (full flag object or bare filters). A missed group index would bypass the
         # group-aggregation precompute gate below.
         self.group_type_index = (self.experiment.feature_flag.filters or {}).get("aggregation_group_type_index")
+        if self._rule is not None:
+            # The runner reads the criteria from the query, so those are the ones the rule analysis must accept.
+            criteria_error = rule_exposure_criteria_error(self.exposure_criteria)
+            if criteria_error is not None:
+                raise ValidationError(criteria_error)
+            self.group_type_index = self._rule.assign_variant_by
 
         # The analysis window comes from the query, not live model state. The result is cached under
         # a key hashed from self.query (see get_cache_payload), so the computed window must match the
@@ -190,7 +202,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
         self.excluded_variants = set(self.experiment.excluded_variants or [])
-        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
+        multivariate_data = self._multivariate_data()
         self.variants = [
             variant.get("key")
             for variant in multivariate_data.get("variants", [])
@@ -224,6 +236,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             now=datetime.now(),
         )
 
+    def _multivariate_data(self) -> dict[str, Any]:
+        """The variants and their split, in the `multivariate` shape of a v1 flag. A rule-linked experiment
+        reads its rule. A legacy experiment reads the flag that the query carries."""
+        if self._rule is not None:
+            return {"variants": self._rule.variants}
+        return (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
+
     def _get_date_range(self) -> DateRange:
         return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
@@ -240,6 +259,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             precomputation_mode=None,
             is_data_warehouse_query=False,
             group_type_index=self.group_type_index,
+            is_rule_linked=self._rule is not None,
         )
 
     def _exposures_precompute_applicable(self) -> bool:
@@ -259,6 +279,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
             activation_config=exposure_params.activation_config,
+            feature_flag_rule_id=self._rule.rule_id if self._rule is not None else None,
         )
 
     def _get_exposure_query(self, exposure_params: ExposureQueryParams) -> ast.SelectQuery:
@@ -287,7 +308,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
         """Chi-squared goodness-of-fit test of the observed variant counts against the rollout
         percentages. Returns None when there is too little data."""
-        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
+        multivariate_data = self._multivariate_data()
         variants_config = multivariate_data.get("variants", [])
 
         if not variants_config or not total_exposures:
@@ -336,7 +357,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # matches the cached window.
         if self.window_end_date is not None:
             return None
-        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
+        multivariate_data = self._multivariate_data()
         return evaluate_bias_risk(
             variants=parse_variants(multivariate_data.get("variants")),
             excluded_variant_keys=self.excluded_variants,
@@ -381,6 +402,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
+        if self._rule is not None:
+            # The checks read the release conditions and the variants of a v1 flag, and none reads a rule yet.
+            return ExperimentHealth(findings=(), checks=())
         reader_access = self._reader_access()
         # The cache key carries the reader's property access rules, so an answer that depends on them is not shared
         # with a reader who has other rules.

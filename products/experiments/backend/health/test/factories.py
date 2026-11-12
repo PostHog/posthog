@@ -38,6 +38,7 @@ RUNNING_CONTEXT = HealthContext(
     hours_since_launch=72,
     hours_since_start=72,
     past_daily_calculation=False,
+    daily_calculation_ends_at=None,
     metric_events=(),
     exposure_events=ExposureEvents(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()

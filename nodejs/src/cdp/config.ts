@@ -75,6 +75,16 @@ export type CdpConfig = ClickhouseConfig & {
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
+    SES_SANDBOX_CONFIGURATION_SET: string
+    SES_SANDBOX_TENANT_NAME: string
+    WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: number
+    WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: number
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST: string
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT: number
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD: string
+    WORKFLOWS_SANDBOX_CAPS_VALKEY_TLS: boolean
+    WORKFLOWS_SANDBOX_EMAIL_TEST_URL: string
+    WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET: string
     // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.
     CDP_INTERNAL_LOGS_SOURCES: string
     // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
@@ -362,6 +372,16 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
+        SES_SANDBOX_CONFIGURATION_SET: '',
+        SES_SANDBOX_TENANT_NAME: '',
+        WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: 0,
+        WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: 0,
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_HOST: '',
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_PORT: 6379,
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_PASSWORD: '',
+        WORKFLOWS_SANDBOX_CAPS_VALKEY_TLS: false,
+        WORKFLOWS_SANDBOX_EMAIL_TEST_URL: '',
+        WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET: '',
         CDP_INTERNAL_LOGS_SOURCES: '',
         CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',

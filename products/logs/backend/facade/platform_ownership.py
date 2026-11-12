@@ -44,15 +44,19 @@ def on_created(
     at: datetime,
     grouping: Grouping | None = None,
     labels: dict[str, str] | None = None,
+    annotations: dict[str, str] | None = None,
 ) -> bool:
-    """Hands a new alert to the platform, with its copy grouped by `grouping` and carrying `labels`,
+    """Hands a new alert to the platform, with its copy grouped by `grouping` and carrying `labels` and `annotations`,
     unless its team keeps its alerts on logs. False when the alert stays with logs.
 
-    Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping or the labels. Only an
-    alert the platform owns can take labels, or a grouping other than single.
+    Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping, the labels or the
+    annotations. Only an alert the platform owns can take labels, annotations, or a grouping other than
+    single.
     """
     alert = _alert(team_id, alert_id)
-    return alert is not None and platform_ownership.on_created(alert, at, grouping=grouping, labels=labels)
+    return alert is not None and platform_ownership.on_created(
+        alert, at, grouping=grouping, labels=labels, annotations=annotations
+    )
 
 
 def on_updated(
@@ -62,19 +66,27 @@ def on_updated(
     snooze_changed: bool,
     grouping: Grouping | None = None,
     labels: dict[str, str] | None = None,
+    annotations: dict[str, str] | None = None,
     at: datetime | None = None,
 ) -> None:
-    """Writes an edit the logs API saved onto the platform's copy, with the grouping and labels the
-    edit set. A `grouping` or `labels` of None keeps the copy's own. `at` is when the edit started,
-    before its logs history row.
+    """Writes an edit the logs API saved onto the platform's copy, with the grouping, labels and
+    annotations the edit set. A `grouping`, `labels` or `annotations` of None keeps the copy's own.
+    `at` is when the edit started, before its logs history row.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
-    alert cannot take the grouping or the labels. Only an alert the platform owns can take labels,
-    or a grouping other than single.
+    alert cannot take the grouping, the labels or the annotations. Only an alert the platform owns can
+    take labels, annotations, or a grouping other than single.
     """
     alert = _alert(team_id, alert_id)
     if alert is not None:
-        platform_ownership.on_updated(alert, snooze_changed=snooze_changed, grouping=grouping, labels=labels, at=at)
+        platform_ownership.on_updated(
+            alert,
+            snooze_changed=snooze_changed,
+            grouping=grouping,
+            labels=labels,
+            annotations=annotations,
+            at=at,
+        )
 
 
 def creates_native_alert(team_id: int) -> bool:

@@ -1,4 +1,11 @@
-import { creditsPerPr, findInboxProduct, freePrs, pricePerPrUsd } from 'scenes/billing/inboxPricing'
+import { dayjs } from 'lib/dayjs'
+import {
+    creditsPerPr,
+    findInboxProduct,
+    freePrs,
+    legacyInboxPricingNotice,
+    pricePerPrUsd,
+} from 'scenes/billing/inboxPricing'
 
 import { BillingPlanType, BillingProductV2Type, BillingTierType } from '~/types'
 
@@ -98,6 +105,21 @@ describe('inboxPricing', () => {
             expect(freePrs(inbox({ free_allocation: 0 }))).toBe(0)
             expect(freePrs(inbox({ display_divisor: undefined }))).toBe(0)
             expect(freePrs(null)).toBe(0)
+        })
+    })
+
+    describe('legacyInboxPricingNotice', () => {
+        // The notice must flip only after the last PR-based billing day, and never reach the
+        // usage-based card that replaces it.
+        it.each([
+            ['inbox_usage', '2026-11-12', null],
+            ['inbox', '2026-11-12', 'until December 9, 2026'],
+            ['inbox', '2026-12-09T23:59:59', 'until December 9, 2026'],
+            ['inbox', '2026-12-10', 'ended on December 9, 2026'],
+        ])('for %s on %s', (productType, today, expected) => {
+            expect(legacyInboxPricingNotice(productType, dayjs(today))).toEqual(
+                expected === null ? null : expect.stringContaining(expected)
+            )
         })
     })
 })
