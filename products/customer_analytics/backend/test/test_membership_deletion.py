@@ -5,6 +5,7 @@ from datetime import timedelta
 from time import monotonic
 
 import pytest
+from posthog.test.base import get_indexes_from_explain
 from time_machine import travel
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,7 @@ from products.customer_analytics.backend.logic.membership_deletion import (
     MembershipDeletionCounts,
     MembershipDeletionInput,
     MembershipDeletionStore,
+    _get_deletion_predicate,
     list_membership_deletion_teams,
     record_membership_deletion_team,
     run_membership_deletion,
@@ -103,16 +105,14 @@ class TestMembershipDeletion(MembershipTestCase):
     def test_large_group_keys_do_not_block_membership_erasure(self, _: str, count: int, key_length: int) -> None:
         self.create_mapping(self.create_person())
         self.create_membership()
-        surviving_key = MembershipKey(
-            group_type_index=0, group_key="surviving-account", distinct_id=self.key.distinct_id
-        )
+        surviving_key = MembershipKey(group_type_index=0, group_key="a" * 400, distinct_id=self.key.distinct_id)
         self.create_group(surviving_key.group_key)
         self.create_membership(surviving_key)
         for index in range(count):
             self.create_membership(
                 MembershipKey(
                     group_type_index=0,
-                    group_key=f"large-account-{index}-" + "a" * key_length,
+                    group_key="a" * key_length + f"-{index}",
                     distinct_id=self.key.distinct_id,
                 )
             )
@@ -131,6 +131,28 @@ class TestMembershipDeletion(MembershipTestCase):
             {"team_id": self.team.pk},
             workload=Workload.OFFLINE,
         ) == [(surviving_key.group_type_index, surviving_key.group_key, surviving_key.distinct_id)]
+
+    @parameterized.expand([("short", "example-account", "example-person"), ("prefix", "é" * 500, "x" * 500)])
+    def test_deletion_preserves_keys_with_matching_prefixes(self, _: str, group_key: str, distinct_id: str) -> None:
+        key = MembershipKey(group_type_index=0, group_key=group_key, distinct_id=distinct_id)
+        survivor = MembershipKey(group_type_index=0, group_key=group_key + "-other", distinct_id=distinct_id + "-other")
+        self.create_membership(key)
+        self.create_membership(survivor)
+        self.store.delete_keys(self.team.pk, [key])
+        assert self.get_rows() == [(survivor.distinct_id,)]
+
+    @parameterized.expand([("short", "example-account"), ("prefix", "é" * 500)])
+    def test_deletion_predicate_uses_membership_indexes(self, _: str, group_key: str) -> None:
+        key = MembershipKey(group_type_index=0, group_key=group_key, distinct_id=self.key.distinct_id)
+        self.create_membership(key)
+        predicate, parameters = _get_deletion_predicate(self.team.pk, [key])
+        indexes = get_indexes_from_explain(
+            f"SELECT 1 FROM sharded_person_group_membership WHERE {predicate}", parameters
+        )
+        primary_key = next(index for index in indexes if index["Type"] == "PrimaryKey")
+        assert "group_type_index" in primary_key["Keys"]
+        assert "group_key" in primary_key["Keys"]
+        assert any(index.get("Name") == "idx_distinct_id" for index in indexes)
 
     @parameterized.expand([(True, True), (False, False)])
     def test_deletion_requires_both_controls(self, dry_run: bool, allow_delete: bool) -> None:
@@ -411,6 +433,53 @@ def test_mutation_retry_does_not_resubmit_pending_or_completed_deletes(state: st
     assert len(deletes) == (1 if state in ("present", "survivors") else 0)
     if deletes:
         assert deletes[0].kwargs["settings"]["lightweight_deletes_sync"] == "2"
+
+
+@pytest.mark.parametrize("config", [False, True])
+@pytest.mark.parametrize("team_timeout,expected_timeout", [("0", 5), ("2", 2), ("0.5", 0.5)])
+def test_deletion_applies_team_limits_to_every_query(config: bool, team_timeout: str, expected_timeout: float) -> None:
+    client = MagicMock()
+    client.execute.side_effect = [[(0,)], [(1,)], []]
+    placement = MagicMock()
+    placement.cluster.shards = [1]
+
+    def dispatch(delete: Callable[[object], None], **kwargs: object) -> MagicMock:
+        delete(client)
+        return MagicMock()
+
+    placement.cluster.map_one_host_per_shard.side_effect = dispatch
+    with (
+        patch("products.customer_analytics.backend.logic.membership.monotonic", return_value=0),
+        patch.dict(
+            "products.customer_analytics.backend.logic.membership_deletion.CLICKHOUSE_PER_TEAM_QUERY_SETTINGS",
+            {"7": {"max_bytes_to_read": "1", "max_execution_time": team_timeout}},
+        ),
+        patch(
+            "products.customer_analytics.backend.logic.membership_deletion.kill_switch_overrides",
+            return_value={"max_execution_time": 15, "max_bytes_to_read": 1000, "max_threads": 2},
+        ),
+        patch("products.customer_analytics.backend.logic.membership_deletion.get_cluster") as get_cluster,
+        patch("products.customer_analytics.backend.logic.membership_deletion.placement_for", return_value=placement),
+        patch(
+            "products.customer_analytics.backend.logic.membership_deletion.sync_execute",
+            side_effect=lambda query, *args, **kwargs: [] if query.startswith("SELECT 1") else [(0,)],
+        ) as execute,
+    ):
+        store = MembershipDeletionStore(deadline=5)
+        if config:
+            store.delete_config(7)
+        else:
+            store.delete_keys(7, [MembershipKey(group_type_index=0, group_key="example", distinct_id="example")])
+        assert not store.has_membership(7)
+
+    query_settings = [get_cluster.call_args.kwargs["client_settings"]]
+    query_settings.extend(call.kwargs["settings"] for call in client.execute.call_args_list)
+    query_settings.extend(call.kwargs["settings"] for call in execute.call_args_list)
+    for query_settings_item in query_settings:
+        assert float(query_settings_item["max_execution_time"]) == expected_timeout
+        assert int(query_settings_item["max_bytes_to_read"]) == 1
+        assert int(query_settings_item["max_threads"]) == 2
+    assert all(call.kwargs["team_id"] == 7 for call in execute.call_args_list)
 
 
 @pytest.mark.parametrize(

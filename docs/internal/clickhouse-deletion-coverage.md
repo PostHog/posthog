@@ -177,7 +177,9 @@ Deletion preserves the key held in a discovery cursor until discovery advances p
 Its coordinator selects teams from overdue candidates and deleted-team scan state, without scanning membership.
 
 The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
-Deletion predicates match SHA-256 digests of group keys and distinct IDs so large stored values do not expand query text.
+Deletion predicates use bounded raw-key filters for index pruning and SHA-256 digests for exact matching.
+Keys above 400 characters use prefix filters, so large stored values do not expand query text or erase rows that share a prefix.
+Topology discovery, shard queries, and verification apply per-team query settings and kill-switch ceilings alongside the remaining batch deadline.
 It checks for pending mutations before retrying and skips shards where matching rows are already absent.
 Each deletion resolves fresh shard topology, including sibling clusters.
 Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.

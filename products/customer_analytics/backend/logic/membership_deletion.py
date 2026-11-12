@@ -17,13 +17,16 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.execute import default_settings, kill_switch_overrides
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.deletion_targets import DeletionTarget, placement_for
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.customer_analytics.backend.logic.membership import (
+    MAX_GROUP_KEY_LENGTH,
     MEMBERSHIP_LEASE_SECONDS,
     QUERY_TIMEOUT_SECONDS,
     MembershipCleanupBusy,
@@ -97,14 +100,68 @@ class MembershipDeletionCounts:
     has_more: bool = False
 
 
-def _get_cleanup_cluster(host: str, deadline: float | None = None) -> ClickhouseCluster:
-    query_settings = get_membership_query_settings(deadline)
+def _get_deletion_query_settings(team_id: int, deadline: float | None) -> dict[str, str | int | float]:
+    team_settings = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {})
+    query_settings: dict[str, str | int | float] = {
+        **default_settings(),
+        **team_settings,
+        **get_membership_query_settings(deadline),
+    }
+    ceilings = kill_switch_overrides(team_id)
+    for name in ceilings.keys() | {"max_execution_time"}:
+        limits = [float(query_settings[name])] if name in query_settings else []
+        if name in team_settings:
+            limits.append(float(team_settings[name]))
+        if name in ceilings:
+            limits.append(ceilings[name])
+        positive_limits = [limit for limit in limits if limit > 0]
+        if positive_limits:
+            limit = float(min(positive_limits))
+            query_settings[name] = int(limit) if limit.is_integer() else limit
+    return query_settings
+
+
+def _get_deletion_predicate(team_id: int, keys: Sequence[MembershipKey] | None) -> tuple[str, dict[str, object]]:
+    predicate = "team_id = %(team_id)s"
+    parameters: dict[str, object] = {"team_id": team_id}
+    if keys is None:
+        return predicate, parameters
+    predicate += " AND group_type_index IN %(group_types)s"
+    parameters["group_types"] = sorted({key.group_type_index for key in keys})
+    for column in ("group_key", "distinct_id"):
+        values = {getattr(key, column) for key in keys}
+        short_values = sorted(value for value in values if len(value) <= MAX_GROUP_KEY_LENGTH)
+        prefixes = sorted({value[:MAX_GROUP_KEY_LENGTH] for value in values if len(value) > MAX_GROUP_KEY_LENGTH})
+        filters = []
+        if short_values:
+            parameters[column] = short_values
+            filters.append(f"{column} IN %({column})s")
+        for index, prefix in enumerate(prefixes):
+            parameter = f"{column}_prefix_{index}"
+            parameters[parameter] = prefix
+            filters.append(f"startsWith({column}, %({parameter})s)")
+        predicate += " AND (" + " OR ".join(filters or ["0"]) + ")"
+    # Prefixes bound SQL size while digests prevent deleting a prefix collision.
+    predicate += " AND (group_type_index, hex(SHA256(group_key)), hex(SHA256(distinct_id))) IN %(key_hashes)s"
+    parameters["key_hashes"] = [
+        (
+            key.group_type_index,
+            sha256(key.group_key.encode()).hexdigest().upper(),
+            sha256(key.distinct_id.encode()).hexdigest().upper(),
+        )
+        for key in keys
+    ]
+    return predicate, parameters
+
+
+def _get_cleanup_cluster(host: str, team_id: int, deadline: float | None = None) -> ClickhouseCluster:
+    query_settings = _get_deletion_query_settings(team_id, deadline)
     return get_cluster(
         host=host,
         connection_overrides={"send_receive_timeout": SOCKET_TIMEOUT_SECONDS},
         discovery_deadline=deadline,
         client_settings={
-            **query_settings,
+            **{name: str(value) for name, value in query_settings.items()},
             "log_comment": '{"product":"customer_analytics","workload":"OFFLINE","name":"membership-deletion"}',
         },
     )
@@ -133,22 +190,10 @@ class MembershipDeletionStore:
 
     def _delete(self, team_id: int, keys: Sequence[MembershipKey] | None = None) -> None:
         target = CONFIG_TARGET if keys is None else MEMBERSHIP_TARGET
-        predicate = "team_id = %(team_id)s"
-        parameters: dict[str, object] = {"team_id": team_id}
-        if keys is not None:
-            # Fixed-size digests keep mutation SQL independent of identifier length.
-            predicate += " AND (group_type_index, hex(SHA256(group_key)), hex(SHA256(distinct_id))) IN %(key_hashes)s"
-            parameters["key_hashes"] = [
-                (
-                    key.group_type_index,
-                    sha256(key.group_key.encode()).hexdigest().upper(),
-                    sha256(key.distinct_id.encode()).hexdigest().upper(),
-                )
-                for key in keys
-            ]
+        predicate, parameters = _get_deletion_predicate(team_id, keys)
         with self.timings.measure("resolve_storage"):
             cluster = _get_cleanup_cluster(
-                settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST, self.deadline
+                settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST, team_id, self.deadline
             )
             placement = placement_for(cluster, target)
             if placement is not None and not placement.cluster.shards:
@@ -165,7 +210,7 @@ class MembershipDeletionStore:
                 pending = client.execute(
                     "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s AND NOT is_done",
                     {"table": target.data_table},
-                    settings=get_membership_query_settings(self.deadline),
+                    settings=_get_deletion_query_settings(team_id, self.deadline),
                 )
                 if pending[0][0]:
                     raise RuntimeError("Membership deletion has a pending mutation. Retry the batch later.")
@@ -173,7 +218,7 @@ class MembershipDeletionStore:
                 remaining = client.execute(
                     f"SELECT 1 FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate} LIMIT 1",
                     parameters,
-                    settings=get_membership_query_settings(self.deadline),
+                    settings=_get_deletion_query_settings(team_id, self.deadline),
                 )
             if not remaining:
                 return
@@ -183,7 +228,7 @@ class MembershipDeletionStore:
                     parameters,
                     query_id=query_id,
                     settings={
-                        **get_membership_query_settings(self.deadline),
+                        **_get_deletion_query_settings(team_id, self.deadline),
                         "lightweight_deletes_sync": "2",
                         "replace_running_query": "0",
                     },
@@ -195,7 +240,8 @@ class MembershipDeletionStore:
             survivors = sync_execute(
                 f"SELECT count() FROM {escape_clickhouse_identifier(target.read_table)} WHERE {predicate}",
                 parameters,
-                settings=get_membership_query_settings(self.deadline),
+                settings=_get_deletion_query_settings(team_id, self.deadline),
+                team_id=team_id,
                 workload=Workload.OFFLINE,
                 send_receive_timeout=SOCKET_TIMEOUT_SECONDS,
             )
@@ -214,7 +260,8 @@ class MembershipDeletionStore:
                 sync_execute(
                     "SELECT 1 FROM person_group_membership WHERE team_id = %(team_id)s LIMIT 1",
                     {"team_id": team_id},
-                    settings=get_membership_query_settings(self.deadline),
+                    settings=_get_deletion_query_settings(team_id, self.deadline),
+                    team_id=team_id,
                     workload=Workload.OFFLINE,
                     send_receive_timeout=SOCKET_TIMEOUT_SECONDS,
                 )
