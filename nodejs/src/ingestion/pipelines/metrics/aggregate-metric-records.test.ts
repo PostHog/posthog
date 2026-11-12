@@ -1,5 +1,7 @@
+import avro from 'avsc'
+
 import { AGGREGATION_BUCKET_MICROS, aggregateMetricRecords } from './aggregate-metric-records'
-import { MetricRecord, unwrap } from './metric-record-avro'
+import { MetricRecord, parseWriterSchema, unwrap } from './metric-record-avro'
 
 type Point = {
     type?: string
@@ -99,12 +101,12 @@ describe('aggregateMetricRecords', () => {
             ],
         ],
         [
-            'passes through gauges, histograms, non-monotonic cumulative sums and cumulative sums without a start time',
+            'passes through gauges, cumulative histograms, non-monotonic cumulative sums and cumulative sums without a start time',
             [
                 { type: 'gauge', ts: 1n, value: 1 },
                 { type: 'gauge', ts: 2n, value: 2 },
-                { type: 'histogram', ts: 1n, value: 3 },
-                { type: 'histogram', ts: 2n, value: 4 },
+                { type: 'histogram', temporality: 'cumulative', ts: 1n, value: 3 },
+                { type: 'histogram', temporality: 'cumulative', ts: 2n, value: 4 },
                 { temporality: 'cumulative', monotonic: false, ts: 1n, value: 9 },
                 { temporality: 'cumulative', monotonic: false, ts: 2n, value: 8 },
                 { temporality: 'cumulative', start: null, fingerprint: 2n, ts: 1n, value: 50 },
@@ -144,5 +146,105 @@ describe('aggregateMetricRecords', () => {
             .slice(1)
             .reduce((total, value, i) => total + (value >= values[i] ? value - values[i] : value), 0)
         expect(increase).toEqual(1800)
+    })
+
+    type HistogramPoint = {
+        type?: string
+        temporality?: string
+        traced?: boolean
+        ts: bigint
+        bounds?: number[]
+        buckets: bigint[]
+        sum: number
+    }
+
+    const histogram = ({
+        type = 'histogram',
+        temporality = 'delta',
+        traced = false,
+        ts,
+        bounds = [1, 5],
+        buckets,
+        sum,
+    }: HistogramPoint): MetricRecord => ({
+        ...record({ type, temporality, monotonic: false, traced, ts, value: sum }),
+        count: { long: buckets.reduce((total, bucket) => total + bucket, 0n) },
+        histogram_bounds: { array: bounds },
+        histogram_counts: { array: buckets },
+    })
+
+    type HistogramSummary = [bigint, number[], bigint[], number, bigint, boolean]
+
+    const summarizeHistograms = (records: MetricRecord[]): HistogramSummary[] =>
+        records
+            .map(
+                (r): HistogramSummary => [
+                    unwrap<bigint>(r.timestamp)! - BASE_TS,
+                    unwrap<number[]>(r.histogram_bounds)!,
+                    unwrap<bigint[]>(r.histogram_counts)!,
+                    unwrap<number>(r.value)!,
+                    unwrap<bigint>(r.count)!,
+                    r.trace_id !== null,
+                ]
+            )
+            .sort((a, b) => Number(a[0] - b[0]) || a[3] - b[3])
+
+    it.each<[string, HistogramPoint[], HistogramSummary[]]>([
+        [
+            'adds the buckets, sums and counts of delta histograms with the same bounds, keeping the latest timestamp',
+            [
+                { ts: 2n, buckets: [1n, 0n, 2n], sum: 12 },
+                { ts: 1n, buckets: [0n, 3n, 0n], sum: 9 },
+                { ts: 3n, buckets: [0n, 0n, 0n], sum: 0 },
+                { type: 'exponential_histogram', ts: 1n, bounds: [1, 2], buckets: [1n, 1n], sum: 3 },
+                { type: 'exponential_histogram', ts: 2n, bounds: [1, 2], buckets: [2n, 0n], sum: 2 },
+            ],
+            [
+                [2n, [1, 2], [3n, 1n], 5, 4n, false],
+                [3n, [1, 5], [1n, 3n, 2n], 21, 6n, false],
+            ],
+        ],
+        [
+            'keeps points apart when their bounds differ, they fall in different buckets, or they carry a trace',
+            [
+                { ts: 1n, buckets: [1n, 0n, 0n], sum: 1 },
+                { ts: 2n, bounds: [1, 10], buckets: [0n, 1n, 0n], sum: 2 },
+                { ts: NEXT_BUCKET, buckets: [0n, 0n, 1n], sum: 6 },
+                { traced: true, ts: 3n, buckets: [0n, 1n, 0n], sum: 4 },
+            ],
+            [
+                [1n, [1, 5], [1n, 0n, 0n], 1, 1n, false],
+                [2n, [1, 10], [0n, 1n, 0n], 2, 1n, false],
+                [3n, [1, 5], [0n, 1n, 0n], 4, 1n, true],
+                [NEXT_BUCKET, [1, 5], [0n, 0n, 1n], 6, 1n, false],
+            ],
+        ],
+    ])('%s', (_name, points, expected) => {
+        expect(summarizeHistograms(aggregateMetricRecords(points.map(histogram)))).toEqual(expected)
+    })
+
+    it('writes a merged histogram that the Avro writer schema accepts', () => {
+        const nullable = (type: avro.schema.DefinedType): avro.Schema => ['null', type]
+        const type = parseWriterSchema({
+            type: 'record',
+            name: 'MetricRecord',
+            fields: [
+                { name: 'timestamp', type: nullable({ type: 'long', logicalType: 'timestamp-micros' }) },
+                { name: 'metric_type', type: nullable('string') },
+                { name: 'value', type: nullable('double') },
+                { name: 'count', type: nullable('long') },
+                { name: 'histogram_bounds', type: nullable({ type: 'array', items: 'double' }) },
+                { name: 'histogram_counts', type: nullable({ type: 'array', items: 'long' }) },
+                { name: 'aggregation_temporality', type: nullable('string') },
+                { name: 'series_fingerprint', type: nullable('long') },
+            ],
+        })
+        const [merged] = aggregateMetricRecords(
+            [
+                { ts: 1n, buckets: [1n, 0n, 0n], sum: 1 },
+                { ts: 2n, buckets: [0n, 2n, 0n], sum: 4 },
+            ].map((point) => type.fromBuffer(type.toBuffer(histogram(point))))
+        )
+        expect(unwrap(type.fromBuffer(type.toBuffer(merged)).histogram_counts)).toEqual([1n, 2n, 0n])
     })
 })
