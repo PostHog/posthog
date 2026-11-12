@@ -32,6 +32,7 @@ import {
     clearMemoizedListResponses,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
+    defaultRecordingDurationFilter,
     getDefaultFilters,
     getEffectiveRecordingFilters,
     preferredRecordingsSortStorage,
@@ -3322,6 +3323,184 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
             }).toMatchValues({ totalFiltersCount: 1 })
+        })
+    })
+
+    describe('recordings hidden by the activity filter', () => {
+        const activityHiddenRecordings = [aRecording, bRecording, offsetRecording]
+
+        // A server that answers the way ClickHouse does: the default duration filter arrives as
+        // an active_seconds having predicate and excludes everything, while the same request
+        // without it returns the recordings. Unfiltered request URLs are collected, so a test
+        // can count how many requests dropped the predicate (the probe, and any reload).
+        // useMocks is called from beforeEach because the hooks lint rule rejects it inside a
+        // plain helper function. The handler reads the lets below when a request arrives, so
+        // a test steers the server by setting them before it mounts the logic.
+        let filteredResults: any[] = []
+        let unfilteredResults: any[] = activityHiddenRecordings
+        let unfilteredHasNext = false
+        let unfilteredStatus = 200
+        const unfilteredRequestUrls: string[] = []
+
+        beforeEach(() => {
+            filteredResults = []
+            unfilteredResults = activityHiddenRecordings
+            unfilteredHasNext = false
+            unfilteredStatus = 200
+            unfilteredRequestUrls.length = 0
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/properties': { results: [] },
+                    '/api/environments/:team_id/session_recordings': ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        const havingPredicates = JSON.parse(searchParams.get('having_predicates') || '[]')
+                        const hidesByActivity = havingPredicates.some((p: any) => p?.key === 'active_seconds')
+                        if (hidesByActivity) {
+                            return [200, { results: filteredResults, has_next: false }]
+                        }
+                        unfilteredRequestUrls.push(request.url)
+                        if (unfilteredStatus !== 200) {
+                            return [unfilteredStatus, { detail: 'the probe request failed' }]
+                        }
+                        return [200, { results: unfilteredResults, has_next: unfilteredHasNext }]
+                    },
+                },
+            })
+        })
+
+        function mountLogic(props: Partial<SessionRecordingPlaylistLogicProps> = {}): void {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'activity-filter-probe-tests',
+                updateSearchParams: false,
+                ...props,
+            })
+            logic.mount()
+        }
+
+        it('probes without the duration filter when the first page is empty, and maps the count and has_next', async () => {
+            unfilteredHasNext = true
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder([
+                    'loadSessionRecordingsSuccess',
+                    'loadRecordingsHiddenByActivityFilterSuccess',
+                ])
+                .toMatchValues({
+                    sessionRecordings: [],
+                    recordingsHiddenByActivityFilter: { count: 3, hasMore: true },
+                    recordingsHiddenByActivityFilterCount: 3,
+                    hasMoreRecordingsHiddenByActivityFilter: true,
+                    activityFilterHidesRecordings: true,
+                })
+        })
+
+        it('does not probe when the first page returns recordings', async () => {
+            filteredResults = activityHiddenRecordings
+            mountLogic()
+
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                // The list sorts by start time, newest first.
+                sessionRecordings: [aRecording, offsetRecording, bRecording],
+                recordingsHiddenByActivityFilterCount: 0,
+            })
+
+            expect(unfilteredRequestUrls).toEqual([])
+        })
+
+        it('does not probe again once the duration filters are cleared', async () => {
+            unfilteredResults = []
+            mountLogic()
+
+            // Empty first page with the default filter on: the probe fires (unfiltered request 1)
+            // and finds nothing either.
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder([
+                    'loadSessionRecordingsSuccess',
+                    'loadRecordingsHiddenByActivityFilterSuccess',
+                ])
+                .toMatchValues({ recordingsHiddenByActivityFilterCount: 0 })
+            expect(unfilteredRequestUrls).toHaveLength(1)
+
+            // Clearing the duration filters reloads the list (unfiltered request 2). The default
+            // filter is gone, so that empty load must not fire the probe a second time.
+            await expectLogic(logic, () => logic.actions.setFilters({ duration: [] })).toDispatchActions([
+                'loadSessionRecordingsSuccess',
+            ])
+            expect(unfilteredRequestUrls).toHaveLength(2)
+        })
+
+        it('resets the hidden count when a new first-page load starts, so it cannot outlive its filters', async () => {
+            mountLogic()
+
+            // The default filter empties the list and the probe finds 3 behind it.
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder([
+                    'loadSessionRecordingsSuccess',
+                    'loadRecordingsHiddenByActivityFilterSuccess',
+                ])
+                .toMatchValues({
+                    recordingsHiddenByActivityFilterCount: 3,
+                    activityFilterHidesRecordings: true,
+                })
+            expect(unfilteredRequestUrls).toHaveLength(1)
+
+            // The viewer replaces the default with a duration filter of their own. The reload
+            // it triggers resets the count as it starts, and the offer closes because the
+            // default filter is no longer the one applied, so nothing can offer to undo the
+            // viewer's own filter.
+            await expectLogic(logic, () =>
+                logic.actions.setFilters({ duration: [{ ...defaultRecordingDurationFilter, value: 60 }] })
+            )
+                .toDispatchActions(['loadSessionRecordings', 'loadRecordingsHiddenByActivityFilterSuccess'])
+                .toMatchValues({
+                    recordingsHiddenByActivityFilterCount: 0,
+                    activityFilterHidesRecordings: false,
+                })
+
+            // The reload lands empty (the server excludes by any active_seconds predicate) and
+            // must not probe again: the default filter is gone.
+            await expectLogic(logic).toFinishAllListeners()
+            expect(unfilteredRequestUrls).toHaveLength(1)
+            expect(logic.values.recordingsHiddenByActivityFilterCount).toBe(0)
+        })
+
+        it('answers zero silently when the probe request fails', async () => {
+            unfilteredStatus = 500
+            mountLogic()
+
+            // The loader catches the failure and succeeds with an empty answer, so the
+            // failure action never fires and no global error toast follows a request the
+            // viewer never made. (Had it fired instead, the success awaited here would
+            // never land.)
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder([
+                    'loadSessionRecordingsSuccess',
+                    'loadRecordingsHiddenByActivityFilterSuccess',
+                ])
+                .toMatchValues({
+                    recordingsHiddenByActivityFilter: { count: 0, hasMore: false },
+                    recordingsHiddenByActivityFilterCount: 0,
+                    activityFilterHidesRecordings: false,
+                })
+            expect(unfilteredRequestUrls).toHaveLength(1)
+        })
+
+        it('does not probe in a caller-scoped playlist, where the offer never renders', async () => {
+            mountLogic({ logicKey: 'activity-filter-scoped-tests', filters: DEFAULT_RECORDING_FILTERS })
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    sessionRecordings: [],
+                    recordingsHiddenByActivityFilterCount: 0,
+                    activityFilterHidesRecordings: false,
+                })
+
+            expect(logic.values.isScopedByCaller).toBe(true)
+            expect(unfilteredRequestUrls).toEqual([])
         })
     })
 })

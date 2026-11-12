@@ -9,8 +9,11 @@ export function QuillSessionRecordingsPlaylistTroubleshooting(): JSX.Element {
         heading,
         recordingsAreHidden,
         hiddenRecordingsCount,
+        activityFilterHidesRecordings,
+        activityFilterHiddenRecordingsLabel,
         canClearFilters,
         showHiddenRecordings,
+        showRecordingsHiddenByActivityFilter,
         clearFilters,
         searchLast30Days,
     } = useListTroubleshooting()
@@ -21,6 +24,17 @@ export function QuillSessionRecordingsPlaylistTroubleshooting(): JSX.Element {
                 {heading}
             </Heading>
             <div className="flex flex-col gap-1">
+                {activityFilterHidesRecordings && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={showRecordingsHiddenByActivityFilter}
+                        data-attr="replay-empty-state-troubleshooting-show-activity-hidden-recordings"
+                    >
+                        {activityFilterHiddenRecordingsLabel}
+                    </Button>
+                )}
                 {recordingsAreHidden && (
                     <Button
                         variant="outline"

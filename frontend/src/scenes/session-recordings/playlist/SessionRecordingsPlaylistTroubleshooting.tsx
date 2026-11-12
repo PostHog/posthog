@@ -7,8 +7,11 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
         heading,
         recordingsAreHidden,
         hiddenRecordingsCount,
+        activityFilterHidesRecordings,
+        activityFilterHiddenRecordingsLabel,
         canClearFilters,
         showHiddenRecordings,
+        showRecordingsHiddenByActivityFilter,
         clearFilters,
         searchLast30Days,
     } = useListTroubleshooting()
@@ -18,6 +21,19 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
             <h3 className="title text-secondary mb-0">{heading}</h3>
             <div className="flex flex-col deprecated-space-y-2">
                 <ul className="deprecated-space-y-1">
+                    {activityFilterHidesRecordings && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-troubleshooting-show-activity-hidden-recordings"
+                                onClick={showRecordingsHiddenByActivityFilter}
+                            >
+                                {activityFilterHiddenRecordingsLabel}
+                            </LemonButton>
+                        </li>
+                    )}
                     {recordingsAreHidden && (
                         <li>
                             <LemonButton
