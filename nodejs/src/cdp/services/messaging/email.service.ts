@@ -44,8 +44,14 @@ import {
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    parseAddressList as parseMailboxList,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
@@ -261,6 +267,11 @@ class UnverifiedEmailDomainError extends Error {
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
 
+const deliveredRecipients = (params: CyclotronInvocationQueueParametersEmailType): string[] => [
+    unquoteMailbox(params.to.email),
+    ...[...parseMailboxList(params.cc), ...parseMailboxList(params.bcc)].map(({ email }) => email),
+]
+
 function pickThrottleRetryDelayMs(): number {
     // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
     // gates re-dequeue at the configured refill rate, so a quick retry will
@@ -454,6 +465,7 @@ export interface EmailServiceConfig {
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
+    templateTagsTeams?: string
     attachmentSendDeadlineMs?: number
 }
 
@@ -538,6 +550,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private templateTagsTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -551,7 +564,7 @@ export class EmailService {
         // Required, so that a caller which builds the service without it fails to compile. Pass null
         // only where no email status is recorded.
         private emailStatusService: EmailStatusService | null,
-        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report' | 'reportEmailSent'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null,
@@ -565,6 +578,7 @@ export class EmailService {
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+        this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
     }
 
     private utmTaggingFor(
@@ -930,6 +944,13 @@ export class EmailService {
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
             result.emailSendResult = { status: 'accepted' }
+            if (isRealWorkflowSend(invocation, isTest)) {
+                void this.workflowsActivationReporter.reportEmailSent(
+                    invocation.teamId,
+                    invocation.functionId,
+                    deliveredRecipients(sendParams)
+                )
+            }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
@@ -1067,7 +1088,12 @@ export class EmailService {
                     $workflow_invocation_id: invocation.id,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...(messageId ? { $email_message_id: messageId } : {}),
-                    ...(isTransactionalEmailSend(invocation) ? { $email_transactional: true } : {}),
+                    ...(isTransactionalEmailSend(invocation)
+                        ? {
+                              $email_transactional: true,
+                              ...transactionalEmailIdentity(params.template ?? invocation.hogFunction?.metadata),
+                          }
+                        : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1487,7 +1513,14 @@ export class EmailService {
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
-                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    ? [
+                          { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
+                          ...(this.templateTagsTeams(result.invocation.teamId)
+                              ? transactionalEmailIdentityTags(
+                                    params.template ?? result.invocation.hogFunction?.metadata
+                                )
+                              : []),
+                      ]
                     : []),
             ],
             FeedbackForwardingEmailAddress: from.email,

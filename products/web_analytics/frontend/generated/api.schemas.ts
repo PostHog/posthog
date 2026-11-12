@@ -891,6 +891,8 @@ export interface AEOPromptSetOverviewApi {
     previous: AEOPromptSetCountsApi
     /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
     engines: AEOPromptSetEngineCountsApi[]
+    /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+    daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
