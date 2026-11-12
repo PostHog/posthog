@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { KAFKA_AI_RESEARCH_V4_IMAGE_FETCH } from '~/common/config/kafka-topics'
 import { KafkaProducer } from '~/common/kafka/producer'
 import { buildAiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
+import { MAX_RECORD_BYTES } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/collected-urls-record'
 import {
     FetchCandidatePool,
     FetchCandidatePoolAdmission,
@@ -47,8 +48,8 @@ describe('v4 image fetch consumer wiring', () => {
 
     it.each([
         ['the default', {}, 2, 2, 2, 102_400],
-        ['four consumers', { AI_RESEARCH_V4_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 4, 2, 164_096],
-        ['eight consumers', { AI_RESEARCH_V4_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 8, 2, 328_192],
+        ['four consumers', { AI_RESEARCH_V4_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 4, 2, 102_400],
+        ['eight consumers', { AI_RESEARCH_V4_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 8, 2, 204_800],
         [
             'eight unjoined consumers',
             {
@@ -58,7 +59,7 @@ describe('v4 image fetch consumer wiring', () => {
             8,
             1,
             2,
-            328_192,
+            204_800,
         ],
         [
             'eight continuous-pool consumers',
@@ -69,9 +70,9 @@ describe('v4 image fetch consumer wiring', () => {
             8,
             8,
             4,
-            328_192,
+            204_800,
         ],
-        ['sixteen consumers', { AI_RESEARCH_V4_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 16, 2, 656_384],
+        ['sixteen consumers', { AI_RESEARCH_V4_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 16, 2, 409_600],
     ])(
         'creates %s number of Kafka group members',
         (
@@ -101,9 +102,11 @@ describe('v4 image fetch consumer wiring', () => {
             expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeGreaterThanOrEqual(
                 expectedQueueBudget - expectedConsumers
             )
-            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(
-                serverConfig.AI_RESEARCH_V4_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
-            )
+            const fetchBytes = Number(consumerOverrides['fetch.message.max.bytes'])
+            expect(consumerOverrides['max.partition.fetch.bytes']).toBe(fetchBytes)
+            expect(fetchBytes).toBeGreaterThanOrEqual(MAX_RECORD_BYTES)
+            expect(fetchBytes).toBeLessThan(serverConfig.AI_RESEARCH_V4_IMAGE_FETCH_MAX_IMAGE_BYTES)
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(fetchBytes)
         }
     )
 

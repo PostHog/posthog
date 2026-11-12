@@ -12,10 +12,6 @@ const TABS: { key: CIExplorerDrawerTab; label: string }[] = [
     { key: 'context', label: 'Context' },
 ]
 
-/**
- * The one drawer of the canvas. Closed, it is two buttons. Open, it shows what the selection is (Details) or how
- * it compares with recent runs (Context). The choice is remembered.
- */
 export function CIExplorerDrawer({ maxHeight }: { maxHeight: number }): JSX.Element {
     const { drawerOpen, drawerTab, focusedJob } = useValues(ciExplorerLogic)
     const { openDrawer, closeDrawer } = useActions(ciExplorerLogic)
