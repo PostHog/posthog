@@ -124478,7 +124478,7 @@ export namespace Schemas {
       service?: string;
       /** Number of log entries in the bucket. */
       count: number;
-      /** Sum of uncompressed bytes for the bucket. */
+      /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
       bytes_uncompressed?: number;
     }
 

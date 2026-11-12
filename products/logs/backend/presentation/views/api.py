@@ -838,7 +838,7 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of log entries in the bucket.")
     bytes_uncompressed = serializers.IntegerField(
         required=False,
-        help_text="Sum of uncompressed bytes for the bucket.",
+        help_text='Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes".',
     )
 
 
