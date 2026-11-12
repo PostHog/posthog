@@ -928,6 +928,16 @@ describe('scenario environment', () => {
             }
         }, 15_000)
 
+        const blockEventLoopUntilZombie = (pid: number): void => {
+            const deadline = Date.now() + 10_000
+            while (processState(pid) !== 'Z') {
+                if (Date.now() > deadline) {
+                    throw new Error(`${pid} did not become a zombie within 10 s`)
+                }
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+            }
+        }
+
         it('refuses to kill a role that something else killed before its exit was reported', async () => {
             const killedElsewhere = createSupervisor({
                 command: process.execPath,
@@ -945,10 +955,7 @@ describe('scenario environment', () => {
                     entry.environ?.includes(`SCENARIO_TEST_TAG=${killedTag}`)
                 )
                 process.kill(pid, 'SIGKILL')
-                const deadline = Date.now() + 10_000
-                while (processState(pid) !== 'Z' && Date.now() < deadline) {
-                    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
-                }
+                blockEventLoopUntilZombie(pid)
 
                 await expect(killedElsewhere.kill(spec.role, 2000)).rejects.toThrow(`${spec.role} is not running`)
                 await waitForExpect(
