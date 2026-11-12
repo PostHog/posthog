@@ -213,6 +213,7 @@ from posthog.schema_enums import (
     MaterializationMode as MaterializationMode,
     MaterializationType as MaterializationType,
     MaterializedColumnsOptimizationMode as MaterializedColumnsOptimizationMode,
+    MaterializedViewEngine as MaterializedViewEngine,
     MathGroupTypeIndex as MathGroupTypeIndex,
     MaxBillingContextBillingPeriodInterval as MaxBillingContextBillingPeriodInterval,
     MaxBillingContextSubscriptionLevel as MaxBillingContextSubscriptionLevel,
@@ -6481,6 +6482,15 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
+    materializedViewEngine: MaterializedViewEngine | None = Field(
+        default=None,
+        description=(
+            "Which engine's copy of a materialized view the query reads: `clickhouse`"
+            " (the default) or `trino`. A `trino` read falls back to the ClickHouse"
+            " copy of a view that has no Trino copy. Resolved server-side; not intended"
+            " to be set by clients."
+        ),
+    )
     mergeFederatedAggregateJoins: bool | None = Field(
         default=None,
         description=(

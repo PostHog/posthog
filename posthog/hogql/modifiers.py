@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Optional, overload
 
 from posthog.cloud_utils import is_cloud
@@ -6,6 +9,7 @@ from posthog.schema_enums import (
     InCohortVia,
     InlineCohortCalculation,
     MaterializationMode,
+    MaterializedViewEngine,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
@@ -19,6 +23,25 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models import Team, User
+
+
+_materialized_view_engine: ContextVar[MaterializedViewEngine | None] = ContextVar(
+    "materialized_view_engine", default=None
+)
+
+
+@contextmanager
+def materialized_view_engine_scope(engine: MaterializedViewEngine) -> Iterator[None]:
+    """Make queries built inside the block read `engine`'s copy of a materialized view.
+
+    A query cannot choose its own engine: `create_default_modifiers_for_team` drops a requested or stored
+    value, so a client cannot read a copy that nobody has verified. Only server code calls this.
+    """
+    token = _materialized_view_engine.set(engine)
+    try:
+        yield
+    finally:
+        _materialized_view_engine.reset(token)
 
 
 @overload
@@ -91,6 +114,8 @@ def create_default_modifiers_for_team(
                         setattr(modifiers, key, parse_rules(value, warn_on_drop=False))
                 else:
                     setattr(modifiers, key, value)
+
+    modifiers.materializedViewEngine = _materialized_view_engine.get()
 
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True

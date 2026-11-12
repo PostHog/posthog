@@ -1,5 +1,6 @@
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models.user import User
+
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import (
@@ -44,7 +47,7 @@ from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
-from posthog.schema_enums import DataWarehouseSavedQueryOrigin
+from posthog.schema_enums import DataWarehouseSavedQueryOrigin, MaterializedViewEngine
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
@@ -625,7 +628,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional["HogQLQueryModifiers"] = None
+        self,
+        modifiers: Optional["HogQLQueryModifiers"] = None,
+        engine_tables: Mapping[str, DataWarehouseTable] | None = None,
     ) -> Union[
         SavedQuery,
         HogQLDataWarehouseTable,
@@ -637,8 +642,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMotherDuckTable,
         DirectTrinoTable,
     ]:
-        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
-            table = self.table.hogql_definition(modifiers)
+        materialized_table = self._materialized_table(modifiers, engine_tables)
+        if materialized_table is not None:
+            table = materialized_table.hogql_definition(modifiers)
             if isinstance(table, S3Table):
                 table.saved_query_id = str(self.id)
             return table
@@ -656,6 +662,23 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # This is basically just a bag of props that can be used by other methods to properly identify this query
             metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
         )
+
+    def _materialized_table(
+        self, modifiers: Optional["HogQLQueryModifiers"], engine_tables: Mapping[str, DataWarehouseTable] | None
+    ) -> DataWarehouseTable | None:
+        """The table HogQL reads in place of the view, or None when it reads the view's query.
+
+        A Trino read takes the Trino copy when `engine_tables` holds one for this view, so a view with no
+        Trino copy still reads the ClickHouse table. `engine_tables` is the caller's preloaded map: this
+        method reads nothing from the database.
+        """
+        if modifiers is None or not modifiers.useMaterializedViews or not self.is_materialized:
+            return None
+        if modifiers.materializedViewEngine == MaterializedViewEngine.TRINO and engine_tables is not None:
+            trino_table = engine_tables.get(str(self.id))
+            if trino_table is not None:
+                return trino_table
+        return self.table
 
     def hogql_fields(self) -> dict[str, FieldOrTable]:
         """The HogQL fields this view exposes, built from the stored column types.

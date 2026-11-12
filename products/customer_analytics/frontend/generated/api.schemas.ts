@@ -1649,6 +1649,13 @@ export const MaterializedColumnsOptimizationModeApi = {
     Optimized: 'optimized',
 } as const
 
+export type MaterializedViewEngineApi = (typeof MaterializedViewEngineApi)[keyof typeof MaterializedViewEngineApi]
+
+export const MaterializedViewEngineApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
 export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
 
 export const ParserModeApi = {
@@ -1728,6 +1735,8 @@ export interface HogQLQueryModifiersApi {
     /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
     materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients. */
+    materializedViewEngine?: MaterializedViewEngineApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */

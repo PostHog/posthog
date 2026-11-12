@@ -32142,6 +32142,11 @@
                     "enum": ["disabled", "optimized"],
                     "type": "string"
                 },
+                "materializedViewEngine": {
+                    "description": "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients.",
+                    "enum": ["clickhouse", "trino"],
+                    "type": "string"
+                },
                 "mergeFederatedAggregateJoins": {
                     "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
                     "type": "boolean"

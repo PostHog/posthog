@@ -250,6 +250,10 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND NOT ("posthog_datawarehousetable"."id" IN
+                    (SELECT "U0"."table_id" AS "table_id"
+                     FROM "data_modeling_nodeenginetable" "U0"
+                     WHERE "U0"."team_id" = 99999))
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
