@@ -611,9 +611,16 @@ describe('SourceWebhooksConsumer', () => {
 
                 expect(res.status).toEqual(201)
                 expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
-                expect(
-                    mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
-                ).toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: 'workflow-webhook' }) })])
+                const produced = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                    KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK
+                )
+                expect(produced).toEqual([
+                    expect.objectContaining({ value: expect.objectContaining({ kind: 'workflow-webhook' }) }),
+                ])
+                // The worker counts the run once it runs it, because a retry can produce it again before the claim.
+                expect((produced[0].value as any).job.state.state.triggerMetricPending).toBe(true)
+                await waitForBackgroundTasks()
+                expect(getMetrics().filter((metric) => metric.metric_name === 'triggered')).toEqual([])
             })
 
             it('should add logs and metrics', async () => {

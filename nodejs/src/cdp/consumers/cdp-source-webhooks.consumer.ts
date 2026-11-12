@@ -538,6 +538,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 return hooks.answerDuplicate()
             }
         }
+        // A retry can produce a run again before the consumer deduplicates it, so the worker counts the run instead.
+        run.invocation.state.triggerMetricPending = true
         const produced = await this.runIntake.produce(run)
         functionResult.finished = false
         if (produced !== 'accepted') {
@@ -547,7 +549,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             functionResult.execResult = { httpResponse: { status, body: { status: `intake_${produced}` } } }
             return { result: functionResult, queuedInvocationId: null }
         }
-        hooks.addMetric({ metric_kind: 'other', metric_name: 'triggered', count: 1 })
         return { result: functionResult, queuedInvocationId: run.invocation.id }
     }
 
