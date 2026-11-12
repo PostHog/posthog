@@ -29,9 +29,8 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
-from posthog.dags import flag_evaluations_backfill
 from posthog.dags.common import JobOwners, dagster_tags
-from posthog.dags.flag_evaluations_backfill import inserted_rows, shard_workload
+from posthog.dags.common.shards import inserted_rows, on_shard_host, shard_workload, tagged
 from posthog.dags.geoip_enrichment import GeoipEnrichment, GeoipLookup, MmdbGeoipLookup, geoip_enrichment
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -41,6 +40,8 @@ from products.cdp.backend.facade.api import teams_with_enabled_transformation
 T = TypeVar("T")
 
 OWNER_TAG = {"owner": JobOwners.TEAM_INGESTION.value}
+
+PRODUCT = ProductKey.PIPELINE_TRANSFORMATIONS
 
 GEOIP_TEMPLATE_ID = "template-geoip"
 
@@ -317,23 +318,6 @@ def _chunks(items: Sequence[int], size: int) -> Iterator[tuple[int, ...]]:
         yield tuple(items[start : start + size])
 
 
-def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Client], T]:
-    return flag_evaluations_backfill.tagged(query_tags, fn, product=ProductKey.PIPELINE_TRANSFORMATIONS)
-
-
-def on_shard_host(
-    cluster: ClickhouseCluster,
-    shard_num: int,
-    fn: Callable[[Client], T],
-    query_tags: DagsterTags,
-    workload: Workload,
-    node_role: NodeRole,
-) -> T:
-    return flag_evaluations_backfill.on_shard_host(
-        cluster, shard_num, fn, query_tags, workload, node_role, product=ProductKey.PIPELINE_TRANSFORMATIONS
-    )
-
-
 @dagster.op(tags=OWNER_TAG)
 def plan_geoip_backfill(context: dagster.OpExecutionContext, config: GeoipBackfillConfig) -> StagingPlan:
     windows = plan_windows(config, datetime.now(UTC))
@@ -376,7 +360,7 @@ def find_affected_teams(
             )
 
         per_shard = cluster.map_any_host_in_shards_by_role(
-            {shard_num: tagged(query_tags, count_teams) for shard_num in cluster.shards},
+            {shard_num: tagged(query_tags, count_teams, product=PRODUCT) for shard_num in cluster.shards},
             workload=workload,
             node_role=node_role,
         ).result()
@@ -533,7 +517,9 @@ class ShardStaging:
         )
 
     def _on_shard(self, fn: Callable[[Client], T]) -> T:
-        return on_shard_host(self.cluster, self.shard_num, fn, self.query_tags, self.workload, self.node_role)
+        return on_shard_host(
+            self.cluster, self.shard_num, fn, self.query_tags, self.workload, self.node_role, product=PRODUCT
+        )
 
 
 def open_lookup(path: str) -> MmdbGeoipLookup:

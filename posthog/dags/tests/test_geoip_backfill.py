@@ -14,9 +14,15 @@ from posthog.dags import geoip_backfill
 from posthog.dags.geoip_backfill import (
     GeoipBackfillConfig,
     GeoipStagingTable,
+    IngestionWindow,
     IngestionWindowConfig,
+    StagingRunConfig,
+    cleanup_geoip_backfill_staging,
+    enriched_person_properties,
     geoip_backfill_staging_job,
+    plan_windows,
 )
+from posthog.dags.geoip_enrichment import geoip_enrichment
 from posthog.dags.tests.conftest import GeoipTeams
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -122,10 +128,139 @@ def staged_rows(cluster: ClickhouseCluster, table: GeoipStagingTable) -> dict[UU
     }
 
 
+def row_by_uuid(cluster: ClickhouseCluster, table: str, uuid: UUID, columns: list[str]) -> dict[str, Any]:
+    [row] = cluster.any_host_by_role(
+        Query(
+            f"SELECT {', '.join(f'`{name}`' for name in columns)} FROM {table} FINAL WHERE uuid = %(uuid)s",
+            {"uuid": uuid},
+        ),
+        NodeRole.DATA,
+    ).result()
+    return dict(zip(columns, row))
+
+
+def run_cleanup(cluster: ClickhouseCluster, table: GeoipStagingTable) -> None:
+    cleanup_geoip_backfill_staging.execute_in_process(
+        run_config=dagster.RunConfig(ops={"drop_staging_table": StagingRunConfig(staging_run_id=str(table.id))}),
+        resources={"cluster": cluster},
+        instance=dagster.DagsterInstance.ephemeral(),
+    )
+
+
+WINDOWS_NOW = datetime(2026, 1, 10, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "windows, expected",
+    [
+        pytest.param(
+            [("2026-01-10T08:00:00", "2026-01-10T09:00:00")],
+            [(datetime(2026, 1, 10, 8, tzinfo=UTC), datetime(2026, 1, 10, 9, tzinfo=UTC))],
+            id="naive_times_are_utc",
+        ),
+        pytest.param(
+            [("2026-01-10T10:00:00.250+02:00", "2026-01-10T11:00:00.750+02:00")],
+            [(datetime(2026, 1, 10, 8, tzinfo=UTC), datetime(2026, 1, 10, 9, tzinfo=UTC))],
+            id="offset_converted_and_fraction_dropped",
+        ),
+        pytest.param(
+            [("2026-01-10T10:00:00", "2026-01-10T11:00:00"), ("2026-01-09T10:00:00", "2026-01-09T11:00:00")],
+            [
+                (datetime(2026, 1, 9, 10, tzinfo=UTC), datetime(2026, 1, 9, 11, tzinfo=UTC)),
+                (datetime(2026, 1, 10, 10, tzinfo=UTC), datetime(2026, 1, 10, 11, tzinfo=UTC)),
+            ],
+            id="sorted_by_start",
+        ),
+    ],
+)
+def test_plan_windows_reads_windows_as_utc(
+    windows: list[tuple[str, str]], expected: list[tuple[datetime, datetime]]
+) -> None:
+    config = GeoipBackfillConfig(windows=[IngestionWindowConfig(start=start, end=end) for start, end in windows])
+
+    planned = plan_windows(config, WINDOWS_NOW)
+
+    assert [(window.start, window.end) for window in planned] == expected
+
+
+@pytest.mark.parametrize(
+    "windows",
+    [
+        pytest.param([], id="no_window"),
+        pytest.param([("2026-01-10T09:00:00", "2026-01-10T09:00:00")], id="empty_window"),
+        pytest.param([("2026-01-10T09:00:00", "2026-01-10T08:00:00")], id="backwards"),
+        pytest.param([("2026-01-10T11:00:00", "2026-01-10T13:00:00")], id="ends_in_the_future"),
+    ],
+)
+def test_plan_windows_rejects_windows_it_cannot_read(windows: list[tuple[str, str]]) -> None:
+    config = GeoipBackfillConfig(windows=[IngestionWindowConfig(start=start, end=end) for start, end in windows])
+
+    with pytest.raises(dagster.Failure):
+        plan_windows(config, WINDOWS_NOW)
+
+
+def test_window_slices_and_halves_cover_the_window_without_gaps() -> None:
+    start = datetime(2026, 1, 10, 8, tzinfo=UTC)
+    window = IngestionWindow(start=start, end=start + timedelta(minutes=12, seconds=7))
+
+    slices = list(window.slices(5))
+    halves = IngestionWindow(start=start, end=start + timedelta(seconds=3)).halves()
+
+    assert [(piece.start, piece.end) for piece in slices] == [
+        (start, start + timedelta(minutes=5)),
+        (start + timedelta(minutes=5), start + timedelta(minutes=10)),
+        (start + timedelta(minutes=10), window.end),
+    ]
+    assert [(half.start, half.end) for half in halves] == [
+        (start, start + timedelta(seconds=1)),
+        (start + timedelta(seconds=1), start + timedelta(seconds=3)),
+    ]
+    assert not IngestionWindow(start=start, end=start + timedelta(seconds=1)).can_split
+
+
+@pytest.mark.parametrize(
+    "person_mode, person_properties, expected",
+    [
+        pytest.param(
+            "full",
+            {"email": "user@example.com", "$geoip_country_code": "FR", "$initial_geoip_country_code": "FR"},
+            {
+                "email": "user@example.com",
+                "$geoip_country_code": "US",
+                "$geoip_country_name": "United States",
+                "$initial_geoip_country_code": "FR",
+                "$initial_geoip_country_name": "United States",
+            },
+            id="set_overwrites_and_set_once_keeps",
+        ),
+        pytest.param("propertyless", {"email": "user@example.com"}, {"email": "user@example.com"}, id="personless"),
+        pytest.param("full", {}, {}, id="no_person_properties"),
+    ],
+)
+def test_enriched_person_properties(
+    person_mode: str, person_properties: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    enrichment = geoip_enrichment({"$ip": PUBLIC_IP}, FakeLookup())
+    assert enrichment is not None
+    row = {"person_mode": person_mode, "person_properties": json.dumps(person_properties)}
+
+    enriched = enriched_person_properties(row, enrichment)
+
+    assert {key: value for key, value in enriched.items() if value is not None} == expected
+
+
 @pytest.mark.django_db
-@pytest.mark.parametrize("max_rows_per_read", [1000, 1], ids=["one_read_per_slice", "slices_split"])
+@pytest.mark.parametrize(
+    "max_rows_per_read, only_team_without_geoip",
+    [(1000, False), (1, False), (1000, True)],
+    ids=["one_read_per_slice", "slices_split", "other_team_only"],
+)
 def test_staging_holds_enriched_copies_of_the_events_written_without_geoip(
-    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path, max_rows_per_read: int
+    cluster: ClickhouseCluster,
+    geoip_teams: GeoipTeams,
+    tmp_path: Path,
+    max_rows_per_read: int,
+    only_team_without_geoip: bool,
 ) -> None:
     with_geoip = geoip_teams.with_geoip
     without_geoip = geoip_teams.without_geoip
@@ -178,21 +313,50 @@ def test_staging_holds_enriched_copies_of_the_events_written_without_geoip(
         now,
         [damaged, second_damaged, already_enriched, written_before_window, unknown_address, team_without_geoip],
     )
-    result = run_staging(cluster, now, tmp_path, max_rows_per_read=max_rows_per_read)
+    result = run_staging(
+        cluster,
+        now,
+        tmp_path,
+        max_rows_per_read=max_rows_per_read,
+        team_ids=[without_geoip] if only_team_without_geoip else None,
+    )
 
     table = GeoipStagingTable(id=UUID(result.dagster_run.run_id))
     try:
         staged = staged_rows(cluster, table)
-        assert set(staged) == {damaged.uuid, second_damaged.uuid}
-        row = staged[damaged.uuid]
-        assert row.properties["$geoip_country_code"] == "US"
-        assert row.properties["$set"]["email"] == "user@example.com"
-        assert row.properties["$set"]["$geoip_country_code"] == "US"
-        assert row.properties["$set"]["$geoip_city_name"] is None
-        assert row.properties["$set_once"]["$initial_geoip_country_code"] == "US"
-        assert row.person_properties["$geoip_country_code"] == "US"
-        assert row.person_properties["$initial_geoip_country_code"] == "FR"
-        assert json.loads(row.original_properties) == damaged.properties
-        assert staged[second_damaged.uuid].person_properties == {}
+        if only_team_without_geoip:
+            assert staged == {}
+        else:
+            assert_damaged_events_staged(cluster, table, staged, damaged, second_damaged)
     finally:
-        cluster.map_hosts_by_role(table.drop, NodeRole.DATA).result()
+        run_cleanup(cluster, table)
+    assert not cluster.any_host_by_role(table.exists, NodeRole.DATA).result()
+
+
+def assert_damaged_events_staged(
+    cluster: ClickhouseCluster,
+    table: GeoipStagingTable,
+    staged: dict[UUID, StagedRow],
+    damaged: SeededEvent,
+    second_damaged: SeededEvent,
+) -> None:
+    assert set(staged) == {damaged.uuid, second_damaged.uuid}
+    columns = [column.name for column in cluster.any_host_by_role(table.columns, NodeRole.DATA).result()]
+    original = row_by_uuid(cluster, EVENTS_DATA_TABLE(), damaged.uuid, columns)
+    copy = row_by_uuid(cluster, table.qualified_name, damaged.uuid, columns)
+    assert {name for name in columns if original[name] != copy[name]} == {
+        "properties",
+        "person_properties",
+        "_timestamp",
+    }
+    assert copy["_timestamp"] > original["_timestamp"]
+    row = staged[damaged.uuid]
+    assert row.properties["$geoip_country_code"] == "US"
+    assert row.properties["$set"]["email"] == "user@example.com"
+    assert row.properties["$set"]["$geoip_country_code"] == "US"
+    assert row.properties["$set"]["$geoip_city_name"] is None
+    assert row.properties["$set_once"]["$initial_geoip_country_code"] == "US"
+    assert row.person_properties["$geoip_country_code"] == "US"
+    assert row.person_properties["$initial_geoip_country_code"] == "FR"
+    assert json.loads(row.original_properties) == damaged.properties
+    assert staged[second_damaged.uuid].person_properties == {}
