@@ -8,6 +8,7 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -16,12 +17,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
+from posthog.event_usage import get_event_source, report_user_action
 from posthog.models.user import User
 
 from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.source_management import known_source_key
-from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import (
+    SourceTypeField,
+    resolve_known_source_key,
+)
 
 from . import base
 
@@ -241,11 +246,9 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         they expire. Newest first, so after a user confirms they've finished the connect page, the
         first entry for the source type is the one to pass to `setup`.
         """
-        queryset = (
-            PendingSourceCredential.objects.for_team(self.team_id)
-            .filter(created_by=cast(User, request.user), expires_at__gt=timezone.now())
-            .order_by("-created_at")
-        )
+        user = cast(User, request.user)
+        unexpired = PendingSourceCredential.objects.for_team(self.team_id).filter(expires_at__gt=timezone.now())
+        queryset = unexpired.filter(created_by=user).order_by("-created_at")
         source_type = request.query_params.get("source_type")
         if source_type:
             queryset = queryset.filter(source_type=source_type)
@@ -259,7 +262,42 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             }
             for credential in queryset
         ]
+        self._report_stored_credentials_listed(request, user, unexpired, source_type, len(data))
         return Response(status=status.HTTP_200_OK, data=SourceCredentialSerializer(data, many=True).data)
+
+    def _report_stored_credentials_listed(
+        self,
+        request: Request,
+        user: User,
+        unexpired: QuerySet[PendingSourceCredential],
+        source_type: str | None,
+        credential_count: int,
+    ) -> None:
+        # An agent that finds no credential cannot tell a skipped page from one filled under another
+        # kind spelling or by another user, so the event records both near misses. Kinds and counts only.
+        other_source_types: list[str] = []
+        other_user_credential_count = 0
+        if source_type:
+            other_source_types = sorted(
+                set(
+                    unexpired.filter(created_by=user)
+                    .exclude(source_type=source_type)
+                    .values_list("source_type", flat=True)
+                )
+            )
+            other_user_credential_count = unexpired.filter(source_type=source_type).exclude(created_by=user).count()
+        report_user_action(
+            user,
+            "data warehouse stored credentials listed",
+            {
+                "source_type": source_type or None,
+                "credential_count": credential_count,
+                "other_source_types": other_source_types,
+                "other_user_credential_count": other_user_credential_count,
+            },
+            team=self.team,
+            request=request,
+        )
 
     @extend_schema(
         parameters=[
@@ -299,12 +337,13 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 data={"message": "Missing required parameter: source_type"},
             )
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
 
         source = base.SourceRegistry.get_source(source_type_model)
         oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())
@@ -312,8 +351,10 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"
         )
 
+        # utm_source names the surface that made the link, so the connect page can attribute its funnel to it.
         connect_url = (
             f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
+            f"&utm_source={get_event_source(request).value}"
         )
         create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
         migration_item_id = request.query_params.get("migration_item_id")

@@ -639,10 +639,10 @@ export interface AlertScheduleRestrictionApi {
  * * `notify` - Notify
  * * `suppress` - Suppress
  */
-export type InvestigationInconclusiveActionEnumApi =
-    (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
+export type AlertInvestigationInconclusiveActionEnumApi =
+    (typeof AlertInvestigationInconclusiveActionEnumApi)[keyof typeof AlertInvestigationInconclusiveActionEnumApi]
 
-export const InvestigationInconclusiveActionEnumApi = {
+export const AlertInvestigationInconclusiveActionEnumApi = {
     Notify: 'notify',
     Suppress: 'suppress',
 } as const
@@ -747,7 +747,7 @@ export interface AlertApi {
      *
      * * `notify` - Notify
      * * `suppress` - Suppress */
-    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
@@ -854,7 +854,7 @@ export interface PatchedAlertApi {
      *
      * * `notify` - Notify
      * * `suppress` - Suppress */
-    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }

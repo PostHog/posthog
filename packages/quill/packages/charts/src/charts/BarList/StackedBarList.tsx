@@ -57,7 +57,7 @@ const TOP_LABEL_GAP = 4
 
 export function StackedBarList<Meta = unknown>({ onError, ...rest }: StackedBarListProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <StackedBarListInner {...rest} onError={onError} />
         </ChartErrorBoundary>
     )

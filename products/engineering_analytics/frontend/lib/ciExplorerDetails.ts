@@ -1,6 +1,3 @@
-// What the CI explorer says about a node besides drawing it: its status word, its share of the push's job time,
-// its tooltip, and the excerpt of a failed job's log.
-
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
@@ -34,13 +31,9 @@ const STATUS_LABEL: Record<string, string> = {
 const LEVELS_SHOWN = 3
 const EXCERPT_LINES = 12
 
-// Raw statuses of a job or step that has not started.
 const NOT_STARTED = new Set(['queued', 'waiting', 'pending', 'requested'])
 
-/**
- * One word for how a run, job, or step ended. With no conclusion it has not ended, and the raw status tells
- * a queued one from a running one.
- */
+/** With no conclusion it has not ended, and the raw status tells a queued one from a running one. */
 export function statusLabel(conclusion: string | null | undefined, status?: string | null): string {
     if (conclusion) {
         return STATUS_LABEL[conclusion] ?? conclusion
@@ -48,12 +41,10 @@ export function statusLabel(conclusion: string | null | undefined, status?: stri
     return status && NOT_STARTED.has(status) ? 'Queued' : 'Running'
 }
 
-/** A duration, or the status word of what has no duration yet. */
 export function elapsedLabel(seconds: number | null, status?: string | null): string {
     return seconds === null ? statusLabel(null, status) : humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-/** The CI provider that ran the workflow. The runner hardware is a separate fact. */
 export function providerName(engine: CIEngine | undefined): string {
     return engine === 'depot_ci' ? 'Depot CI' : engine === 'github_actions' ? 'GitHub Actions' : 'Unknown provider'
 }
@@ -82,7 +73,7 @@ export function oldestSync(...times: (string | null | undefined)[]): string | nu
     return known.length ? known.reduce((oldest, time) => (time < oldest ? time : oldest)) : null
 }
 
-/** The summed duration of every job of the push. Jobs run in parallel, so this is more than the elapsed time. */
+/** Jobs run in parallel, so this is more than the elapsed time. */
 export function totalJobSeconds(workflows: CIExplorerWorkflow[]): number {
     return jobSeconds(workflows.flatMap(workflowJobs))
 }
@@ -96,7 +87,7 @@ export interface CIExplorerShareLevel {
     share: number
 }
 
-/** The focused node and what contains it, outermost first, each as a share of the push's job time. */
+/** Outermost first. */
 export function shareLevels(workflows: CIExplorerWorkflow[], nodeId: string | null): CIExplorerShareLevel[] {
     const total = Math.max(1, totalJobSeconds(workflows))
     const node = resolveNode(workflows, nodeId)
@@ -189,7 +180,6 @@ function workflowTip(workflow: CIExplorerWorkflow): CIExplorerTip {
     return { name: workflow.run.workflow, rows }
 }
 
-/** What a tooltip says about the node with this id, or null when no node has it. */
 export function nodeTip(workflows: CIExplorerWorkflow[], nodeId: string): CIExplorerTip | null {
     for (const workflow of workflows) {
         if (workflow.id === nodeId) {

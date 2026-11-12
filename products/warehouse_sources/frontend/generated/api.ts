@@ -42,6 +42,7 @@ import type {
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourceSyncStateApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
@@ -71,6 +72,7 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsRequestApi,
     UpdateWebhookInputsResponseApi,
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
@@ -877,14 +879,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -898,14 +897,11 @@ export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesDeleteWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<DeleteWebhookResponseApi> => {
     return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1199,7 +1195,7 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    updateWebhookInputsRequestApi: UpdateWebhookInputsRequestApi,
     options?: RequestInit
 ): Promise<UpdateWebhookInputsResponseApi> => {
     return apiMutator<UpdateWebhookInputsResponseApi>(
@@ -1208,7 +1204,7 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
+            body: JSON.stringify(updateWebhookInputsRequestApi),
         }
     )
 }
@@ -1609,6 +1605,25 @@ export const externalDataSourcesStoredCredentialsList = async (
     options?: RequestInit
 ): Promise<SourceCredentialApi[]> => {
     return apiMutator<SourceCredentialApi[]>(getExternalDataSourcesStoredCredentialsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesSyncStateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/sync_state/`
+}
+
+/**
+ * Return a fingerprint of the sync state the sources list shows.
+ *
+ * A client that polls the list can compare fingerprints and refetch the list only when it changed.
+ */
+export const externalDataSourcesSyncStateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceSyncStateApi> => {
+    return apiMutator<ExternalDataSourceSyncStateApi>(getExternalDataSourcesSyncStateRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

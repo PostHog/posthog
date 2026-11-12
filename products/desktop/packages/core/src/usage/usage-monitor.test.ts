@@ -65,23 +65,37 @@ type GatewaySlice = Pick<UsageHost, "fetchUsage">;
 type AuthStatus = "anonymous" | "authenticated" | "restoring";
 interface EmittedAuthState {
   currentOrgId: string | null;
+  currentProjectId: number | null;
   status: AuthStatus;
 }
 
-let emitAuthState: (currentOrgId: string | null, status?: AuthStatus) => void =
-  () => {};
+let emitAuthState: (
+  currentOrgId: string | null,
+  status?: AuthStatus,
+  currentProjectId?: number | null,
+) => void = () => {};
 
 function makeAuthService(): AuthService {
   const listeners = new Set<(state: EmittedAuthState) => void>();
   let currentStatus: AuthStatus = "authenticated";
-  emitAuthState = (currentOrgId, status = "authenticated") => {
+  let selectedProjectId: number | null = 42;
+  emitAuthState = (
+    currentOrgId,
+    status = "authenticated",
+    currentProjectId = selectedProjectId,
+  ) => {
     currentStatus = status;
+    selectedProjectId = currentProjectId;
     for (const listener of [...listeners]) {
-      listener({ currentOrgId, status });
+      listener({ currentOrgId, currentProjectId, status });
     }
   };
   return {
-    getState: () => ({ currentOrgId: "org-1", status: currentStatus }),
+    getState: () => ({
+      currentOrgId: "org-1",
+      currentProjectId: selectedProjectId,
+      status: currentStatus,
+    }),
     on: (_event: string, listener: (state: EmittedAuthState) => void) =>
       listeners.add(listener),
   } as unknown as AuthService;
@@ -510,14 +524,27 @@ describe("UsageMonitorService", () => {
     expect(service.getLatest()).not.toBeNull();
   });
 
-  it("keeps the snapshot across same-org auth changes", async () => {
-    service = makeService(mockGateway(makeUsage()), makeActivityMonitor());
-    await service.fetchOnce();
+  it.each([
+    ["the project is unchanged", [42], 1],
+    ["the project becomes available", [null, 42], 2],
+    ["the project changes", [43], 2],
+    ["the project is cleared", [null], 1],
+  ] as const)(
+    "keeps the snapshot across same-org auth changes when %s",
+    async (_case, projectIds, fetches) => {
+      const gateway = mockGateway(makeUsage());
+      service = makeService(gateway, makeActivityMonitor());
+      await service.fetchOnce();
 
-    emitAuthState("org-1");
+      for (const projectId of projectIds) {
+        emitAuthState("org-1", "authenticated", projectId);
+      }
 
-    expect(service.getLatest()).not.toBeNull();
-  });
+      expect(service.getLatest()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(gateway.fetchUsage).toHaveBeenCalledTimes(fetches);
+    },
+  );
 
   it("clears the snapshot on sign-out without scheduling a refetch", async () => {
     const gateway = mockGateway(makeUsage());

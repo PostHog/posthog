@@ -28,7 +28,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
@@ -98,7 +97,6 @@ export function SharedMetric(): JSX.Element {
         useActions(sharedMetricLogic)
 
     const { currentTeam, currentProjectId } = useValues(teamLogic)
-    const { tags: allExistingTags } = useValues(tagsModel)
     const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
@@ -190,7 +188,6 @@ export function SharedMetric(): JSX.Element {
                         }}
                         canEdit={!isLegacy}
                         tags={sharedMetric.tags}
-                        tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
                     />
                 </ScenePanelInfoSection>

@@ -47,6 +47,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
             },
             quickSuggestionsDelay: 300,
             readOnly: queryLoading,
+            placeholder: 'Write a SQL query.',
         }),
         [props.originalValue, queryLoading]
     )

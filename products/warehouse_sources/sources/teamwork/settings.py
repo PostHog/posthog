@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
+
+# Max page size accepted by the majority of V3 endpoints.
+PAGE_SIZE = 500
 
 
 @dataclass(frozen=False)
@@ -24,6 +27,22 @@ class TeamworkEndpointConfig:
     partition_key: Optional[str] = None
     should_sync_default: bool = True
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # False for list endpoints that return the whole collection and document no page/pageSize params.
+    paginated: bool = True
+    # Set for endpoints that need a parent row per request (e.g. stages per workflow).
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def page_size(self) -> int:
+        return PAGE_SIZE
+
+    @property
+    def incremental_fields(self) -> list[IncrementalField]:
+        return _incremental(self.incremental_field) if self.incremental_field else []
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return self.incremental_field
 
 
 def _incremental(field_name: str) -> list[IncrementalField]:
@@ -110,6 +129,33 @@ TEAMWORK_ENDPOINTS: dict[str, TeamworkEndpointConfig] = {
         data_key="comments",
         # `comments` only sorts by date/project/user/type — no update sort — so full refresh.
         order_by="date",
+    ),
+    "project_categories": TeamworkEndpointConfig(
+        name="project_categories",
+        path="/projectcategories.json",
+        data_key="projectCategories",
+        paginated=False,
+    ),
+    "workflows": TeamworkEndpointConfig(
+        name="workflows",
+        path="/workflows.json",
+        data_key="workflows",
+    ),
+    "workflow_stages": TeamworkEndpointConfig(
+        name="workflow_stages",
+        path="/workflows/{workflowId}/stages.json",
+        data_key="stages",
+        # `stages` filters on updatedAfter but only sorts by id/name/displayorder, so full refresh.
+        order_by="id",
+        # Stages are only listed per workflow; the parent id is in the key in case stage ids repeat.
+        primary_keys=["workflowId", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="workflows",
+            resolve_param="workflowId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "workflowId"},
+        ),
     ),
 }
 

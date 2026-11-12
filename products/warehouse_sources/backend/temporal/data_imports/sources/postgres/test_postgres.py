@@ -1147,6 +1147,44 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The library path
+            # (which embeds the server's build/version) is volatile.
+            'could not load library "/rdsdbbin_1/aurora-16.11.16.11.2.1042.0/lib/postgresql/postgis-3.so": '
+            "libgeos_c.so.1: cannot open shared object file: No such file or directory",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'UndefinedFile: could not load library "/usr/lib/postgresql/16/lib/postgis-3.so": '
+            "libgeos_c.so.1: cannot open shared object file: No such file or directory",
+        ],
+    )
+    def test_missing_extension_library_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Missing extension native library should be non-retryable: {error_msg}"
+        )
+
+    def test_missing_extension_library_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'could not load library "/rdsdbbin_1/aurora-16.11.16.11.2.1042.0/lib/postgresql/postgis-3.so": '
+            "libgeos_c.so.1: cannot open shared object file: No such file or directory"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing extension native library error should surface an actionable message"
+        assert "OS-level dependencies" in friendly[0]
+
+    def test_extension_library_fd_exhaustion_on_dlopen_is_retryable(self, source):
+        # Same "cannot open shared object file" prefix as the missing-library case above, but a
+        # different errno reason: dlopen() reports this for EMFILE/ENFILE too, and file-descriptor
+        # exhaustion clears once load on the source drops, unlike a genuinely absent library.
+        error_msg = 'could not load library "/usr/lib/postgresql/16/lib/postgis-3.so": cannot open shared object file: Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion on dlopen should be retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
         ],
@@ -2268,6 +2306,24 @@ class TestPostgresSourceRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
+
+    def test_metadata_probe_statement_timeout_is_classified_retryable(self, source):
+        # `_get_table`'s per-table catalog probes (materialized-view/view checks, the column
+        # metadata SELECT) raise the raw psycopg QueryCanceled unconverted, unlike the data-read
+        # path and the whole-schema catalog scan, which both convert a statement_timeout hit into a
+        # more specific exception first. Without this classification, every occurrence floods error
+        # tracking at `exception` level (see `_handle_import_error`) instead of being treated as the
+        # self-recovering condition it is.
+        error_msg = "canceling statement due to statement timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Metadata-probe statement timeout should be classified retryable: {error_msg}"
+
+    def test_metadata_probe_statement_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to statement timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Metadata-probe statement timeout should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:

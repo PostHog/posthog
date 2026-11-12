@@ -3,6 +3,8 @@ from posthog.settings.utils import get_from_env
 
 from .feature_flags import is_writer_enabled
 
+DEFAULT_DOCS_PATHS = "contents/docs/"
+
 
 @frozen
 class WriterSettings:
@@ -10,11 +12,20 @@ class WriterSettings:
     user_id: int
     docs_repository: str
     source_repositories: tuple[str, ...]
+    docs_paths: tuple[str, ...]
+
+
+def comma_separated(listed: str) -> tuple[str, ...]:
+    return tuple(name.strip() for name in listed.split(",") if name.strip())
 
 
 def source_repositories() -> tuple[str, ...]:
-    listed = get_from_env("KNOWLEDGE_WRITER_SOURCE_REPOSITORIES", "")
-    return tuple(name.strip() for name in listed.split(",") if name.strip())
+    return comma_separated(get_from_env("KNOWLEDGE_WRITER_SOURCE_REPOSITORIES", ""))
+
+
+def docs_paths() -> tuple[str, ...]:
+    listed = comma_separated(get_from_env("KNOWLEDGE_WRITER_DOCS_PATHS", DEFAULT_DOCS_PATHS))
+    return tuple(docs_path.rstrip("/") for docs_path in listed)
 
 
 def configured_writer_team_id() -> int | None:
@@ -34,4 +45,5 @@ def writer_settings() -> WriterSettings | None:
         user_id=user_id,
         docs_repository=docs_repository,
         source_repositories=source_repositories(),
+        docs_paths=docs_paths(),
     )

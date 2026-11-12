@@ -109,6 +109,7 @@ from products.customer_analytics.backend.facade.enums import (
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
+    account_automations as _account_automations_logic,
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     account_views as _account_views_logic,
@@ -189,6 +190,8 @@ from products.customer_analytics.backend.models.custom_property_definition impor
 )
 from products.customer_analytics.backend.models.custom_property_value import SORT_VALUE_STR_PREFIX_LENGTH
 from products.customer_analytics.backend.tasks.tasks import send_announcement
+from products.data_modeling.backend.facade import api as data_modeling_facade
+from products.data_modeling.backend.facade.contracts import SavedQuerySchedule
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
@@ -202,6 +205,7 @@ from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, sa
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
+    get_viewable_workflow_ids,
 )
 from products.workflows.backend.facade.contracts import HogFlowReference
 
@@ -1796,7 +1800,7 @@ def _to_sync_run_view(
         sync_phase=run.phase,
         attempt=run.attempt,
         workflow_id=run.workflow_id if include_temporal_url else None,
-        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id,
         temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
@@ -1874,11 +1878,16 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
     return saved_query
 
 
-def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
+def _saved_query_meta(saved_query: Any, schedule: SavedQuerySchedule | None = None) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
-    unknown rather than guessable — so both schedule fields stay None."""
-    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
+    no table-name resolution. A view's frequency lives on its DAG node rather than on the view, so the
+    schedule is resolved separately and is None for a view the scheduler doesn't run."""
+    return _ProfileWarehouseMeta(
+        table_name=saved_query.name,
+        saved_query_name=saved_query.name,
+        sync_frequency_interval_seconds=schedule.interval.total_seconds() if schedule else None,
+        next_sync_at=schedule.next_run_at if schedule else None,
+    )
 
 
 def _resolve_profile_warehouse_meta(
@@ -1891,7 +1900,10 @@ def _resolve_profile_warehouse_meta(
         return None
     if binding.is_saved_query:
         saved_query = _resolve_saved_query(source.team_id, binding.id, user_access_control)
-        return _saved_query_meta(saved_query) if saved_query is not None else None
+        if saved_query is None:
+            return None
+        schedule = data_modeling_facade.saved_query_schedules(source.team_id, [saved_query]).get(str(saved_query.id))
+        return _saved_query_meta(saved_query, schedule)
     schema = _resolve_schema(source.team_id, binding.id, user_access_control)
     return _schema_meta(schema) if schema is not None else None
 
@@ -2020,6 +2032,10 @@ def _batch_source_enrichment(
             )
         }
 
+    schedules_by_saved_query_id = (
+        data_modeling_facade.saved_query_schedules(team_id, saved_queries_by_id.values()) if saved_queries_by_id else {}
+    )
+
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
         run.source_id: run
@@ -2033,7 +2049,9 @@ def _batch_source_enrichment(
     for source in profile_sources:
         binding = bindings[source.id]
         assert binding is not None  # profile_sources is filtered on exactly this
-        meta = _batched_meta(binding, schemas_by_id, saved_queries_by_id, user_access_control)
+        meta = _batched_meta(
+            binding, schemas_by_id, saved_queries_by_id, schedules_by_saved_query_id, user_access_control
+        )
         latest = latest_run_by_source_id.get(source.id) if meta is not None else None
         # Only mutate runs the caller can view; expiring runs for hidden warehouse objects would let a
         # denied viewer flip their status through the source-list endpoint.
@@ -2048,6 +2066,7 @@ def _batched_meta(
     binding: "WarehouseBinding",
     schemas_by_id: dict[str, Any],
     saved_queries_by_id: dict[str, Any],
+    schedules_by_saved_query_id: dict[str, SavedQuerySchedule],
     user_access_control: "UserAccessControl | None",
 ) -> _ProfileWarehouseMeta | None:
     """One binding's metadata from the prefetched maps, or None when it is missing or access-denied.
@@ -2061,7 +2080,7 @@ def _batched_meta(
             saved_query, required_level="viewer"
         ):
             return None
-        return _saved_query_meta(saved_query)
+        return _saved_query_meta(saved_query, schedules_by_saved_query_id.get(binding.id))
 
     schema = schemas_by_id.get(binding.id)
     if schema is None:
@@ -3958,6 +3977,26 @@ def get_account_for_view(
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     return _to_account_details(account)
+
+
+def list_account_automations(
+    *, team: Team, account_id: str, user_access_control: UserAccessControl, page: PageRequest
+) -> Page[contracts.AccountAutomation]:
+    account = get_account_for_view(
+        team_id=team.pk, account_id=account_id, user_access_control=user_access_control, required_level="viewer"
+    )
+    return _account_automations_logic.list_account_runs(
+        team=team,
+        account_id=str(account.id),
+        external_id=account.external_id,
+        workflow_ids=get_viewable_workflow_ids(
+            team_id=team.pk,
+            user_access_control=user_access_control,
+            tag_name=_account_automations_logic.ACCOUNT_AUTOMATION_WORKFLOW_TAG,
+        ),
+        user_access_control=user_access_control,
+        page=page,
+    )
 
 
 def get_account_for_view_by_external_id(

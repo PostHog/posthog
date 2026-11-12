@@ -90,7 +90,9 @@ const workflowsGetEmailTemplate = (): ToolBase<
 
 const WorkflowsListEmailTemplatesSchema = () => {
     const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
-    return MessagingTemplatesListQueryParams
+    return MessagingTemplatesListQueryParams.extend({
+        basic: MessagingTemplatesListQueryParams.shape['basic'].default(true).optional(),
+    })
 }
 
 const workflowsListEmailTemplates = (): ToolBase<
@@ -105,8 +107,10 @@ const workflowsListEmailTemplates = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
+                basic: params.basic,
                 limit: params.limit,
                 offset: params.offset,
+                transactional: params.transactional,
             },
         })
         const filtered = {
@@ -161,6 +165,7 @@ const workflowsMakeEmailTemplateTransactionalPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'workflows-make-email-template-transactional',
+            inputSchema: WorkflowsMakeEmailTemplateTransactionalSchema(),
             actionLabel: 'make email template transactional',
             messageTemplate:
                 "About to make email template '{id}' transactional. This can't be undone, and its sends will ignore marketing opt-outs. Reply 'confirm' to proceed.\n",
@@ -188,8 +193,8 @@ const workflowsMakeEmailTemplateTransactionalExecute = (): ToolBase<
         >(context, {
             incomingArgs: confirmationParams,
             purpose: 'workflows-make-email-template-transactional',
+            inputSchema: WorkflowsMakeEmailTemplateTransactionalSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -270,6 +275,7 @@ const workflowsSendEmailPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'workflows-send-email',
+            inputSchema: WorkflowsSendEmailSchema(),
             actionLabel: 'send email',
             messageTemplate: "About to send the email '{subject}' to {to}. Reply 'confirm' to send it.\n",
             codec: __runtime.codec,
@@ -288,8 +294,8 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'workflows-send-email',
+            inputSchema: WorkflowsSendEmailSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -322,6 +328,12 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         }
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
+        }
+        if (params.tracking !== undefined) {
+            body['tracking'] = params.tracking
+        }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
         }
         if (params.from !== undefined) {
             body['from'] = params.from

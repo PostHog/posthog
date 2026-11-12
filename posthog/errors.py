@@ -98,8 +98,9 @@ BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check funct
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
-    "This usually means the file wasn't written correctly during import. Re-sync the source (or "
-    "re-upload the file if you manage it yourself), and contact support if it keeps happening."
+    "This happens when the file is overwritten while it's being read, or when it wasn't written correctly. "
+    "Try again, and if it keeps happening, re-sync the source (or re-upload the file if you manage it "
+    "yourself). Contact support if that doesn't fix it."
 )
 
 
@@ -127,6 +128,17 @@ def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalforme
         code=err.code,
         code_name="malformed_csv_row",
     )
+
+
+_ARROW_PARQUET_READER_THRIFT_ERROR = "deserialize thrift"
+_PARQUET_V3_READER_THRIFT_ERROR = "Failed to parse Parquet Thrift metadata"
+_PARQUET_V3_READER_THRIFT_ERROR_CODES = ("INCORRECT_DATA", "CANNOT_EXTRACT_TABLE_STRUCTURE")
+
+
+def _is_unparseable_parquet_metadata_error(code_name: str, message: str) -> bool:
+    if code_name == "STD_EXCEPTION":
+        return _ARROW_PARQUET_READER_THRIFT_ERROR in message
+    return code_name in _PARQUET_V3_READER_THRIFT_ERROR_CODES and _PARQUET_V3_READER_THRIFT_ERROR in message
 
 
 def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
@@ -163,6 +175,34 @@ def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType"
         code=err.code,
         code_name="unknown_type",
     )
+
+
+# NOT_IMPLEMENTED covers many ClickHouse limits, and PostHog-generated SQL can reach some of them. Only
+# these message shapes are known to come from the SQL a person wrote. Every other shape stays internal,
+# so error tracking still receives it.
+USER_CAUSED_NOT_IMPLEMENTED_MESSAGES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("Correlated subqueries", "Cannot decorrelate query", "Lateral joins are not supported"),
+        "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+        "Rewrite it as a JOIN, or move the filter into the outer query.",
+    ),
+    (
+        ("RANGE OFFSET frame",),
+        "A window frame with RANGE and an offset doesn't work with the type of this ORDER BY column. "
+        "Use a ROWS frame, or change the type of the ORDER BY column.",
+    ),
+    (
+        ("Conversion between numeric types and UUID is not supported",),
+        "A number is being converted to a UUID, which ClickHouse doesn't support. Put the UUID value in quotes.",
+    ),
+)
+
+
+def _user_caused_not_implemented_message(raw_message: str) -> str | None:
+    for needles, message in USER_CAUSED_NOT_IMPLEMENTED_MESSAGES:
+        if any(needle in raw_message for needle in needles):
+            return message
+    return None
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
@@ -218,11 +258,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # A bad row in a self-managed CSV file. Table validation reads only the first rows, so a later
         # bad row first shows up at query time. The raw message holds row contents, so it stays hidden.
         return _wrap_malformed_csv_row_error(err)
-    elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
-        # A Parquet file with corrupted or oversized thrift metadata (e.g.
-        # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
-        # ClickHouse surfaces this as a raw STD_EXCEPTION (code 1001), so translate it
-        # into an actionable message instead of leaking the internals.
+    elif _is_unparseable_parquet_metadata_error(name, err.message):
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
         )
@@ -268,6 +304,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
+    elif name == "NOT_IMPLEMENTED" and (fixed_message := _user_caused_not_implemented_message(err.message)):
+        return CHQueryErrorNotImplemented(fixed_message, code=err.code, code_name="not_implemented")
 
     # all other errors
     else:
@@ -286,7 +324,15 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     if isinstance(e, ServerException):
-        return look_up_clickhouse_error_code_meta(e).get_category()
+        meta = look_up_clickhouse_error_code_meta(e)
+        # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
+        # lost its raw text to the fixed message, so its class carries the decision. A raw error still
+        # holds the ClickHouse text.
+        if meta.name == "NOT_IMPLEMENTED" and (
+            isinstance(e, CHQueryErrorNotImplemented) or _user_caused_not_implemented_message(e.message or "")
+        ):
+            return QueryErrorCategory.USER_ERROR
+        return meta.get_category()
 
     # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
     # so it classifies with the other rate-limited capacity errors. Checked before its parent below.
@@ -407,6 +453,10 @@ class CHQueryErrorUnknownTable(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorNotImplemented(ExposedCHQueryError):
+    pass
+
+
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
@@ -466,12 +516,19 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
-    20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
+    20: ErrorCodeMeta(
+        "NUMBER_OF_COLUMNS_DOESNT_MATCH",
+        user_safe="The number of columns doesn't match. Make sure both sides of an IN, and each part of a UNION, "
+        "have the same number of columns.",
+    ),
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
     26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING"),
-    27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED"),
+    27: ErrorCodeMeta(
+        "CANNOT_PARSE_INPUT_ASSERTION_FAILED",
+        user_safe="Cannot parse a value in the expected format. Check the format of your data and your type conversions.",
+    ),
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
@@ -648,7 +705,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True, category=QueryErrorCategory.RATE_LIMITED),
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
-    206: ErrorCodeMeta("ALIAS_REQUIRED"),
+    206: ErrorCodeMeta(
+        "ALIAS_REQUIRED",
+        user_safe="A subquery or table function in a JOIN needs an alias. Add one, for example JOIN (SELECT ...) AS sub.",
+    ),
     207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
@@ -891,7 +951,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     472: ErrorCodeMeta("READONLY_SETTING"),
     473: ErrorCodeMeta("DEADLOCK_AVOIDED"),
     474: ErrorCodeMeta("INVALID_TEMPLATE_FORMAT"),
-    475: ErrorCodeMeta("INVALID_WITH_FILL_EXPRESSION"),
+    475: ErrorCodeMeta(
+        "INVALID_WITH_FILL_EXPRESSION",
+        user_safe="Invalid WITH FILL expression. FROM and TO must be constants of the same type as the column you "
+        "order by. STEP must be a number, or an interval such as INTERVAL 1 DAY for date and time columns.",
+    ),
     476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY", user_safe=True),
     477: ErrorCodeMeta("INVALID_USAGE_OF_INPUT"),
     478: ErrorCodeMeta("UNKNOWN_POLICY"),

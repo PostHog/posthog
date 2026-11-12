@@ -9,7 +9,7 @@ from posthog.dataclasses import frozen
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
 from products.signals.backend.spend import refresh_task_spend
 from products.signals.backend.trial.funding import TrialFunding
-from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.policy import TrialExecutionRefused, TrialRefused
 from products.signals.backend.trial.reports import context_funding, report_funding
 from products.tasks.backend.facade.api import get_task_run
 
@@ -30,8 +30,14 @@ class TaskTrialAdmission:
         if report_id is not None:
             SignalReport.objects.select_for_update().get(team_id=self.admission.team.id, id=report_id)
 
-    def bind(self, *, origin: str, stage: str, report_id: UUID | None) -> dict[str, str | int]:
+    def bind(
+        self, *, origin: str, stage: str, report_id: UUID | None, task_runtime: str, model_access: str
+    ) -> dict[str, str | int]:
         funding = self.admission.bind(report_id=report_id if stage == "research" else None)
+        if funding.funding == "trial" and (
+            (task_runtime == "pi" and origin != "signals_scout") or model_access == "own-subscription"
+        ):
+            raise TrialExecutionRefused()
         return {**funding.as_dict(), "stage": "scout" if origin == "signals_scout" else stage}
 
 

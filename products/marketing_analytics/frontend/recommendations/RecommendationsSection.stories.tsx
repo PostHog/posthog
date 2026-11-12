@@ -293,7 +293,7 @@ const meta: Meta<typeof RecommendationsSection> = {
         layout: 'fullscreen',
         mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-30d`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&date_from=-30d`,
         featureFlags: [
             FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,

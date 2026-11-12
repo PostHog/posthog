@@ -325,11 +325,13 @@ LemonDialog.open = (props: LemonDialogProps) => {
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
     // Each dialog gets a unique key so nested dialogs don't share the same
-    // lemonDialogLogic instance and corrupt each other's form state.
+    // lemonDialogLogic instance and corrupt each other's form state. A caller that passes its own
+    // key must keep it unique, and uses it to reach the form, for example to show a server error
+    // under a field.
     root.render(
         <LemonFormDialog
             {...props}
-            dialogKey={uuid()}
+            dialogKey={props.dialogKey ?? uuid()}
             onAfterClose={() => {
                 props.onAfterClose?.()
                 onDestroy()

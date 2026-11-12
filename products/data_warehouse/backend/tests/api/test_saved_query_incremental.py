@@ -110,6 +110,56 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert response.json()["attr"] == "incremental"
         assert expected in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("nullable", CONFIG, "Nullable(DateTime64(6, 'UTC'))", "can be null"),
+            ("missing", {**CONFIG, "unique_key": ["event"]}, "DateTime64(6, 'UTC')", "not in the query's output"),
+        ]
+    )
+    def test_a_unique_key_that_cannot_identify_a_row_is_refused_at_save(
+        self, _name: str, incremental: dict, day_type: str, expected: str
+    ):
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "daily_events",
+                "query": {"kind": "HogQLQuery", "query": GROUPED},
+                "types": [["day", day_type], ["c", "UInt64"]],
+                "incremental": incremental,
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "incremental"
+        assert expected in response.json()["detail"]
+        assert response.json()["extra"] == {"blocked_keys": ["unique_key"]}
+
+    @parameterized.expand(
+        [
+            ("incremental", {"incremental": CONFIG}, ["day", "day"], 400),
+            ("scheduled", {"sync_frequency": "24hour"}, ["day", "Day"], 400),
+            ("not_materialized", {}, ["day", "day"], 201),
+        ]
+    )
+    def test_a_repeated_output_column_is_refused_when_the_view_materializes(
+        self, _name: str, materialization: dict, names: list[str], expected_status: int
+    ):
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "daily_events",
+                "query": {"kind": "HogQLQuery", "query": GROUPED},
+                "types": [[name, "DateTime64(6, 'UTC')"] for name in names] + [["c", "UInt64"]],
+                **materialization,
+            },
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert response.json()["attr"] == "query"
+            for name in set(names):
+                assert f'"{name}"' in response.json()["detail"]
+
     def test_a_disabled_config_skips_the_eligibility_check(self):
         """Turning it off must never be blocked by why it could not be turned on."""
         response = self._create(

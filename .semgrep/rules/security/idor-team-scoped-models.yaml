@@ -69,6 +69,8 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
+                              |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
                               |AgentApplication
@@ -200,6 +202,7 @@ rules:
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -311,6 +314,7 @@ rules:
                               |MessageTemplate
                               |Metric
                               |MetricDailyQueryCount
+                              |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
@@ -360,6 +364,9 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |Release
+                              |ReleaseImportState
+                              |ReleaseAutoLinkedFlag
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -427,11 +434,13 @@ rules:
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalSourceFilterState
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
@@ -446,6 +455,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SlackThreadJoin
+                              |SlackDailyFocus
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -474,6 +484,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -485,6 +496,9 @@ rules:
                               |EmailChannel
                               |EvaluationReport
                               |EvaluationBackfill
+                              |EvalSuggestion
+                              |EvalSuggestionRun
+                              |EvalSuggestionTeamState
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -724,6 +738,7 @@ rules:
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -874,6 +889,9 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |Release
+                        |ReleaseImportState
+                        |ReleaseAutoLinkedFlag
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation
@@ -941,11 +959,13 @@ rules:
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalSourceFilterState
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
@@ -960,6 +980,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SlackThreadJoin
+                        |SlackDailyFocus
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -988,6 +1009,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -998,6 +1020,9 @@ rules:
                         |EmailChannel
                         |EvaluationReport
                         |EvaluationBackfill
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Text
                         |Threshold
                         |ToleratedHash
@@ -1441,6 +1466,7 @@ rules:
                               |Role
                               |RoleExternalReference
                               |RoleMembership
+                              |SandboxSenderOrganizationBlock
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1525,6 +1551,7 @@ rules:
                         |Role
                         |RoleExternalReference
                         |RoleMembership
+                        |SandboxSenderOrganizationBlock
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)
@@ -1766,6 +1793,7 @@ rules:
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
+                              |InsightAgentRead
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
@@ -1843,6 +1871,7 @@ rules:
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
+                        |InsightAgentRead
                         |InsightViewed
                         |KernelRuntime
                         |PersonalInboxRanking

@@ -4859,6 +4859,39 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 120
         assert config.enabled_by_id == self.user.id
 
+    @parameterized.expand(
+        [
+            ("upsert_unattributed", "upsert", False, False, "caller"),
+            ("upsert_attributed", "upsert", True, False, "other"),
+            ("upsert_locked", "upsert", False, True, None),
+            ("partial_update_unattributed", "partial_update", False, False, "caller"),
+            ("partial_update_attributed", "partial_update", True, False, "other"),
+            ("partial_update_locked", "partial_update", False, True, None),
+        ]
+    )
+    def test_enabling_an_already_enabled_scout_records_enabled_by_only_when_unset(
+        self, _name: str, path: str, attributed: bool, locked: bool, expected: str | None
+    ) -> None:
+        self._make_skill("signals-scout-fresh")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            enabled_by=other if attributed else None,
+            lifecycle_locked=locked,
+        )
+
+        if path == "upsert":
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fresh", "enabled": True}, format="json"
+            )
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled_by_id == {"caller": self.user.id, "other": other.id, None: None}[expected]
+
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")
         SignalScoutConfig.objects.create(

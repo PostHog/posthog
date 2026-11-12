@@ -41,6 +41,8 @@ CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
 # A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
 UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+# The `IntegrationUsage.type` of a warehouse destination that writes through an integration row.
+WAREHOUSE_DESTINATION_USAGE_TYPE = "warehouse_destination"
 
 
 class SharedCredentialsError(Exception):
@@ -71,6 +73,14 @@ class SharedCredentialsEdit(StrEnum):
     REFUSE = "refuse"
     # The person confirmed the edit: write the shared row.
     CONFIRMED = "confirmed"
+
+
+class LegacyHistoryTableError(Exception):
+    """An incremental schema's history table uses the legacy `_cdc` naming.
+
+    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
+    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
+    """
 
 
 class UnsupportedSyncTypeError(ValueError):
@@ -751,3 +761,9 @@ class RepartitionRequest:
 class StaffActionResult:
     ok: bool
     message: str
+
+
+@dataclass(frozen=True)
+class DestinationReferencingIntegration:
+    id: UUID
+    name: str
