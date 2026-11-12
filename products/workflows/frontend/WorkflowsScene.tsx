@@ -11,6 +11,7 @@ import {
     useValues,
 } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { Suspense } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -18,10 +19,12 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -46,12 +49,15 @@ import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
-import { WorkflowsListV2 } from './Workflows/WorkflowsListV2/WorkflowsListV2'
-import { workflowsListV2Logic } from './Workflows/WorkflowsListV2/workflowsListV2Logic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { templateTypeForListType } from './Workflows/workflowTypeFilters'
 import { WorkflowsTemplates } from './WorkflowsTemplates'
+
+// Only teams with `workflows-list-v2` see the new list and its folders, so that code loads in its own chunk.
+const WorkflowsListV2 = lazyWithRetry(() =>
+    import('./Workflows/WorkflowsListV2/WorkflowsListV2').then((m) => ({ default: m.WorkflowsListV2 }))
+)
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
 const WORKFLOW_SCENE_TABS = [
@@ -223,7 +229,13 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const workflowsTab = {
         label: 'Workflows',
         key: 'workflows' as const,
-        content: listV2 ? <WorkflowsListV2 /> : <WorkflowsTable />,
+        content: listV2 ? (
+            <Suspense fallback={<Spinner />}>
+                <WorkflowsListV2 />
+            </Suspense>
+        ) : (
+            <WorkflowsTable />
+        ),
         link: urls.workflows(),
     }
     const showsWorkflowActions = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
@@ -238,9 +250,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         // Messaging tab sees messaging templates first.
         setTypeFilter(
             currentTab === 'workflows'
-                ? listV2
-                    ? workflowsListV2Logic.values.templateTypeFilter
-                    : templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
+                ? templateTypeForListType(workflowsLogic.findMounted()?.values.filters.type ?? 'all')
                 : 'all'
         )
         startNewWorkflow()
