@@ -79,6 +79,8 @@ STATUS_LABELS = {
 }
 ERROR_PREVIEW_LENGTH = 80
 ERROR_SEARCH_LENGTH = 200
+# Errors without digits, such as one per missing table name, can make a group each. The page stays readable.
+MAX_GROUPS_SHOWN = 50
 
 
 def _truncate(text: str, length: int) -> str:
@@ -453,10 +455,7 @@ def reenable_schema(request: HttpRequest, form: forms.Form | None) -> HttpRespon
     if result.reenabled:
         return _report(request, StaffActionResult(ok=True, message="Syncing is on again. The schedule is unpaused."))
     if result.failed:
-        message = (
-            "Couldn't re-enable syncing. Syncing may be on with the schedule still paused. Check the schedule in "
-            "Temporal, then use Unpause schedule or try again."
-        )
+        message = "Couldn't re-enable syncing, so syncing stays off. Check the schedule in Temporal, then try again."
     else:
         message = "The schema changed since this page loaded. Reload the page and check its state."
     return _report(request, StaffActionResult(ok=False, message=message))
@@ -697,7 +696,7 @@ class ReenableToolPage:
         return Table(
             title="By source type and error",
             columns=("Source type", "Error starts with", "Schemas", "Newest (UTC)", "Oldest (UTC)"),
-            rows=tuple(row(group) for group in summary.groups),
+            rows=tuple(row(group) for group in summary.groups[:MAX_GROUPS_SHOWN]),
             numeric_columns=(2,),
             empty_text="No auto-disabled schemas match these filters.",
         )
@@ -733,6 +732,13 @@ class ReenableToolPage:
             ),
             cls.groups(summary, selection),
         ]
+        if len(summary.groups) > MAX_GROUPS_SHOWN:
+            blocks.append(
+                Notice(
+                    text=f"The table shows the {MAX_GROUPS_SHOWN} largest of {len(summary.groups)} groups. "
+                    "Filter by source type or error to see the others."
+                )
+            )
         if summary.grouped_count < summary.total:
             blocks.append(Notice(text=f"The groups count only the newest {summary.grouped_count} schemas."))
         blocks += [
@@ -834,8 +840,7 @@ def _result_page(result: SchemaReenableResult, selection: AutoDisabledSchemaFilt
         blocks += [
             Notice(
                 text=(
-                    "Failed schemas may have syncing on with the schedule still paused. Open each one to check its "
-                    "schedule, then unpause it or re-enable it again."
+                    "Failed schemas keep syncing off. Open each one to check its schedule in Temporal, then try again."
                 ),
                 tone=Tone.DESTRUCTIVE,
             ),

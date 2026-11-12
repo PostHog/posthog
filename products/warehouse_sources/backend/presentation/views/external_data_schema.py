@@ -2214,6 +2214,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         elif adds_a_mask:
             self._purge_history_staging_for_mask(instance)
 
+        if should_sync is False and instance.auto_disabled_at is not None:
+            # The customer chose to keep the schema off, so it no longer counts as stopped by PostHog.
+            # Staff tools re-enable only stopped schemas, and the failure digest reports only those.
+            validated_data["auto_disabled_at"] = None
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -3286,7 +3291,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if direct_engine_adapter is not None:
                 direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
-            instance.save(update_fields=["should_sync", "updated_at"])
+            instance.auto_disabled_at = None
+            instance.save(update_fields=["should_sync", "auto_disabled_at", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
         # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer

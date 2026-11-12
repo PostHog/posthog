@@ -38,13 +38,15 @@ class TestReenableAutoDisabledSchemasTool(BaseTest):
             source_type="Postgres",
         )
 
-    def _schema(self, name: str, *, stopped_hours_ago: float | None = 1, **kwargs) -> ExternalDataSchema:
+    def _schema(
+        self, name: str, *, stopped_hours_ago: float | None = 1, latest_error: str = TIMEOUT_ERROR, **kwargs
+    ) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             team_id=self.team.pk,
             source=self.source,
             name=name,
             should_sync=False,
-            latest_error=TIMEOUT_ERROR,
+            latest_error=latest_error,
             auto_disabled_at=timezone.now() - timedelta(hours=stopped_hours_ago)
             if stopped_hours_ago is not None
             else None,
@@ -77,6 +79,18 @@ class TestReenableAutoDisabledSchemasTool(BaseTest):
         # The group links to the same tool, narrowed to its source type and error start.
         assert "error=OperationalError%3A+connection+to+server+at" in content
         assert f"{SCHEMA_TOOL_URL}?schema=" in content
+
+    def test_page_shows_only_the_largest_error_groups(self) -> None:
+        for name, table in (("public.orders", "orders"), ("public.orders_copy", "orders"), ("public.users", "users")):
+            self._schema(name, latest_error=f'relation "public.{table}" does not exist')
+
+        with patch("products.warehouse_sources.backend.console.MAX_GROUPS_SHOWN", 1):
+            response = self.client.get(f"{REENABLE_URL}?days=7")
+
+        content = response.content.decode()
+        assert "The table shows the 1 largest of 2 groups." in content
+        assert "error=relation+%22public.orders%22+does+not+exist" in content
+        assert "error=relation+%22public.users%22" not in content
 
     @parameterized.expand([("days_not_offered", "days=5"), ("team_not_a_number", "team=abc")])
     def test_page_refuses_invalid_filters(self, _name: str, query: str) -> None:
@@ -192,7 +206,8 @@ class TestReenableAutoDisabledSchemasTool(BaseTest):
         assert result.status_code == 200
         assert "Failed schemas" in content
         assert f"{SCHEMA_TOOL_URL}?schema={first.id}" in content
-        assert self._syncing(second) == [True]
+        # The failed re-enable rolls back, so the schema does not stay on with its schedule paused.
+        assert self._syncing(first, second) == [False, True]
         assert unpause.call_count == 2
 
     @patch(f"{_TEMPORAL}.unpause_external_data_schedule")

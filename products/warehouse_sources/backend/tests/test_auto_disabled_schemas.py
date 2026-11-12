@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.logic.auto_disabled_schemas import error
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
+SCHEMA_VIEWS = "products.warehouse_sources.backend.presentation.views.external_data_schema"
 TIMEOUT_ERROR = "OperationalError: connection to server at 10.0.0.1, port 5432 failed: timeout expired"
 AUTH_ERROR = "password authentication failed for user analytics"
 # Stands for the second team, whose ID is known only once the test runs.
@@ -154,3 +156,29 @@ class TestAutoDisabledSchemaQueries(BaseTest):
 
 def _close(actual: datetime, expected: datetime) -> bool:
     return abs(actual - expected) < timedelta(seconds=1)
+
+    @parameterized.expand(
+        [
+            ("turns_syncing_off", {"should_sync": False}, False),
+            ("changes_another_field", {"sync_frequency": "6hour"}, True),
+        ]
+    )
+    def test_customer_turning_syncing_off_takes_the_schema_out_of_the_picker(
+        self, _name: str, payload: dict, still_listed: bool
+    ) -> None:
+        schema = self._schema("pg_timeout")
+        self.client.force_login(self.user)
+
+        with (
+            patch(f"{SCHEMA_VIEWS}.external_data_workflow_exists", return_value=False),
+            patch(f"{SCHEMA_VIEWS}.sync_external_data_job_workflow"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                payload,
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        selection = select_auto_disabled_schemas_for_staff(AutoDisabledSchemaFilter(days=7))
+        assert [row.name for row in selection.rows] == (["pg_timeout"] if still_listed else [])

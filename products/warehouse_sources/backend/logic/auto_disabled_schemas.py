@@ -11,6 +11,7 @@ from time import monotonic
 from uuid import UUID
 
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, QuerySet
 from django.db.models.functions import Left
 from django.utils import timezone
@@ -184,8 +185,9 @@ class AutoDisabledSchemas:
     ) -> SchemaReenableResult:
         """Turns syncing on for each target that is still off, not deleted, and has the stop time staff saw.
 
-        A failure on one schema is logged and reported, and the others still run. With a time budget, targets
-        not started when it runs out are returned as not attempted, and nothing is done to them.
+        A failure on one schema is logged and reported, its change is rolled back, and the others still run. With
+        a time budget, targets not started when it runs out are returned as not attempted, and nothing is done to
+        them.
         """
         reenabled: list[UUID] = []
         skipped: list[UUID] = []
@@ -196,24 +198,29 @@ class AutoDisabledSchemas:
             if deadline is not None and monotonic() >= deadline:
                 not_attempted.append(target.schema_id)
                 continue
-            # Read right before the write, so a schema that changed since staff saw it stays as it is. The tool
-            # sends only stamped targets, and a stamp never equals null, so it cannot turn on a schema the user
-            # turned off. The command also sends null stamps, for schemas it matched by error alone.
-            unchanged = (
-                ExternalDataSchema.objects.filter(
-                    id=target.schema_id,
-                    team_id=target.team_id,
-                    should_sync=False,
-                    auto_disabled_at=target.auto_disabled_at,
-                )
-                .exclude(deleted=True)
-                .exists()
-            )
-            if not unchanged:
-                skipped.append(target.schema_id)
-                continue
             try:
-                update_should_sync(schema_id=str(target.schema_id), team_id=target.team_id, should_sync=True)
+                with transaction.atomic():
+                    # The row lock holds from the check to the save, so a customer who deletes or turns off the
+                    # schema in between waits, and their change lands after this one instead of being overwritten.
+                    # The tool sends only stamped targets, and a stamp never equals null, so it cannot turn on a
+                    # schema the user turned off. The command also sends null stamps, for schemas it matched by
+                    # error alone. A Temporal failure inside rolls the save back.
+                    unchanged = (
+                        ExternalDataSchema.objects.select_for_update()
+                        .filter(
+                            id=target.schema_id,
+                            team_id=target.team_id,
+                            should_sync=False,
+                            auto_disabled_at=target.auto_disabled_at,
+                        )
+                        .exclude(deleted=True)
+                        .only("id")
+                        .first()
+                    )
+                    if unchanged is None:
+                        skipped.append(target.schema_id)
+                        continue
+                    update_should_sync(schema_id=str(target.schema_id), team_id=target.team_id, should_sync=True)
             except Exception:
                 logger.exception(
                     "auto_disabled_schema_reenable_failed", schema_id=str(target.schema_id), team_id=target.team_id
