@@ -816,5 +816,80 @@
     },
     "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre }}</p></td></tr></table><p>Body</p>",
     "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
+  },
+  {
+    "name": "each two block params over an array",
+    "source": "{{#each xs as |x i|}}{{i}}:{{x.name}};{{/each}}",
+    "data": {
+      "xs": [
+        {
+          "name": "Hat"
+        },
+        {
+          "name": "Shoe"
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{{ forloop.index0 }}:{{ item.name }};{% endfor %}",
+    "expected": "0:Hat;1:Shoe;"
+  },
+  {
+    "name": "if literal zero",
+    "source": "{{#if 0}}a{{else}}b{{/if}}",
+    "data": {},
+    "liquid": "{% if false %}a{% else %}b{% endif %}",
+    "expected": "b"
+  },
+  {
+    "name": "if literal empty string",
+    "source": "{{#if \"\"}}a{{else}}b{{/if}}",
+    "data": {},
+    "liquid": "{% if false %}a{% else %}b{% endif %}",
+    "expected": "b"
+  },
+  {
+    "name": "if literal zero with includeZero",
+    "source": "{{#if 0 includeZero=true}}a{{else}}b{{/if}}",
+    "data": {},
+    "liquid": "{% if true %}a{% else %}b{% endif %}",
+    "expected": "a"
+  },
+  {
+    "name": "unless literal zero",
+    "source": "{{#unless 0}}a{{else}}b{{/unless}}",
+    "data": {},
+    "liquid": "{% unless false %}a{% else %}b{% endunless %}",
+    "expected": "a"
+  },
+  {
+    "name": "inverted each",
+    "source": "{{^each xs}}empty{{else}}present{{/each}}",
+    "data": {
+      "xs": []
+    },
+    "liquid": "{% for item in variables.xs %}present{% else %}empty{% endfor %}",
+    "expected": "empty"
+  },
+  {
+    "name": "inverted each with items",
+    "source": "{{^each xs}}empty{{else}}present{{/each}}",
+    "data": {
+      "xs": [
+        1
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}present{% else %}empty{% endfor %}",
+    "expected": "present"
+  },
+  {
+    "name": "inverted with",
+    "source": "{{^with u}}none{{else}}{{name}}{{/with}}",
+    "data": {
+      "u": {
+        "name": "Ada"
+      }
+    },
+    "liquid": "{% if variables.u and variables.u != 0 and variables.u.size != 0 %}{{ variables.u.name }}{% else %}none{% endif %}",
+    "expected": "Ada"
   }
 ]

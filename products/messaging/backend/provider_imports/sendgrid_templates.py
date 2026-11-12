@@ -13,6 +13,7 @@ import re
 import html as html_lib
 from collections.abc import Callable, Iterator
 from dataclasses import field, replace
+from functools import partial
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -657,6 +658,9 @@ class _Converter:
         try:
             if block.name not in _BLOCKS and not (block.inverted and not block.params):
                 raise _Unconvertible(block.name)
+            if block.inverted and block.name in ("each", "with"):
+                # `{{^each xs}}a{{else}}b{{/each}}` is the block with its two parts swapped.
+                block = replace(block, body=block.inverse, inverse=block.body, inverted=False)
             if block.name == "each":
                 return self._each(block, frames)
             if block.name == "with":
@@ -739,8 +743,10 @@ class _Converter:
             return _Condition(
                 prelude=f"{{% assign {value} = {self._value(param, frames)} | plus: 0 %}}", condition=f"{value} != 0"
             )
+        if isinstance(param, _Literal):
+            return _Condition(prelude="", condition="true" if _literal_truthy(param, keeps_zero) else "false")
         value = self._value(param, frames)
-        if isinstance(param, _Literal) or value in ("forloop.first", "forloop.last"):
+        if value in ("forloop.first", "forloop.last"):
             return _Condition(prelude="", condition=value)
         zero = "" if keeps_zero else f" and {value} != 0"
         return _Condition(prelude="", condition=f"{value}{zero} and {value}.size != 0")
@@ -774,7 +780,8 @@ class _Converter:
         depth = sum(1 for frame in frames if frame.is_loop)
         name = f"item{depth + 1}" if depth else "item"
         names: dict[str, str] = {}
-        over_object = _uses_key(block.body) or len(block.block_params) == 2
+        # Handlebars gives `as |x i|` the index for an array and the key for an object. Data is far more often an array.
+        over_object = _uses_key(block.body)
         value, key = (f"{name}[1]", f"{name}[0]") if over_object else (name, None)
         if block.block_params:
             names[block.block_params[0]] = value
@@ -797,6 +804,16 @@ class _Converter:
         body = self.nodes(block.body, (*frames, _Frame(prefix=value, names=names)))
         otherwise = f"{{% else %}}{self.nodes(block.inverse, frames)}" if block.inverse else ""
         return f"{prelude}{{% if {condition} %}}{body}{otherwise}{{% endif %}}"
+
+
+def _literal_truthy(literal: _Literal, keeps_zero: bool) -> bool:
+    if literal.liquid in ("nil", "false"):
+        return False
+    if literal.liquid.startswith(("'", '"')):
+        return literal.text != ""
+    if literal.liquid == "true":
+        return True
+    return keeps_zero or float(literal.liquid) != 0
 
 
 def _is_nil(param: object) -> bool:
@@ -933,11 +950,11 @@ def _not_content_spans(html: str) -> Iterator[_Span]:
         position = end
 
 
-def _map_content(html: str, convert: Callable[[str], str]) -> str:
+def _map_content(html: str, convert: Callable[[str], str], keep: Callable[[str], str]) -> str:
     parts = []
     position = 0
     for span in _not_content_spans(html):
-        parts += [convert(html[position : span.start]), html[span.start : span.end]]
+        parts += [convert(html[position : span.start]), keep(html[span.start : span.end])]
         position = span.end
     parts.append(convert(html[position:]))
     return "".join(parts)
@@ -955,20 +972,26 @@ def _convert_legacy(source: str | None, is_html: bool, tags: list[str]) -> tuple
         raw = " | raw" if is_html else ""
         return f'{{{{ variables.{match.group(1)} | default: "{match.group(0)}"{raw} }}}}'
 
-    def convert_content(content: str) -> str:
+    def convert_content(content: str, substitute: bool = True) -> str:
         pieces = []
         position = 0
         # A legacy template isn't Handlebars, so braces in it are plain text.
         for match in _ANY_LIQUID_OPENING.finditer(content):
+            between = content[position : match.start()]
             pieces += [
-                _SUBSTITUTION_TAG.sub(convert, content[position : match.start()]),
+                _SUBSTITUTION_TAG.sub(convert, between) if substitute else between,
                 liquid_literal(match.group(0)),
             ]
             position = match.end()
-        pieces.append(_SUBSTITUTION_TAG.sub(convert, content[position:]))
+        rest = content[position:]
+        pieces.append(_SUBSTITUTION_TAG.sub(convert, rest) if substitute else rest)
         return "".join(pieces)
 
-    converted = _map_content(source, convert_content) if is_html else convert_content(source)
+    converted = (
+        _map_content(source, convert_content, partial(convert_content, substitute=False))
+        if is_html
+        else convert_content(source)
+    )
     return _convert_asm_tags(converted, is_html, converter), converter
 
 
@@ -1009,6 +1032,8 @@ def plain_text_from_html(html: str) -> str:
     text = html_lib.unescape(_HTML_TAG.sub("", text))
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    # Decoded entities and removed HTML tags can leave braces that read as Liquid, like `&#123;&#123; x &#125;&#125;`.
+    text = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), text)
     # Plain text has no escaping, so `| raw` has nothing to do in it.
     return _LIQUID_SLOT.sub(lambda match: tags[int(match.group(1))].replace(" | raw", ""), text)
 

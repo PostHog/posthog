@@ -7,6 +7,7 @@ people. A send to any address reads the blocking rules this import fills, so Pos
 
 import json
 import hashlib
+from bisect import bisect_right
 from collections import Counter
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -82,7 +83,8 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     "group_unsubscribes": (("asm.groups.read",), ("suppression.read",)),
     "templates": (("templates.read",), ("templates.versions.read",)),
     "designs": (("design_library.read",),),
-    "single_sends": (("marketing.read",),),
+    # A Single Send built from a design reads that design.
+    "single_sends": (("marketing.read",), ("design_library.read",)),
     "lists": (("marketing.read",),),
     "domains": (("whitelabel.read",),),
 }
@@ -193,7 +195,7 @@ class SendGridImportProvider(ImportProvider):
             description=(
                 "Copies the content of each Single Send into your PostHog library as a template. Nothing sends, and "
                 "anything scheduled in SendGrid stays scheduled there. Needs marketing.read, which SendGrid also lets "
-                "write to your marketing data."
+                "write to your marketing data, and design_library.read."
             ),
             count_labels=(
                 ("created", "New templates"),
@@ -453,12 +455,13 @@ def _fetch_group_unsubscribes(
         group_id = int(group["id"])
         if start_group is not None and group_id < start_group:
             continue
-        offset = int(resume["offset"]) if resume and group_id == start_group else 0
-        # This endpoint has no paging, so the whole group arrives at once. Sorted, a saved offset still means the same
-        # place when a retry reads the group again.
+        # This endpoint has no paging, so the whole group arrives at once. A retry continues after the last saved
+        # address, which still holds when members join or leave between attempts.
         emails = sorted(
             str(email) for email in _read_unless_deleted(client, f"/v3/asm/groups/{group_id}/suppressions") or []
         )
+        after = resume.get("after") if resume and group_id == start_group else None
+        offset = bisect_right(emails, str(after)) if after is not None else 0
         category = _to_category(group)
         while offset < len(emails) or (offset == 0 and not emails):
             chunk = emails[offset : offset + OPT_OUT_PAGE_SIZE]
@@ -466,7 +469,7 @@ def _fetch_group_unsubscribes(
             yield ImportPage(
                 processed=len(chunk),
                 save=partial(_save_group_unsubscribes, context, category, chunk),
-                checkpoint={"key": fingerprint, "group": group_id, "offset": offset},
+                checkpoint={"key": fingerprint, "group": group_id, "after": chunk[-1] if chunk else ""},
             )
             if not emails:
                 break
@@ -595,12 +598,15 @@ def _create(
     counts: Counter[str],
     sender: dict[str, Any] | None = None,
     category_id: str | None = None,
+    reply_to: str = "",
 ) -> ImportItem:
     email: dict[str, Any] = {"subject": converted.subject, "html": converted.html}
     if converted.text:
         email["text"] = converted.text
     if sender:
         email["from"] = sender
+    if reply_to:
+        email["replyTo"] = reply_to
     fields: dict[str, Any] = {
         "name": name,
         "key": key,
@@ -728,7 +734,20 @@ def _save_single_sends(
             *sender_notes,
             *group_notes,
         )
-        items.append(_create(context, key, name, converted, notes, "", counts, sender, category_id))
+        items.append(
+            _create(
+                context,
+                key,
+                name,
+                converted,
+                notes,
+                "",
+                counts,
+                sender,
+                category_id,
+                _single_send_reply_to(config, senders),
+            )
+        )
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
 
 
@@ -765,6 +784,13 @@ def _single_send_sender(
         {"integrationId": integration.id, "email": address, "name": str(sender.get("from_name") or "")},
         () if integration.config.get("verified") else (f"{address} isn't verified in PostHog yet.",),
     )
+
+
+def _single_send_reply_to(config: dict[str, Any], senders: Mapping[int, dict[str, Any] | None]) -> str:
+    sender_id = config.get("sender_id")
+    sender = senders.get(sender_id) if isinstance(sender_id, int) else None
+    reply_to = str((sender or {}).get("reply_to") or "")
+    return "" if reply_to.lower() == str((sender or {}).get("from_email") or "").lower() else reply_to
 
 
 def _single_send_category(team_id: int, config: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:

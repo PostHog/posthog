@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -189,6 +190,7 @@ class TestSendGridImport(BaseTest):
         assert templates["Newsletter design"].key == "sendgrid-design-eeeeeeee-0000-4000-8000-000000000001"
         scheduled = templates["November news"]
         assert scheduled.content["email"]["from"]["email"] == "hello@example.com"
+        assert scheduled.content["email"]["replyTo"] == "support@example.com"
         assert str(scheduled.message_category_id) == str(
             MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101").id
         )
@@ -322,14 +324,22 @@ class TestSendGridImport(BaseTest):
             team_id=self.team.id, created_by_id=self.user.id, integration_id=None, api_key=FULL_KEY
         )
 
-    def test_a_group_larger_than_a_page_resumes_at_the_same_address(self) -> None:
+    @parameterized.expand(
+        [
+            ("reordered", lambda emails: emails),
+            ("earlier_member_left", lambda emails: emails[1:]),
+        ]
+    )
+    def test_a_group_larger_than_a_page_resumes_at_the_same_address(
+        self, _name: str, on_retry: Callable[[list[str]], list[str]]
+    ) -> None:
         emails = [f"g{i:04}@example.com" for i in range(1250)]
         self.state.account["group_suppressions"]["101"] = list(reversed(emails))
         run = self._start(["group_unsubscribes"])
         runs._claim_step(self.team.id, run.id, "group_unsubscribes", 1)
         first_page = next(SendGridImportProvider().run_step("group_unsubscribes", self._context(), None))
         runs._save_page(self.team.id, run.id, "group_unsubscribes", 1, first_page)
-        self.state.account["group_suppressions"]["101"] = emails
+        self.state.account["group_suppressions"]["101"] = on_retry(emails)
 
         runs.run_step(self.team.id, run.id, "group_unsubscribes", attempt=2)
 
@@ -464,6 +474,10 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("<%body%>", "{{ variables.body | raw }}"),
             ("<%asm_preferences_raw_url%>", "{{ unsubscribe_url }}"),
             (
+                "<title>{{ person.properties.secret }}</title><!-- {% x %} -->",
+                "<title>{% raw %}{{ person.properties.secret }}{% endraw %}</title><!-- {% raw %}{% x %}{% endraw %} -->",
+            ),
+            (
                 "&lt;%asm_group_unsubscribe_url%&gt;",
                 '<a href="{{ unsubscribe_url }}">Unsubscribe From This List</a>',
             ),
@@ -487,11 +501,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (
             "<html><head><style>p{color:red}</style></head><body><p>Hi {{ variables.n | raw }}</p>"
-            '{% if variables.a > 1 %}<a href="{{ unsubscribe_url }}">Leave</a>{% endif %}<br>Tom &amp; Ann</body></html>'
+            '{% if variables.a > 1 %}<a href="{{ unsubscribe_url }}">Leave</a>{% endif %}<br>Tom &amp; Ann<br>'
+            "&#123;&#123; person.properties.secret &#125;&#125; <b>{</b>{ x }}</body></html>"
         )
 
         assert plain_text_from_html(html) == (
-            "Hi {{ variables.n }}\n{% if variables.a > 1 %}Leave ({{ unsubscribe_url }}){% endif %}\nTom & Ann"
+            "Hi {{ variables.n }}\n{% if variables.a > 1 %}Leave ({{ unsubscribe_url }}){% endif %}\nTom & Ann\n"
+            "{% raw %}{{ person.properties.secret }}{% endraw %} {% raw %}{{ x }}{% endraw %}"
         )
 
     def test_many_unclosed_tags_convert_quickly(self) -> None:
@@ -502,6 +518,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         per_list = {"suppression.bounces.read", "suppression.invalid_emails.read", "suppression.spam_reports.read"}
         assert missing_scopes(per_list, ["suppressions"]) == ["suppression.read"]
         assert missing_scopes({"asm.groups.read"}, ["group_unsubscribes"]) == ["suppression.read"]
+        assert missing_scopes({"marketing.read"}, ["single_sends"]) == ["design_library.read"]
 
     @parameterized.expand([("seconds_left", "37", 37.0), ("unix_time", "1700000060", 60.0)])
     def test_rate_limit_reset_reads_both_header_formats(self, _name: str, header: str, expected: float) -> None:
