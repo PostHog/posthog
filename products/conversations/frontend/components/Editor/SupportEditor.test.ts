@@ -79,6 +79,26 @@ describe('SupportEditor serialization and preview schema', () => {
             '\\| --- | --- |',
         ],
         [
+            'a bang that reaches a link stays text instead of opening an image',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', text: 'Read this!' },
+                            {
+                                type: 'text',
+                                text: 'guide',
+                                marks: [{ type: 'link', attrs: { href: 'https://example.com/g' } }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            'Read this\\![guide](https://example.com/g)',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',

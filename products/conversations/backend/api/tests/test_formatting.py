@@ -747,6 +747,25 @@ class TestRichContentBlockNodes(SimpleTestCase):
     def test_escaped_markdown_survives_a_tiptap_round_trip(self) -> None:
         assert rich_content_to_markdown(markdown_to_tiptap_doc("2 \\* 3 and a\\_b")) == "2 \\* 3 and a\\_b"
 
+    def test_bang_before_a_link_node_stays_text(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Read this!"},
+                        {
+                            "type": "text",
+                            "text": "guide",
+                            "marks": [{"type": "link", "attrs": {"href": "https://example.com/g"}}],
+                        },
+                    ],
+                }
+            ],
+        }
+        assert rich_content_to_markdown(doc) == "Read this\\![guide](https://example.com/g)"
+
     def test_slack_payload_falls_back_to_text_when_blocks_cannot_represent_doc(self) -> None:
         doc = {
             "type": "doc",

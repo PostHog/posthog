@@ -708,12 +708,20 @@ def _serialize_text_node_to_markdown(node: JSON) -> str:
     return text
 
 
+def _append_inline_chunk(chunks: list[str], chunk: str) -> None:
+    # A link's `[` is written after the node before it was escaped, so a `!` that ends that node
+    # would read as an image opener and swallow the link. Every `[` the text itself held is escaped.
+    if chunk.startswith("[") and chunks and chunks[-1].endswith("!"):
+        chunks[-1] = f"{chunks[-1][:-1]}\\!"
+    chunks.append(chunk)
+
+
 def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool = True) -> str:
     chunks: list[str] = []
     for node in nodes:
         node_type = node.get("type")
         if node_type == "text":
-            chunks.append(_serialize_text_node_to_markdown(node))
+            _append_inline_chunk(chunks, _serialize_text_node_to_markdown(node))
         elif node_type == "hardBreak":
             chunks.append("  \n")
         elif node_type == "image" and include_images:

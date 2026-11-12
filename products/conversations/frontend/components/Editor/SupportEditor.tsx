@@ -358,6 +358,23 @@ function escapeAltText(text: string): string {
 }
 
 /**
+ * Join serialized siblings, and escape a `!` that would reach a link's `[`.
+ *
+ * A link's `[` is written after the node before it was escaped, so a `!` that ends that node would
+ * read as an image opener and swallow the link. Every `[` the text itself held is escaped.
+ */
+function joinSerialized(parts: string[]): string {
+    let joined = ''
+    for (const part of parts) {
+        if (part.startsWith('[') && joined.endsWith('!')) {
+            joined = `${joined.slice(0, -1)}\\!`
+        }
+        joined += part
+    }
+    return joined
+}
+
+/**
  * Serialize tiptap JSON to markdown string.
  * Handles: bold, italic, code, images, mentions, hard breaks, bullet/ordered lists
  * Note: underline has no standard markdown syntax and is stripped
@@ -421,10 +438,10 @@ function serializeNode(node: JSONContent): string {
     // Handle specific node types
     switch (node.type) {
         case 'doc':
-            return (node.content || []).map(serializeNode).join('')
+            return joinSerialized((node.content || []).map(serializeNode))
 
         case 'paragraph': {
-            const content = (node.content || []).map(serializeNode).join('')
+            const content = joinSerialized((node.content || []).map(serializeNode))
             return content + '\n\n'
         }
 
@@ -460,7 +477,7 @@ function serializeNode(node: JSONContent): string {
         default:
             // For unknown nodes, try to serialize children
             if (node.content) {
-                return (node.content || []).map(serializeNode).join('')
+                return joinSerialized((node.content || []).map(serializeNode))
             }
             return ''
     }
