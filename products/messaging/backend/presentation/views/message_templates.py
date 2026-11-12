@@ -457,11 +457,10 @@ SEND_CATEGORY_TYPE_HELP = (
     "`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient "
     "must get, which skips opt-outs."
 )
-SEND_CATEGORY_NAME_HELP = "The category's name, shown in the PostHog app."
-SEND_CATEGORY_DESCRIPTION_HELP = (
-    "Notes about which emails belong to the category. Recipients don't see it. Left out, an existing category keeps "
-    "its description."
+SEND_CATEGORY_NAME_HELP = (
+    "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app."
 )
+SEND_CATEGORY_DESCRIPTION_HELP = "Notes about which emails belong to the category. Recipients don't see it."
 
 
 class SendCategoryDefinitionSerializer(serializers.Serializer):
@@ -537,9 +536,9 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Message category of the email. Leave it out or send `transactional` for a transactional email with "
         "no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional "
-        "`description`. The send creates the category when the project has none with that key, updates its name and "
-        "description when they changed, and restores it when it was archived. An existing category must have the "
-        "same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
+        "`description`. The send creates the category when the project has none with that key, and restores it when "
+        "it was archived. It never changes an existing category's name or description. An existing category must "
+        "have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
         "unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is "
         "`{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces "
         "the placeholder with the recipient's unsubscribe link. A send with "
@@ -1071,15 +1070,8 @@ class TransactionalEmailSendMixin:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
-
-    def _require_category_editor(self) -> None:
-        if is_authenticated_via_project_secret_api_key(self.request):
-            return
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied(
-                "You need editor access to workflows to send with a category object, because the send can create or "
-                "change the category."
+                "You need editor access to workflows to send under a new key or with a `category` object."
             )
 
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
@@ -1474,7 +1466,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
             "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define "
-            "its message `category` by key, and PostHog creates or updates that category. In a marketing category it "
+            "its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it "
             "goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` "
             "in its body, and can't have `cc` or `bcc`. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
@@ -1507,7 +1499,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 require_workflow_create=self._require_workflow_create,
             )
             if isinstance(data.get("category"), SendCategoryDefinition):
-                self._require_category_editor()
+                self._require_workflow_create()
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(

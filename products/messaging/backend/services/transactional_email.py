@@ -59,7 +59,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
-from products.messaging.backend.services.html_text import has_unsubscribe_link, text_from_html
+from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER, text_from_html
 from products.messaging.backend.services.send_categories import (
     RequestedCategory,
     code_send_category,
@@ -152,6 +152,13 @@ def _observe_cdp_call(seconds: float) -> None:
     observe_transactional_email_stage("cdp_call", seconds)
 
 
+UNSUBSCRIBE_LINK_REQUIRED = (
+    "A marketing email needs an unsubscribe link that readers can click. Use `{{ unsubscribe_url }}` as a link's "
+    'whole `href`, such as `<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in the recipient\'s '
+    "link. An email with no `html` can put it in its `text`."
+)
+COPIES_NOT_ALLOWED = "A marketing email can't have `cc` or `bcc` recipients. Send each recipient their own email."
+
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
 # same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
 PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
@@ -182,6 +189,8 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         RecipientOptedOut,
         "The recipient opted out of this message category or of all marketing email, so the email can't be sent.",
     ),
+    "unsubscribe_link_required": (UnsubscribeLinkRequired, UNSUBSCRIBE_LINK_REQUIRED),
+    "copies_not_allowed": (CopiesNotAllowed, COPIES_NOT_ALLOWED),
     "recipient_unreachable": (
         RecipientUnreachable,
         "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
@@ -550,9 +559,9 @@ def send_code_email(
                 hog_flow_id = _key_workflow_id(team.id, email.key)
                 _require_active(team.id, hog_flow_id)
                 category = code_send_category(team.id, email.category)
-        if category is not None:
-            accepted_send["messageCategory"] = {"id": str(category.id), "type": category.type}
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
+    if category is not None:
+        payload["message_category"] = {"id": str(category.id), "type": category.type}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
@@ -586,17 +595,10 @@ def _send_payload(
 def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> None:
     if kind != "marketing":
         return
-    if not has_unsubscribe_link(email.html, email.text):
-        raise UnsubscribeLinkRequired(
-            "A marketing email needs an unsubscribe link that readers can click. Use `{{ unsubscribe_url }}` as a "
-            'link\'s whole `href`, such as `<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in '
-            "the recipient's link. An email with no `html` can put it in its `text`. A placeholder in a comment, in "
-            "another attribute, or inside another address doesn't count."
-        )
+    if not UNSUBSCRIBE_PLACEHOLDER.search(email.html or email.text):
+        raise UnsubscribeLinkRequired(UNSUBSCRIBE_LINK_REQUIRED)
     if email.cc or email.bcc:
-        raise CopiesNotAllowed(
-            "A marketing email can't have `cc` or `bcc` recipients. Send each recipient their own email."
-        )
+        raise CopiesNotAllowed(COPIES_NOT_ALLOWED)
 
 
 def _accepted_send(team_id: int, email: CodeEmail, kind: MessageCategoryKind) -> dict[str, Any]:

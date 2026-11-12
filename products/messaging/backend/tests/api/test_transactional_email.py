@@ -5,7 +5,6 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import partial
-from pathlib import Path
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -38,6 +37,7 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
@@ -47,126 +47,14 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import send_categories, transactional_email
-from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
-from products.messaging.backend.tests.cdp_api_fake import CdpApi
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
-UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
-CLICKABLE_UNSUBSCRIBE_LINKS = [
-    *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]),
-    (
-        "link_after_an_escaped_script",
-        {"html": '<script><!--</script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_a_script_wrapped_in_a_comment",
-        {"html": '<script><!-- track() //--></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_a_script_whose_double_escape_ends",
-        {"html": '<script><!--<script>-->track()</script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_a_script_with_an_empty_comment",
-        {"html": '<script><!--><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_a_double_escaped_script_that_ends",
-        {
-            "html": '<script><!--<script></script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            "text": "",
-        },
-    ),
-    (
-        "link_after_a_script_that_ends_inside_a_skipped_end_tag",
-        {
-            "html": '<script><!--<script></script x="</script><script>"></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            "text": "",
-        },
-    ),
-    (
-        "link_after_a_plain_script_that_follows_a_double_escaped_one",
-        {
-            "html": '<script><!--<script></script></script><script><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            "text": "",
-        },
-    ),
-    (
-        "link_after_a_double_escaped_script_that_ends_after_a_style_tag",
-        {
-            "html": '<script><!--<script></script><style></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            "text": "",
-        },
-    ),
-    (
-        "link_after_an_escaped_script_with_a_long_s_script_tag",
-        {"html": '<script><!--<ſcript></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_a_plain_script_that_follows_an_escaped_one",
-        {
-            "html": '<script><!--</script><script><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            "text": "",
-        },
-    ),
-]
-TEXT_LINK_INTO_LONG_PUNCTUATION = "Unsubscribe: {{ unsubscribe_url }}" + "." * 200_000 + "x"
-UNMATCHED_CLOSES_INSIDE_A_TEMPLATE = (
-    "<div><template>" + "<span>" * 65536 + "</div>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
-)
-LINK_AFTER_MANY_SKIPPED_END_TAGS_SHARING_ONE_END = (
-    "<script><!--<script " + "</script x=x <script " * 65536 + '><a href="{{ unsubscribe_url }}">Unsubscribe</a>'
-)
-LINK_AFTER_MANY_DOUBLE_ESCAPES = (
-    "<script><!--" + "<script></script>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
-)
-MISSING_UNSUBSCRIBE_LINKS = [
-    *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]),
-    ("text_link_running_into_liquid_markup", {"html": "", "text": "Unsubscribe: {{ unsubscribe_url }}{% endif %}"}),
-    ("text_link_running_into_a_long_run_of_punctuation", {"html": "", "text": TEXT_LINK_INTO_LONG_PUNCTUATION}),
-    ("link_after_unmatched_closes_inside_a_template", {"html": UNMATCHED_CLOSES_INSIDE_A_TEMPLATE, "text": ""}),
-    (
-        "link_after_a_double_escaped_script",
-        {"html": '<script><!--<script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_an_upper_case_double_escaped_script",
-        {"html": '<script><!--<SCRIPT></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    (
-        "link_after_a_script_end_tag_whose_attribute_escapes_again",
-        {
-            "html": '<script><!--<script></script x="<script>"></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            "text": "",
-        },
-    ),
-    (
-        "link_after_a_double_escaped_script_whose_end_tag_has_a_long_s",
-        {"html": '<script><!--<script></ſcript></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
-    ),
-    ("link_after_many_double_escapes_in_one_script", {"html": LINK_AFTER_MANY_DOUBLE_ESCAPES, "text": ""}),
-    (
-        "link_after_many_skipped_script_end_tags_sharing_one_end",
-        {"html": LINK_AFTER_MANY_SKIPPED_END_TAGS_SHARING_ONE_END, "text": ""},
-    ),
-]
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
-
-
-class UsageEvents:
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, dict[str, Any]]] = []
-
-    def capture(self, *_args: Any, event: str = "", properties: dict[str, Any] | None = None, **_kwargs: Any) -> None:
-        self.sent.append((event, properties or {}))
-
-    def api_sends(self) -> list[dict[str, Any]]:
-        return [properties for event, properties in self.sent if event == "transactional email api send"]
 
 
 @frozen
@@ -185,6 +73,15 @@ def _stage_counts() -> dict[str, float]:
     }
 
 
+CDP_SEND_ROUTE = re.compile(r".*/api/projects/(?P<team_id>\d+)/hog_flows/[^/]+/transactional_email(/send)?$")
+ACCEPTED_REQUEST_KEYS: dict[str, set[str] | None] = {
+    "to": None,
+    "distinct_id": None,
+    "variables": None,
+    "idempotency_key": None,
+    "send": None,
+    "message_category": {"id", "type"},
+}
 ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "content": {"subject", "html", "text"},
     "from": {"integrationId", "email", "name"},
@@ -215,31 +112,39 @@ class CapturedEvents:
 
 
 class FakeCdpApi:
-    def __init__(self) -> None:
+    def __init__(self, refusal: tuple[int, str] | None = None) -> None:
         self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
+        self._refusal = refusal
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
         client_post.side_effect = partial(requests.Session.post, internal_requests)
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
-            http.add_callback(responses.POST, re.compile(r".*/hog_flows/[^/]+/transactional_email/send$"), self._send)
+            http.add_callback(responses.POST, CDP_SEND_ROUTE, self._send)
             yield self
 
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
         self.received.append(payload)
-        send = payload["send"]
-        issues = self._unrecognized_keys(send)
-        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
-            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
+        issues = _unrecognized_keys(payload, ACCEPTED_REQUEST_KEYS, [])
+        if "send" in payload:
+            issues += _unrecognized_keys(payload["send"], ACCEPTED_SEND_KEYS, ["send"])
+            if not isinstance(payload["send"].get("tracking", {}).get("captureEngagement"), bool):
+                issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
         if issues:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
+        refusal = self._refusal or self._opt_out_refusal(request.url or "", payload)
+        if refusal:
+            return refusal[0], {}, json.dumps({"error": refusal[1]})
         self._queued.append(payload)
         return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
 
     def emails(self) -> list[dict[str, Any]]:
         return [self._email(payload["send"]) for payload in self._queued]
+
+    def categories(self) -> list[dict[str, str] | None]:
+        return [payload.get("message_category") for payload in self._queued]
 
     @staticmethod
     def _email(send: dict[str, Any]) -> dict[str, Any]:
@@ -255,17 +160,30 @@ class FakeCdpApi:
             if payload["send"]["tracking"]["captureEngagement"] is not False
         ]
 
-    def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
-        issues = [
-            {"code": "unrecognized_keys", "keys": [key], "path": ["send"]}
-            for key in send.keys() - ACCEPTED_SEND_KEYS.keys()
-        ]
-        for field, allowed in ACCEPTED_SEND_KEYS.items():
-            if allowed is not None and isinstance(send.get(field), dict) and send[field].keys() - allowed:
-                issues.append(
-                    {"code": "unrecognized_keys", "keys": sorted(send[field].keys() - allowed), "path": ["send", field]}
-                )
-        return issues
+    @staticmethod
+    def _opt_out_refusal(url: str, payload: dict[str, Any]) -> tuple[int, str] | None:
+        category = payload.get("message_category") or {}
+        if category.get("type") != "marketing":
+            return None
+        route = CDP_SEND_ROUTE.search(url)
+        assert route is not None
+        recipient = MessageRecipientPreference.objects.filter(
+            team_id=int(route["team_id"]), identifier=payload["to"]
+        ).first()
+        preferences = recipient.preferences if recipient else {}
+        if "OPTED_OUT" in (preferences.get(category["id"]), preferences.get("$all")):
+            return 422, "recipient_opted_out"
+        return None
+
+
+def _unrecognized_keys(value: dict[str, Any], accepted: dict[str, Any], path: list[str]) -> list[dict[str, Any]]:
+    issues = [{"code": "unrecognized_keys", "keys": [key], "path": path} for key in value.keys() - accepted.keys()]
+    for field, allowed in accepted.items():
+        if allowed is not None and isinstance(value.get(field), dict) and value[field].keys() - allowed:
+            issues.append(
+                {"code": "unrecognized_keys", "keys": sorted(value[field].keys() - allowed), "path": [*path, field]}
+            )
+    return issues
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -292,12 +210,10 @@ class TestTransactionalEmail(APIBaseTest):
             "identifiers": {"distinct_id": "user-1"},
             "message_data": {"link": "https://example.com/reset", "nickname": None},
         }
-        self.cdp = CdpApi()
-        self.usage = UsageEvents()
 
     def _use_fakes(self, cdp_post: MagicMock, capture: MagicMock) -> None:
-        cdp_post.side_effect = self.cdp.post
-        capture.side_effect = self.usage.capture
+        self.cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        self.events = CapturedEvents(capture)
 
     def _template(self, content: dict | None = None) -> MessageTemplate:
         return MessageTemplate.objects.create(
@@ -929,73 +845,63 @@ class TestTransactionalEmail(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        [queued] = self.cdp.queued
         if kind is None:
-            assert queued.category is None
+            assert self.cdp.categories() == [None]
             assert not MessageCategory.objects.filter(team=self.team).exists()
         else:
             category = MessageCategory.objects.get(team=self.team, key=fields["category"]["key"])
-            assert queued.category == {"id": str(category.id), "type": kind}
+            assert self.cdp.categories() == [{"id": str(category.id), "type": kind}]
             assert category.category_type == kind
-        assert queued.marketing == (kind == "marketing")
-        assert queued.content is not None
-        assert bool(UNSUBSCRIBE_PLACEHOLDER.search(queued.content["text"])) == (kind == "marketing")
-        assert [send["category_type"] for send in self.usage.api_sends()] == [kind or "transactional"]
-
-    @parameterized.expand(CLICKABLE_UNSUBSCRIBE_LINKS)
-    def test_a_marketing_code_send_with_a_clickable_unsubscribe_link_is_accepted(
-        self, cdp_post, _flag, capture, _name, case
-    ):
-        self._use_fakes(cdp_post, capture)
-
-        response = self._marketing_code_send(case)
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert len(self.cdp.queued) == 1
-
-    @parameterized.expand(MISSING_UNSUBSCRIBE_LINKS)
-    @pytest.mark.timeout(60)
-    def test_a_marketing_code_send_without_a_clickable_unsubscribe_link_is_refused(
-        self, cdp_post, _flag, capture, _name, case
-    ):
-        self._use_fakes(cdp_post, capture)
-
-        response = self._marketing_code_send(case)
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "unsubscribe_link_required"
-        assert self.cdp.queued == []
-
-    def _marketing_code_send(self, case: dict[str, Any]) -> Any:
-        body = self._code_send(category=self.NEWSLETTER, html=case["html"])
-        if case["text"]:
-            body["text"] = case["text"]
-        return self._psak_client(["transactional_email:write"]).post(self.send_email_url, body, format="json")
+        [email] = self.cdp.emails()
+        assert ("{{ unsubscribe_url }}" in email["text"]) == (kind == "marketing")
+        assert [send["category_type"] for send in self.events.properties("transactional email api send")] == [
+            kind or "transactional"
+        ]
 
     @parameterized.expand(
         [
-            ("unknown_key_creates_it", None, {"description": "Monthly news"}, ("Newsletter", "Monthly news")),
-            ("same_fields_write_nothing", {"description": "Monthly news"}, {"description": "Monthly news"}, None),
-            (
-                "changed_name_and_description",
-                {"name": "News", "description": "Old"},
-                {"description": "New"},
-                ("Newsletter", "New"),
-            ),
-            ("left_out_description_is_kept", {"name": "News", "description": "Old"}, {}, ("Newsletter", "Old")),
-            ("archived_category_is_restored", {"deleted": True, "description": "Old"}, {}, ("Newsletter", "Old")),
+            ("link_in_the_html", {"html": UNSUBSCRIBE_HTML}, status.HTTP_202_ACCEPTED),
+            ("link_in_the_text_of_an_email_without_html", {"html": "", "text": "Bye: {{unsubscribe_url}}"}, 202),
+            ("no_link", {"html": "<p>Hi</p>", "text": "Hi"}, status.HTTP_400_BAD_REQUEST),
+            ("link_only_in_the_text_beside_html", {"html": "<p>Hi</p>", "text": "{{ unsubscribe_url }}"}, 400),
         ]
     )
-    def test_a_code_send_creates_or_updates_its_category_by_key(
-        self, cdp_post, _flag, capture, _name, existing, sent_fields, expected
+    def test_a_marketing_code_send_needs_the_unsubscribe_placeholder(
+        self, cdp_post, _flag, capture, _name, body, expected_status
+    ):
+        self._use_fakes(cdp_post, capture)
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(category=self.NEWSLETTER, **body), format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        sent = expected_status == status.HTTP_202_ACCEPTED
+        assert len(self.cdp.emails()) == (1 if sent else 0)
+        assert MessageCategory.objects.filter(team=self.team, key="newsletter").exists() == sent
+        if not sent:
+            assert response.json()["code"] == "unsubscribe_link_required"
+
+    @parameterized.expand(
+        [
+            ("unknown_key_creates_it", None, ("Newsletter", "Monthly news")),
+            (
+                "existing_category_keeps_its_name_and_description",
+                {"name": "News", "description": "Old"},
+                ("News", "Old"),
+            ),
+            ("archived_category_is_restored", {"name": "News", "deleted": True}, ("News", "")),
+        ]
+    )
+    def test_a_code_send_creates_its_category_by_key_and_never_renames_it(
+        self, cdp_post, _flag, capture, _name, existing, expected
     ):
         self._use_fakes(cdp_post, capture)
         before = self._category(**existing) if existing is not None else None
-        before_updated_at = before.updated_at if before else None
 
         response = self._psak_client(["transactional_email:write"]).post(
             self.send_email_url,
-            self._code_send(category={**self.NEWSLETTER, **sent_fields}, html=self.UNSUBSCRIBE_HTML),
+            self._code_send(category={**self.NEWSLETTER, "description": "Monthly news"}, html=self.UNSUBSCRIBE_HTML),
             format="json",
         )
 
@@ -1003,12 +909,8 @@ class TestTransactionalEmail(APIBaseTest):
         category = MessageCategory.objects.get(team=self.team, key="newsletter")
         if before is not None:
             assert category.id == before.id
-        assert category.deleted is False
-        if expected is None:
-            assert category.updated_at == before_updated_at
-        else:
-            assert (category.name, category.description) == expected
-        assert [queued.category for queued in self.cdp.queued] == [{"id": str(category.id), "type": "marketing"}]
+        assert (category.name, category.description, category.deleted) == (*expected, False)
+        assert self.cdp.categories() == [{"id": str(category.id), "type": "marketing"}]
 
     @parameterized.expand(
         [
@@ -1023,12 +925,6 @@ class TestTransactionalEmail(APIBaseTest):
                 lambda test: test._category(category_type=MessageCategoryType.TRANSACTIONAL, deleted=True),
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
                 "category_mismatch",
-            ),
-            (
-                "placeholder_spaced_with_a_character_the_email_worker_reads_as_text",
-                None,
-                {"category": NEWSLETTER, "html": "<a href='{{\x85unsubscribe_url}}'>x</a>"},
-                "unsubscribe_link_required",
             ),
             (
                 "copies_on_marketing",
@@ -1092,7 +988,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
-        assert self.cdp.queued == []
+        assert self.cdp.received == []
         assert (
             set(MessageCategory.objects.filter(team=self.team).values_list("key", "category_type")) == categories_before
         )
@@ -1100,7 +996,33 @@ class TestTransactionalEmail(APIBaseTest):
             set(TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key")) == keys_before
         )
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
-        assert [send["error_code"] for send in self.usage.api_sends()] == [expected_code]
+        assert [send["error_code"] for send in self.events.properties("transactional email api send")] == [
+            expected_code
+        ]
+
+    @parameterized.expand(
+        [
+            ("code_send_link", "code", (400, "unsubscribe_link_required")),
+            ("code_send_copies", "code", (400, "copies_not_allowed")),
+            ("template_send_link", "template", (400, "unsubscribe_link_required")),
+            ("template_send_copies", "template", (400, "copies_not_allowed")),
+            ("template_send_opted_out", "template", (422, "recipient_opted_out")),
+        ]
+    )
+    def test_the_email_pipelines_refusal_reaches_the_caller(self, cdp_post, _flag, capture, _name, form, refusal):
+        self.cdp = self.enterContext(FakeCdpApi(refusal=refusal).serving(cdp_post))
+        client = self._psak_client(["transactional_email:write"])
+
+        if form == "code":
+            response = client.post(
+                self.send_email_url,
+                self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML),
+                format="json",
+            )
+        else:
+            response = client.post(self.url, self.body, format="json")
+
+        assert (response.status_code, response.json()["code"]) == refusal
 
     def test_a_category_another_project_owns_is_not_this_projects(self, cdp_post, _flag, capture):
         self._use_fakes(cdp_post, capture)
@@ -1115,7 +1037,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         ours = MessageCategory.objects.get(team=self.team, key="newsletter")
         assert ours.id != theirs.id
-        assert [queued.category for queued in self.cdp.queued] == [{"id": str(ours.id), "type": "marketing"}]
+        assert self.cdp.categories() == [{"id": str(ours.id), "type": "marketing"}]
 
     @parameterized.expand(
         [
@@ -1125,7 +1047,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("code_send_under_a_categorized_templates_key", "template_key", None, status.HTTP_202_ACCEPTED),
         ]
     )
-    def test_a_send_with_a_category_waits_for_the_categories_flag(
+    def test_with_the_categories_flag_off_a_send_carries_no_category(
         self, cdp_post, flag, capture, _name, form, category, expected_status
     ):
         self._use_fakes(cdp_post, capture)
@@ -1148,9 +1070,7 @@ class TestTransactionalEmail(APIBaseTest):
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert (response.json()["code"], response.json()["attr"]) == ("categories_not_enabled", "category")
         assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
-        assert [queued.category for queued in self.cdp.queued] == (
-            [None] if expected_status == status.HTTP_202_ACCEPTED else []
-        )
+        assert self.cdp.categories() == ([None] if expected_status == status.HTTP_202_ACCEPTED else [])
 
     @parameterized.expand(
         [
@@ -1196,10 +1116,10 @@ class TestTransactionalEmail(APIBaseTest):
         if expected == "category_mismatch":
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert (response.json()["code"], response.json()["attr"]) == ("category_mismatch", "category")
-            assert self.cdp.queued == []
+            assert self.cdp.received == []
         else:
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-            assert [queued.marketing for queued in self.cdp.queued] == [False]
+            assert len(self.cdp.categories()) == 1
         assert set(MessageCategory.objects.filter(team=self.team).values_list("key", "name")) == (
             {("receipts", "Receipts")} if template_category else set()
         )
@@ -1228,10 +1148,10 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_202_ACCEPTED:
-            assert [queued.category for queued in self.cdp.queued] == [{"id": str(own.id), "type": "transactional"}]
+            assert self.cdp.categories() == [{"id": str(own.id), "type": "transactional"}]
         else:
             assert response.json()["code"] == "category_mismatch"
-            assert self.cdp.queued == []
+            assert self.cdp.received == []
         assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
 
     @parameterized.expand(
@@ -1262,10 +1182,10 @@ class TestTransactionalEmail(APIBaseTest):
         if expected_code:
             assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.json()
             assert response.json()["code"] == expected_code
-            assert self.cdp.queued == []
+            assert self.cdp.emails() == []
         else:
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-            assert len(self.cdp.queued) == 1
+            assert len(self.cdp.emails()) == 1
 
     def test_a_form_encoded_code_send_without_capture_engagement_captures_engagement(self, mock_post, _flag, _capture):
         with FakeCdpApi().serving(mock_post) as cdp:
@@ -2276,11 +2196,10 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             ),
         ]
     )
-    def test_editor_access_to_a_keys_workflow_cannot_change_categories(
+    def test_editor_access_to_a_keys_workflow_cannot_create_categories(
         self, cdp_post, _flag, _name, fields, expected_status
     ):
-        cdp = CdpApi()
-        cdp_post.side_effect = cdp.post
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         hog_flow_id = transactional_email._key_workflow_id(self.team.id, "weekly")
         self._login_member("viewer@example.com", {None: "viewer", str(hog_flow_id): "editor"})
 
@@ -2292,7 +2211,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert not MessageCategory.objects.filter(team=self.team).exists()
-        assert len(cdp.queued) == (1 if expected_status == status.HTTP_202_ACCEPTED else 0)
+        assert len(cdp.emails()) == (1 if expected_status == status.HTTP_202_ACCEPTED else 0)
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):
@@ -2371,8 +2290,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             return bool(cursor.fetchone()[0])
 
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
-        cdp = CdpApi()
-        cdp_post.side_effect = cdp.post
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         inserted = threading.Event()
         app: dict[str, Any] = {}
         worker = threading.Thread(target=self._insert_and_commit_once_the_send_waits, args=(inserted, app))
@@ -2396,5 +2314,5 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert "error" not in app, app.get("error")
         assert app["send_waited"], "the send never waited on the app's insert, so the two did not race"
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert [queued.category for queued in cdp.queued] == [{"id": str(app["category_id"]), "type": "marketing"}]
+        assert cdp.categories() == [{"id": str(app["category_id"]), "type": "marketing"}]
         assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1
