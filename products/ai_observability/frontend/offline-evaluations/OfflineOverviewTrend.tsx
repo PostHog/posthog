@@ -58,7 +58,14 @@ export function OfflineOverviewTrend(
                                 {trend.definition.short_name || trend.definition.name}
                             </Link>
                         </h3>
-                        <LemonTag type="muted">{trend.definition.kind}</LemonTag>
+                        <LemonTag type="muted" weight="normal">
+                            {trend.definition.kind}
+                        </LemonTag>
+                        {trend.definition.calculation === 'composite' && (
+                            <LemonTag type="info" weight="normal">
+                                composite
+                            </LemonTag>
+                        )}
                         {periodSummary && (
                             <div className="flex items-center gap-1 ml-auto">
                                 {versionSummaries.length > 1 && (

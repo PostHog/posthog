@@ -28248,6 +28248,10 @@
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
+                "as_of": {
+                    "description": "The instant the window is evaluated at, when it ends before `end_date`. Unset means now.",
+                    "type": ["string", "null"]
+                },
                 "end_date": {
                     "type": ["string", "null"]
                 },
@@ -30294,6 +30298,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "requiredFlags": {
+                    "description": "Flags that must all be on to show the tab.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "searchKeywords": {
                     "items": {

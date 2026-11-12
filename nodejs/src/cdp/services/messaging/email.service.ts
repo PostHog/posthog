@@ -19,7 +19,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -142,20 +142,25 @@ const sesSendDurationMs = new Histogram({
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
     labelNames: ['source', 'priority_class', 'team_capped'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
 type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
-// A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
-// workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
-// Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
+function transactionalWaitStart(invocation: CyclotronJobInvocationHogFunction): DateTime | undefined {
+    const scheduledAt = invocation.state.scheduledAt ? DateTime.fromISO(invocation.state.scheduledAt) : undefined
+    if (!invocation.queueCreatedAt || !scheduledAt?.isValid) {
+        return invocation.queueCreatedAt
+    }
+    return DateTime.max(invocation.queueCreatedAt, scheduledAt)
+}
+
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
-    const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
+    const startedAt = source === 'transactional_api' ? transactionalWaitStart(invocation) : invocation.queueDueAt
     return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
 }
 
@@ -602,7 +607,7 @@ export class EmailService {
         trackingEnabled: boolean,
         isTest: boolean
     ): boolean {
-        const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+        const sensitive = isSensitiveMessage(invocation)
         return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
     }
 
@@ -1096,7 +1101,7 @@ export class EmailService {
                         : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
-                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
+                    ...(isSensitiveMessage(invocation) ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -1230,8 +1235,8 @@ export class EmailService {
 
     // Per-send tracking decision, combining two independent controls:
     // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
-    //    same as `message_category_type`). False is a hard off regardless of consent. Absent means
-    //    tracked, so email destination hog functions (which have no such config) keep tracking.
+    //    same as `message_category_type`), or a code send's `tracking.opens`. False is a hard off regardless
+    //    of consent. Absent means tracked, so email destination hog functions without that config keep tracking.
     // 2. Recipient-level consent (marketing only; transactional exempt per CNIL): the team's
     //    consent mode combined with the recipient's stored $email_tracking preference.
     // Consent lookup failures resolve to untracked (fail closed): tracking without verifiable
@@ -1240,7 +1245,10 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<boolean> {
-        if (invocation.hogFunction?.metadata?.tracking_enabled === false) {
+        if (
+            invocation.hogFunction?.metadata?.tracking_enabled === false ||
+            invocation.state?.send?.tracking.opens === false
+        ) {
             return false
         }
         if (invocation.hogFunction?.metadata?.message_category_type === 'transactional') {
@@ -1509,9 +1517,7 @@ export class EmailService {
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
                 { Name: 'ph_id', Value: shortTrackingCode },
-                ...(result.invocation.hogFunction?.metadata?.sensitive === true
-                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
-                    : []),
+                ...(isSensitiveMessage(result.invocation) ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }] : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [
                           { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },

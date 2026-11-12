@@ -1,8 +1,6 @@
 import type { UserBasicType } from '~/types'
 
-import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
-
-import type { MessageTemplate } from '../TemplateLibrary/types'
+import type { CodeEmailApi, MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
 export type ManagedBy = 'all' | 'code' | 'posthog'
 
@@ -28,19 +26,19 @@ interface RowFields {
 
 /** One row of the Transactional emails list: a template designed in PostHog, or an email your code sends. */
 export type TransactionalEmailRow = RowFields &
-    ({ source: 'posthog'; template: MessageTemplate } | { source: 'code'; codeEmail: CodeEmailApi })
+    ({ source: 'posthog'; template: MessageTemplateApi } | { source: 'code'; codeEmail: CodeEmailApi })
 
-export function templateRow(template: MessageTemplate): TransactionalEmailRow {
+export function templateRow(template: MessageTemplateApi): TransactionalEmailRow {
     return {
         source: 'posthog',
         template,
         id: template.id,
         name: template.name,
-        description: template.description,
+        description: template.description ?? '',
         tags: template.tags ?? [],
         sensitive: !!template.sensitive,
         hog_flow_id: template.transactional_hog_flow_id ?? null,
-        created_by: template.created_by,
+        created_by: template.created_by as UserBasicType,
         updated_at: template.updated_at,
     }
 }
