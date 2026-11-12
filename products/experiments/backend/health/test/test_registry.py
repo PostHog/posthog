@@ -19,6 +19,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
+    ExperimentOnFlag,
     ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
@@ -27,6 +28,7 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     LatestCalculation,
+    MetricCompiles,
     MetricEvents,
     MetricWindow,
     ReachableCondition,
@@ -565,6 +567,90 @@ class TestEvaluate(TestCase):
                 {**DRAFT, "flag_called": True, "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC)},
                 Status.PASSED,
                 {Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00"},
+            ),
+            (
+                "flag_state_after_the_end_reads_the_last_call",
+                Key.FLAG_STATE,
+                {
+                    **ENDED,
+                    "ended_at": datetime(2026, 11, 1, tzinfo=UTC),
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=100, property_count=0),)
+                    ),
+                    "flag_called_after_end": True,
+                    "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC),
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: True,
+                    Value.SHIPPED_VARIANT: None,
+                    Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00",
+                },
+            ),
+            (
+                "zero_exposures_on_flag_calls_reads_the_last_call",
+                Key.ZERO_EXPOSURES,
+                {
+                    "exposures": replace(NO_EXPOSURES, hours_since_launch=23.94),
+                    "flag_last_called_at": datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+                },
+                Status.NOT_APPLICABLE,
+                {
+                    Value.EXPOSED_COUNT: 0,
+                    Value.SINCE_LAUNCH_HOURS: 23.9,
+                    Value.FLAG_LAST_CALLED_AT: "2026-10-01T09:30:00+00:00",
+                },
+            ),
+            (
+                "zero_exposures_on_a_custom_event_leaves_out_the_flag_calls",
+                Key.ZERO_EXPOSURES,
+                {
+                    **_events("purchase", {"purchase": True}),
+                    "exposures": replace(NO_EXPOSURES, hours_since_launch=23.94),
+                    "flag_last_called_at": datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+                },
+                Status.NOT_APPLICABLE,
+                {Value.EXPOSED_COUNT: 0, Value.SINCE_LAUNCH_HOURS: 23.9},
+            ),
+            (
+                "shared_flag_counts_the_other_experiments_that_are_not_archived",
+                Key.FLAG_SHARED,
+                {
+                    "other_experiments_on_flag": (
+                        ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=False),
+                        ExperimentOnFlag(start_date=None, ended_at=None, archived=False),
+                        ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=True),
+                    )
+                },
+                Status.FINDING,
+                {Value.OTHER_RUNNING_EXPERIMENT_COUNT: 1, Value.OTHER_DRAFT_EXPERIMENT_COUNT: 1},
+            ),
+            (
+                "flag_variants_read_the_split_and_the_baseline",
+                Key.FLAG_VARIANTS_MISMATCH,
+                {"baseline_variant_key": "control"},
+                Status.PASSED,
+                {Value.FLAG_SPLIT: "control 80% / test 20%", Value.BASELINE_VARIANT: "control"},
+            ),
+            (
+                "metric_compiles_count_the_metrics_they_couldnt_check",
+                Key.METRIC_CANNOT_COMPILE,
+                {
+                    "metric_compiles": MetricCompiles(
+                        metric_count=4, failures=(), unknown_count=1, no_access_count=1, exposure_query_fails=False
+                    )
+                },
+                Status.NOT_CHECKED,
+                {Value.METRIC_COUNT: 4, Value.INVALID_METRIC_COUNT: 0, Value.UNCHECKED_METRIC_COUNT: 2},
+            ),
+            (
+                "exposure_criteria_read_the_custom_event",
+                Key.EXPOSURE_CRITERIA_CANNOT_MATCH,
+                _events("purchase", {"purchase": False}),
+                Status.FINDING,
+                {Value.EVENT: "purchase", Value.EVENT_RECEIVED: False},
             ),
         ]
     )

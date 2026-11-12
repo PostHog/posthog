@@ -502,6 +502,42 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when "
         "unknown",
     )
+    CHANGED_SETTING = (
+        "changed_setting",
+        "The flag setting that a change of the bucketing changed, as the flag page names it",
+    )
+    BEFORE = "before", "What a change of the feature flag changed, as it was before the change, in words"
+    AFTER = "after", "What a change of the feature flag changed, as it was after the change, in words"
+    FLAG_SERVICE_CALL_PERCENTAGE = (
+        "flag_service_call_percentage",
+        "Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service "
+        "evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped "
+        "values count in no condition",
+    )
+    EVENT = "event", "The name of an event that the check looked up"
+    EVENT_RECEIVED = (
+        "event_received",
+        "Whether the project has received the event. Null when PostHog keeps no record of the event name",
+    )
+    INVALID_METRIC_COUNT = "invalid_metric_count", "Metrics whose query doesn't compile, so every calculation fails"
+    UNCHECKED_METRIC_COUNT = (
+        "unchecked_metric_count",
+        "Metrics whose query the check couldn't compile, because they read data that the reader can't query or the "
+        "compile failed for a reason other than the metric",
+    )
+    FLAG_SPLIT = "flag_split", "The feature flag's variants with their rollout percentages, in words"
+    BASELINE_VARIANT = (
+        "baseline_variant",
+        "The key of the variant that the analysis compares the others with, or null when the analysis picks one",
+    )
+    OTHER_RUNNING_EXPERIMENT_COUNT = (
+        "other_running_experiment_count",
+        "Other experiments that run on the same feature flag and are not archived",
+    )
+    OTHER_DRAFT_EXPERIMENT_COUNT = (
+        "other_draft_experiment_count",
+        "Other draft experiments on the same feature flag that are not archived",
+    )
 
 
 ExperimentHealthValue = str | int | float | bool | None

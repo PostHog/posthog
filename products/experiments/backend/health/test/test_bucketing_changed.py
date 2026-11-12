@@ -12,8 +12,12 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
+from products.experiments.backend.health.checks.bucketing_changed import (
+    bucketing_changed_mid_run,
+    bucketing_changed_rows,
+)
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
 from products.experiments.backend.health.skips import (
@@ -287,3 +291,27 @@ class TestBucketingChangedMidRun(TestCase):
     )
     def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
         self.assertEqual(bucketing_changed_mid_run(ctx), expected)
+
+    def test_lists_each_change_with_the_setting_as_the_flag_page_names_it(self) -> None:
+        rows = bucketing_changed_rows(_context((IDENTIFIER, "distinct_id", "device_id")))
+
+        self.assertEqual(
+            [
+                {
+                    key: row[key]
+                    for key in (
+                        ExperimentHealthValueKey.CHANGED_SETTING,
+                        ExperimentHealthValueKey.BEFORE,
+                        ExperimentHealthValueKey.AFTER,
+                    )
+                }
+                for row in rows
+            ],
+            [
+                {
+                    ExperimentHealthValueKey.CHANGED_SETTING: "Match by",
+                    ExperimentHealthValueKey.BEFORE: "user ID",
+                    ExperimentHealthValueKey.AFTER: "device ID",
+                }
+            ],
+        )

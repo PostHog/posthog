@@ -15,6 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.bucketing_changes import describe_bucketing_value
 from products.experiments.backend.health.checks.change_wording import (
     delay,
     duration,
@@ -39,6 +40,14 @@ from products.experiments.backend.health.skips import (
     flag_to_check,
     not_applicable,
     not_checked,
+)
+from products.experiments.backend.health.split_changes import describe_split
+from products.feature_flags.backend.facade.edits import (
+    BucketingChange,
+    BucketingSetting,
+    ConditionsChange,
+    ReleaseCondition,
+    SplitChange,
 )
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
@@ -108,10 +117,61 @@ def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:
     return tuple(
         {
             ExperimentHealthValueKey.CHANGED_AT: change.changed_at.astimezone(UTC).isoformat(),
+            **_described(change),
             ExperimentHealthValueKey.BEFORE_EXPOSURE: _before_exposure(history, change.changed_at),
         }
         for change in history.of_kind(kind)
     )
+
+
+# The settings as the flag page labels them.
+_SETTING_LABELS = {
+    BucketingSetting.KEY: "Flag key",
+    BucketingSetting.AGGREGATION: "Match by",
+    BucketingSetting.BUCKETING_IDENTIFIER: "Match by",
+    BucketingSetting.EXPERIENCE_CONTINUITY: "Persist flag across authentication steps",
+}
+
+
+def _described(change: FlagChange) -> dict[ExperimentHealthValueKey, str]:
+    match change:
+        case SplitChange():
+            return {
+                ExperimentHealthValueKey.BEFORE: describe_split(change.before),
+                ExperimentHealthValueKey.AFTER: describe_split(change.after),
+            }
+        case BucketingChange():
+            return {
+                ExperimentHealthValueKey.CHANGED_SETTING: _SETTING_LABELS[change.setting],
+                ExperimentHealthValueKey.BEFORE: describe_bucketing_value(change.setting, change.before),
+                ExperimentHealthValueKey.AFTER: describe_bucketing_value(change.setting, change.after),
+            }
+        case ConditionsChange():
+            return {
+                ExperimentHealthValueKey.BEFORE: _describe_conditions(change.before),
+                ExperimentHealthValueKey.AFTER: _describe_conditions(change.after),
+            }
+
+
+def _describe_conditions(conditions: tuple[ReleaseCondition, ...]) -> str:
+    """The release conditions in the flag page's order, one set per line, for example 'Set 1: 100%, filters on plan'."""
+    if not conditions:
+        return "no release conditions"
+    sets = []
+    for number, condition in enumerate(conditions, start=1):
+        parts = [f"Set {number}: {condition.rollout:g}%"]
+        if condition.property_keys:
+            parts.append(f"filters on {', '.join(sorted({_filter_name(key) for key in condition.property_keys}))}")
+        if condition.variant:
+            parts.append(f'forces "{condition.variant}"')
+        sets.append(", ".join(parts))
+    return "\n".join(sets)
+
+
+def _filter_name(property_key: str) -> str:
+    # The facade keys a filter as "<type>:<key>", and a cohort filter's key is the cohort id.
+    kind, _, key = property_key.partition(":")
+    return "cohort" if kind == "cohort" else key
 
 
 def _before_exposure(history: FlagHistory | FlagHistoryNotChecked, changed_at: datetime) -> bool | None:
