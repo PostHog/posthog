@@ -21,6 +21,7 @@ use crate::{
     metrics_utils::{LIMITS_UPDATED, LIMIT_BALANCE},
     organization::Organization,
     recently_seen::{build_store, RecentlySeenStore},
+    route::EmbeddingRoute,
 };
 
 pub struct AppContext {
@@ -31,6 +32,7 @@ pub struct AppContext {
     pub pool: PgPool,
     pub config: Config,
     pub client: reqwest::Client,
+    pub route: EmbeddingRoute,
     pub org_cache: Cache<i32, Option<Organization>>,
     pub recently_seen: Arc<dyn RecentlySeenStore>,
     rate_limits: RwLock<HashMap<String, Limiter>>,
@@ -44,6 +46,8 @@ struct Limiter {
 
 impl AppContext {
     pub async fn new(config: Config) -> Result<Self> {
+        let route = config.embedding_route()?;
+
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))
@@ -86,6 +90,7 @@ impl AppContext {
             pool,
             config,
             client,
+            route,
             org_cache,
             recently_seen,
             rate_limits: Default::default(),

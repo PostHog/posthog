@@ -8,7 +8,6 @@ use common_types::embedding::{
 };
 use metrics::counter;
 use rand::Rng;
-use reqwest::{Client, Method, Request, RequestBuilder};
 use tracing::{error, warn};
 
 use crate::{
@@ -35,6 +34,7 @@ pub mod config;
 pub mod metrics_utils;
 pub mod organization;
 pub mod recently_seen;
+pub mod route;
 
 pub async fn handle_batch(
     requests: Vec<EmbeddingRequest>,
@@ -128,12 +128,9 @@ pub async fn generate_embedding(
     let mut last_transport_error = None;
 
     for attempt in 0..MAX_RETRY_ATTEMPTS {
-        let api_req = construct_request(
-            &text,
-            model,
-            &context.config.openai_api_key,
-            context.client.clone(),
-        );
+        let api_req = context
+            .route
+            .construct_request(&text, model, labels, context.client.clone());
 
         counter!(REQUESTS_SENT, labels.render()).increment(1);
         let response = match context.client.execute(api_req).await {
@@ -271,30 +268,6 @@ pub fn generate_embedding_text<'a>(
     }
 
     Ok((Cow::Owned(text), count))
-}
-
-pub fn construct_request(
-    content: &str,
-    model: EmbeddingModel,
-    api_key: &str,
-    client: Client,
-) -> Request {
-    let req = Request::new(
-        Method::POST,
-        model
-            .model_url()
-            .parse()
-            .expect("The models enum only produces valid urls"),
-    );
-
-    let req = RequestBuilder::from_parts(client, req)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .json(&model.construct_request_body(content));
-
-    // This expect is fine, because we have total control over everything in the
-    // request, except the string of input content, which will serialize correctly.
-    req.build().expect("we manage to build the request")
 }
 
 #[cfg(test)]
