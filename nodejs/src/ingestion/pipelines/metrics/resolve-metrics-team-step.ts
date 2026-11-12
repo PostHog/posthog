@@ -1,3 +1,4 @@
+import type { UnknownTokenRecorder } from '~/common/services/unknown-token-recorder'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -7,7 +8,8 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
 
 export function createResolveMetricsTeamStep<T extends { token: string }>(
-    teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>
+    teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>,
+    unknownTokens?: Pick<UnknownTokenRecorder, 'record'>
 ): ProcessingStep<T, T & { teamId: number }> {
     return async function resolveMetricsTeamStep(input) {
         let team
@@ -29,6 +31,7 @@ export function createResolveMetricsTeamStep<T extends { token: string }>(
 
         if (!team) {
             logger.error('team_not_found', { token_with_no_team: input.token })
+            unknownTokens?.record(input.token)
             metricMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
             return drop('team_not_found')
         }

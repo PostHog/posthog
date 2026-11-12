@@ -4,6 +4,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { KafkaConsumerInterface } from '~/common/kafka/consumer'
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { UnknownTokenRecorder } from '~/common/services/unknown-token-recorder'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { logger } from '~/common/utils/logger'
@@ -76,13 +77,15 @@ export class MetricsPipelineConsumer {
         this.usageBatch = deps.usageBatch
         this.teamManager = deps.teamManager
         this.promiseScheduler = new FailureLatchingPromiseScheduler()
+        const redis = createMetricsRateLimiterRedis(config)
         this.pipeline = createMetricsIngestionPipeline({
             outputs: deps.outputs,
             promiseScheduler: this.promiseScheduler,
             teamManager: deps.teamManager,
             quotaLimiting: deps.quotaLimiting,
-            rateLimiter: new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config)),
+            rateLimiter: new MetricsRateLimiterService(config, redis),
             isAggregationEnabled: buildIntegerMatcher(config.METRICS_AGGREGATION_ENABLED_TEAMS, true),
+            unknownTokens: new UnknownTokenRecorder(redis),
         })
     }
 
