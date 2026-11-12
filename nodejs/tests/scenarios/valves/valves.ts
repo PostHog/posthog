@@ -6,6 +6,7 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
+import { WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -72,7 +73,7 @@ const DestinationStatus = z.union([
 export const destStatus: ValveDefinition = {
     name: 'dest.status',
     params: DestinationStatus,
-    target: z.string().min(1),
+    target: z.literal(WEBHOOK_HOST),
     strandsRunningJobs: false,
     apply: ({ environment }, target, dose) => {
         const { code, ...amount } = DestinationStatus.parse(dose)
@@ -137,7 +138,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         try {
             record.appliedAt = now()
             actuation = await definition.apply(context, entry.target, entry.dose)
-            if (!(await actuation.observed())) {
+            if (!(await actuation.observed(released.signal))) {
                 record.error = 'applied but not observed'
             } else if (
                 entry.when &&

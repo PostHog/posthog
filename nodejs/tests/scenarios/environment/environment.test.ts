@@ -33,7 +33,7 @@ import {
     strangerConflict,
     terminate,
 } from './processes'
-import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
 import {
     STACK,
     forgetSesBucket,
@@ -376,6 +376,24 @@ describe('scenario environment', () => {
             const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
             expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
+        })
+
+        const hogflowWorker = (settings: Record<string, string>) =>
+            roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings).find(
+                ({ role }) => role === 'cdp-cyclotron-worker-hogflow'
+            )!
+
+        it.each<[string, Record<string, string>, number]>([
+            ['the default', {}, 3],
+            ['a profile setting', { CDP_FETCH_RETRIES: '5' }, 5],
+        ])('reads the fetch retries of the hogflow worker from %s', (_story, settings, retries) => {
+            expect(fetchRetriesOf(hogflowWorker(settings))).toBe(retries)
+        })
+
+        it('refuses fetch retries that are not a number', () => {
+            expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'many' }))).toThrow(
+                'CDP_FETCH_RETRIES many is not a number of retries'
+            )
         })
 
         it('gives every role its own port, cdp-api the one Django calls', () => {

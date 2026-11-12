@@ -7,8 +7,6 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
-import { ruleOf } from './faults'
-
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
 const BOB = 'run-1-2@www.example.com'
@@ -287,20 +285,6 @@ describe('provider edge', () => {
         await addFault(rejectFor(BOB))
 
         expect(await send(destination)).toBe('MessageRejected')
-    })
-
-    it('counts the requests a fault answered, until the edge removes it', async () => {
-        const forAlice = edge.addFault(ruleOf(rejectFor(ALICE)))
-        await sendEach([ALICE, BOB, ALICE])
-        const answered = edge.faultApplied(forAlice)
-
-        edge.removeFault(forAlice)
-
-        expect({ answered, afterRemoval: edge.faultApplied(forAlice), next: await send(ALICE) }).toEqual({
-            answered: 2,
-            afterRemoval: 0,
-            next: 'sent',
-        })
     })
 
     it('answers a fault id it no longer holds with a 404', async () => {

@@ -16,20 +16,20 @@ valves:
           code: 503
           share: 0.5
       at: 5s
-      for: 15s
+      for: 10s
     - valve: dest.status
       target: hooks.example.com
       dose:
           code: 429
           share: 0.5
-      at: 25s
-      for: 15s
+      at: 26s
+      for: 10s
     - valve: dest.status
       target: hooks.example.com
       dose:
           code: 400
           count: 5
-      at: 45s
+      at: 47s
       for: 10s
 convergeWithin: 2m
 invariants:

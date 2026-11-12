@@ -49,7 +49,7 @@ export type Action =
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
 
-export type Actuation = { observed(): Promise<boolean>; release(): Promise<void> }
+export type Actuation = { observed(released?: AbortSignal): Promise<boolean>; release(): Promise<void> }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -64,8 +64,6 @@ const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
 const KILL_OBSERVED_WITHIN_MS = 10_000
 const FREEZE_OBSERVED_WITHIN_MS = 10_000
-const FAULT_OBSERVED_WITHIN_MS = 10_000
-const FAULT_POLL_MS = 100
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
     specs.map(({ role }) => ({ port: ROLE_PORTS[role], owner: role }))
@@ -164,26 +162,8 @@ export function createEnvironment({
                     }
                     return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
                 }
-                case 'edge.fault': {
-                    const faulting = startedEdge('actuate')
-                    const id = faulting.addFault(action.rule)
-                    return {
-                        observed: async () => {
-                            const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-                            while (faulting.faultApplied(id) === 0) {
-                                if (Date.now() > deadline) {
-                                    return false
-                                }
-                                await sleep(FAULT_POLL_MS)
-                            }
-                            return true
-                        },
-                        release: () => {
-                            faulting.removeFault(id)
-                            return Promise.resolve()
-                        },
-                    }
-                }
+                case 'edge.fault':
+                    return startedEdge('actuate').hold(action.rule)
             }
         },
 
