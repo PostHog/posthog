@@ -1636,6 +1636,8 @@ export const warehouseMigrationsCostEstimateCreateBodyUsageItemTableNameMax = 40
 
 export const warehouseMigrationsCostEstimateCreateBodyUsageMax = 10000
 
+export const warehouseMigrationsCostEstimateCreateBodyTableOverridesMax = 10000
+
 export const WarehouseMigrationsCostEstimateCreateBody = /* @__PURE__ */ zod.object({
     usage: zod
         .array(
@@ -1674,6 +1676,26 @@ export const WarehouseMigrationsCostEstimateCreateBody = /* @__PURE__ */ zod.obj
         .optional()
         .describe(
             'Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.'
+        ),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
+                    .string()
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+                item_id: zod.uuid().describe('The migration item the table belongs to.'),
+            })
+        )
+        .max(warehouseMigrationsCostEstimateCreateBodyTableOverridesMax)
+        .optional()
+        .describe(
+            "The table choices the user confirmed for apply, so the estimate prices the tables apply creates. Same shape as apply's `table_overrides`, with the item each one belongs to."
         ),
 })
 

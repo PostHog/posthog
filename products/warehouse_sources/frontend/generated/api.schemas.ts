@@ -2864,12 +2864,29 @@ export interface MigrationUsageReportApi {
     table_name?: string | null
 }
 
+export interface MigrationCostTableOverrideApi {
+    /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+    vendor_table: string
+    /**
+     * The PostHog table to sync it as. Null leaves the table out.
+     * @nullable
+     */
+    posthog_table: string | null
+    /** The migration item the table belongs to. */
+    item_id: string
+}
+
 export interface WarehouseMigrationCostEstimateRequestApi {
     /**
      * Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.
      * @maxItems 10000
      */
     usage?: MigrationUsageReportApi[]
+    /**
+     * The table choices the user confirmed for apply, so the estimate prices the tables apply creates. Same shape as apply's `table_overrides`, with the item each one belongs to.
+     * @maxItems 10000
+     */
+    table_overrides?: MigrationCostTableOverrideApi[]
 }
 
 /**
@@ -2935,7 +2952,7 @@ export interface WarehouseMigrationPriceTierApi {
 export interface WarehouseMigrationCostEstimateApi {
     /** One estimate per connection that moves. Skipped and unsupported ones are left out. */
     items: WarehouseMigrationCostItemApi[]
-    /** Estimated rows synced each month, across every connection. */
+    /** Estimated rows synced each month, across the connections with an estimate. `unknown` ones count as nothing, so check `unknown_count` before reading this as a total. */
     monthly_rows: number
     /**
      * Monthly cost of `monthly_rows` at PostHog's list price, free tier included. Ignores discounts, credits, and rows the project already syncs. Null when PostHog could not read its prices.

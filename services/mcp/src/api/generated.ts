@@ -70634,6 +70634,18 @@ export namespace Schemas {
       timestamp: string | null;
     }
 
+    export interface MigrationCostTableOverride {
+      /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+      vendor_table: string;
+      /**
+         * The PostHog table to sync it as. Null leaves the table out.
+         * @nullable
+         */
+      posthog_table: string | null;
+      /** The migration item the table belongs to. */
+      item_id: string;
+    }
+
     export interface MigrationUsageReport {
       /**
          * The Fivetran connection name, which is also its destination schema. `connection_name` in the Fivetran Platform Connector's `INCREMENTAL_MAR` table.
@@ -121755,7 +121767,7 @@ export namespace Schemas {
     export interface WarehouseMigrationCostEstimate {
       /** One estimate per connection that moves. Skipped and unsupported ones are left out. */
       items: WarehouseMigrationCostItem[];
-      /** Estimated rows synced each month, across every connection. */
+      /** Estimated rows synced each month, across the connections with an estimate. `unknown` ones count as nothing, so check `unknown_count` before reading this as a total. */
       monthly_rows: number;
       /**
          * Monthly cost of `monthly_rows` at PostHog's list price, free tier included. Ignores discounts, credits, and rows the project already syncs. Null when PostHog could not read its prices.
@@ -121788,6 +121800,11 @@ export namespace Schemas {
          * @maxItems 10000
          */
       usage?: MigrationUsageReport[];
+      /**
+         * The table choices the user confirmed for apply, so the estimate prices the tables apply creates. Same shape as apply's `table_overrides`, with the item each one belongs to.
+         * @maxItems 10000
+         */
+      table_overrides?: MigrationCostTableOverride[];
     }
 
     export interface WarehouseMigrationCreate {
