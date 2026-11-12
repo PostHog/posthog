@@ -588,6 +588,7 @@ jobs:
                         - 'posthog/temporal/ai_observability/**'
                         - 'posthog/temporal/llm_analytics/**'
                         - 'products/product_analytics/backend/temporal/**'
+                        - 'products/experiments/backend/temporal/timeseries/**'
                         - 'posthog/temporal/delete_persons/**'
                         - 'posthog/temporal/delete_teams/**'
                         - 'posthog/temporal/ingestion_acceptance_test/**'
