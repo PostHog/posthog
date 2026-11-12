@@ -552,9 +552,9 @@ tools:
             idempotent: true
         title: Query logs
         description_file: ./prompts/query-logs.md
+        system_prompt_hint: Log filtering by severity/service/attribute
         exclude_params:
             - trigger
-        system_prompt_hint: Log filtering by severity/service/attribute
         hooks: logs/redactCredentialsHooks
         response:
             include:
