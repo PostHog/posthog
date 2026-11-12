@@ -4,11 +4,15 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
+from temporalio.common import RetryPolicy
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, IntegrationAuthType
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
@@ -230,6 +234,29 @@ class TestCalendarSync(BaseTest):
         assert len(selected) == 200
         assert self.integration.id not in [item.integration_id for item in selected]
 
+    @parameterized.expand([(1,), (2,), (3,), (100,)])
+    def test_collector_reads_every_account_across_pages(self, page_size: int) -> None:
+        Integration.objects.bulk_create(
+            [
+                Integration(team=self.team, kind="google-calendar", integration_id=f"google-sub-{i + 2}")
+                for i in range(3)
+            ]
+        )
+
+        with patch.object(temporal_calendar_sync, "CALENDAR_PAGE_SIZE", page_size):
+            selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert len(selected) == 4
+
+    def test_collector_skips_credentials_rows(self) -> None:
+        Integration.objects._with_auth(IntegrationAuthType.CREDENTIALS).create(
+            team=self.team, kind="google-calendar", integration_id="google-sub-credentials", config={}
+        )
+
+        selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"
         self.integration.save(update_fields=["config"])
@@ -365,3 +392,26 @@ class TestCalendarSync(BaseTest):
         meeting.refresh_from_db()
         assert updated == 1
         assert meeting.account_id == account.id
+
+
+class TestCalendarSyncTransportErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("proxy_error_first_attempt", requests.exceptions.ProxyError("504"), 1, True),
+            ("read_timeout_second_attempt", requests.exceptions.ReadTimeout("timed out"), 2, True),
+            ("proxy_error_final_attempt", requests.exceptions.ProxyError("504"), 3, False),
+        ]
+    )
+    def test_transport_error_is_reported_only_on_final_attempt(
+        self, _name: str, error: Exception, attempt: int, expected: bool
+    ) -> None:
+        info = MagicMock(attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=3))
+        with (
+            patch.object(temporal_calendar_sync.activity, "info", return_value=info),
+            patch.object(calendar_sync, "sync_calendar_integration", side_effect=error),
+            self.assertRaises(temporal_calendar_sync.ApplicationError) as raised,
+        ):
+            temporal_calendar_sync._run_calendar_sync(temporal_calendar_sync.CalendarSyncInput(1, 1))
+
+        assert not raised.exception.non_retryable
+        assert is_expected_activity_failure(raised.exception) is expected

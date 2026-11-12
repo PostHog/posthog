@@ -1,27 +1,11 @@
-"""Seed the engineering analytics warehouse tables from the checked-in GitHub fixture.
+"""Seed a team's warehouse with the checked-in GitHub fixture plus synthetic demo rows, behind a
+seeded GitHub source. Local dev only.
 
-Loads ``products/engineering_analytics/fixtures/github_pull_requests.json`` and
-``github_workflow_runs.json`` (a real PostHog/posthog snapshot captured with
-``fixtures/fetch.py``) into the team's data warehouse behind a connected GitHub
-source, exactly as a real sync would: a GitHub ``ExternalDataSource`` with a
-``--prefix``, plus ``pull_requests`` / ``workflow_runs`` ``ExternalDataSchema`` rows
-pointing at the materialized ``<prefix>github_pull_requests`` /
-``<prefix>github_workflow_runs`` tables. The product resolves those names per team
-(``logic.sources``), so seeding under a non-default prefix exercises the resolver
-rather than the old hardcoded ``github_*`` names.
+Timestamps are rebased so the newest row lands at now, because the queries window on the server
+clock and an old snapshot would render empty. ``--keep-dates`` skips the rebase. Re-running replaces
+the seed source's tables and never touches a table that another source owns.
 
-Timestamps are rebased so the newest fixture row lands at "now" — the queries
-window on server-side now(), so an unshifted old snapshot would render empty.
-Pass --keep-dates for the faithful snapshot instead.
-
-Re-running replaces this seed source's tables, but a table owned by a different
-(real) connected source is never touched. Local/dev only: requires the dev object
-storage and ClickHouse from the hogli stack.
-
-Usage:
-    python manage.py seed_engineering_analytics --team-id 1
-    python manage.py seed_engineering_analytics --team-id 1 --prefix devex_eng_analytics
-    python manage.py seed_engineering_analytics --team-id 1 --keep-dates
+    python manage.py seed_engineering_analytics --team-id 1 [--prefix <prefix>] [--keep-dates]
 """
 
 import csv
@@ -91,21 +75,17 @@ FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 PR_DATE_FIELDS = ("created_at", "updated_at", "merged_at", "closed_at")
 RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
-# Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
-# The TrunkIo sibling backing the Trunk quarantine debt scoreboard.
 TRUNK_SEED_SOURCE_ID = "engineering_analytics_seed_trunkio"
-# Matches the fixtures' repository.full_name; without it the UI's repo header/picker fall back to
-# placeholders (a real source stores the repo in job_inputs at connect time).
+# Must match the fixtures' repository.full_name.
 SEED_REPOSITORY = "PostHog/posthog"
-# Default prefix is non-trivial on purpose: it proves the product resolves the real
-# per-team table name rather than assuming the bare ``github_*`` names.
+# A non-empty default prefix makes the seed exercise per-team table name resolution.
 DEFAULT_PREFIX = "eng_analytics_seed"
 
 
 def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     return {
-        # .get() tolerates a pre-existing fixture captured before merge_commit_sha was kept.
+        # An older fixture can lack columns that were added to the snapshot later.
         **{key: pr.get(key) for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
         "draft": int(bool(pr["draft"])),
         "user": json.dumps(pr["user"]),
@@ -116,7 +96,6 @@ def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
 
 
 def _synthetic_repo_id(full_name: str) -> int:
-    """A stable stand-in for GitHub's numeric repo id, derived from ``owner/name``."""
     return zlib.crc32(full_name.encode())
 
 
@@ -128,10 +107,9 @@ def _synthetic_event(head_branch: str) -> str:
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
-    # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
-    # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
-    # those ids were kept, and the synthetic demo rows below, carry neither, so stamp both ends with
-    # one synthetic id rather than seeding data that attributes nothing.
+    # A run is attributed to a PR only when the PR's base repo id equals the run's own (see
+    # logic/views/workflow_runs). Rows that carry neither id get one synthetic id on both ends,
+    # because without it they would attribute nothing.
     repository = {**run["repository"]}
     repository.setdefault("id", _synthetic_repo_id(repository["full_name"]))
     associations = [
@@ -139,23 +117,17 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         for pr in run.get("pull_requests") or []
     ]
     return {
-        # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
-        # The fixture snapshot and the synthetic rows carry no workflow id or trigger event. A real run of
-        # a branch push is a 'push', and a merge queue pushes its gate branches too.
         "workflow_id": run.get("workflow_id") or zlib.crc32(str(run.get("name") or "").encode()),
         "event": run.get("event") or _synthetic_event(str(run.get("head_branch") or "")),
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
-        # Snapshots captured before actor was kept land '{}', which reads as "not the merge queue" —
-        # the safe answer, since the branch parse it gates only ever adds attribution.
+        # A missing actor lands as '{}', which the merge-queue check reads as "not the queue bot".
         "actor": json.dumps(run.get("actor") or {}),
     }
 
 
-# Synthesize a few jobs per run so the expandable job breakdown and cost cards are demoable in local
-# dev. Tiers vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
 _JOB_NAMES = ("build", "test", "lint", "e2e")
 _FAILING_CONCLUSIONS = ("failure", "timed_out")
 _RUNNER_LABELS = (
@@ -170,8 +142,7 @@ _TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 _DEMO_BRANCH = "demo/multi-push-progression"
 
-# The demo pull request's workflows get job shapes like the real ones: jobs that start in waves,
-# and matrix jobs with many shards. Each entry is (job name, wave, shard count).
+# Each entry is (job name, wave, shard count).
 _DEMO_JOB_SHAPES: dict[str, tuple[tuple[str, int, int], ...]] = {
     "Backend CI": (
         ("Detect changes", 0, 1),
@@ -209,7 +180,7 @@ _DEMO_JOB_SHAPES: dict[str, tuple[tuple[str, int, int], ...]] = {
 
 _STEP_TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
 _MAIN_STEP = "Run"
-# Step name and its share of the job's wall-clock. The shares sum to 1.
+# Step name and its share of the job's wall-clock. The shares must sum to 1.
 _STEP_SHAPE: tuple[tuple[str, float], ...] = (
     ("Set up job", 0.04),
     ("Checkout", 0.06),
@@ -222,7 +193,7 @@ _STEP_SHAPE: tuple[tuple[str, float], ...] = (
 
 
 def _shaped_steps(job_name: str, job_start: datetime, job_end: datetime, conclusion: str | None) -> str:
-    """A job's steps as GitHub's JSON. A failed job fails on its main step; an unfinished job is still on it."""
+    """A job's steps as GitHub's JSON. A failed job fails on its main step, and an unfinished job is still on it."""
     seconds = (job_end - job_start).total_seconds()
     steps: list[dict[str, Any]] = []
     step_start = job_start
@@ -269,7 +240,6 @@ def _shaped_jobs(
             if failing and (name, shard) == (widest_name, widest_shards // 2):
                 conclusion = run["conclusion"]
             job_start = run_start + timedelta(seconds=wave * segment)
-            # Shards end at different times, so their durations differ.
             job_end = job_start + timedelta(seconds=segment * (0.55 + ((index * 37) % 10) / 22))
             started_at = job_start.strftime(_TS_FMT)
             jobs.append(
@@ -300,10 +270,8 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for run in runs:
         completed = run.get("status") == "completed"
         run_conclusion = run.get("conclusion")
-        count = (run["id"] % 3) + 2  # 2–4 jobs, deterministic per run
+        count = (run["id"] % 3) + 2
 
-        # Stagger jobs sequentially across the run's window so the job Gantt reads as a real timeline
-        # (build → test → …) instead of identical full-width bars.
         run_start: datetime | None = None
         run_end: datetime | None = None
         try:
@@ -321,7 +289,7 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         for idx in range(count):
             is_last = idx == count - 1
-            # Healthy jobs pass; a failing run's failure surfaces on its last job.
+            # A failing run fails on its last job.
             conclusion = run_conclusion if (is_last and run_conclusion in _FAILING_CONCLUSIONS) else None
             if completed and conclusion is None:
                 conclusion = "success"
@@ -348,7 +316,6 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "created_at": started_at,
                     "started_at": started_at,
                     "completed_at": completed_at,
-                    # Only an unfinished job gets steps, which show the in-progress and queued states.
                     "steps": (
                         _shaped_steps(
                             _JOB_NAMES[idx % len(_JOB_NAMES)], job_start, job_start + timedelta(seconds=segment), None
@@ -361,12 +328,9 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return jobs
 
 
-# A synthetic multi-push PR so the per-push sparkline and multi-run expansion are demoable — captured
-# real PRs rarely re-run many workflows across pushes, so nothing in the fixture shows the progression.
-# Local-seed only; clearly numbered 99001 and labelled "demo".
+# The fixture has no pull request that re-runs many workflows across pushes, so the seed adds one.
 _DEMO_PR_NUMBER = 99001
-# Per-workflow conclusion across the 4 pushes (oldest → newest) — a mix of red→green progressions,
-# steady-green, a late blip, and one still running on the latest push.
+# Each workflow's conclusion on the 4 pushes, oldest first. None means the run is still in progress.
 _DEMO_MATRIX: dict[str, list[str | None]] = {
     "Backend CI": ["failure", "failure", "success", "success"],
     "Frontend CI": ["failure", "success", "success", "success"],
@@ -375,14 +339,14 @@ _DEMO_MATRIX: dict[str, list[str | None]] = {
     "Storybook": ["success", "success", "success", "success"],
     "Lint": ["success", "success", "success", "success"],
     "Migrations": ["success", "success", "failure", "success"],
-    "MCP CI": ["success", "success", "success", None],  # None → still running on the latest push
+    "MCP CI": ["success", "success", "success", None],
     "Docs": ["success", "success", "success", "success"],
     "Security": ["timed_out", "failure", "success", "success"],
 }
 
 
 def _fixture_anchor(prs: list[dict[str, Any]], runs: list[dict[str, Any]]) -> datetime:
-    # Just after the fixture's newest row, so the rebase lands synthesized data at "now".
+    # The rebase moves the newest row to now, so synthetic rows are dated relative to this anchor.
     newest = max(
         datetime.fromisoformat(row[field])
         for row, fields in [*((pr, PR_DATE_FIELDS) for pr in prs), *((run, RUN_DATE_FIELDS) for run in runs)]
@@ -392,21 +356,14 @@ def _fixture_anchor(prs: list[dict[str, Any]], runs: list[dict[str, Any]]) -> da
     return newest + timedelta(hours=1)
 
 
-# Merged PRs re-spread across two weeks so the 14d merge-trend and cost-per-merge charts have a
-# point in every bucket.
 _MERGE_SPREAD_DAYS = 14
 
-# Synthetic default-branch commit stream: the captured snapshot holds only ~a dozen master SHAs, which
-# draws the master-health scatter as a near-empty chart. Deterministic (index arithmetic, no random),
-# local-seed only; SHAs are prefixed "aa57e2" so they read as seeded in the UI.
 _MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint", "Storybook")
-# Co-windowed with the merge spread: a day with merges but no seeded job cost would chart as $0/merge.
+# Same window as the merge spread, because a day with merges and no job cost charts as $0 per merge.
 _MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
-# Each master push carries a downstream fork's open "sync from upstream" PR, because that is what
-# GitHub really sends: the association lists every PR in the fork network sharing the run's head SHA.
-# Seeding it keeps the demo honest about what a master run is never attributable by, which is the
-# association (SPEC §6, "two PR keys").
+# GitHub's association lists every PR in the fork network that shares the run's head SHA, so each
+# seeded master push carries a fork's PR that the read layer must not attribute it to (SPEC §6).
 _FORK_REPO_ID = 778592526
 _FORK_PR_NUMBER = 1379
 
@@ -419,30 +376,24 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
     spacing_minutes = _MASTER_DAYS * 24 * 60 // total
     demo_runs: list[dict[str, Any]] = []
     for commit_index in range(total):
-        # Even spacing with a per-commit wobble so the X axis doesn't read as a metronome.
         age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
         commit_time = anchor - timedelta(minutes=age_minutes)
         sha = f"aa57e2{commit_index:04d}" + "e" * 30
-        # Cite a PR that is really in the seeded snapshot, so following the run's PR link lands on a
-        # PR page instead of dead-ending on "may not exist in the connected GitHub source". Cycling
-        # through the merged set is enough: the demo needs the link to resolve, not a faithful
-        # commit-to-merge history.
+        # Cite a seeded PR so that the run's PR link resolves.
         pr = merged_prs[commit_index % len(merged_prs)] if merged_prs else None
         subject = f"feat: seeded master commit {commit_index}"
         if pr is not None:
-            # The first commit to cite a PR owns its merge commit, so that run resolves through the
-            # merge_commit_sha join; later citations reuse the number and exercise the message
-            # fallback. Every tenth join-backed commit drops the (#NNNN) suffix too, seeding the
-            # merge-commit landing that only the join can attribute.
+            # The first commit to cite a PR becomes its merge commit, so that run resolves through
+            # the merge_commit_sha join. Later citations resolve through the (#NNNN) message
+            # suffix. Some join-backed commits drop the suffix, so only the join can attribute them.
             joins_via_merge_sha = not pr.get("merge_commit_sha")
             if joins_via_merge_sha:
                 pr["merge_commit_sha"] = sha
             if not (joins_via_merge_sha and commit_index % 10 == 3):
                 subject += f" (#{pr['number']})"
-        red_commit = commit_index % 9 == 4  # an occasional broken master push
-        cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
+        red_commit = commit_index % 9 == 4
+        cancelled_commit = commit_index % 17 == 9
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
-            # Newest two commits keep one workflow running so the in-flight band has live data.
             running = commit_index >= total - 2 and wf_index == len(_MASTER_WORKFLOWS) - 1
             if running:
                 conclusion = None
@@ -464,7 +415,7 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
                     "conclusion": conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    # A running run was last updated part of the way through, which gives its jobs a time span.
+                    # The job synthesis reads updated_at as the run's end, so a running run needs one too.
                     "updated_at": iso(start + duration / 2) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
@@ -478,9 +429,8 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
     return demo_runs
 
 
-# Merge-queue gate runs: the checked-in snapshot predates Trunk, so without these every queue
-# surface reads empty on a seeded stack. The `trunk-merge/pr-<n>/` branch name carries the PR
-# attribution; the bot actor corroborates it.
+# The fixture has no merge-queue gate runs, so the seed adds them. A gate run resolves to its PR
+# through the `trunk-merge/pr-<n>/` branch name, and only when the queue's bot is the actor.
 _GATE_WORKFLOWS = ("Backend CI", "Frontend CI")
 _GATE_LEAD = timedelta(minutes=34)
 _GATE_RETRY_EVERY_N = 4
@@ -494,10 +444,8 @@ def _gate_runs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged = [pr for pr in prs if pr.get("merged_at")]
     for index, pr in enumerate(merged):
         merged_at = datetime.fromisoformat(pr["merged_at"])
-        # Every fourth PR needs a second attempt, so multi-attempt share and the retry spread are real.
         attempts = 2 if index % _GATE_RETRY_EVERY_N == 0 else 1
         for attempt in range(attempts):
-            # The earlier attempt is the failed one, and it anchors the leg.
             start = merged_at - _GATE_LEAD * (attempts - attempt)
             failed = attempt < attempts - 1
             for wf_index, workflow in enumerate(_GATE_WORKFLOWS):
@@ -526,33 +474,25 @@ def _gate_runs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
-    # The snapshot captured recently-updated PRs, so their merge times all cluster on the capture day
-    # and the cost-per-merge and time-to-merge trends collapse into a single bucket. Re-spread merged
-    # PRs evenly across the seeded window and derive created_at backwards from a realistic duration mix
-    # (mostly hours-to-two-days, an occasional week-long tail); clamping merged_at forward against the
-    # snapshot's created_at instead would pile every merge on the capture day at a constant duration.
+    # The snapshot's merges cluster on the capture day, which collapses every merge trend into one
+    # bucket. created_at is derived backwards from the new merged_at, because clamping merged_at
+    # against the snapshot's created_at would leave the merges on the capture day.
     span_hours = _MERGE_SPREAD_DAYS * 24
     merged = [pr for pr in prs if pr.get("merged_at")]
     for index, pr in enumerate(merged):
         merged_at = anchor - timedelta(hours=(index * 11) % span_hours, minutes=(index * 13) % 60)
-        open_hours = 3 + (index * 17) % 45  # 3h–2d for most PRs...
+        open_hours = 3 + (index * 17) % 45
         if index % 9 == 4:
-            open_hours += 24 * (2 + index % 5)  # ...with a 2–6 day review tail on some
+            open_hours += 24 * (2 + index % 5)
         pr["merged_at"] = merged_at.strftime("%Y-%m-%dT%H:%M:%SZ")
         pr["created_at"] = (merged_at - timedelta(hours=open_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# Synthetic PR draft/ready transition stream backing ready_to_merge_seconds and the lifecycle
-# timeline. A real issue-events sync covers a bounded recent window (GitHub caps the history
-# walk), so the seed mirrors that: events land only inside the last _ISSUE_EVENTS_WINDOW_DAYS
-# of the merge spread, leaving older merges NULL ("not observed") exactly like production.
-# Every in-window merge lands its `merged` event too — that is what arms the never-drafted
-# fallback's window proof. Deterministic (index arithmetic, no random).
+# GitHub caps the issue-events history walk, so a real sync covers a bounded recent window. The seed
+# lands events only inside this window, which leaves older merges with no observed transition.
 _ISSUE_EVENTS_WINDOW_DAYS = 10
 
 
-# Production ships in batches, so a merge waits for the next deploy instead of getting one of its own.
-# Every third merge triggers one, in both regions, succeeding minutes later.
 _DEPLOYS_EVERY_N_MERGES = 3
 _DEPLOY_LAG = timedelta(minutes=9)
 _DEPLOY_DURATION = timedelta(minutes=12)
@@ -561,14 +501,11 @@ _PRODUCTION_ENVIRONMENTS = ("prod-us", "prod-eu")
 
 @frozen
 class _SeededDeployments:
-    """Deploy request rows and their status rows, written to the warehouse as a pair."""
-
     deployments: list[dict[str, Any]]
     statuses: list[dict[str, Any]]
 
 
 def _deployment_rows(prs: list[dict[str, Any]]) -> _SeededDeployments:
-    """Batched production deploys and the statuses that made them live, keyed off the merge stream."""
     merged = sorted((pr for pr in prs if pr.get("merged_at")), key=lambda pr: pr["merged_at"])
     deployments: list[dict[str, Any]] = []
     statuses: list[dict[str, Any]] = []
@@ -588,7 +525,7 @@ def _deployment_rows(prs: list[dict[str, Any]]) -> _SeededDeployments:
                     "description": None,
                     "creator": None,
                     "payload": None,
-                    # Left false like the real snapshot, so the seed exercises the unflagged fallback.
+                    # False as in real synced rows, so the read must detect production another way.
                     "production_environment": False,
                     "transient_environment": False,
                     "created_at": (requested + stagger).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -619,7 +556,7 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
     rows: list[dict[str, Any]] = []
 
     def add(event_id: int, event: str, pr: dict[str, Any], at: datetime) -> None:
-        if at < window_start:  # a real desc walk never lands rows past its cap
+        if at < window_start:
             return
         rows.append(
             {
@@ -634,23 +571,23 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
 
     merged = [pr for pr in prs if pr.get("merged_at")]
     if merged:
-        # Pin the observed range's left edge with a non-transition event type, so the window
-        # bound is deterministic rather than whichever transition happens to land first.
+        # A non-transition event at the window start fixes the left edge of the observed range.
         add(7_000_000_000, "labeled", merged[0], window_start)
     for index, pr in enumerate(merged):
         created = datetime.fromisoformat(pr["created_at"])
         merged_at = datetime.fromisoformat(pr["merged_at"])
         life = merged_at - created
         base_id = 7_000_000_100 + index * 10
+        # The never-drafted fallback needs the merge inside the observed window, so every merge lands its event.
         add(base_id, "merged", pr, merged_at)
-        if index % 3 == 0:  # opened as a draft, readied once (opening as draft emits no event)
+        if index % 3 == 0:
+            # Opening a PR as a draft emits no event.
             add(base_id + 1, "ready_for_review", pr, created + life * 0.4)
-        elif index % 3 == 1:  # re-drafted mid-review, then readied again — only the last ready counts
+        elif index % 3 == 1:
             add(base_id + 1, "convert_to_draft", pr, created + life * 0.3)
             add(base_id + 2, "ready_for_review", pr, created + life * 0.75)
-        # index % 3 == 2: no transitions — an in-window life takes the never-drafted fallback
     demo_pr = next((pr for pr in prs if pr.get("number") == _DEMO_PR_NUMBER), None)
-    if demo_pr is not None:  # the multi-push demo PR's timeline shows both transition kinds
+    if demo_pr is not None:
         created = datetime.fromisoformat(demo_pr["created_at"])
         add(7_000_000_050, "convert_to_draft", demo_pr, created + timedelta(hours=6))
         add(7_000_000_051, "ready_for_review", demo_pr, created + timedelta(hours=30))
@@ -663,7 +600,6 @@ _MERGED_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
     (("COMMENTED", 0.3), ("APPROVED", 0.85)),
     (("APPROVED", 0.9),),
 )
-# A mix of verdicts, so both open groups of the day view have rows.
 _OPEN_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
     (("CHANGES_REQUESTED", 0.6),),
     (("COMMENTED", 0.5),),
@@ -708,9 +644,8 @@ def _review_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, 
 def _demo_multi_push(
     prs: list[dict[str, Any]], runs: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    # Anchor the demo just after the fixture's newest row so the rebase lands its last push at "now".
     anchor = _fixture_anchor(prs, runs)
-    push_shas = [f"demo00{k + 1}" + "f" * 33 for k in range(4)]  # 40 chars, distinct first 7 (demo001…demo004)
+    push_shas = [f"demo00{k + 1}" + "f" * 33 for k in range(4)]
     workflows = list(_DEMO_MATRIX.keys())
 
     def iso(dt: datetime) -> str:
@@ -723,7 +658,7 @@ def _demo_multi_push(
             conclusion = _DEMO_MATRIX[workflow][push_index]
             running = conclusion is None
             start = push_time + timedelta(minutes=2 * wf_index)
-            end = start + timedelta(minutes=5 + (wf_index % 6) * 4)  # 5–25 min spread for p50/p95
+            end = start + timedelta(minutes=5 + (wf_index % 6) * 4)
             demo_runs.append(
                 {
                     "id": 9_900_000_000 + push_index * 100 + wf_index,
@@ -759,22 +694,17 @@ def _demo_multi_push(
     return demo_pr, demo_runs
 
 
-# Synthetic per-test CI spans for the flaky-test and team CI health surfaces (they read
-# posthog.trace_spans, not the warehouse). Each team gets a distinct trend shape so the
-# roster deltas, daily trend, and before/after slope all have something honest to show.
-# Deterministic (index arithmetic, no random); trace ids are prefixed 'engseed-' so
-# re-seeding can delete exactly its own rows.
+# Re-seeding deletes the spans whose trace id carries this prefix, and no others.
 _SPAN_TRACE_PREFIX = "engseed"
-_SPAN_DAYS = 28  # 14-day current window + its equal-length prior twin
+# A current window and a prior window of equal length.
+_SPAN_DAYS = 28
 
 # (owner_team, module_dir, [(TestClass, test_name, prior_daily, current_daily)]).
-# prior/current_daily are signal spans per day in each half of the window; 0 = quiet.
-# The roster is every distinct owner slug in the repo's ownership files (owners.yaml +
-# products/*/product.yaml, the same map the CI emitter stamps from) as of July 2026, so
-# the team surfaces demo against the real org. Module dirs are real test directories.
+# prior_daily and current_daily are the spans per day in each half of the window.
+# The slugs are the owner slugs in the repository's ownership files as of July 2026.
 _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     (
-        "team-replay",  # worsening: signal doubles in the current window
+        "team-replay",
         "posthog/session_recordings/test",
         [
             ("TestSessionRecordings", "test_snapshot_batching", 2, 5),
@@ -783,7 +713,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "batch-exports",  # high and flat: the standing offender
+        "batch-exports",
         "products/batch_exports/backend/tests",
         [
             ("TestSnowflakeExport", "test_incremental_primary_key_resume", 4, 4),
@@ -793,7 +723,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-ingestion",  # improving: signal halves in the current window
+        "team-ingestion",
         "posthog/models/test",
         [
             ("TestPersonMerges", "test_concurrent_merge_ordering", 4, 1),
@@ -801,14 +731,14 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "conversations",  # spiky: quiet prior, a current-window burst
+        "conversations",
         "products/conversations/backend/api/tests",
         [
             ("TestTicketRouting", "test_assignment_race", 0, 4),
         ],
     ),
     (
-        "team-experiments",  # recovered: prior signal only, lands at zero current
+        "team-experiments",
         "products/experiments/backend/test",
         [
             ("TestExperimentResults", "test_bayesian_interval_rounding", 3, 0),
@@ -816,14 +746,14 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-error-tracking",  # brand new flake: current window only
+        "team-error-tracking",
         "products/error_tracking/backend/tests",
         [
             ("TestIssueGrouping", "test_fingerprint_collision", 0, 3),
         ],
     ),
     (
-        "team-data-tools",  # mildly worsening
+        "team-data-tools",
         "posthog/hogql/test",
         [
             ("TestHogQLParser", "test_lambda_scope_resolution", 2, 3),
@@ -831,7 +761,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-workflows",  # mildly worsening
+        "team-workflows",
         "products/cdp/backend/test",
         [
             ("TestHogFunctions", "test_retry_backoff_jitter", 2, 3),
@@ -839,7 +769,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-product-analytics",  # mildly improving
+        "team-product-analytics",
         "posthog/hogql_queries/insights/trends/test",
         [
             ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
@@ -847,7 +777,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-platform-features",  # mildly improving
+        "team-platform-features",
         "products/access_control/backend/tests",
         [
             ("TestAccessControl", "test_role_membership_cache_invalidation", 2, 1),
@@ -855,7 +785,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-ai-observability",  # mildly improving
+        "team-ai-observability",
         "products/ai_observability/backend/test",
         [
             ("TestGenerationCosts", "test_cost_property_rollup", 2, 1),
@@ -863,14 +793,14 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-surveys",  # mildly improving
+        "team-surveys",
         "products/surveys/backend/api/test",
         [
             ("TestSurveyTargeting", "test_adaptive_sampling_rate", 2, 1),
         ],
     ),
     (
-        "team-warehouse-sources",  # flat
+        "team-warehouse-sources",
         "products/warehouse_sources/backend/tests",
         [
             ("TestStripeSource", "test_incremental_cursor_persistence", 2, 2),
@@ -878,7 +808,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-analytics-platform",  # flat
+        "team-analytics-platform",
         "products/dashboards/backend/test",
         [
             ("TestDashboardTiles", "test_tile_refresh_debounce", 2, 2),
@@ -886,7 +816,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-web-analytics",  # one flake fixed, one steady
+        "team-web-analytics",
         "products/web_analytics/backend/test",
         [
             ("TestWebOverview", "test_preaggregated_table_parity", 2, 2),
@@ -894,7 +824,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-feature-flags",  # one flake fixed, one steady
+        "team-feature-flags",
         "products/feature_flags/backend/test",
         [
             ("TestFlagMatching", "test_local_evaluation_consistency", 2, 2),
@@ -902,7 +832,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-self-driving",  # creeping up
+        "team-self-driving",
         "products/signals/backend/test",
         [
             ("TestSignalEmission", "test_dedupe_window_replay", 1, 2),
@@ -910,98 +840,98 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-agents",  # creeping up
+        "team-agents",
         "products/agent_platform/backend/tests",
         [
             ("TestAgentRuns", "test_tool_call_stream_resume", 1, 2),
         ],
     ),
     (
-        "team-managed-warehouse",  # creeping up
+        "team-managed-warehouse",
         "products/data_warehouse/backend/tests",
         [
             ("TestSavedQueryMaterialization", "test_incremental_refresh_watermark", 1, 2),
         ],
     ),
     (
-        "team-posthog-code",  # creeping up
+        "team-posthog-code",
         "products/tasks/backend/tests",
         [
             ("TestTaskSandbox", "test_worktree_cleanup_on_cancel", 1, 2),
         ],
     ),
     (
-        "team-devex",  # low and flat
+        "team-devex",
         "products/engineering_analytics/backend/tests",
         [
             ("TestCIViews", "test_workflow_health_window", 1, 1),
         ],
     ),
     (
-        "clickhouse",  # low and flat
+        "clickhouse",
         "posthog/clickhouse/test",
         [
             ("TestSchemaMigrations", "test_replicated_table_settings", 1, 1),
         ],
     ),
     (
-        "logs",  # low and flat
+        "logs",
         "products/logs/backend/test",
         [
             ("TestLogsQuery", "test_attribute_map_filter", 1, 1),
         ],
     ),
     (
-        "team-billing",  # low and flat
+        "team-billing",
         "ee/billing/test",
         [
             ("TestQuotaLimiting", "test_overage_grace_window", 1, 1),
         ],
     ),
     (
-        "team-data-modeling",  # low and flat
+        "team-data-modeling",
         "products/data_modeling/backend/tests",
         [
             ("TestSavedQueryDAG", "test_cyclic_dependency_rejection", 1, 1),
         ],
     ),
     (
-        "team-data-stack",  # low and flat
+        "team-data-stack",
         "posthog/dags/tests",
         [
             ("TestDagsterAssets", "test_partition_backfill_window", 1, 1),
         ],
     ),
     (
-        "team-growth",  # low and flat
+        "team-growth",
         "products/growth/backend/tests",
         [
             ("TestOnboardingFunnel", "test_activation_email_dedupe", 1, 1),
         ],
     ),
     (
-        "team-ai-gateway",  # recovered small
+        "team-ai-gateway",
         "services/llm-gateway/tests",
         [
             ("TestProviderFailover", "test_anthropic_fallback_order", 1, 0),
         ],
     ),
     (
-        "team-ai-research",  # recovered small
+        "team-ai-research",
         "ee/hogai/test",
         [
             ("TestMemoryCompaction", "test_context_window_eviction", 1, 0),
         ],
     ),
     (
-        "team-mcp-analytics",  # brand new, small
+        "team-mcp-analytics",
         "products/mcp_analytics/backend/tests",
         [
             ("TestMcpToolEvents", "test_tool_call_attribution", 0, 1),
         ],
     ),
     (
-        "",  # unstamped spans: the honest 'unowned' bucket
+        "",  # Spans with no owner stamp aggregate as the 'unowned' team.
         "posthog/api/test",
         [
             ("TestSharedMiddleware", "test_csrf_exempt_paths", 2, 2),
@@ -1011,13 +941,8 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
 ]
 
 
-# Synthetic merged-PR stream: the captured snapshot holds only ~115 merges, which spreads to
-# well under one merge per team-day across the 30-team roster, too thin for the per-team
-# merge-timing chart (a day with fewer than 3 merges has median == average by definition, so
-# the two lines would always coincide). Real PostHog/posthog merges ~40 PRs a day, so the
-# stream also makes repo-wide merge volume honest. Deterministic; numbered from 90000 and
-# titled "seeded:" so rows read as seeded in the UI. Timing/durations come from _spread_merges,
-# which rewrites every merged PR's merged_at/created_at anyway.
+# The fixture's merges are too few for the per-team merge-timing chart: a team-day with fewer than
+# 3 merges has a median equal to its average, so the chart's two lines coincide.
 _DEMO_MERGES_PER_DAY = 40
 
 
@@ -1035,8 +960,8 @@ def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "title": f"seeded: merged PR {number}",
                 "state": "closed",
                 "draft": False,
-                # Placeholder timestamps inside the fixture's range (so the rebase anchor is
-                # unchanged); _spread_merges rewrites created_at/merged_at deterministically.
+                # Placeholders inside the fixture's range, so they do not move the rebase anchor.
+                # _spread_merges rewrites created_at and merged_at.
                 "created_at": template_ts,
                 "updated_at": template_ts,
                 "merged_at": template_ts,
@@ -1050,10 +975,6 @@ def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-# GitHub org team membership for the merge-trend join (PR author login → team slug). Fixture
-# authors are assigned deterministically across the roster teams (no random, stable between
-# runs); local-seed only, so the mapping is synthetic: it exists to light up the per-team
-# time-to-merge chart against real PR merge data.
 _GITHUB_TEAM_SLUGS = [slug for slug, _, _ in _SPAN_TEAMS if slug]
 
 
@@ -1063,11 +984,9 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         login = (pr.get("user") or {}).get("login") or ""
         if login:
             merged_counts[login] = merged_counts.get(login, 0) + (1 if pr.get("merged_at") else 0)
-    # Deal authors across teams round-robin in merge-volume order, so every team gets a share of
-    # active mergers instead of hash luck leaving some team lines empty. Scattered extra
-    # memberships mirror how org teams really overlap and thicken each team's series enough that
-    # days see 3+ merges; below that, a day's median and average are mathematically identical
-    # and the trend's two lines would always coincide.
+    # Authors are dealt round-robin in merge-volume order so that every team gets active mergers.
+    # The extra memberships give each team enough merges per day for a median that differs from
+    # the average.
     logins = sorted(merged_counts, key=lambda login: (-merged_counts[login], login))
     team_count = len(_GITHUB_TEAM_SLUGS)
     rows: list[dict[str, Any]] = []
@@ -1082,8 +1001,6 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "id": 900_000 + member_index,
                     "login": login,
-                    # One maintainer per team, so the roster read's maintainers-first order is
-                    # visible locally instead of every member looking the same.
                     "role": "maintainer" if slot == 0 and member_index < team_count else "member",
                     "team_id": team_index + 1,
                     "team_slug": slug,
@@ -1094,12 +1011,12 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _selector(module_dir: str, test_class: str, test_name: str) -> str:
-    """The pytest selector for a roster test: one recipe shared by the span and failure-log seeds."""
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
 
 
 # (file, test_class, name, parent, age_days). `parent` is what the uploader reports: 'pytest', the
-# test file for jest, the crate for Rust.
+# test file for Jest, the crate for Rust. The board resolves owners from the real repository, so
+# the files are real. The ages straddle the TTL.
 _QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
     ("products/replay_vision/backend/tests/test_api.py", "TestAPI", "test_tag_listing_pagination", "pytest", 41),
     (
@@ -1111,7 +1028,7 @@ _QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
     ),
     ("posthog/api/test/test_person.py", "TestPerson", "test_person_merge_ordering", "pytest", 23),
     ("posthog/hogql/test/test_query.py", "TestQuery", "test_property_type_coercion", "pytest", 16),
-    # Reported relative to the directory its suite ran from, which is how Trunk records them.
+    # Trunk records a Jest file relative to the directory its suite ran from.
     ("tests/utils.test.ts", "", "parses a malformed header", "tests/utils.test.ts", 9),
     (
         "src/scenes/experiments/utils.test.ts",
@@ -1126,12 +1043,6 @@ _QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
 
 
 def _trunk_quarantined_rows() -> list[dict[str, Any]]:
-    """Trunk-quarantined rows for the debt scoreboard.
-
-    The board resolves owners from the real repository, so these name real test files, one per team,
-    and two of them arrive relative to their suite's directory (as Trunk reports them) to exercise
-    placement. Ages straddle the TTL, and the last row names no file so the 'unowned' bucket renders.
-    """
     anchor = timezone.now().replace(microsecond=0)
     rows: list[dict[str, Any]] = []
     for index, (file, test_class, name, parent, age_days) in enumerate(_QUARANTINED_TESTS):
@@ -1139,18 +1050,19 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
         module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
         rows.append(
             {
+                "id": f"engseed-trunk-{index:03d}",
+                "test_collection_id": "engseed",
                 "file": file,
                 "name": name,
                 "labels": "[]",
-                "parent": parent,
-                "status": "FLAKY",
+                "parent_name": parent,
+                "class_name": f"{module}.{test_class}" if test_class else "",
                 "variant": "",
-                "classname": f"{module}.{test_class}" if test_class else "",
+                "status": "flaky",
                 "codeowners": "[]",
-                "test_case_id": f"engseed-trunk-{index:03d}",
-                "quarantined_at": quarantined_at,
-                "quarantine_setting": "AUTO_QUARANTINE",
-                "status_last_updated_at": quarantined_at,
+                "quarantine_state": "quarantined",
+                "quarantined_since": quarantined_at,
+                "url": "",
             }
         )
     return rows
@@ -1168,12 +1080,9 @@ def _seed_trace_spans(team: Team) -> int:
             for day in range(_SPAN_DAYS):
                 is_current = day >= _SPAN_DAYS // 2
                 daily = current_daily if is_current else prior_daily
-                # ±1 wobble so trends read organic, never below zero.
                 daily = max(0, daily + ((day * 7 + test_index * 3) % 3) - 1)
                 for occurrence in range(daily):
                     span_index += 1
-                    # Mix of outcomes: retries dominate, with failures (PR-attributed and
-                    # master) and the occasional quarantined-but-failing xfail.
                     cycle = (day + occurrence + test_index) % 5
                     if cycle < 2:
                         outcome, pr, branch = "rerun_passed", f"{7000 + (day * 13 + occurrence * 7) % 400}", ""
@@ -1198,13 +1107,11 @@ def _seed_trace_spans(team: Team) -> int:
                         f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
                     )
 
-    # Local dev has no traces provisioning (prod creates these on the LOGS cluster via HCL);
-    # both DDLs are CREATE TABLE IF NOT EXISTS, so this is a no-op on a stack that has them.
+    # Local dev does not provision the traces tables. Both statements are CREATE TABLE IF NOT EXISTS.
     sync_execute(TRACE_SPANS_TABLE_SQL())
     sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
-    # Replace only this seed's spans; a real traces table on the same dev stack is untouched.
-    # ALTER DELETE (not lightweight DELETE): the table has projections, which reject the latter.
+    # The table has projections, which reject a lightweight DELETE.
     sync_execute(
         f"ALTER TABLE trace_spans DELETE WHERE team_id = %(team_id)s AND trace_id LIKE '{_SPAN_TRACE_PREFIX}-%%' "
         "SETTINGS mutations_sync = 1",
@@ -1218,16 +1125,11 @@ def _seed_trace_spans(team: Team) -> int:
     return len(rows)
 
 
-# Synthetic thinned CI failure logs for the broken-tests panel and the per-run failure-log
-# drilldowns (they read the Logs product, fed in production by the Temporal job-logs pipeline;
-# see logic/job_logs/). One small failure region per seeded failing job, reusing the _SPAN_TEAMS
-# roster so test health and broken tests describe the same tests. Deterministic; uuids are
-# prefixed 'engseed-log-' so re-seeding deletes exactly its own rows.
+# Re-seeding deletes the log lines whose uuid carries this prefix, and no others.
 _LOG_UUID_PREFIX = "engseed-log"
-# Volatile bits (hex ids, digit runs) on purpose: the ci_failures fingerprint recipe normalizes
-# them, so two seeded runs of the same failure demonstrably share a fingerprint.
-# OTLP severity numbers for the two levels the seed emits.
+# OTLP severity numbers.
 _LOG_SEVERITY = {"INFO": 9, "ERROR": 17}
+# The hex ids and digit runs exercise the ci_failures fingerprint, which normalizes them.
 _LOG_FAILURE_DETAILS = (
     "AssertionError: expected 200, got 500",
     "TimeoutError: ClickHouse query 8f3aa21b4c9d timed out after 30000 ms",
@@ -1237,7 +1139,6 @@ _LOG_FAILURE_DETAILS = (
 
 
 def _sql_escape(value: object) -> str:
-    # For single-quoted ClickHouse literals; job fields originate from the GitHub API via the fixture.
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
@@ -1260,17 +1161,16 @@ def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
         detail = _LOG_FAILURE_DETAILS[job_id % len(_LOG_FAILURE_DETAILS)]
         orig_total = 1800 + job_id % 900
         base_line = 1200 + job_id % 300
-        # The thinned shape the real pipeline emits: context, the FAILED line, an omission marker
-        # (no orig_line), and the job's closing ##[error]. (body, severity_text, orig_line).
+        # (body, severity_text, orig_line). An omission marker has no orig_line.
         lines: list[tuple[str, str, int | None]] = [
             ("=========================== short test summary info ============================", "INFO", base_line),
             (f"FAILED {selector} - {detail}", "ERROR", base_line + 1),
             (f"... {orig_total - base_line - 3} lines omitted ...", "INFO", None),
             ("##[error]Process completed with exit code 1.", "ERROR", orig_total),
         ]
-        # Mirrors the attribute contract in job_logs/activity.py; the read paths filter on these.
-        # Keys carry the stored ``__str`` type suffix; the logs table's ``attributes`` alias strips
-        # it, so ``attributes['repo']`` reads require ``repo__str`` in ``attributes_map_str``.
+        # Keep in sync with the attributes the job-logs pipeline emits, because the reads filter on
+        # them. The logs table's ``attributes`` alias strips the ``__str`` suffix, so a read of
+        # ``attributes['repo']`` needs ``repo__str`` in ``attributes_map_str``.
         base_attrs = (
             f"'job_id__str', '{job_id}', 'run_id__str', '{run_id}', 'repo__str', '{SEED_REPOSITORY}', "
             f"'branch__str', '{_sql_escape(job.get('head_branch') or '')}', "
@@ -1293,10 +1193,8 @@ def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
                 f"map({attrs}))"
             )
 
-    # Replace only this seed's lines; anything a real pipeline emitted on the same dev stack is
-    # untouched. HogQL's `logs` reads `logs_distributed` (over logs34, not the legacy `logs`
-    # Distributed over logs32), so write there; the mutation targets the local table because a
-    # Distributed engine rejects ALTER.
+    # HogQL's `logs` reads `logs_distributed`, so the insert writes there. The delete targets the
+    # local table because a Distributed engine rejects ALTER.
     sync_execute(
         f"ALTER TABLE {LOGS_LOCAL_TABLE} DELETE WHERE team_id = %(team_id)s AND uuid LIKE '{_LOG_UUID_PREFIX}-%%' "
         "SETTINGS mutations_sync = 1",
@@ -1314,8 +1212,7 @@ def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
 
 
 def _warehouse_endpoint() -> str:
-    # ClickHouse runs in docker, so a localhost object-storage endpoint must be
-    # rewritten to the docker host (same approach as the demo data generator).
+    # ClickHouse runs in docker, so it reaches a localhost object-storage endpoint through the docker host.
     endpoint = settings.OBJECT_STORAGE_ENDPOINT.rstrip("/")
     parsed = urlparse(endpoint)
     if parsed.hostname not in {"localhost", "127.0.0.1"}:
@@ -1361,30 +1258,23 @@ class Command(BaseCommand):
         prs = self._load_fixture(options["fixture_dir"], "github_pull_requests.json")
         runs = self._load_fixture(options["fixture_dir"], "github_workflow_runs.json")
 
-        # Synthetic merged-PR stream so per-team merge timing has realistic daily volume.
         prs.extend(_demo_merged_prs(prs))
-        # Append a synthetic multi-push PR (the fixture has none rich enough to show the progression).
         demo_pr, demo_runs = _demo_multi_push(prs, runs)
         prs.append(demo_pr)
         runs.extend(demo_runs)
-        # Spread merge times across the window so the cost-per-merge trend has a divisor per bucket.
         _spread_merges(prs, _fixture_anchor(prs, runs))
-        # The synthetic stream owns master: the snapshot's own master rows are a dozen SHAs whose
-        # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
-        # every real duration to the baseline. PR-branch rows stay untouched.
+        # The snapshot's master runs span days, which flattens every other duration on the
+        # master-health chart, so the synthetic commits replace them.
         runs = [run for run in runs if run.get("head_branch") != "master"]
-        # Passed as the PR rows, not just their numbers: seeding master stamps each cited PR's
-        # merge_commit_sha with the commit it landed, which is what the attribution join reads.
+        # _demo_master_commits stamps merge_commit_sha on these PR rows, so pass the rows themselves.
         merged_prs = [pr for pr in prs if pr.get("merged_at")]
         runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_prs))
         runs.extend(_gate_runs(prs))
-        # Synthetic draft/ready transitions + merged events for ready_to_merge_seconds, windowed
-        # like a real capped issue-events sync (see _issue_event_rows).
         issue_events = _issue_event_rows(prs, _fixture_anchor(prs, runs))
         reviews = _review_rows(prs, _fixture_anchor(prs, runs))
         deploy_rows = _deployment_rows(prs)
 
-        # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
+        # _shift_dates also rewrites timestamps into the format ClickHouse parses, so it runs with a zero shift too.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
         runs = [self._shift_dates(run, RUN_DATE_FIELDS, shift) for run in runs]
@@ -1414,12 +1304,10 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_RUNS_SCHEMA, WORKFLOW_RUNS_COLUMNS, map(_flatten_run, runs)
             )
-            # Synthesized demo jobs for the job-level breakdown (see _synthesize_jobs).
             jobs = _synthesize_jobs(runs)
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_JOBS_SCHEMA, WORKFLOW_JOBS_COLUMNS, jobs
             )
-            # Synthetic author→team membership backing the per-team time-to-merge trend.
             self._upsert_schema_table(
                 team, source, credential, prefix, TEAM_MEMBERS_SCHEMA, TEAM_MEMBERS_COLUMNS, _team_membership_rows(prs)
             )
@@ -1427,7 +1315,6 @@ class Command(BaseCommand):
                 team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
             )
             self._upsert_schema_table(team, source, credential, prefix, REVIEWS_SCHEMA, REVIEWS_COLUMNS, reviews)
-            # A TrunkIo sibling source backs the Trunk quarantine debt scoreboard.
             trunk_source = self._get_or_create_seed_source(
                 team,
                 prefix,
@@ -1445,7 +1332,6 @@ class Command(BaseCommand):
                 _trunk_quarantined_rows(),
                 source_kind="trunkio",
             )
-            # Both halves or neither: a deployment without its statuses never says whether it shipped.
             self._upsert_schema_table(
                 team, source, credential, prefix, DEPLOYMENTS_SCHEMA, DEPLOYMENTS_COLUMNS, deployments
             )
@@ -1459,16 +1345,13 @@ class Command(BaseCommand):
                 deployment_statuses,
             )
 
-        # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
-        # Best-effort: a dev stack without the traces table still gets the warehouse seed.
+        # A dev stack without the traces or logs tables still gets the warehouse seed.
         try:
             span_count = _seed_trace_spans(team)
             self.stdout.write(f"Seeded {span_count} per-test CI spans into trace_spans (flaky/team surfaces).")
         except Exception as exc:
             self.stdout.write(self.style.WARNING(f"Skipped trace_spans seed (traces table unavailable?): {exc}"))
 
-        # Thinned failure lines back the broken-tests panel and per-run failure-log drilldowns.
-        # Best-effort: a dev stack without the logs table still gets the warehouse seed.
         try:
             log_count = _seed_ci_failure_logs(team, jobs)
             self.stdout.write(f"Seeded {log_count} CI failure log lines into logs (broken tests/failure logs).")
@@ -1537,7 +1420,7 @@ class Command(BaseCommand):
         inputs = SourceInputsStore.load(source)
         if any(inputs.get(key) != value for key, value in job_inputs.items()):
             SourceInputsStore.assign(source, {**inputs, **job_inputs})
-            update_fields.append("job_inputs")
+            update_fields.extend(SourceInputsStore.update_fields)
         if update_fields:
             source.save(update_fields=[*update_fields, "updated_at"])
         return source
@@ -1554,7 +1437,7 @@ class Command(BaseCommand):
         source_kind: str = "github",
     ) -> None:
         records = list(rows)
-        # The materialized table name is exactly what a real sync produces: <prefix><kind>_<endpoint>.
+        # A real sync names its table <prefix><kind>_<endpoint>.
         table_name = f"{prefix}{source_kind}_{schema_name.lower() if source_kind != 'github' else schema_name}"
         headers = list(columns.keys())
         output = StringIO()
@@ -1581,10 +1464,8 @@ class Command(BaseCommand):
             existing.options = {**(existing.options or {}), "csv_allow_double_quotes": True}
             existing.deleted = False
             existing.deleted_at = None
-            # url_pattern is computed above from team/table_name, not request input, and credential
-            # is a real value from get_or_create_datawarehouse_credential (never None) - but the
-            # guard reads the row's prior DB state, so a stale credential-less row would still trip
-            # it without this declared explicitly.
+            # url_pattern is computed here, not taken from request input. The save guard reads the
+            # row's stored state, so a stale row with no credential would trip it without this flag.
             existing.save(internally_computed_url_pattern=True)
             table = existing
         else:

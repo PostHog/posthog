@@ -1,0 +1,22 @@
+# Files that use the `Integration` model outside the integrations SDK, and how many findings each
+# file has. Rule: .semgrep/rules/devex/integration-model-through-sdk.yaml. The count only goes down:
+# after you move a file to the SDK, lower its count or remove its line.
+posthog/api/organization_integration.py 1
+posthog/github/installations.py 2
+posthog/models/comment/slack_thread.py 1
+posthog/models/integration_repository_cache.py 2
+posthog/models/user_integration.py 1
+posthog/session_recordings/models/session_recording_external_reference.py 2
+products/batch_exports/backend/models/batch_export.py 1
+products/customer_analytics/backend/models/event_stream.py 1
+products/customer_analytics/backend/models/feature_request.py 1
+products/data_modeling/backend/models/github_sync_config.py 1
+products/error_tracking/backend/models.py 3
+products/messaging/backend/models/optout_sync_config.py 3
+products/messaging/backend/models/provider_import_run.py 1
+products/signals/backend/models.py 4
+products/slack_app/backend/models.py 3
+products/subscriptions/backend/models/subscription.py 1
+products/tasks/backend/models.py 4
+products/warehouse_sources/backend/models/external_data_destination.py 1
+products/warehouse_sources/backend/temporal/data_imports/sources/custom/source.py 1

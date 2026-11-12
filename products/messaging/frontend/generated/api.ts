@@ -11,9 +11,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddOptOutRequestApi,
     AddSuppressionRequestApi,
+    AttachmentUploadsRequestApi,
+    AttachmentUploadsResponseApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkRemoveSuppressionsRequestApi,
+    BulkRemoveSuppressionsResponseApi,
+    CodeEmailApi,
+    CodeEmailSourceCandidatesApi,
+    EmailStatusApi,
     GenerateLinkRequestApi,
+    ImportProviderOptionApi,
     MakeTransactionalApi,
     MessageCategoryApi,
     MessagePreferencesApi,
@@ -28,14 +36,32 @@ import type {
     PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
     PaginatedOptOutsApi,
+    PatchedCodeEmailUpdateApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
+    PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
+    ProviderImportRunApi,
     RemoveOptOutRequestApi,
+    RemoveSuppressionRequestApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    SetPreferencesApi,
+    StartProviderImportApi,
+    SupabaseAuthEmailSettingsApi,
+    TopicPreferencesApi,
+    TransactionalEmailActivityApi,
+    TransactionalEmailLogDetailApi,
+    TransactionalEmailLogListApi,
+    TransactionalEmailLogListParams,
+    TransactionalEmailLogResultsRetrieveParams,
+    TransactionalEmailLogStatsOverTimeRetrieveParams,
+    TransactionalEmailLogStatsRetrieveParams,
+    TransactionalEmailResultsApi,
+    TransactionalEmailStatsApi,
+    TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -56,12 +82,73 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreate = async (
+    projectId: string,
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getMessagingAttachmentsUploadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
+
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as `queued` and read again a few seconds later.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingPreferencesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/preferences/`
+}
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreate = async (
+    projectId: string,
+    setPreferencesApi: SetPreferencesApi,
+    options?: RequestInit
+): Promise<TopicPreferencesApi> => {
+    return apiMutator<TopicPreferencesApi>(getMessagingPreferencesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setPreferencesApi),
+    })
+}
+
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (
@@ -537,6 +624,168 @@ export const messagingPreferencesWebhookUrlRetrieve = async (
     })
 }
 
+export const getMessagingProviderImportsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_provider_imports/`
+}
+
+/**
+ * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary List the most recent provider imports
+ */
+export const messagingProviderImportsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProviderImportRunApi[]> => {
+    return apiMutator<ProviderImportRunApi[]>(getMessagingProviderImportsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_provider_imports/`
+}
+
+/**
+ * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Start a background import from another messaging tool
+ */
+export const messagingProviderImportsCreate = async (
+    projectId: string,
+    startProviderImportApi: StartProviderImportApi,
+    options?: RequestInit
+): Promise<ProviderImportRunApi> => {
+    return apiMutator<ProviderImportRunApi>(getMessagingProviderImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(startProviderImportApi),
+    })
+}
+
+export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_provider_imports/${id}/`
+}
+
+/**
+ * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Get a provider import and its progress
+ */
+export const messagingProviderImportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProviderImportRunApi> => {
+    return apiMutator<ProviderImportRunApi>(getMessagingProviderImportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingProviderImportsProvidersListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_provider_imports/providers/`
+}
+
+/**
+ * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary List the providers and what each can import
+ */
+export const messagingProviderImportsProvidersList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ImportProviderOptionApi[]> => {
+    return apiMutator<ImportProviderOptionApi[]>(getMessagingProviderImportsProvidersListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/settings/`
+}
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Get the Supabase auth email settings
+ */
+export const messagingSupabaseAuthEmailsSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(getMessagingSupabaseAuthEmailsSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/settings/`
+}
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Update the Supabase auth email settings
+ */
+export const messagingSupabaseAuthEmailsSettingsPartialUpdate = async (
+    projectId: string,
+    patchedSupabaseAuthEmailSettingsUpdateApi?: PatchedSupabaseAuthEmailSettingsUpdateApi,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(getMessagingSupabaseAuthEmailsSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSupabaseAuthEmailSettingsUpdateApi),
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsSettingsDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/settings/`
+}
+
+/**
+ * Remove the project URL, hook secret and template mappings. The hook then refuses every call, so turn off the Send Email hook in Supabase first. The templates themselves stay.
+ * @summary Disconnect the Supabase project
+ */
+export const messagingSupabaseAuthEmailsSettingsDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(getMessagingSupabaseAuthEmailsSettingsDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsStarterTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/starter_templates/`
+}
+
+/**
+ * Create a transactional template for each core Supabase auth email that has no template yet, and map it. Needs a verified email sender.
+ * @summary Create starter templates for the Supabase auth emails
+ */
+export const messagingSupabaseAuthEmailsStarterTemplatesCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(
+        getMessagingSupabaseAuthEmailsStarterTemplatesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getMessagingSuppressionsAddSuppressionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/add_suppression/`
 }
@@ -558,6 +807,30 @@ export const messagingSuppressionsAddSuppressionCreate = async (
     })
 }
 
+export const getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_remove_suppressions/`
+}
+
+/**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreate = async (
+    projectId: string,
+    bulkRemoveSuppressionsRequestApi: BulkRemoveSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkRemoveSuppressionsResponseApi> => {
+    return apiMutator<BulkRemoveSuppressionsResponseApi>(
+        getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(bulkRemoveSuppressionsRequestApi),
+        }
+    )
+}
+
 export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/remove_suppression/`
 }
@@ -568,14 +841,14 @@ export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: st
  */
 export const messagingSuppressionsRemoveSuppressionCreate = async (
     projectId: string,
-    addSuppressionRequestApi: AddSuppressionRequestApi,
+    removeSuppressionRequestApi: RemoveSuppressionRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMessagingSuppressionsRemoveSuppressionCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addSuppressionRequestApi),
+        body: JSON.stringify(removeSuppressionRequestApi),
     })
 }
 
@@ -752,7 +1025,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (
@@ -774,7 +1047,7 @@ export const getMessagingTemplatesSendCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingTemplatesSendCreate = async (
@@ -789,4 +1062,258 @@ export const messagingTemplatesSendCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
     })
+}
+
+export const getTransactionalCodeEmailsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/`
+}
+
+/**
+ * List the emails your code sends under a `template_key` that no template owns, newest first.
+ * @summary List emails sent from code
+ */
+export const transactionalCodeEmailsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CodeEmailApi[]> => {
+    return apiMutator<CodeEmailApi[]>(getTransactionalCodeEmailsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalCodeEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/`
+}
+
+/**
+ * @summary Get an email sent from code
+ */
+export const transactionalCodeEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CodeEmailApi> => {
+    return apiMutator<CodeEmailApi>(getTransactionalCodeEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalCodeEmailsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/`
+}
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCodeEmailUpdateApi?: PatchedCodeEmailUpdateApi,
+    options?: RequestInit
+): Promise<CodeEmailApi> => {
+    return apiMutator<CodeEmailApi>(getTransactionalCodeEmailsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCodeEmailUpdateApi),
+    })
+}
+
+export const getTransactionalCodeEmailsSourceCandidatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_code_emails/${id}/source_candidates/`
+}
+
+/**
+ * Search the project's connected GitHub repositories for files that use this email's key, so you can pick one to link as its source file.
+ * @summary Find the file that sends an email from code
+ */
+export const transactionalCodeEmailsSourceCandidatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CodeEmailSourceCandidatesApi> => {
+    return apiMutator<CodeEmailSourceCandidatesApi>(
+        getTransactionalCodeEmailsSourceCandidatesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTransactionalEmailLogListUrl = (projectId: string, params?: TransactionalEmailLogListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/`
+}
+
+/**
+ * List the project's transactional email sends, newest first. The log keeps sends for 30 days.
+ * @summary List transactional email sends
+ */
+export const transactionalEmailLogList = async (
+    projectId: string,
+    params?: TransactionalEmailLogListParams,
+    options?: RequestInit
+): Promise<TransactionalEmailLogListApi> => {
+    return apiMutator<TransactionalEmailLogListApi>(getTransactionalEmailLogListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_email_log/${id}/`
+}
+
+/**
+ * Get one send with its timeline: when it was queued, sent, delivered, opened and clicked.
+ * @summary Get a transactional email send
+ */
+export const transactionalEmailLogRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TransactionalEmailLogDetailApi> => {
+    return apiMutator<TransactionalEmailLogDetailApi>(getTransactionalEmailLogRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogActivityRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_email_log/${id}/activity/`
+}
+
+/**
+ * The recipient's events in the 7 days before and after one send, with the sessions they belong to.
+ * @summary Get what a transactional email's recipient did around the send
+ */
+export const transactionalEmailLogActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TransactionalEmailActivityApi> => {
+    return apiMutator<TransactionalEmailActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogResultsRetrieveUrl = (
+    projectId: string,
+    params: TransactionalEmailLogResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/results/`
+}
+
+/**
+ * Of the people a transactional email was sent to, count those who did an event within a window after their first send, and add up the revenue on those events.
+ * @summary Get what happened after a transactional email
+ */
+export const transactionalEmailLogResultsRetrieve = async (
+    projectId: string,
+    params: TransactionalEmailLogResultsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailResultsApi> => {
+    return apiMutator<TransactionalEmailResultsApi>(getTransactionalEmailLogResultsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogStatsRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalEmailLogStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/stats/`
+}
+
+/**
+ * Count sends by delivery status, opens and clicks, per template or per sending domain.
+ * @summary Get transactional email delivery stats
+ */
+export const transactionalEmailLogStatsRetrieve = async (
+    projectId: string,
+    params?: TransactionalEmailLogStatsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailStatsApi> => {
+    return apiMutator<TransactionalEmailStatsApi>(getTransactionalEmailLogStatsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogStatsOverTimeRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/stats_over_time/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/stats_over_time/`
+}
+
+/**
+ * Count sends by delivery status per time bucket, with totals for the period before.
+ * @summary Get transactional email delivery stats over time
+ */
+export const transactionalEmailLogStatsOverTimeRetrieve = async (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailStatsOverTimeApi> => {
+    return apiMutator<TransactionalEmailStatsOverTimeApi>(
+        getTransactionalEmailLogStatsOverTimeRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

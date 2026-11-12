@@ -151,6 +151,76 @@ export interface RoleLookupResponseApi {
 }
 
 /**
+ * * `oauth` - OAuth
+ * * `token` - Token
+ * * `credentials` - Credentials
+ */
+export type IntegrationAuthTypeEnumApi = (typeof IntegrationAuthTypeEnumApi)[keyof typeof IntegrationAuthTypeEnumApi]
+
+export const IntegrationAuthTypeEnumApi = {
+    Oauth: 'oauth',
+    Token: 'token',
+    Credentials: 'credentials',
+} as const
+
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * Standard Integration serializer.
+ */
+export interface IntegrationConfigApi {
+    readonly id: number
+    /**
+     * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+     * @maxLength 32
+     */
+    kind: string
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type: IntegrationAuthTypeEnumApi
+    config?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly errors: string
+    readonly display_name: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable: boolean
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status: InstallationStatusEnumApi | null
+    /**
+     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+     * @nullable
+     */
+    readonly needs_webhook_reconnect: boolean | null
+}
+
+export interface PaginatedIntegrationConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IntegrationConfigApi[]
+}
+
+/**
  * * `anthropic` - Anthropic
  * * `apple-ads` - Apple Ads
  * * `apns` - Apple Push
@@ -164,6 +234,7 @@ export interface RoleLookupResponseApi {
  * * `customerio-webhook` - Customerio Webhook
  * * `databricks` - Databricks
  * * `email` - Email
+ * * `email_sandbox` - Email Sandbox
  * * `firebase` - Firebase
  * * `github` - Github
  * * `gitlab` - Gitlab
@@ -218,6 +289,7 @@ export const IntegrationKindEnumApi = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
@@ -258,22 +330,70 @@ export const IntegrationKindEnumApi = {
 } as const
 
 /**
- * * `connected` - connected
- * * `unavailable` - unavailable
+ * The request schema of a create. A create accepts only the public kinds, so the schema lists them.
  */
-export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
-
-export const InstallationStatusEnumApi = {
-    Connected: 'connected',
-    Unavailable: 'unavailable',
-} as const
-
-/**
- * Standard Integration serializer.
- */
-export interface IntegrationConfigApi {
+export interface IntegrationConfigCreateApi {
     readonly id: number
+    /** The provider of the integration, for example 'slack' or 'github'.
+     *
+     * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
+     * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
+     * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
+     * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
+     * * `resend` - Resend
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics */
     kind: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -288,15 +408,11 @@ export interface IntegrationConfigApi {
     readonly installation_shared: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status: InstallationStatusEnumApi | null
-}
-
-export interface PaginatedIntegrationConfigListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: IntegrationConfigApi[]
+    /**
+     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+     * @nullable
+     */
+    readonly needs_webhook_reconnect: boolean | null
 }
 
 export interface SlackChannelApi {
@@ -314,7 +430,20 @@ export interface SlackChannelApi {
     is_private_without_access: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SlackChannelsResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Slack channels visible to the PostHog Slack app. */
     channels: SlackChannelApi[]
     /**
@@ -331,7 +460,17 @@ export interface SlackChannelsResponseApi {
  */
 export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: IntegrationKindEnumApi
+    /**
+     * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+     * @maxLength 32
+     */
+    kind?: string
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type?: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -346,6 +485,11 @@ export interface PatchedIntegrationConfigApi {
     readonly installation_shared?: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status?: InstallationStatusEnumApi | null
+    /**
+     * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+     * @nullable
+     */
+    readonly needs_webhook_reconnect?: boolean | null
 }
 
 /**
@@ -566,7 +710,20 @@ export interface IntegrationAssigneesResponseApi {
     reconnect_required: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -599,7 +756,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -622,6 +792,16 @@ export interface GitHubReposRefreshResponseApi {
     installation_status: InstallationStatusEnumApi
 }
 
+export interface GitHubRepositoryAccessResponseApi {
+    /** Whether a live GitHub request confirmed repository access. */
+    available: boolean
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export interface GitHubTeamApi {
     /** GitHub team numeric identifier. */
     id: number
@@ -631,7 +811,20 @@ export interface GitHubTeamApi {
     name: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubTeamsResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of GitHub teams available to the installation organization. */
     teams: GitHubTeamApi[]
     /** Whether more teams are available beyond this page. */
@@ -666,12 +859,12 @@ export interface LinearTeamsResponseApi {
 
 export interface PushTokenSubscriptionApi {
     /**
-     * The person's distinct ID in this project.
+     * The person's distinct ID in this project: the ID your app passes to `identify`.
      * @maxLength 200
      */
     distinct_id: string
     /**
-     * The APNs device token or FCM registration token of one device.
+     * The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.
      * @maxLength 4096
      */
     device_token: string
@@ -680,12 +873,59 @@ export interface PushTokenSubscriptionApi {
 export interface PushTokenImportRequestApi {
     /** Up to 1000 devices to register on this push channel. List a person once per device. */
     subscriptions: PushTokenSubscriptionApi[]
+    /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
+    dry_run?: boolean
+    /**
+     * A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.
+     * @nullable
+     */
+    import_id?: string | null
+    /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
+    create_missing_persons?: boolean
+}
+
+/**
+ * * `unknown_person` - No person has this distinct ID
+ * * `token_mismatch` - The token does not fit this channel
+ * * `not_stored` - The device was not stored
+ * * `person_processing_disabled` - Person processing is off for this person
+ */
+export type PushTokenImportFailureReasonEnumApi =
+    (typeof PushTokenImportFailureReasonEnumApi)[keyof typeof PushTokenImportFailureReasonEnumApi]
+
+export const PushTokenImportFailureReasonEnumApi = {
+    UnknownPerson: 'unknown_person',
+    TokenMismatch: 'token_mismatch',
+    NotStored: 'not_stored',
+    PersonProcessingDisabled: 'person_processing_disabled',
+} as const
+
+export interface PushTokenImportFailureApi {
+    /** Position of the row in the request's `subscriptions`, from 0. */
+    index: number
+    /** The distinct ID of the row. */
+    distinct_id: string
+    /** The last 6 characters of the row's device token, to find the row. */
+    device_token_suffix: string
+    /** Why the device was not stored. `unknown_person`: no person has this distinct ID, so check the ID or set `create_missing_persons`. `token_mismatch`: the token is the wrong kind for this channel, for example an Expo token, or an APNs token on a Firebase channel. `not_stored` and `person_processing_disabled`: ingestion did not store the device.
+     *
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person */
+    reason: PushTokenImportFailureReasonEnumApi
+    /** A sentence a person can act on. */
+    detail: string
 }
 
 export interface PushTokenImportResponseApi {
-    /** Number of devices stored on their person. */
+    /** Number of devices stored on their person. On a dry run, the number that would be stored. */
     imported: number
-    /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+    /** True when nothing was stored. */
+    dry_run: boolean
+    /** One entry per device that was not stored. */
+    failed: PushTokenImportFailureApi[]
+    /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
     failed_distinct_ids: string[]
 }
 
@@ -698,7 +938,20 @@ export interface SlackUserApi {
     display_name: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SlackUsersResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Human Slack workspace members the PostHog Slack app can DM. */
     users: SlackUserApi[]
     /**
@@ -867,6 +1120,7 @@ export interface IntegrationAccessRequestApi {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1033,6 +1287,7 @@ export type IntegrationsListParams = {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1098,6 +1353,7 @@ export const IntegrationsListKind = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
@@ -1225,6 +1481,14 @@ export type IntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string
 }
 
 export type IntegrationsGithubTeamsRetrieveParams = {

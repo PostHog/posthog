@@ -1,13 +1,18 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersEmailSchema } from '~/cdp/schema/cyclotron'
+import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
+import { emailTemplate } from '~/cdp/services/messaging/helpers/transactional-email-identity'
 
 import { registerAsyncFunction } from '../async-function-registry'
 
 registerAsyncFunction('sendEmail', {
-    execute: (args, _context, result) => {
+    execute: (args, context, result) => {
+        const { attachments: _onlyAnAcceptedSendHasFiles, ...stepEmail } = args[0] ?? {}
         result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
-            ...args[0],
+            ...stepEmail,
+            ...acceptedSendEmailFields(context.invocation.state.send),
+            template: emailTemplate(context.invocation.hogFunction?.metadata),
             type: 'email',
         })
     },

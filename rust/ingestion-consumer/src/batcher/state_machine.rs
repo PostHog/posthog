@@ -5,9 +5,9 @@
 //!
 //! The caller performs one action's effects in this order: order-sentinel
 //! ACKs before evictions, then the sends in the order given, which is each
-//! key's send order. `next_wakeup` replaces the previous wakeup; `None` needs
-//! no timer. `fatal` means the state machine failed and the process must
-//! exit and replay.
+//! key's send order, and `drained` after `completions`. `next_wakeup`
+//! replaces the previous wakeup; `None` needs no timer. `fatal` means the
+//! state machine failed and the process must exit and replay.
 //!
 //! When work is pending, nothing is in flight, and no message was accepted
 //! for `stall_timeout`, the state machine fails, so a wedged batcher restarts
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{GroupCompletion, Offset, Partition};
 use metrics::{counter, gauge, histogram};
 
+use super::drains::PartitionDrains;
 use super::governor::{Adaptation, Governor, GovernorSettings, GovernorSnapshot};
 use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentMessage};
 use super::key_queues::{KeyQueues, KeyRun, Settlement};
@@ -28,7 +29,9 @@ use super::packer::Packer;
 use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::{WorkerAssigner, WorkerInFlight};
+use super::RevokeId;
 use crate::order_sentinel::ack_mark;
+use crate::routing::Candidate;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
@@ -73,6 +76,7 @@ pub struct WorkerOutcome {
 pub struct Effects {
     pub sends: Vec<SendRequest>,
     pub completions: Vec<GroupCompletion>,
+    pub drained: Vec<RevokeId>,
     pub key_acks: Vec<KeyAck>,
     pub evicted_keys: Vec<Arc<str>>,
     pub worker_outcomes: Vec<WorkerOutcome>,
@@ -143,6 +147,7 @@ impl BatcherStateMachine {
             soft_budget: None,
             governor,
             reconnecting: HashMap::new(),
+            drains: PartitionDrains::default(),
         }))
     }
 
@@ -176,7 +181,7 @@ impl BatcherStateMachine {
     pub fn on_groups(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> (Self, Effects) {
@@ -195,7 +200,7 @@ impl BatcherStateMachine {
     pub fn on_request_succeeded(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         accepted: u32,
     ) -> (Self, Effects) {
@@ -210,7 +215,7 @@ impl BatcherStateMachine {
     pub fn on_request_partial(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         accepted: u32,
         unfinished: Vec<SerializedKafkaMessage>,
@@ -225,7 +230,7 @@ impl BatcherStateMachine {
     pub fn on_request_failed(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
@@ -235,7 +240,7 @@ impl BatcherStateMachine {
         })
     }
 
-    pub fn on_wakeup(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
+    pub fn on_wakeup(self, now: Instant, workers: &[Candidate]) -> (Self, Effects) {
         self.act(|active, draining| {
             let mut effects = Effects::default();
             active.advance(now, workers, draining, &mut effects)?;
@@ -245,18 +250,21 @@ impl BatcherStateMachine {
 
     /// The new owner replays the revoked partitions, so their pending
     /// messages drop. Runs already in flight finish; their messages of revoked
-    /// partitions that come back unfinished or failed drop too.
+    /// partitions that come back unfinished or failed drop too. `revoke`
+    /// comes back in [`Effects::drained`] once no request in flight carries
+    /// the partitions.
     pub fn on_partitions_revoked(
         self,
         now: Instant,
+        revoke: RevokeId,
         partitions: &[(String, i32)],
     ) -> (Self, Effects) {
-        self.act(|active, _| active.on_partitions_revoked(now, partitions))
+        self.act(|active, _| active.on_partitions_revoked(now, revoke, partitions))
     }
 
     /// Takes no new groups from now on, and stops once nothing is pending or
     /// in flight.
-    pub fn on_shutdown(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
+    pub fn on_shutdown(self, now: Instant, workers: &[Candidate]) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(active) | BatcherStateMachine::Draining(active) => {
                 BatcherStateMachine::Draining(active).on_wakeup(now, workers)
@@ -350,6 +358,7 @@ pub struct ActiveState {
     /// may wait it out and is no RTT sample. The first such request to settle
     /// clears the mark.
     reconnecting: HashMap<WorkerId, Instant>,
+    drains: PartitionDrains,
 }
 
 impl ActiveState {
@@ -386,7 +395,7 @@ impl ActiveState {
     fn on_groups(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> Result<Effects, String> {
@@ -403,7 +412,7 @@ impl ActiveState {
     fn on_request_succeeded(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         accepted: u32,
@@ -446,7 +455,7 @@ impl ActiveState {
     fn on_request_partial(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         accepted: u32,
@@ -497,7 +506,7 @@ impl ActiveState {
     fn on_request_failed(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         cause: FailureCause,
@@ -532,12 +541,16 @@ impl ActiveState {
     fn on_partitions_revoked(
         &mut self,
         now: Instant,
+        revoke: RevokeId,
         partitions: &[(String, i32)],
     ) -> Result<Effects, String> {
         let mut effects = Effects {
             evicted_keys: self.keys.purge(partitions),
             ..Effects::default()
         };
+        // After the purge no new request carries the partitions.
+        self.drains
+            .on_revoked(revoke, self.in_flight.carrying(partitions));
         self.finish(now, &mut effects)?;
         if self.keys.has_ready() {
             effects.next_wakeup = Some(now);
@@ -554,6 +567,7 @@ impl ActiveState {
             .in_flight
             .take(request)
             .ok_or_else(|| format!("response for unknown request {request:?}"))?;
+        self.drains.on_request_settled(request);
         if self.assigner.release(&sent.worker, sent.message_count) {
             effects.idle_workers.push(sent.worker.clone());
         }
@@ -589,14 +603,14 @@ impl ActiveState {
 
     /// A request on a worker that left the pool holds none of the pool's
     /// permits, so the governor counts only the requests on `workers`.
-    fn sync_governor(&mut self, workers: &[WorkerId]) {
+    fn sync_governor(&mut self, workers: &[Candidate]) {
         let in_flight = workers
             .iter()
-            .map(|worker| self.assigner.requests_on(worker))
+            .map(|candidate| self.assigner.requests_on(&candidate.worker))
             .sum();
-        self.governor.set_pool(workers.len(), in_flight);
+        self.governor.set_pool(workers, in_flight);
         self.reconnecting
-            .retain(|worker, _| workers.contains(worker));
+            .retain(|worker, _| workers.iter().any(|candidate| candidate.worker == *worker));
     }
 
     fn settle_key(
@@ -622,7 +636,7 @@ impl ActiveState {
     fn advance(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
@@ -640,7 +654,7 @@ impl ActiveState {
     fn place(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
@@ -706,6 +720,7 @@ impl ActiveState {
     }
 
     fn finish(&mut self, now: Instant, effects: &mut Effects) -> Result<(), String> {
+        effects.drained.extend(self.drains.take_drained());
         // A stalled action and a revoke skip `pack`, so without this a due
         // retry would set the next wakeup at or before `now`.
         self.keys.promote_due(now);
@@ -887,8 +902,11 @@ mod tests {
             .expect("valid governor settings")
     }
 
-    fn pool(workers: &[&str]) -> Vec<WorkerId> {
-        workers.iter().map(|w| WorkerId::from(*w)).collect()
+    fn pool(workers: &[&str]) -> Vec<Candidate> {
+        workers
+            .iter()
+            .map(|w| Candidate::uniform(WorkerId::from(*w)))
+            .collect()
     }
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
@@ -1093,6 +1111,29 @@ mod tests {
     }
 
     #[test]
+    fn a_backlog_fills_each_worker_to_its_weighted_slots() {
+        let now = Instant::now();
+        let quarters = |w: &str, n: u64| {
+            Candidate::new(
+                WorkerId::from(w),
+                std::num::NonZeroU64::new(n).unwrap(),
+                std::num::NonZeroU64::new(4).unwrap(),
+            )
+        };
+        let workers = vec![quarters("whole", 4), quarters("half", 2)];
+        let runs = (1..=10).map(|n| run(&format!("k{n}"), &[n])).collect();
+        let (_, effects) = batcher(4, now).on_groups(now, &workers, 0, runs);
+        let mut sent: HashMap<WorkerId, usize> = HashMap::new();
+        for send in &effects.sends {
+            *sent.entry(send.worker.clone()).or_insert(0) += 1;
+        }
+        assert_eq!(
+            sent,
+            HashMap::from([(WorkerId::from("whole"), 4), (WorkerId::from("half"), 2)])
+        );
+    }
+
+    #[test]
     fn each_key_run_is_its_own_request_and_its_next_run_waits_for_the_response() {
         let now = Instant::now();
         let workers = pool(&["w"]);
@@ -1185,7 +1226,8 @@ mod tests {
         );
 
         let late = now + BUSY_DELAY * 3;
-        let (_, effects) = batcher.on_partitions_revoked(late, &[("events".to_string(), 9)]);
+        let (_, effects) =
+            batcher.on_partitions_revoked(late, REVOKE, &[("events".to_string(), 9)]);
         assert_eq!(effects.next_wakeup, Some(late));
     }
 
@@ -1246,7 +1288,8 @@ mod tests {
         let (batcher, effects) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
         assert!(effects.sends.is_empty());
 
-        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, effects) =
+            batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
         assert!(effects.sends.is_empty());
         assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("a")]);
         assert_eq!(batcher.pending_messages(), 0);
@@ -1710,7 +1753,8 @@ mod tests {
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
         assert!(effects.sends.is_empty());
 
-        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, effects) =
+            batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
         assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("a")]);
         assert_eq!(batcher.pending_messages(), 0);
 
@@ -1882,7 +1926,8 @@ mod tests {
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![later]);
         assert!(effects.sends.is_empty());
 
-        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, effects) =
+            batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
         assert!(effects.evicted_keys.is_empty(), "a's run is in flight");
         let (batcher, _) =
             batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
@@ -1910,7 +1955,7 @@ mod tests {
             vec![run("a", &[1, 2])],
         );
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
-        let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, _) = batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
         // The new owner of the partition replays the uncommitted offsets.
         let mut replay = run("a", &[1, 2, 3]);
         for message in &mut replay.messages {
@@ -2209,7 +2254,8 @@ mod tests {
         let (batcher, _) =
             batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
 
-        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, effects) =
+            batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
         assert_eq!(effects.next_wakeup, Some(now), "a is ready again at once");
         let (_, effects) = batcher.on_wakeup(now, &workers);
         assert!(!effects.sends[0].class.replay);
@@ -2258,7 +2304,7 @@ mod tests {
         let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
         let (batcher, _) = batcher.on_shutdown(now, &workers);
-        let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, _) = batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
         assert!(
             matches!(batcher, BatcherStateMachine::Draining(_)),
             "a is in flight"
@@ -2270,5 +2316,212 @@ mod tests {
         assert!(effects.sends.is_empty());
         assert!(effects.completions.is_empty());
         assert_eq!(effects.next_wakeup, None);
+    }
+
+    #[test]
+    fn a_partial_response_of_a_draining_partition_completes_only_what_was_accepted() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = packing_batcher(3, Duration::ZERO, 4, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("a", &[1, 2, 3])],
+        );
+        let request = effects.sends[0].request;
+        let (batcher, effects) =
+            batcher.on_partitions_revoked(now, REVOKE, &[("events".to_string(), 0)]);
+        assert!(effects.drained.is_empty(), "a is in flight");
+
+        let (_, effects) =
+            batcher.on_request_partial(now, &workers, request, 2, vec![message("a", 0, 2)]);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(1), Offset(3)]);
+        assert!(
+            effects.sends.is_empty(),
+            "the unfinished offset is not resent"
+        );
+        assert_eq!(effects.drained, vec![REVOKE]);
+    }
+
+    const REVOKE: RevokeId = RevokeId(1);
+    const OTHER_REVOKE: RevokeId = RevokeId(2);
+
+    fn partition(number: i32) -> Vec<(String, i32)> {
+        vec![("events".to_string(), number)]
+    }
+
+    fn key_run(key: &str, messages: &[(i32, i64)]) -> KeyRun {
+        KeyRun {
+            routing_key: key.into(),
+            messages: messages
+                .iter()
+                .map(|&(partition, offset)| message(key, partition, offset))
+                .collect(),
+        }
+    }
+
+    fn request_of(effects: &Effects, key: &str) -> RequestId {
+        effects
+            .sends
+            .iter()
+            .find(|send| &*send.runs[0].routing_key == key)
+            .expect("a request for the key")
+            .request
+    }
+
+    fn completed_offsets(effects: &Effects) -> Vec<i64> {
+        effects
+            .completions
+            .iter()
+            .flat_map(|completion| completion.offsets.iter().map(|offset| offset.0))
+            .collect()
+    }
+
+    #[test]
+    fn a_drain_waits_only_for_the_requests_carrying_its_partitions() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![
+                key_run("a", &[(0, 1)]),
+                key_run("b", &[(1, 7)]),
+                key_run("c", &[(1, 8)]),
+            ],
+        );
+        let (on_p0, on_p1) = (request_of(&effects, "a"), request_of(&effects, "b"));
+        let (batcher, effects) = batcher.on_partitions_revoked(now, REVOKE, &partition(0));
+        assert!(effects.drained.is_empty());
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, on_p1, 1);
+        assert!(
+            effects.drained.is_empty(),
+            "partition 0's request is in flight"
+        );
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, on_p0, 1);
+        assert_eq!(
+            effects.drained,
+            vec![REVOKE],
+            "c's request for partition 1 is still in flight"
+        );
+    }
+
+    #[test]
+    fn a_failed_run_spanning_a_draining_partition_ends_the_drain_and_replays_only_the_kept_partition(
+    ) {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![key_run("a", &[(0, 1), (1, 7)])],
+        );
+        let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let (batcher, _) = batcher.on_partitions_revoked(now, REVOKE, &partition(0));
+
+        let (batcher, effects) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+        assert_eq!(
+            effects.drained,
+            vec![REVOKE],
+            "partition 1's replay is not awaited"
+        );
+
+        let (_, effects) = batcher.on_wakeup(now + FAULT_DELAY, &workers);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![7])]);
+    }
+
+    #[test]
+    fn a_partial_response_spanning_a_draining_partition_resends_only_the_kept_partition() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![key_run("a", &[(0, 1), (1, 7), (0, 2), (1, 8)])],
+        );
+        let request = effects.sends[0].request;
+        let (batcher, _) = batcher.on_partitions_revoked(now, REVOKE, &partition(0));
+
+        let (_, effects) = batcher.on_request_partial(
+            now,
+            &workers,
+            request,
+            2,
+            vec![message("a", 0, 2), message("a", 1, 8)],
+        );
+        assert_eq!(completed_offsets(&effects), vec![1, 7]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![8])]);
+        assert_eq!(effects.drained, vec![REVOKE]);
+    }
+
+    #[test]
+    fn two_drains_each_end_when_their_own_requests_settle() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![key_run("a", &[(0, 1)]), key_run("b", &[(1, 7)])],
+        );
+        let (on_p0, on_p1) = (request_of(&effects, "a"), request_of(&effects, "b"));
+        let (batcher, _) = batcher.on_partitions_revoked(now, REVOKE, &partition(0));
+        let (batcher, _) = batcher.on_partitions_revoked(now, OTHER_REVOKE, &partition(1));
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, on_p1, 1);
+        assert_eq!(effects.drained, vec![OTHER_REVOKE]);
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, on_p0, 1);
+        assert_eq!(effects.drained, vec![REVOKE]);
+    }
+
+    fn queued_without_a_worker(now: Instant) -> BatcherStateMachine {
+        let (batcher, _) = batcher(4, now).on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
+        batcher
+    }
+
+    fn waiting_for_a_retry(now: Instant) -> BatcherStateMachine {
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Busy, messages);
+        batcher
+    }
+
+    #[rstest]
+    #[case::queued_without_a_worker(queued_without_a_worker)]
+    #[case::waiting_for_a_retry(waiting_for_a_retry)]
+    fn a_drain_with_nothing_in_flight_ends_at_once_and_its_messages_are_never_sent(
+        #[case] setup: fn(Instant) -> BatcherStateMachine,
+    ) {
+        let now = Instant::now();
+        let (batcher, effects) = setup(now).on_partitions_revoked(now, REVOKE, &partition(0));
+        assert_eq!(effects.drained, vec![REVOKE]);
+
+        let (_, effects) = batcher.on_wakeup(now + FAULT_DELAY, &pool(&["w"]));
+        assert!(effects.sends.is_empty());
+    }
+
+    #[test]
+    fn a_drain_during_shutdown_ends_with_the_last_request() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+        let (batcher, _) = batcher.on_shutdown(now, &workers);
+        let (batcher, effects) = batcher.on_partitions_revoked(now, REVOKE, &partition(0));
+        assert!(effects.drained.is_empty());
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
+        assert!(matches!(batcher, BatcherStateMachine::Stopped));
+        assert_eq!(completed_offsets(&effects), vec![1]);
+        assert_eq!(effects.drained, vec![REVOKE]);
     }
 }

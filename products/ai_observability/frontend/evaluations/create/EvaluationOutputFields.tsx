@@ -1,22 +1,25 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconList, IconListCheck, IconStar, IconThumbsUp } from '@posthog/icons'
+import { LemonCheckbox, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { DecisionThresholdInput } from '../components/DecisionThresholdInput'
 import { booleanOutputConfigError, decisionModelHint } from '../constants'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationCategoryEditor } from './EvaluationCategoryEditor'
+import { EvaluationCategoryPassing } from './EvaluationCategoryPassing'
+import { EvaluationChoiceCards } from './EvaluationChoiceCards'
+import { EvaluationPassRatePreview } from './EvaluationPassRatePreview'
 import { EvaluationScoreOutput } from './EvaluationScoreOutput'
 
 type ReturnShape = 'boolean' | 'numeric' | 'categorical' | 'categorical_multiple'
 
-/** What each run returns, read as one sentence, and which answers count as a pass. */
 export function EvaluationOutputFields(): JSX.Element | null {
     const { evaluation, originalEvaluation, numericBoundsRequired, usesDecisionModel, isNewEvaluation } =
         useValues(llmEvaluationLogic)
     const { setOutputType, patchOutputConfig, setAllowsNA, setTrueIsFailure } = useActions(llmEvaluationLogic)
 
-    // Sentiment always returns positive, neutral, or negative, which the method hint already says.
+    // Sentiment always returns positive, neutral, or negative, which its method card already says.
     if (!evaluation || evaluation.evaluation_type === 'sentiment') {
         return null
     }
@@ -35,6 +38,11 @@ export function EvaluationOutputFields(): JSX.Element | null {
             patchOutputConfig({ selection_mode: next === 'categorical_multiple' ? 'multiple' : 'single' })
         }
     }
+    // Past results keep their type, so a saved evaluation can only switch between category modes.
+    const lockedReason = (value: ReturnShape): string | undefined =>
+        !isNewEvaluation && (value === 'categorical_multiple' ? 'categorical' : value) !== outputType
+            ? 'Create a new evaluation to change what it returns.'
+            : undefined
     const usesThreshold = evaluation.evaluation_type === 'llm_judge' && usesDecisionModel && outputType === 'boolean'
     const bound = (field: 'min' | 'max'): JSX.Element => (
         <LemonInput
@@ -50,90 +58,128 @@ export function EvaluationOutputFields(): JSX.Element | null {
     )
 
     return (
-        <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-semibold">Return</span>
-                <LemonSelect<ReturnShape>
-                    size="small"
-                    value={shape}
-                    onChange={setShape}
-                    options={(
-                        [
-                            { value: 'boolean', label: 'true or false' },
-                            { value: 'numeric', label: 'a score' },
-                            { value: 'categorical', label: 'one category' },
-                            { value: 'categorical_multiple', label: 'several categories' },
-                        ] as const
-                    ).map((option) => ({
-                        ...option,
-                        // Past results keep their type, so a saved evaluation can only switch between category modes.
-                        disabledReason:
-                            !isNewEvaluation &&
-                            (option.value === 'categorical_multiple' ? 'categorical' : option.value) !== outputType
-                                ? 'Create a new evaluation to change what it returns.'
-                                : undefined,
-                    }))}
-                    data-attr="llma-evaluation-output-type"
-                />
-                {outputType === 'boolean' && (
-                    <>
-                        <span>where true counts as a</span>
-                        <LemonSegmentedButton
-                            size="small"
-                            value={config.true_is_failure ? 'fail' : 'pass'}
-                            onChange={(value) => setTrueIsFailure(value === 'fail')}
-                            options={[
-                                { value: 'pass', label: 'Pass' },
-                                { value: 'fail', label: 'Fail' },
-                            ]}
-                            data-attr="llma-evaluation-true-is-failure-switch"
-                        />
-                    </>
+        <div className="flex flex-col gap-6">
+            <EvaluationChoiceCards<ReturnShape>
+                label="What it returns"
+                value={shape}
+                onChange={setShape}
+                dataAttr="llma-evaluation-output-type"
+                options={[
+                    {
+                        value: 'boolean',
+                        label: 'True or false',
+                        description: 'A yes or no, like whether the answer cites a source.',
+                        icon: <IconThumbsUp />,
+                        disabledReason: lockedReason('boolean'),
+                    },
+                    {
+                        value: 'numeric',
+                        label: 'Score',
+                        description: 'A number in a range you set, like 1 to 5.',
+                        icon: <IconStar />,
+                        disabledReason: lockedReason('numeric'),
+                    },
+                    {
+                        value: 'categorical',
+                        label: 'One category',
+                        description: 'One label from your list, like Resolved or Handed off.',
+                        icon: <IconList />,
+                        disabledReason: lockedReason('categorical'),
+                    },
+                    {
+                        value: 'categorical_multiple',
+                        label: 'Several categories',
+                        description: 'Every label from your list that fits the run.',
+                        icon: <IconListCheck />,
+                        disabledReason: lockedReason('categorical_multiple'),
+                    },
+                ]}
+            />
+            <div className="flex flex-col gap-3 empty:hidden">
+                {usesThreshold && (
+                    <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span>It returns true when the probability is at least</span>
+                            <DecisionThresholdInput />
+                        </div>
+                        {booleanOutputConfigError(config) && (
+                            <span className="text-xs text-danger">{booleanOutputConfigError(config)}</span>
+                        )}
+                    </div>
                 )}
                 {outputType === 'numeric' && (
-                    <>
-                        <span>from</span>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span>Scores go from</span>
                         {bound('min')}
                         <span>to</span>
                         {bound('max')}
-                    </>
+                    </div>
+                )}
+                {outputType === 'categorical' && (
+                    <EvaluationCategoryEditor
+                        config={config}
+                        onChange={patchOutputConfig}
+                        showKeys={evaluation.evaluation_type === 'hog'}
+                        storedKeys={
+                            isNewEvaluation
+                                ? []
+                                : (originalEvaluation?.output_config.options ?? []).map((option) => option.key)
+                        }
+                    />
+                )}
+                {usesDecisionModel && evaluation.evaluation_type === 'llm_judge' && (
+                    <p className="mb-0 text-xs text-secondary">{decisionModelHint(outputType)}</p>
                 )}
             </div>
-            {usesThreshold && (
-                <div className="flex flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span>Answer true when the probability is at least</span>
-                        <DecisionThresholdInput />
+            <div className="flex flex-col gap-0.5">
+                <LemonCheckbox
+                    label={'Accept a "doesn\'t apply" answer'}
+                    checked={config.allows_na ?? false}
+                    onChange={setAllowsNA}
+                    data-attr="llma-evaluation-create-allows-na"
+                />
+                <span className="text-xs text-secondary pl-6">
+                    Runs where the check doesn't apply count as neither a pass nor a fail.
+                </span>
+            </div>
+            <div className="grid grid-cols-1 items-start gap-4 border-t pt-6 @min-[40rem]/evaluation:grid-cols-2">
+                <div className="flex flex-col gap-3 min-w-0">
+                    <div className="flex flex-col gap-1">
+                        <h4 className="mb-0 flex items-center gap-2 text-sm font-semibold">
+                            Pass rate
+                            {outputType !== 'boolean' && (
+                                <LemonTag size="small" type="muted">
+                                    Optional
+                                </LemonTag>
+                            )}
+                        </h4>
+                        <p className="mb-0 text-xs text-secondary">
+                            The share of runs that pass. The results page charts it, and reports tell you when it
+                            changes.
+                        </p>
                     </div>
-                    {booleanOutputConfigError(config) && (
-                        <span className="text-xs text-danger">{booleanOutputConfigError(config)}</span>
+                    {outputType === 'boolean' && (
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span>A run passes when it returns</span>
+                            <LemonSegmentedButton
+                                size="small"
+                                value={config.true_is_failure ? 'false' : 'true'}
+                                onChange={(value) => setTrueIsFailure(value === 'false')}
+                                options={[
+                                    // pinned: data-attr values, because autocapture insights read them
+                                    { value: 'true', label: 'true', 'data-attr': 'llma-evaluation-true-is-pass' },
+                                    { value: 'false', label: 'false', 'data-attr': 'llma-evaluation-true-is-failure' },
+                                ]}
+                            />
+                        </div>
+                    )}
+                    {outputType === 'numeric' && <EvaluationScoreOutput config={config} onChange={patchOutputConfig} />}
+                    {outputType === 'categorical' && (
+                        <EvaluationCategoryPassing config={config} onChange={patchOutputConfig} />
                     )}
                 </div>
-            )}
-            {outputType === 'numeric' && <EvaluationScoreOutput config={config} onChange={patchOutputConfig} />}
-            {outputType === 'categorical' && (
-                <EvaluationCategoryEditor
-                    config={config}
-                    onChange={patchOutputConfig}
-                    showKeys={evaluation.evaluation_type === 'hog'}
-                    storedKeys={
-                        isNewEvaluation
-                            ? []
-                            : (originalEvaluation?.output_config.options ?? []).map((option) => option.key)
-                    }
-                />
-            )}
-            {usesDecisionModel && evaluation.evaluation_type === 'llm_judge' && (
-                <p className="mb-0 text-xs text-secondary">{decisionModelHint(outputType)}</p>
-            )}
-            <LemonCheckbox
-                label={`${
-                    evaluation.evaluation_type === 'hog' ? 'The code' : 'The judge'
-                } can answer not applicable, when the check does not apply to a run`}
-                checked={config.allows_na ?? false}
-                onChange={setAllowsNA}
-                data-attr="llma-evaluation-create-allows-na"
-            />
+                <EvaluationPassRatePreview outputType={outputType} config={config} />
+            </div>
         </div>
     )
 }

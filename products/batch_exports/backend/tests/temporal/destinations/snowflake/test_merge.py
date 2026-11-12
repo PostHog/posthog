@@ -72,4 +72,4 @@ async def test_staging_quotes_column_names(create: bool) -> None:
         assert 'CREATE TABLE IF NOT EXISTS "stage" ( "key""name" INT, "json""data" VARIANT )' in query
     else:
         assert 'COPY INTO "stage" ("key""name", "json""data")' in query
-        assert 'SELECT $1:"key""name", PARSE_JSON($1:"json""data", \'d\')' in query
+        assert 'SELECT $1:"key""name", TRY_PARSE_JSON($1:"json""data", \'d\')' in query

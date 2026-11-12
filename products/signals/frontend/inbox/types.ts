@@ -1,7 +1,9 @@
 import type { UserBasicType } from '~/types'
 
+import type { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     type SignalReportApi,
+    type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportPlanApi,
@@ -11,12 +13,14 @@ import {
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
+    type SignalReportListApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalReportSuppressionSourceEnumApi,
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
+    type SignalTeamConfigApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -95,8 +99,12 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
+    startup_failure?: SignalReportApi['startup_failure']
+    research_context?: SignalReportApi['research_context']
+    repo_slug?: SignalReportApi['repo_slug']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
+    implementation_in_flight?: SignalReportApi['implementation_in_flight']
     id: string
     title: string | null
     summary: string | null
@@ -112,6 +120,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
     metrics?: ReportMetricApi[]
+    /** Progress of the current Monitoring period, on list rows only. */
+    monitoring_summary?: SignalReportListApi['monitoring_summary']
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
@@ -134,8 +144,6 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     scout_name?: string | null
     /** Whether the report proposes an improvement to a scout. */
     is_self_improvement_report?: boolean
-    /** Selected code repository, when the report has one. */
-    repo_slug?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
@@ -165,8 +173,12 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
     inbox_merge_key?: number | null
+    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    personal_tier?: SignalReportListApi['personal_tier']
+    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    personal_reason?: SignalReportListApi['personal_reason']
 }
 
 export enum SignalReportStatus {
@@ -177,11 +189,14 @@ export enum SignalReportStatus {
     READY = 'ready',
     MONITORING = 'monitoring',
     RESOLVED = 'resolved',
+    CLOSED = 'closed',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
     DELETED = 'deleted',
     SUPPRESSED = 'suppressed',
 }
+
+SignalReportStatus satisfies Record<Uppercase<SignalReportApi['status']>, SignalReportApi['status']>
 
 export interface SignalReportArtefact {
     id: string
@@ -194,6 +209,8 @@ export interface SignalReportArtefact {
     created_by?: UserBasicType | null
     /** Set when an agent task produced the artefact (attribution reads "by agent"). */
     task_id?: string | null
+    /** Who produced the artefact: a person, an internal task, an external agent, or the pipeline. */
+    actor_kind?: SignalActorKindEnumApi
 }
 
 export interface SignalReportArtefactResponse {
@@ -217,6 +234,7 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    configSet?: PatchedSignalSourceConfigApi['config_set']
     /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
     viaSetupWizard?: boolean
 }
@@ -236,11 +254,45 @@ export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 /** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
 export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+/** Error tracking source only: the issue filter, compiled by the server, saved on every error tracking row. */
+export const SOURCE_ISSUE_FILTERS_KEY = 'issue_filters'
 
 // Anything that is not a list of ids reads as "every team", matching the backend's fallback.
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
     const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
+
+/** Product analytics source only: which firing insight alerts become signals. */
+export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
+
+export enum SignalAlertScope {
+    InvestigatedOnly = 'investigated_only',
+    AllFiringAlerts = 'all_firing_alerts',
+    Off = 'off',
+}
+
+// Anything unknown reads as investigated only, matching the backend's fallback.
+export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
+    const scope = config?.[SOURCE_ALERT_SCOPE_KEY]
+    return scope === SignalAlertScope.AllFiringAlerts || scope === SignalAlertScope.Off
+        ? scope
+        : SignalAlertScope.InvestigatedOnly
+}
+
+/** Product analytics source only: regex patterns matched against a firing alert's name and its insight's name. */
+export const SOURCE_ALERT_ALLOW_PATTERNS_KEY = 'alert_allow_patterns'
+export const SOURCE_ALERT_BLOCK_PATTERNS_KEY = 'alert_block_patterns'
+export const SOURCE_ALERT_PATTERNS_MAX_COUNT = 20
+export const SOURCE_ALERT_PATTERN_MAX_LENGTH = 200
+
+// Anything that is not a list of strings reads as no patterns. The API rejects such a value, so only a raw write can store one.
+export function alertPatternsFromConfig(
+    config: Record<string, any> | null | undefined,
+    key: typeof SOURCE_ALERT_ALLOW_PATTERNS_KEY | typeof SOURCE_ALERT_BLOCK_PATTERNS_KEY
+): string[] {
+    const raw = config?.[key]
+    return Array.isArray(raw) ? raw.filter((pattern): pattern is string => typeof pattern === 'string') : []
 }
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
@@ -253,6 +305,7 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
 export type InboxTabKey =
     | 'reports'
     | 'scouts'
+    | 'sources'
     | 'settings'
     | 'pulls'
     | 'not-actionable'
@@ -261,11 +314,12 @@ export type InboxTabKey =
     | 'config'
 
 /** The page tabs the inbox renders. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'sources', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
     scouts: 'Scouts',
+    sources: 'Sources',
     settings: 'Settings',
     pulls: 'Pull requests',
     'not-actionable': 'Not actionable',
@@ -277,8 +331,9 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
-    scouts: 'Scheduled agents that sweep this project and file what they find.',
-    settings: 'Signal sources, PR generation, code access, and notifications.',
+    scouts: 'Scouts run on a schedule and investigate the areas you choose.',
+    sources: 'Sources send signals for self-driving to investigate.',
+    settings: 'Configure autonomy, agent instructions, code access, and notifications.',
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
@@ -299,7 +354,9 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
+    'outcome-monitoring',
     'resolved',
+    'closed',
     'dismissed',
     'held-back',
     'not-actionable',
@@ -315,7 +372,9 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
+    'outcome-monitoring': 'Monitoring',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
     'held-back': 'Held back',
     'not-actionable': 'Not actionable',
@@ -325,7 +384,9 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    'outcome-monitoring': 'Reports being monitored to verify their outcome.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
         'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'held-back':
@@ -383,36 +444,8 @@ export type SignalUserAutonomyConfigDraft = Partial<SignalUserAutonomyConfigApi>
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
 
-export interface SignalTeamConfig {
-    id?: string
-    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
-    autostart_enabled?: boolean | null
-    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
+export type SignalTeamConfig = Partial<Omit<SignalTeamConfigApi, 'default_autostart_priority'>> & {
     default_autostart_priority: SignalReportPriority | null
-    /** Default Slack channel for this team's inbox notifications. */
-    default_slack_notification_channel?: string | null
-    /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
-    autostart_base_branches?: Record<string, string>
-    /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
-    issue_tracking_integration?: number | null
-    /** Where those issues land: github {repository}, linear {team_id}, jira {project_key}, plus an optional 'label'. */
-    issue_tracking_config?: Record<string, string>
-    /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
-    max_reports_per_day?: number | null
-    /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
-    default_open_pull_request_ready?: boolean
-    /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
-    github_issue_writeback_enabled?: boolean
-    /** Whether self-driving labels every PR it opens, so GitHub search can separate them from other bot work. */
-    pull_request_label_enabled?: boolean
-    /** The label name to apply, at most 50 characters. Null or blank means the default label. */
-    pull_request_label?: string | null
-    /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
-    reports_generated_today?: number
-    /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
-    daily_report_limit_reached?: boolean
-    created_at?: string
-    updated_at?: string
 }
 
 // ── Runs (composed client-side from scout runs + signal-pipeline tasks) ───────
@@ -427,6 +460,7 @@ export type SignalRunKind = 'scout' | 'signal'
  * standalone Tasks scene (`/tasks/{task_id}`).
  */
 export interface SignalRun {
+    total_spend?: number | null
     task_id: string
     kind: SignalRunKind
     /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */

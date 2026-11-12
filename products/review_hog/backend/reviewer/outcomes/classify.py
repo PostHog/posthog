@@ -72,7 +72,7 @@ from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_c
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
 from products.review_hog.backend.reviewer.telemetry import finding_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 

@@ -37,6 +37,21 @@ describe('HogFlowActionSchema', () => {
                 config: { template_id: 'template-webhook', inputs: {} },
             },
         ],
+        [
+            'function_push with a UUIDT message category',
+            {
+                id: 'action_function_push_abc123',
+                name: 'Send push',
+                type: 'function_push',
+                description: '',
+                config: {
+                    template_id: 'template-native-push',
+                    message_category_id: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e5f',
+                    template_uuid: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e60',
+                    inputs: {},
+                },
+            },
+        ],
     ])('validates %s action without created_at/updated_at', (_label, action) => {
         const result = HogFlowActionSchema.safeParse(action)
         expect(result.success).toBe(true)
@@ -164,5 +179,16 @@ describe('HogFlowActionSchema', () => {
             const issue = result.error.issues.find((i) => i.path.at(-1) === 'delay_duration')
             expect(issue?.message).toBe(message)
         }
+    })
+
+    it('asks for at least one day when a time window has none', () => {
+        const result = HogFlowActionSchema.safeParse({
+            id: 'window_node',
+            name: 'Time window',
+            type: 'wait_until_time_window',
+            description: '',
+            config: { timezone: 'UTC', day: [], time: 'any' },
+        })
+        expect(result.error?.issues.map((issue) => issue.message)).toEqual(['Choose at least one day'])
     })
 })

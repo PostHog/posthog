@@ -14,13 +14,16 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
     CDC_TIMESTAMP_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import resnapshot_stays_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_SNAPSHOT_POSITION_KEY,
+    resnapshot_stays_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
@@ -306,30 +309,41 @@ class TestServedLanes:
     @parameterized.expand(
         [
             ("consolidated", "consolidated", [CDCLane(resource_name="users", write_mode="incremental_merge")]),
-            ("cdc_only", "cdc_only", [CDCLane(resource_name="users_cdc", write_mode="scd2_append")]),
+            (
+                "cdc_only",
+                "cdc_only",
+                [CDCLane(resource_name="users_history", write_mode="scd2_append", history=HISTORY_NAMING)],
+            ),
             (
                 "both",
                 "both",
                 [
                     CDCLane(resource_name="users", write_mode="incremental_merge"),
-                    CDCLane(resource_name="users_cdc", write_mode="scd2_append"),
+                    CDCLane(resource_name="users_history", write_mode="scd2_append", history=HISTORY_NAMING),
                 ],
             ),
         ]
     )
     def test_a_table_mode_names_the_tables_its_changes_feed(self, _name, table_mode, expected):
-        assert served_lanes(_schema(cdc_table_mode=table_mode)) == expected
+        assert served_lanes(_schema(cdc_table_mode=table_mode), HISTORY_NAMING) == expected
 
     def test_an_unrecognized_table_mode_feeds_nothing(self):
         # Fail closed: a mode this module cannot write must not reach the buffer at all.
-        assert served_lanes(_schema(cdc_table_mode="something_new")) == []
+        assert served_lanes(_schema(cdc_table_mode="something_new"), HISTORY_NAMING) == []
 
-    def test_the_companion_is_named_off_the_schema_not_the_folder(self):
+    @parameterized.expand(
+        [
+            ("new_table", HISTORY_NAMING, "public.users_history"),
+            ("legacy_table", LEGACY_HISTORY_NAMING, "public.users_cdc"),
+        ]
+    )
+    def test_the_companion_is_named_off_the_schema_not_the_folder(self, _name, history, expected):
         # The consolidated lane follows the snapshot's resolved folder, which diverges from `name`
         # for a row renamed bare to qualified. Following it here would append history into a table
-        # no query reads — the companion is keyed on `name`, like its snapshot seed.
+        # no query reads — the companion is keyed on `name`, like its snapshot seed. A legacy history
+        # table keeps writing under its own name.
         schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
-        assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
+        assert [lane.resource_name for lane in served_lanes(schema, history)] == ["users", expected]
 
 
 class TestSnapshotCapture:
@@ -816,15 +830,15 @@ class TestBuildOutputLanes:
                 AsyncMock(side_effect=positions),
             ),
         ):
-            return await build_output_lanes(schema, MagicMock(), AsyncMock())
+            return await build_output_lanes(schema, MagicMock(), AsyncMock(), HISTORY_NAMING)
 
     async def test_both_writes_two_tables_in_one_run(self):
         lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
-        assert [lane.name for lane in lanes] == ["users", "users_cdc"]
+        assert [lane.name for lane in lanes] == ["users", "users_history"]
         assert [lane.cdc_write_mode for lane in lanes] == [CONSOLIDATED_WRITE_MODE, COMPANION_WRITE_MODE]
 
-    @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_cdc")])
+    @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_history")])
     async def test_a_single_table_mode_bills_its_only_lane(self, _name, table_mode, expected):
         lanes, _ = await self._build(_schema(cdc_table_mode=table_mode), [_NO_POSITION])
 
@@ -833,7 +847,7 @@ class TestBuildOutputLanes:
     async def test_both_bills_the_consolidated_lane_only(self):
         lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
 
-        assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_cdc", False)]
+        assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_history", False)]
 
     async def test_only_the_append_lane_is_asked_for_identity(self):
         # Asserted on the call, not on hand-fed positions: if both lanes asked for identity the
@@ -855,14 +869,14 @@ class TestBuildOutputLanes:
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position", reads
             ),
         ):
-            await build_output_lanes(_schema(cdc_table_mode="both"), MagicMock(), AsyncMock())
+            await build_output_lanes(_schema(cdc_table_mode="both"), MagicMock(), AsyncMock(), HISTORY_NAMING)
 
         merge_keys, append_keys = (call.kwargs["key_columns"] for call in reads.call_args_list)
         assert merge_keys is None
         assert append_keys == ["id", CDC_OP_COLUMN]
         # The history table's own merge predicates on valid_to, so it keeps its pruning too.
-        assert SCD2_VALID_TO_COLUMN in stats.call_args_list[1].args[1]
-        assert SCD2_VALID_TO_COLUMN not in stats.call_args_list[0].args[1]
+        assert HISTORY_NAMING.valid_to in stats.call_args_list[1].args[1]
+        assert HISTORY_NAMING.valid_to not in stats.call_args_list[0].args[1]
 
     async def test_a_lane_with_no_primary_keys_asks_for_no_identity(self):
         # Otherwise the identity is the operation alone, which matches rows the table never held.
@@ -882,7 +896,7 @@ class TestBuildOutputLanes:
             ),
         ):
             await build_output_lanes(
-                _schema(cdc_table_mode="cdc_only", primary_key_columns=[]), MagicMock(), AsyncMock()
+                _schema(cdc_table_mode="cdc_only", primary_key_columns=[]), MagicMock(), AsyncMock(), HISTORY_NAMING
             )
 
         assert reads.call_args.kwargs["key_columns"] is None
@@ -907,9 +921,32 @@ class TestBuildOutputLanes:
         assert history.column("id").to_pylist() == [4]
         # Stamped by the lane, not the loader: a loader on the previous release has no SCD2 step
         # and would append these rows with no validity at all.
-        assert SCD2_VALID_FROM_COLUMN in history.column_names
-        assert SCD2_VALID_TO_COLUMN in history.column_names
-        assert SCD2_VALID_FROM_COLUMN not in merged.column_names
+        assert HISTORY_NAMING.valid_from in history.column_names
+        assert HISTORY_NAMING.valid_to in history.column_names
+        assert HISTORY_NAMING.valid_from not in merged.column_names
+
+    @parameterized.expand(
+        [
+            ("seed_only", _NO_POSITION, [51, 4]),
+            (
+                "buffered_write_landed",
+                LanePosition(position=25, applied=_held((51, "I")), key_columns=("id", CDC_OP_COLUMN)),
+                [4],
+            ),
+        ]
+    )
+    async def test_the_history_lane_skips_changes_the_snapshot_already_holds(self, _name, history_position, expected):
+        lanes, floor = await self._build(
+            _schema(cdc_table_mode="both", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}),
+            [_NO_POSITION, history_position],
+        )
+
+        batch = _ops([1, 3, 2, 51, 4], [10, 15, 20, 25, 30], ["U", "D", "U", "I", "U"])
+        merged, history = (lane.transform(batch) for lane in lanes)
+
+        assert merged.column("id").to_pylist() == [1, 3, 2, 51, 4]
+        assert history.column("id").to_pylist() == expected
+        assert floor is None
 
     async def test_the_floor_is_the_lowest_position_any_table_holds(self):
         _, floor = await self._build(
@@ -918,6 +955,13 @@ class TestBuildOutputLanes:
         )
 
         assert floor == 20
+
+    async def test_a_seed_only_history_table_settles_the_buffer_its_snapshot_holds(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="cdc_only", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}), [_NO_POSITION]
+        )
+
+        assert floor == 21
 
     async def test_a_lane_with_no_position_holds_the_floor_open(self):
         _, floor = await self._build(

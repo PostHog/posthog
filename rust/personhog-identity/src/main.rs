@@ -4,10 +4,13 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::get_pool_with_config;
+use common_metrics::{ETCD_OP_LATENCY_BUCKETS_MS, ETCD_PAYLOAD_SIZE_BUCKETS_BYTES};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::grpc::{
+    tracked_tcp_incoming_until, until_incoming_ends, GrpcLoadShedLayer, GrpcMetricsLayer,
+};
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycleServer;
@@ -231,6 +234,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_op_ms".into()),
+            ETCD_OP_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
         .unwrap()
         .install_recorder()
         .expect("Failed to install metrics recorder");
@@ -486,7 +499,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let incoming = tracked_tcp_incoming(listener);
+        let incoming = tracked_tcp_incoming_until(listener, grpc_handle.shutdown_token());
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
@@ -524,7 +537,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

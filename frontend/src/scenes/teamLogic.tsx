@@ -130,6 +130,7 @@ export interface teamLogicValues {
     customerAnalyticsConfig: CustomerAnalyticsConfig
     demoOnlyProject: boolean
     hasOnboardedAnyProduct: boolean
+    isCurrentProjectAccessDenied: boolean
     isCurrentTeamUnavailable: boolean
     isTeamTokenResetAvailable: boolean
     teamBeingDeleted: TeamType | null
@@ -165,6 +166,21 @@ export interface teamLogicActions {
         destination: string | undefined
         teamId: number | string
     } // userLogic
+    addFullStageTeamFields: (fields: Partial<TeamType>) => Partial<TeamType>
+    addFullStageTeamFieldsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addFullStageTeamFieldsSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: Partial<TeamType>
+    }
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties
     addProductIntentFailure: (
         error: string,
@@ -218,6 +234,9 @@ export interface teamLogicActions {
             name: string
             is_demo: boolean
         }
+    }
+    currentProjectAccessDenied: () => {
+        value: true
     }
     deleteSecretTokenBackup: () => any
     deleteSecretTokenBackupFailure: (
@@ -377,11 +396,13 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     actions({
+        currentProjectAccessDenied: true,
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
     }),
     reducers({
+        isCurrentProjectAccessDenied: [false, { currentProjectAccessDenied: () => true }],
         teamBeingDeleted: [
             null as TeamType | null,
             {
@@ -412,6 +433,9 @@ export const teamLogic = kea<teamLogicType>([
                         return values.currentTeam
                     }
                 },
+                // No listeners, so the late fields do not rerun what a team load triggers.
+                addFullStageTeamFields: (fields: Partial<TeamType>): TeamType | TeamPublicType | null =>
+                    values.currentTeam ? ({ ...values.currentTeam, ...fields } as TeamType | TeamPublicType) : null,
                 refreshCurrentTeam: async () => {
                     const projectId = values.currentTeam?.project_id
                     if (!projectId) {

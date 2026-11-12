@@ -33,14 +33,15 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
+from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
+from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+from products.signals.backend.source_issues import open_report_for_source_issue, schedule_source_issue_writeback
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
@@ -67,9 +68,8 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow, summary_execution_timeout
 from products.signals.backend.temporal.types import (
-    IMPLEMENTATION_DEBOUNCE_SECONDS,
     RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
@@ -468,6 +468,41 @@ class MatchSignalToReportInput:
     sync_with_source: bool = False
     source_match_signal_id: str | None = None
     source_match_report_id: str | None = None
+    # The issue URL of a GitHub issue signal, so an open report that names the issue as its source
+    # can take the signal before similarity matching runs.
+    source_issue_url: str | None = None
+
+
+def source_issue_url_for_signal(source_product: str, source_type: str, extra: dict | None) -> str | None:
+    if source_product != SignalSourceProduct.GITHUB or source_type != SignalSourceType.ISSUE:
+        return None
+    url = (extra or {}).get("html_url")
+    return url if isinstance(url, str) and url else None
+
+
+def _source_issue_match(team_id: int, url: str) -> ExistingReportMatch | None:
+    report = open_report_for_source_issue(team_id=team_id, url=url)
+    if report is None or report.triggering_signal_id is None:
+        return None
+    return ExistingReportMatch(
+        report_id=str(report.id),
+        match_metadata=MatchedMetadata(
+            parent_signal_id=str(report.triggering_signal_id),
+            match_query="source issue",
+            reason="The report names this GitHub issue as its source issue",
+        ),
+        source_issue_matched=True,
+    )
+
+
+async def _match_by_source_issue_or_similarity(input: MatchSignalToReportInput) -> MatchResult:
+    if input.team_id is not None and input.source_issue_url:
+        match = await database_sync_to_async(_source_issue_match, thread_sensitive=False)(
+            input.team_id, input.source_issue_url
+        )
+        if match is not None:
+            return match
+    return await match_signal_to_report(input)
 
 
 async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
@@ -567,9 +602,9 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
                     source_synced=True,
                 )
             else:
-                result = await match_signal_to_report(input)
+                result = await _match_by_source_issue_or_similarity(input)
         else:
-            result = await match_signal_to_report(input)
+            result = await _match_by_source_issue_or_similarity(input)
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
             if report is not None and report.status != SignalReport.Status.DELETED:
@@ -807,7 +842,6 @@ class AssignAndEmitDbResult:
     reresearch_capped: bool
     report_status: str
     report_signal_count: int
-    promotion_suppressed: bool
     # Cumulative signal count the report must reach for its next research pass, or None when its
     # last pass already covered the final bucket. Carried out of the transaction only so the skip
     # event can report it.
@@ -850,17 +884,45 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         )
 
 
+async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSignalInput", report_id: str) -> None:
+    # The report names this issue as its source, and the issue only now reached the pipeline, so this
+    # is the first moment the writeback may comment on it. Best-effort, like the writeback itself.
+    extra = input.extra or {}
+    signal = {
+        "source_product": input.source_product,
+        "source_type": input.source_type,
+        "extra": {key: extra.get(key) for key in ("html_url", "state", "locked")},
+    }
+    try:
+        await database_sync_to_async(schedule_source_issue_writeback, thread_sensitive=False)(
+            team_id=input.team_id, report_id=report_id, signals=[signal]
+        )
+    except Exception:
+        logger.exception("Failed to schedule source issue writeback", report_id=report_id, team_id=input.team_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
+    def do_assign_and_emit() -> AssignAndEmitDbResult:
         spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
         with transaction.atomic():
             promoted = False
-            promotion_suppressed = False
+            monitoring_billing_exemption = None
+            if (
+                input.source_product == SignalSourceProduct.SIGNALS_CHECK
+                and input.source_type == SignalSourceType.MONITORING_UNRESOLVED
+            ):
+                payload = MonitoringUnresolvedSignalExtra.model_validate(input.extra)
+                attempt = current_research_attempt(
+                    team_id=input.team_id, report_id=payload.report_id, attempt_id=payload.attempt_id, lock=True
+                )
+                if attempt is None or input.source_id != str(attempt.id):
+                    raise ValueError("Monitoring research request is no longer current")
+                monitoring_billing_exemption = attempt.report.billing_exempt_reason
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -910,25 +972,18 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         reresearch_capped=False,
                         report_status=report.status,
                         report_signal_count=report.signal_count,
-                        promotion_suppressed=False,
                         next_research_bucket=None,
                     )
-                # A report dismissed as fixed claims the issue is gone, exactly as a resolved report
-                # does, so this signal contradicts it and must not be absorbed. The other dismissal
-                # codes state a preference about the report, and a sink is the right answer for
-                # them (see recurrence.py).
+                # Wrong-repo feedback rejects the repository choice rather than the issue, so new
+                # evidence needs fresh research, just as it does after a fixed verdict.
                 report = signal_target_report(report, lock=True)
-                dismissed_as_fixed_at = (
-                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
-                )
-                # Resolved reports are terminal — never reopen them. When a signal would have grouped
-                # into an already-resolved report, the issue it fixed has recurred (or a related one
-                # has), so we start a fresh report and link it to the resolved report via a
-                # `recurrence_of` report link. The research agent is later handed that
-                # resolved report as context (see report.py).
-                if report.effective_status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
+                if forks_recurrence(report):
                     parent_report = report
-                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
+                    # A failed report often holds only the matcher's first guess, so the fork keeps
+                    # its content only when a research pass completed.
+                    inherit_content = (
+                        parent_report.status != SignalReport.Status.FAILED or _has_completed_research(parent_report)
+                    ) and not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
@@ -936,7 +991,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         signal_count=1,
                         title=parent_report.title if inherit_content else "",
                         summary=parent_report.summary if inherit_content else "",
-                        billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                        billing_exempt_reason=monitoring_billing_exemption
+                        or BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
@@ -966,7 +1022,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     # A report born from a PostHog-system signal (e.g. health checks) must never
                     # bill the customer. Only this founding signal decides: signals that join the
                     # report later (the branch above) leave the exemption unchanged either way.
-                    billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                    billing_exempt_reason=monitoring_billing_exemption
+                    or BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                 )
 
             # Persist source exemptions before a summary can see and finalize this trigger.
@@ -979,8 +1036,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
 
             # Promotion rules by status:
-            # - SUPPRESSED: never promoted. A report dismissed as fixed never receives new signals
-            #   either (a recurrence spawns a fresh report above).
+            # - SUPPRESSED: never promoted. Fixed and wrong-repo dismissals spawn a fresh report above.
+            # - FAILED: never promoted. Unless a pull request is open or merged, a new signal spawns a fresh report above.
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
@@ -1010,32 +1067,34 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     and report.signal_count >= report.signals_at_run
                 )
             ):
-                if suppress_promotion:
-                    # The team's org is over its self-driving credits quota with enforcement on, or
-                    # the team hit its daily report limit: the signal is still assigned, weighted,
-                    # and emitted, but no summary run spawns. The status is left untouched, so the
-                    # first matching signal after the limit lifts re-evaluates promotion under the
-                    # same rules.
-                    promotion_suppressed = True
-                else:
-                    updated_fields = (
-                        report.transition_to(SignalReport.Status.CANDIDATE)
-                        if report.status != SignalReport.Status.CANDIDATE
-                        else []
-                    )
-                    if updated_fields or report.triggering_signal_id is None:
-                        report.triggering_signal_id = input.signal_id
-                        report.save(update_fields=[*updated_fields, "triggering_signal_id"])
-                    promoted = True
+                updated_fields = (
+                    report.transition_to(SignalReport.Status.CANDIDATE)
+                    if report.status != SignalReport.Status.CANDIDATE
+                    else []
+                )
+                if updated_fields or report.triggering_signal_id is None:
+                    report.triggering_signal_id = input.signal_id
+                    report.save(update_fields=[*updated_fields, "triggering_signal_id"])
+                promoted = True
 
             pending_bucket = next_research_bucket(report.researching_signal_count or 0)
-            if (
-                report.status == SignalReport.Status.IN_PROGRESS
-                and report.pending_triggering_signal_id is None
-                and (source_refresh or (pending_bucket is not None and report.signal_count >= pending_bucket))
+            if report.status == SignalReport.Status.IN_PROGRESS and (
+                source_refresh
+                or (
+                    report.pending_triggering_signal_id is None
+                    and pending_bucket is not None
+                    and report.signal_count >= pending_bucket
+                )
             ):
+                displaced_signal_id = report.pending_triggering_signal_id
                 report.pending_triggering_signal_id = input.signal_id
                 report.save(update_fields=["pending_triggering_signal_id"])
+                if displaced_signal_id is not None and str(displaced_signal_id) != input.signal_id:
+                    complete_signal_pipeline(
+                        team_id=input.team_id,
+                        signal_id=str(displaced_signal_id),
+                        report_id=str(report.id),
+                    )
 
             report_id = str(report.id)
             if input.sync_with_source:
@@ -1094,7 +1153,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 reresearch_capped=reresearch_capped,
                 report_status=report.status,
                 report_signal_count=report.signal_count,
-                promotion_suppressed=promotion_suppressed,
                 next_research_bucket=bucket,
                 report_signals_researched=signals_researched,
                 report_title=report.title,
@@ -1102,14 +1160,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        # Resolved before the assign transaction: the gates are Redis/Postgres + flag network I/O
-        # that must not run while holding the report row lock.
-        quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
-        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-
-        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
-            quota_gate.enforced or daily_gate.limited
-        )
+        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -1186,6 +1237,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
+            if isinstance(match_result, ExistingReportMatch) and match_result.source_issue_matched:
+                await _schedule_writeback_for_source_issue_signal(input, db_result.report_id)
             # A signal on an already-researched report that did not spawn re-research, because the
             # report is either between buckets or past its last one. Emitted so the withheld
             # re-research volume is trackable, split by which of the two reasons held it back.
@@ -1218,17 +1271,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         team_id=input.team_id,
                         source_id=input.source_id,
                     )
-            # Emitted only when the signal would have promoted the report, so the event volume
-            # measures withheld summary runs rather than every assignment on a limited team. Both
-            # events fire when both limits are hit, keeping each stream complete for its own gate.
-            if quota_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
-                capture_signal_report_quota_paused(
-                    team, report_id=db_result.report_id, stage="promotion", enforced=quota_gate.enforced
-                )
-            if daily_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
-                capture_signal_report_daily_limit_paused(
-                    team, report_id=db_result.report_id, stage="promotion", gate=daily_gate
-                )
 
         if not db_result.matched_deleted_report:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
@@ -1379,6 +1421,7 @@ async def _complete_signal_batch(batch: list[EmitSignalInputs], reports: dict[st
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
+    attempts: Optional[list[int]] = None,
 ) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
@@ -1388,12 +1431,18 @@ async def _process_signal_batch(
     Earlier signals in the batch are injected into later signals' candidate sets via
     local cosine distance comparison, eliminating the need for per-signal CH waits
     within a batch.
+
+    Callers that retry a failed batch pass `attempts`, the processing attempt of each signal in
+    batch order. Every failed round captures `signal_dropped` again, and the attempt on each event
+    separates repeated failures of the same signals from distinct lost signals.
     """
     team_id = batch[0].team_id
     original_batch = batch
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
+    if attempts is not None and len(attempts) != len(batch):
+        raise ValueError("attempts must align with the batch")
     dropped = 0
     isolate_refusals = workflow.patched("signals-query-refusal-review-v1")
 
@@ -1471,6 +1520,8 @@ async def _process_signal_batch(
             retained_indices = [i for i, result in enumerate(query_gen_results) if not result.quarantined]
             dropped = len(batch) - len(retained_indices)
             batch = [batch[i] for i in retained_indices]
+            if attempts is not None:
+                attempts = [attempts[i] for i in retained_indices]
             signal_embeddings = [signal_embeddings[i] for i in retained_indices]
             query_gen_results = [query_gen_results[i] for i in retained_indices]
             if not batch:
@@ -1552,7 +1603,13 @@ async def _process_signal_batch(
             team_id=team_id,
             batch_size=len(batch),
         )
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        signal_attempts: list[int | None] = list(attempts) if attempts is not None else [None] * len(batch)
+        await asyncio.gather(
+            *(
+                capture_signal_dropped(signal, e, stage="grouping_prep", attempt=attempt)
+                for signal, attempt in zip(batch, signal_attempts, strict=True)
+            )
+        )
         raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
@@ -1773,14 +1830,7 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                # The hour covers the research work; the two terms after it cover the workflow's own
-                # sleeps, which the hour was never sized for — the research debounce at entry and the
-                # implementation buffer at settle. A run that loops through several buffers can still
-                # outlive this; it's a backstop, and the report stays READY and re-promotes.
-                execution_timeout=timedelta(
-                    hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
-                )
-                + RESEARCH_SANDBOX_RETRY_BUDGET,
+                execution_timeout=summary_execution_timeout(report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()

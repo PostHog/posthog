@@ -6,18 +6,18 @@ import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
-import { Onboarding } from 'scenes/marketing-analytics/Onboarding/Onboarding'
 import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { MARKETING_INTEGRATION_CONFIGS, NodeKind } from '~/queries/schema/schema-general'
+import { BreakdownNotAppliedWarning, MARKETING_INTEGRATION_CONFIGS, NodeKind } from '~/queries/schema/schema-general'
 
 import { expect, userEvent } from 'storybook/test'
 
 import type { SuggestionApi } from '../generated/api.schemas'
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceCatalog } from './SourceCatalog'
+import { SourceOnboarding } from './SourceOnboarding'
 import { SourceOnboardingScan } from './SourceOnboardingScan'
 
 const suggestion = (kind: string, integration: string, label: string): SuggestionApi => ({
@@ -53,11 +53,7 @@ const meta: Meta = {
     component: SourceOnboardingScan,
     parameters: {
         layout: 'padded',
-        featureFlags: [
-            FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
-        ],
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
     },
     decorators: [
         mswDecorator({
@@ -75,6 +71,10 @@ const meta: Meta = {
                         SnapchatAds: { iconPath: '/static/services/snapchat.png' },
                         PinterestAds: { iconPath: '/static/services/pinterest_ads.png' },
                         BigQuery: { iconPath: '/static/services/bigquery.png' },
+                        AmazonS3: { iconPath: '/static/services/aws-s3.png' },
+                        GoogleCloudStorage: { iconPath: '/static/services/google-cloud-storage.png' },
+                        AzureBlob: { iconPath: '/static/services/azure_blob.png' },
+                        CloudflareR2: { iconPath: '/static/services/cloudflare.png' },
                     },
                 ],
             },
@@ -87,7 +87,7 @@ export function SkipDuringScan(): JSX.Element {
     useStorybookMocks({
         get: { '/api/projects/:team_id/marketing_analytics/setup_plan/': () => new Promise(() => {}) },
     })
-    return <Onboarding completeOnboarding={() => {}} />
+    return <SourceOnboarding completeOnboarding={() => {}} />
 }
 SkipDuringScan.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 SkipDuringScan.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
@@ -135,7 +135,8 @@ function useDashboardWithoutSourcesMocks(
     dataReady = false,
     searchConsoleState?: 'ready' | 'syncing',
     paidState?: 'ready' | 'syncing',
-    pending: { scan?: boolean; connections?: boolean } = {}
+    pending: { scan?: boolean; connections?: boolean } = {},
+    trendsWarnings?: BreakdownNotAppliedWarning[]
 ): void {
     useStorybookMocks({
         get: {
@@ -303,6 +304,7 @@ function useDashboardWithoutSourcesMocks(
                                         : [18, 17, 20, 19, 16, 18, 20],
                                 },
                             ],
+                            warnings: trendsWarnings,
                         },
                     ]
                 }
@@ -320,11 +322,7 @@ export function AdPerformanceWithoutSources(): JSX.Element {
 }
 AdPerformanceWithoutSources.parameters = {
     pageUrl: urls.marketingAnalyticsApp(),
-    featureFlags: [
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
-        FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
-    ],
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
 }
 AdPerformanceWithoutSources.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
@@ -377,11 +375,7 @@ export function ManualSelectionWithSearchConsole(): JSX.Element {
     )
 }
 ManualSelectionWithSearchConsole.parameters = {
-    featureFlags: [
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
-        FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
-    ],
+    featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
 }
 ManualSelectionWithSearchConsole.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
@@ -389,6 +383,10 @@ ManualSelectionWithSearchConsole.play = async ({ canvasElement }: { canvasElemen
     expect(canvas.getByText('Connect your search sources')).toBeVisible()
     await userEvent.type(canvas.getByPlaceholderText('Search integrations'), 'Meta')
     expect(canvas.getByText('Google Search Console')).toBeVisible()
+}
+
+async function openSearchTab(canvasElement: HTMLElement): Promise<void> {
+    await userEvent.click(await within(canvasElement).findByRole('tab', { name: /^Search/ }))
 }
 
 function dashboardStory(...args: Parameters<typeof useDashboardWithoutSourcesMocks>): StoryFn {
@@ -402,9 +400,10 @@ function dashboardStory(...args: Parameters<typeof useDashboardWithoutSourcesMoc
 
 export const DashboardWithSearchConsoleOnly = dashboardStory(plan.suggestions, false, false, 'ready')
 DashboardWithSearchConsoleOnly.parameters = {
+    // The Search tab's "New" tag ages from the first story that opens the tab, so every story shares one clock.
+    mockDate: '2026-09-16',
     pageUrl: urls.marketingAnalyticsApp(),
     featureFlags: [
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
         FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
         FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
@@ -413,12 +412,39 @@ DashboardWithSearchConsoleOnly.parameters = {
 DashboardWithSearchConsoleOnly.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
     await expect(canvas.findByText('Connect your ad platforms')).resolves.toBeVisible()
-    await expect(canvas.findByText('Search performance')).resolves.toBeVisible()
     expect(canvas.queryByRole('button', { name: 'Continue to dashboard' })).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
+    await expect(canvas.findByText('example analytics')).resolves.toBeVisible()
 }
 
 export const DashboardWithAdsOnly = dashboardStory([], false, true, undefined, 'ready')
-DashboardWithAdsOnly.parameters = { ...DashboardWithSearchConsoleOnly.parameters, mockDate: '2026-09-16' }
+DashboardWithAdsOnly.parameters = DashboardWithSearchConsoleOnly.parameters
+
+export const DashboardCostChartByCampaignOnLiveData = dashboardStory([], false, true, undefined, 'ready', {}, [
+    { type: 'breakdown_not_applied', message: "Costs are shown by source. This breakdown isn't available right now." },
+])
+DashboardCostChartByCampaignOnLiveData.parameters = {
+    ...DashboardWithAdsOnly.parameters,
+    featureFlags: [
+        FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+        FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+        FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION,
+    ],
+}
+DashboardCostChartByCampaignOnLiveData.play = async ({
+    canvasElement,
+}: {
+    canvasElement: HTMLElement
+}): Promise<void> => {
+    const canvas = within(canvasElement)
+    expect((await canvas.findAllByText('Total Clicks'))[0]).toBeVisible()
+    expect(canvas.queryByText(/Costs are shown by source/)).not.toBeInTheDocument()
+    await userEvent.click(await canvas.findByRole('button', { name: /Ad platform/ }))
+    await userEvent.click(await within(document.body).findByRole('menuitem', { name: 'Campaign' }))
+    await expect(
+        canvas.findByText("Costs are shown by source. This breakdown isn't available right now.")
+    ).resolves.toBeVisible()
+}
 
 export const DashboardWithAdsSyncingWithoutSearchConsole = dashboardStory([], false, false, undefined, 'syncing')
 DashboardWithAdsSyncingWithoutSearchConsole.parameters = DashboardWithAdsOnly.parameters
@@ -426,9 +452,10 @@ DashboardWithAdsSyncingWithoutSearchConsole.parameters = DashboardWithAdsOnly.pa
 DashboardWithAdsOnly.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
     expect((await canvas.findAllByText('Total Clicks'))[0]).toBeVisible()
-    expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
-    expect(canvas.getAllByRole('heading', { name: /^Search performance$/ })).toHaveLength(1)
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
+    expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
+    expect(canvasElement.querySelectorAll('[data-attr="marketing-search-performance"]')).toHaveLength(1)
 }
 
 DashboardWithAdsSyncingWithoutSearchConsole.play = async ({
@@ -440,7 +467,10 @@ DashboardWithAdsSyncingWithoutSearchConsole.play = async ({
     await expect(canvas.findByText('Your connections are getting ready')).resolves.toBeVisible()
     expect(canvas.queryByText('Total Clicks')).not.toBeInTheDocument()
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
     expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
+    expect(await canvas.findByText("Some search tables aren't ready")).toBeVisible()
+    expect(canvasElement.querySelector('[data-attr="marketing-search-breakdown"]')).toBeNull()
 }
 
 export const DashboardWithAdsAndSearchConsole = dashboardStory([], false, true, 'ready', 'ready')
@@ -477,8 +507,9 @@ DashboardScanningWithSearchConsole.parameters = DashboardCheckingConnectionsWith
 DashboardScanningWithSearchConsole.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
     await expect(canvas.findByText('Finding your ad platforms')).resolves.toBeVisible()
-    await expect(canvas.findByText('example analytics')).resolves.toBeVisible()
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
+    await expect(canvas.findByText('example analytics')).resolves.toBeVisible()
 }
 
 export const DashboardScanFailedWithSearch = dashboardStory([], true)
@@ -495,64 +526,4 @@ DashboardNoDetectionsWithSearch.play = async ({ canvasElement }: { canvasElement
     const canvas = within(canvasElement)
     await expect(canvas.findByText('Choose an ad platform')).resolves.toBeVisible()
     await expect(canvas.findByText('Connect your search sources')).resolves.toBeVisible()
-}
-
-export function SourceOnboardingDisabledWithSearch(): JSX.Element {
-    return <InitialOnboardingDisabledWithSearch />
-}
-SourceOnboardingDisabledWithSearch.parameters = {
-    ...AdPerformanceWithoutSources.parameters,
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
-}
-SourceOnboardingDisabledWithSearch.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Welcome to Marketing analytics')).resolves.toBeVisible()
-    expect(canvas.getByRole('navigation', { name: 'Marketing analytics onboarding progress' })).toBeVisible()
-    await expect(canvas.findByText('Connect your search sources')).resolves.toBeVisible()
-    expect(canvas.queryByPlaceholderText('Search integrations')).not.toBeInTheDocument()
-    expect(canvas.queryByText('Choose an ad platform')).not.toBeInTheDocument()
-    expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
-    expect(canvas.queryByText('Could not check your events')).not.toBeInTheDocument()
-}
-
-export function SourceOnboardingAndSearchDisabled(): JSX.Element {
-    return <InitialOnboardingDisabledWithSearch />
-}
-SourceOnboardingAndSearchDisabled.parameters = {
-    ...AdPerformanceWithoutSources.parameters,
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
-}
-SourceOnboardingAndSearchDisabled.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Welcome to Marketing analytics')).resolves.toBeVisible()
-    expect(canvas.getByRole('navigation', { name: 'Marketing analytics onboarding progress' })).toBeVisible()
-    expect(canvas.queryByPlaceholderText('Search integrations')).not.toBeInTheDocument()
-    expect(canvas.queryByRole('heading', { name: 'Search performance' })).not.toBeInTheDocument()
-    expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
-}
-
-function InitialOnboardingDisabledWithSearch(): JSX.Element {
-    useDashboardWithoutSourcesMocks()
-    const { resetOnboarding } = useActions(marketingOnboardingLogic)
-    useEffect(() => resetOnboarding(), [resetOnboarding])
-    return <MarketingAnalyticsScene />
-}
-
-export function LegacySourceConnectionStep(): JSX.Element {
-    useDashboardWithoutSourcesMocks()
-    const { resetOnboarding, setStep } = useActions(marketingOnboardingLogic)
-    useEffect(() => {
-        resetOnboarding()
-        setStep('add-source')
-    }, [resetOnboarding, setStep])
-    return <MarketingAnalyticsScene />
-}
-LegacySourceConnectionStep.parameters = SourceOnboardingAndSearchDisabled.parameters
-LegacySourceConnectionStep.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Connect your marketing sources')).resolves.toBeVisible()
-    expect(canvas.getByRole('navigation', { name: 'Marketing analytics onboarding progress' })).toBeVisible()
-    expect(canvas.queryByPlaceholderText('Search integrations')).not.toBeInTheDocument()
-    await userEvent.click(canvas.getByRole('button', { name: /Conversion goals/ }))
-    await expect(canvas.findByText('Configure conversion goals')).resolves.toBeVisible()
 }

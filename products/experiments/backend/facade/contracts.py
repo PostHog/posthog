@@ -8,16 +8,71 @@ between the experiments product and the rest of the system.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.experiments.backend.facade.enums import RecalculationStartOutcome
+
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from posthog.schema import MaxExperimentSummaryContext
 
 # Metrics per section (primary/secondary) included in the AI results summary
 MAX_METRICS_TO_SUMMARIZE = 50
+
+
+@frozen
+class StoredArmResult:
+    key: str
+    number_of_samples: int
+    mean: float | None
+    change: float | None = None
+    significant: bool | None = None
+
+
+@frozen
+class StoredPrimaryResult:
+    """The current stored result of an experiment's primary metric."""
+
+    metric_name: str
+    metric_type: str | None
+    proportion: bool
+    goal: str | None
+    baseline: StoredArmResult
+    variants: tuple[StoredArmResult, ...]
+
+
+@frozen
+class ExperimentUnfurlVariant:
+    """One variant of the experiment's flag and its share of the rollout."""
+
+    key: str
+    # As the flag stores it, so a whole number stays an int and prints as `50`, not `50.0`.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentUnfurl:
+    """What a link preview shows for an experiment."""
+
+    id: int
+    # An object access check reads the creator. The preview does not show it.
+    created_by_id: int | None
+    name: str
+    description: str | None
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    updated_at: datetime
+    # The name of the first inline primary metric, when that metric has one.
+    primary_metric_name: str | None
+    # The variants of the experiment's flag, in the flag's order. Empty when the flag config can't be read.
+    variants: tuple[ExperimentUnfurlVariant, ...]
 
 
 @frozen
@@ -28,6 +83,47 @@ class ExperimentSummaryData:
     last_refresh: datetime | None
     pending_calculation: bool
     omitted_metric_count: int
+
+
+@frozen
+class ExperimentResultsWidgetMetric:
+    """One metric of the dashboard experiment results widget."""
+
+    uuid: str | None
+    name: str
+    # The metric that the query ran, as JSON. None when the metric has no result.
+    metric: dict[str, Any] | None
+    # The query response as JSON, without the SQL and the per-variant session payloads.
+    result: dict[str, Any] | None
+    # A message that is safe to show to the viewer. None when the metric has a result.
+    error: str | None
+
+
+@frozen
+class ExperimentResultsWidgetMetrics:
+    """The metrics of a launched experiment, per section, in display order."""
+
+    primary: tuple[ExperimentResultsWidgetMetric, ...]
+    secondary: tuple[ExperimentResultsWidgetMetric, ...]
+    # The metric count of each section. Only the first metrics of a section run, so a total can be larger than the
+    # metrics above.
+    primary_total: int
+    secondary_total: int
+
+
+@frozen
+class ExperimentResultsWidget:
+    """One experiment, as the dashboard experiment results widget shows it."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    # None for a draft, which has no exposures to compute results from.
+    metrics: ExperimentResultsWidgetMetrics | None
 
 
 @frozen
@@ -63,6 +159,41 @@ class ExperimentPromptContext:
     # Requestable variants only, excluded variants already removed.
     variants: tuple[ExperimentVariantPromptContext, ...]
     primary_metric_names: tuple[str, ...]
+
+
+@frozen
+class ExperimentFlagVariantSplit:
+    """One variant of the experiment's flag and its share of the rollout, as the flag stores them."""
+
+    # None when the stored variant has no key.
+    key: str | None
+    # As stored, so a whole number stays an int and a prompt prints `50%`, not `50.0%`. 0 when the variant has none.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentAssistantContext:
+    """What PostHog AI reads to describe an experiment and its results."""
+
+    id: int
+    # With `id`, the fields that an object access check reads.
+    team_id: int
+    created_by_id: int | None
+    name: str
+    description: str | None
+    type: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    conclusion: str | None
+    conclusion_comment: str | None
+    stats_method: Literal["bayesian", "frequentist"]
+    # Variant names by key from the experiment's own variants field, which web experiments write. A variant without a
+    # name maps to its key.
+    variant_names: Mapping[str, str]
+    feature_flag_key: str
+    # Every variant of the flag, in the flag's order. Excluded variants are not removed.
+    feature_flag_variants: tuple[ExperimentFlagVariantSplit, ...]
 
 
 @frozen
@@ -107,9 +238,14 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
+    METRIC_ALL_ZERO = "metric_all_zero"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -117,6 +253,9 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
+    METRICS_NOT_MATURED = "metrics_not_matured"
+    FLAG_SHARED = "flag_shared"
+    STALE_EXPERIMENT = "stale_experiment"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -179,20 +318,9 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     ADD_SECONDARY_METRIC = "add_secondary_metric"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
-
-
-@frozen
-class ExperimentHealthFinding:
-    """One problem that a health check found in an experiment, with what fixes it."""
-
-    code: ExperimentHealthFindingCode
-    subcode: str | None
-    severity: ExperimentHealthFindingSeverity
-    title: str
-    detail: str
-    evidence: Mapping[str, str | int | float | bool | None]
-    actions: tuple[ExperimentHealthFindingActionKind, ...]
-    diagnostic_ref: str | None
+    END_EXPERIMENT = "end_experiment"
+    FREEZE_EXPOSURE = "freeze_exposure"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -200,6 +328,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
     # under `split_changed_mid_run`.
     FLAG_STATE = "flag_state"
+    FLAG_SHARED = "flag_shared"
     FLAG_HISTORY = "flag_history"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
@@ -210,12 +339,38 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
+    METRIC_ALL_ZERO = "metric_all_zero"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
+    METRICS_NOT_MATURED = "metrics_not_matured"
+    STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     SRM = "srm"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+
+
+@frozen
+class ExperimentHealthFinding:
+    """One problem that a health check found in an experiment, with what fixes it."""
+
+    code: ExperimentHealthFindingCode
+    subcode: str | None
+    # pinned: the page sends it as `finding_reason` on the health finding events. Never customer text.
+    reason: str | None = None
+    severity: ExperimentHealthFindingSeverity
+    title: str
+    detail: str
+    evidence: Mapping[str, str | int | float | bool | None]
+    actions: tuple[ExperimentHealthFindingActionKind, ...]
+    diagnostic_ref: str | None
+    # The check that reported the finding. A code doesn't name its check, because one check can report several codes.
+    # The registry sets it, so a check leaves it out.
+    check: ExperimentHealthCheckKey | None = None
 
 
 class ExperimentHealthCheckStatus(LabeledStrEnum):
@@ -226,19 +381,207 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
     NOT_CHECKED = "not_checked"
 
 
+class ExperimentHealthValueKey(LabeledStrEnum):
+    # API callers read these keys in a check's `values` and its `rule`. The suffix gives the unit: `_count` is a
+    # count, `_percentage` is on the 0-100 scale, `_hours` is hours and `_at` is an ISO 8601 time in UTC. A key without a
+    # unit suffix is a setting or a state, as a string or a boolean. A key means the same thing in every check, so two
+    # values that differ in meaning get two keys.
+    EXPOSED_COUNT = (
+        "exposed_count",
+        "Users or groups exposed since launch, as the exposure criteria count them, including those exposed to "
+        "multiple variants",
+    )
+    COMPARED_COUNT = (
+        "compared_count",
+        "Exposed users or groups in the variants that the sample ratio test compares, without those exposed to "
+        "multiple variants",
+    )
+    MULTIPLE_VARIANT_COUNT = "multiple_variant_count", "Users or groups exposed to more than one variant"
+    MULTIPLE_VARIANT_PERCENTAGE = "multiple_variant_percentage", "multiple_variant_count as a share of exposed_count"
+    MULTIPLE_VARIANT_HANDLING = (
+        "multiple_variant_handling",
+        "What the results do with users exposed to more than one variant: exclude or first_seen",
+    )
+    P_VALUE = "p_value", "P-value of the sample ratio test"
+    SINCE_LAUNCH_HOURS = "since_launch_hours", "Hours since launch"
+    EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT = (
+        "exposed_without_test_account_filter_count",
+        "Users or groups that the exposure criteria count without the test account filters",
+    )
+    KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = (
+        "kept_by_test_account_filter_percentage",
+        "exposed_count as a share of exposed_without_test_account_filter_count",
+    )
+    UNSERVED_EXPOSED_COUNT = (
+        "unserved_exposed_count",
+        "Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag "
+        "doesn't serve since that save",
+    )
+    UNSERVED_EXPOSED_PERCENTAGE = (
+        "unserved_exposed_percentage",
+        "unserved_exposed_count as a share of the users or groups first exposed after that day",
+    )
+    ONLY_COUNT_MATURED_USERS = (
+        "only_count_matured_users",
+        'Whether "Require completed conversion or retention window" is on',
+    )
+    PRIMARY_METRIC_COUNT = "primary_metric_count", "Primary metrics that the calculation computes"
+    WAITING_METRIC_COUNT = (
+        "waiting_metric_count",
+        "Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet",
+    )
+    METRIC_COUNT = "metric_count", "Metrics that the calculation computes"
+    COMPLETED_METRIC_COUNT = "completed_metric_count", "Metrics whose result of the latest calculation the page shows"
+    FAILED_METRIC_COUNT = "failed_metric_count", "Metrics whose latest calculation failed"
+    CALCULATED_AT = "calculated_at", "When the latest calculation of the metrics finished"
+    FLAG_ACTIVE = "flag_active", "Whether the feature flag is enabled"
+    FLAG_DELETED = "flag_deleted", "Whether the feature flag is deleted"
+    FLAG_ROLLED_OUT = "flag_rolled_out", "Whether a release condition of the feature flag rolls out to more than 0%"
+    SHIPPED_VARIANT = (
+        "shipped_variant",
+        "The key of the variant that the feature flag serves to everyone, or null when it serves more than one",
+    )
+    FLAG_LAST_CALLED_AT = "flag_last_called_at", "When PostHog last recorded a call of the feature flag"
+    SINCE_START_HOURS = (
+        "since_start_hours",
+        "Hours since the experiment's start date, which can be earlier than the launch",
+    )
+    DAILY_CALCULATION_ENDS_AT = (
+        "daily_calculation_ends_at",
+        "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    METRIC_NAME = "metric_name", "The name of a metric"
+    METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"
+    RATIO_SIDE = (
+        "ratio_side",
+        "The side of a ratio metric, numerator or denominator, or null for the other metric types",
+    )
+    SAMPLE_COUNT = "sample_count", "Users or groups in a metric's results, across the variants"
+    PLANNED_SAMPLE_COUNT = (
+        "planned_sample_count",
+        "Users or groups that the running time estimate needs to detect its minimum detectable effect",
+    )
+    DATA_HOURS = (
+        "data_hours",
+        "Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window",
+    )
+    VARIANT = "variant", "The key of a variant"
+    DIFFERENCE_PERCENTAGE = (
+        "difference_percentage",
+        "A variant's difference from the control on the primary metric, relative to the control, with its sign",
+    )
+    DETECTABLE_DIFFERENCE_PERCENTAGE = (
+        "detectable_difference_percentage",
+        "The smallest difference from the control that the variant's sample can reliably detect, relative to the "
+        "control",
+    )
+    SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    FORCED_CONDITION_COUNT = (
+        "forced_condition_count",
+        "Release conditions of the feature flag that serve a fixed variant through a variant override",
+    )
+    MATCHED_COUNT = (
+        "matched_count",
+        "Users or groups that a release condition served since traffic_since_at, without those forced to a variant "
+        "that has 0% in the split",
+    )
+    VARIANT_MATCHED_COUNT = (
+        "variant_matched_count",
+        "Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at "
+        "random",
+    )
+    FORCED_COUNT = "forced_count", "Users or groups that a release condition with a variant override served"
+    FORCED_PERCENTAGE = "forced_percentage", "forced_count as a share of variant_matched_count"
+    TRAFFIC_SINCE_AT = (
+        "traffic_since_at",
+        "The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later",
+    )
+    CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
+    BEFORE_EXPOSURE = (
+        "before_exposure",
+        "Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when "
+        "unknown",
+    )
+
+
+ExperimentHealthValue = str | int | float | bool | None
+
+
+class ExperimentHealthRuleSide(LabeledStrEnum):
+    ABOVE = "above", "Finding above the threshold"
+    BELOW = "below", "Finding below the threshold"
+
+
+class ExperimentHealthRuleTest(LabeledStrEnum):
+    CHI_SQUARED = "chi_squared", "Chi-squared goodness-of-fit test"
+
+
+@frozen
+class ExperimentHealthRuleMinimum:
+    """What a check needs before it judges: below the threshold, it doesn't report a finding."""
+
+    value: ExperimentHealthValueKey
+    threshold: float
+
+
+@frozen
+class ExperimentHealthCheckRule:
+    """How a check decides, as data. It is the same for every experiment, so the values of a run say how close the
+    check is to a finding."""
+
+    value: ExperimentHealthValueKey
+    threshold: float
+    # The side of the threshold that reports a finding. A value at the threshold doesn't.
+    warns: ExperimentHealthRuleSide
+    test: ExperimentHealthRuleTest | None = None
+    minimum: ExperimentHealthRuleMinimum | None = None
+
+
 @frozen
 class ExperimentHealthCheckResult:
     key: ExperimentHealthCheckKey
     name: str
+    description: str
     status: ExperimentHealthCheckStatus
     # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
     reason: str | None
+    # What the check read on the experiment, for every status. Empty when it read nothing or shows nothing.
+    values: Mapping[ExperimentHealthValueKey, ExperimentHealthValue]
+    rule: ExperimentHealthCheckRule | None
+    # What the check read per variant, metric or flag change, with the same keys as `values`.
+    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthValue], ...]
+
+
+@frozen
+class ExperimentHealthReleaseCondition:
+    """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
+    must match, and the group type it assigns variants by (None for users)."""
+
+    rollout_percentage: float
+    property_count: int
+    aggregation_group_type_index: int | None
+
+
+@frozen
+class ExperimentHealthSetup:
+    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+
+    # The flag's condition sets as stored, in evaluation order.
+    release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
+    early_exit: bool
+    bucketing_identifier: str
+    aggregation_group_type_index: int | None
+    evaluation_runtime: str
+    evaluation_contexts: tuple[str, ...]
+    ensure_experience_continuity: bool
 
 
 @frozen
 class ExperimentHealth:
     findings: tuple[ExperimentHealthFinding, ...]
     checks: tuple[ExperimentHealthCheckResult, ...]
+    # None when not loaded or when the experiment has no flag. Only the health endpoint loads it.
+    setup: ExperimentHealthSetup | None = None
 
 
 @frozen
@@ -253,6 +596,13 @@ class ExperimentHealthReaderAccess:
 class ExperimentValidationError(Exception):
     """Raised when the facade refuses an experiment write for its input. The message is written for the person who
     sent the input, so a caller at an HTTP boundary can return it as a 400."""
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        # The input field that the message is about, so that an HTTP boundary can report the error on that field.
+        # None when the message is about the input as a whole.
+        self.field = field
 
 
 class LegacyMigrationError(Exception):
@@ -370,6 +720,8 @@ class CreateExperimentInput:
     filters: dict | None = None
     scheduling_config: dict | None = None
     create_in_folder: str | None = None
+    # The experiment rule to link when feature_flag_key names an existing flag with rules.
+    feature_flag_rule_id: "UUID | None" = None
 
     # Internal flags
     allow_unknown_events: bool = False
@@ -387,6 +739,56 @@ class FeatureFlag:
     name: str | None = None
 
 
+@frozen
+class ExperimentCreator:
+    """The user who created an experiment, with the fields that core's `UserBasicSerializer` renders. A caller
+    serializes it through that serializer, so the response keeps the `UserBasic` shape."""
+
+    id: int
+    uuid: "UUID"
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    # The stored value. `UserBasicSerializer` shapes it when it renders.
+    hedgehog_config: dict[str, Any] | None
+    role_at_organization: str | None
+
+
+@frozen
+class ExperimentActionReference:
+    """An experiment whose stored metrics, filters or configuration reference an action."""
+
+    id: int
+    name: str
+    created_at: datetime
+    created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetRow:
+    """One experiment in the dashboard experiments list widget."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    conclusion: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    feature_flag_key: str
+    created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetPage:
+    rows: tuple[ExperimentListWidgetRow, ...]
+    # True when more experiments match than the page holds.
+    has_more: bool
+
+
 @dataclass(frozen=True)
 class Experiment:
     """Experiment output."""
@@ -401,6 +803,15 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@frozen
+class ExperimentRef:
+    """The fields that an object access check reads from one experiment."""
+
+    id: int
+    team_id: int
+    created_by_id: int | None
 
 
 @frozen
@@ -485,3 +896,201 @@ class RunningExperiment:
     name: str
     started_at: datetime
     flag_key: str
+
+
+@frozen
+class RecentExperiment:
+    """One of a team's most recently modified experiments."""
+
+    id: int
+    name: str
+    archived: bool
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    updated_at: datetime
+
+
+@frozen
+class ExperimentOrientation:
+    """A team's experiment counts and its most recently modified experiments. Deleted experiments are left out."""
+
+    total_count: int
+    # Started, not ended, and not archived.
+    running_count: int
+    # Most recently modified first.
+    recent: tuple[RecentExperiment, ...]
+
+
+@frozen
+class ExperimentChanged:
+    """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
+
+    team_id: int
+    experiment_id: int
+    # True only on the save that inserted the row.
+    created: bool
+    # True on every save that leaves the experiment soft-deleted, and on every hard delete of the row.
+    deleted: bool
+    # The values the write left on the experiment, so a receiver that mirrors the experiment elsewhere, such as the
+    # Vercel sync, does not read the row back.
+    name: str
+    description: str | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@frozen
+class DigestLaunchedExperiment:
+    team_id: int
+    id: int
+    name: str
+    start_date: datetime
+
+
+@frozen
+class DigestCompletedExperiment:
+    team_id: int
+    id: int
+    name: str
+    start_date: datetime | None
+    end_date: datetime
+
+
+@frozen
+class TeamExperimentsSettings:
+    """A team's experiment settings, as the project settings show them."""
+
+    # Times of day (UTC) as 'HH:00:00' strings. None means the default time.
+    experiment_recalculation_times: tuple[str, ...] | None
+    default_experiment_confidence_level: Decimal | None
+    default_experiment_stats_method: str | None
+    experiment_precomputation_enabled: bool
+    default_only_count_matured_users: bool
+    default_cuped_enabled: bool
+    default_cuped_lookback_days: int | None
+    default_minimum_detectable_effect: int | None
+    default_sequential_testing_enabled: bool
+    default_sequential_tuning_parameter: int | None
+    flag_cleanup_repository: str | None
+
+
+class Unset:
+    """Marks a setting that an update leaves as it is, because None is a valid value."""
+
+
+UNSET = Unset()
+
+
+@frozen
+class TeamExperimentsSettingsUpdate:
+    """The settings that an update changes. UNSET leaves a setting as it is. Precomputation is not here, because
+    PostHog manages it."""
+
+    experiment_recalculation_times: tuple[str, ...] | None | Unset = UNSET
+    default_experiment_confidence_level: Decimal | None | Unset = UNSET
+    default_experiment_stats_method: str | None | Unset = UNSET
+    default_only_count_matured_users: bool | Unset = UNSET
+    default_cuped_enabled: bool | Unset = UNSET
+    default_cuped_lookback_days: int | None | Unset = UNSET
+    default_minimum_detectable_effect: int | None | Unset = UNSET
+    default_sequential_testing_enabled: bool | Unset = UNSET
+    default_sequential_tuning_parameter: int | None | Unset = UNSET
+    flag_cleanup_repository: str | None | Unset = UNSET
+
+
+@frozen
+class LinkedExperiment:
+    """An experiment that is not deleted, as the flag it uses lists it."""
+
+    id: int
+    name: str
+    is_running: bool
+
+
+@frozen
+class StaffTeamExperimentCounts:
+    total: int
+    running: int
+
+
+@frozen
+class StaffExperiment:
+    """An experiment as PostHog Admin shows it to staff."""
+
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    status: str
+    is_launched: bool
+    is_legacy: bool
+    has_malformed_properties: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+    created_at: datetime
+
+
+@frozen
+class StaffSharedMetric:
+    id: int
+    name: str
+    is_legacy: bool
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffSavedMetric:
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    is_legacy: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffRecalculationFailure:
+    metric_uuid: str
+    metric_name: str
+    error: str
+
+
+@frozen
+class StaffRecalculation:
+    """A metrics recalculation run as PostHog Admin shows it to staff."""
+
+    id: str
+    experiment_id: int
+    team_id: int
+    status: str
+    trigger: str
+    total_metrics: int
+    # None in lists, because counting needs a query per run.
+    completed_metrics: int | None
+    failed_metrics: int | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration: str | None
+    is_terminal: bool
+    temporal_url: str
+    failures: tuple[StaffRecalculationFailure, ...]
+
+
+@frozen
+class StaffMigration:
+    """The new-engine copy of a legacy experiment or shared metric."""
+
+    copy_id: int
+    # An earlier migration made the copy, so this one created nothing.
+    already_migrated: bool
+
+
+@frozen
+class RecalculationStart:
+    outcome: RecalculationStartOutcome
+    recalculation_id: str | None = None
+    detail: str = ""

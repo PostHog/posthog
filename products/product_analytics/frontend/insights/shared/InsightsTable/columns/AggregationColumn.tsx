@@ -6,8 +6,8 @@ import { ReactNode } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,8 +17,8 @@ import { TrendsFilterType } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { CalcColumnState } from '../InsightsTable'
 import { getAggregatedValue } from '../insightsTableDataLogic'
+import { CalcColumnState } from '../useInsightsTableModel'
 
 export const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',

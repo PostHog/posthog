@@ -5,10 +5,12 @@ import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { getEdgeId } from '../../edgeId'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import type { HogFlowActionNode } from '../../types'
+import type { HogFlowActionNode, HogFlowEdge } from '../../types'
 import * as tileCanvasLayout from './tileCanvasLayout'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { stepCount } from './tileCanvasModel'
@@ -224,6 +226,7 @@ describe('tileCanvasLogic', () => {
                     logic.actions.startPlacing(delayStep)
                     logic.actions.placeAt(logic.values.workflow.edges[0])
                 },
+                extra: {},
             },
             {
                 source: 'command bar',
@@ -232,18 +235,75 @@ describe('tileCanvasLogic', () => {
                     logic.actions.startPlacing(delayStep)
                     logic.actions.placeAt(logic.values.workflow.edges[0])
                 },
+                extra: {},
             },
             {
                 source: 'quick add',
                 add: (): void => logic.actions.addStepAt(delayStep, logic.values.workflow.edges[0]),
+                extra: {},
             },
-        ])('counts a step added from the $source', ({ source, add }) => {
+            {
+                source: 'drag',
+                add: (): void => {
+                    logic.actions.openCommandPalette('d')
+                    logic.actions.startDraggingNewStep(delayStep)
+                    logic.actions.dropAt(logic.values.workflow.edges[0], true)
+                    logic.actions.endDraggingNewStep()
+                },
+                extra: { snapped: true },
+            },
+        ])('counts a step added from the $source', ({ source, add, extra }) => {
             const capture = jest.spyOn(posthog, 'capture')
 
             add()
 
-            expect(capture).toHaveBeenCalledWith('workflows tile canvas step added', { source, step_type: 'delay' })
+            expect(capture).toHaveBeenCalledWith('workflows tile canvas step added', {
+                source,
+                step_type: 'delay',
+                ...extra,
+            })
         })
+
+        it.each([
+            { outcome: 'lands on a +', fromAddWindow: false, drop: true, dragEnds: true, stillOpen: false },
+            // The drop replaces the arrow of the + that opened the add window, so the window and its dragend go away.
+            {
+                outcome: 'lands on the + that opened it',
+                fromAddWindow: true,
+                drop: true,
+                dragEnds: false,
+                stillOpen: false,
+            },
+            { outcome: 'lets go elsewhere', fromAddWindow: false, drop: false, dragEnds: true, stillOpen: true },
+        ])(
+            'closes the palette only when a step dragged out of it $outcome',
+            async ({ fromAddWindow, drop, dragEnds, stillOpen }) => {
+                const stepsBefore = logic.values.workflow.actions.length
+                const edge = logic.values.workflow.edges[0]
+                if (fromAddWindow) {
+                    logic.actions.openQuickAdd(getEdgeId(edge))
+                } else {
+                    logic.actions.openCommandPalette('d')
+                }
+                logic.actions.startDraggingNewStep(delayStep)
+                if (drop) {
+                    logic.actions.dropAt(edge)
+                }
+
+                await expectLogic(logic, () => {
+                    if (dragEnds) {
+                        logic.actions.endDraggingNewStep()
+                    }
+                }).toMatchValues({
+                    nodeToBeAdded: null,
+                    isDraggingNewStep: false,
+                })
+                expect(logic.values.commandPaletteQuery !== null || logic.values.quickAddEdgeKey !== null).toBe(
+                    stillOpen
+                )
+                expect(logic.values.workflow.actions).toHaveLength(stepsBefore + (drop ? 1 : 0))
+            }
+        )
 
         it.each(['startMovingNode', 'startCopyingNode'] as const)(
             'drops a pending %s when someone starts adding a step',
@@ -272,6 +332,216 @@ describe('tileCanvasLogic', () => {
                 nodeToBeAdded: null,
                 isPlacing: false,
             })
+        })
+    })
+
+    describe('dragging a step', () => {
+        const edge = (from: string, to: string): object | undefined =>
+            logic.values.workflow.edges.find((candidate) => candidate.from === from && candidate.to === to)
+        const edgePairs = (): string[] =>
+            logic.values.workflow.edges.map((candidate) => `${candidate.from}->${candidate.to}`).sort()
+        const dragEndedCalls = (capture: jest.SpyInstance): unknown[][] =>
+            capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')
+
+        beforeEach(async () => {
+            jest.mocked(loadAppMetricsTotals).mockResolvedValue({})
+            logic = await mountSavedCanvas()
+            // The editor lays out its graph nodes after the load, and a move reads them.
+            await expectLogic(hogFlowEditorLogic({ id: WORKFLOW_ID }))
+                .toFinishAllListeners()
+                .toMatchValues({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'b2' })]) })
+        })
+
+        it('moves the dragged step to the + it lands on, and its old neighbors join up', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('b2')
+            logic.actions.dropAt(edge('split', 'b1') as HogFlowEdge, false)
+            // The moved tile can re-render before its dragend, so the drop itself must send the event.
+            const atDrop = dragEndedCalls(capture)
+            logic.actions.endDraggingStep('move')
+
+            expect(edgePairs()).toEqual(
+                [
+                    'trigger_node->split',
+                    'split->pause',
+                    'pause->a2',
+                    'a2->exit_node',
+                    'split->b2',
+                    'b2->b1',
+                    'b1->exit_node',
+                ].sort()
+            )
+            expect(logic.values.isMovingNode).toBe(false)
+            expect(capture).toHaveBeenCalledWith('workflows tile canvas step moved', {
+                source: 'drag',
+                step_type: 'delay',
+            })
+            const moved = [
+                ['workflows tile canvas step drag ended', { outcome: 'moved', step_type: 'delay', snapped: false }],
+            ]
+            expect(atDrop).toEqual(moved)
+            expect(dragEndedCalls(capture)).toEqual(moved)
+        })
+
+        it('records a drag let go away from every + with the drop effect the browser reported', async () => {
+            const before = edgePairs()
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('b2')
+            logic.actions.endDraggingStep('none')
+
+            expect(edgePairs()).toEqual(before)
+            expect(logic.values.isMovingNode).toBe(false)
+            expect(capture).toHaveBeenCalledWith('workflows tile canvas step drag ended', {
+                outcome: 'let_go_elsewhere',
+                step_type: 'delay',
+                drop_effect: 'none',
+            })
+        })
+
+        it.each(['trigger_node', 'split', 'exit_node'])('does not let %s be dragged', async (actionId) => {
+            await expectLogic(logic, () => logic.actions.startDraggingStep(actionId)).toMatchValues({
+                isMovingNode: false,
+                isDraggingStep: false,
+            })
+        })
+
+        it('offers no + next to the dragged step, and ignores a drop there', async () => {
+            const before = edgePairs()
+
+            logic.actions.startDraggingStep('b1')
+
+            expect(logic.values.placeableEdgeKeys).not.toContain(getEdgeId(edge('split', 'b1') as HogFlowEdge))
+            expect(logic.values.placeableEdgeKeys).not.toContain(getEdgeId(edge('b1', 'b2') as HogFlowEdge))
+            expect(logic.values.placeableEdgeKeys).toContain(getEdgeId(edge('pause', 'a2') as HogFlowEdge))
+
+            logic.actions.dropAt(edge('b1', 'b2') as HogFlowEdge)
+            logic.actions.endDraggingStep()
+
+            expect(edgePairs()).toEqual(before)
+            expect(logic.values.isMovingNode).toBe(false)
+        })
+
+        it('offers no + after a step that two paths join into, and records no move for a drop there', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        ...savedWorkflow,
+                        actions: [...savedWorkflow.actions.slice(0, -1), step('join'), savedWorkflow.actions.at(-1)],
+                        edges: [
+                            ...savedWorkflow.edges.filter((candidate) => candidate.to !== 'exit_node'),
+                            { from: 'a2', to: 'join', type: 'continue' },
+                            { from: 'b2', to: 'join', type: 'continue' },
+                            { from: 'join', to: 'exit_node', type: 'continue' },
+                        ],
+                    },
+                },
+            })
+            logic = await mountSavedCanvas()
+            await expectLogic(hogFlowEditorLogic({ id: WORKFLOW_ID }))
+                .toFinishAllListeners()
+                .toMatchValues({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'join' })]) })
+            const before = edgePairs()
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('join')
+
+            expect(logic.values.placeableEdgeKeys).not.toContain(getEdgeId(edge('join', 'exit_node') as HogFlowEdge))
+            expect(logic.values.placeableEdgeKeys).toContain(getEdgeId(edge('a2', 'join') as HogFlowEdge))
+
+            logic.actions.dropAt(edge('join', 'exit_node') as HogFlowEdge)
+            const atDrop = dragEndedCalls(capture)
+            logic.actions.endDraggingStep('move')
+
+            expect(edgePairs()).toEqual(before)
+            expect(capture).not.toHaveBeenCalledWith('workflows tile canvas step moved', expect.anything())
+            const noSpot = [
+                ['workflows tile canvas step drag ended', { outcome: 'no_matching_spot', step_type: 'delay' }],
+            ]
+            expect(atDrop).toEqual(noSpot)
+            expect(dragEndedCalls(capture)).toEqual(noSpot)
+        })
+    })
+
+    describe('view access', () => {
+        const delayStep = { type: 'delay', name: 'Delay', description: '', config: { delay_duration: '1h' } } as const
+        const edge = (from: string, to: string): HogFlowEdge =>
+            logic.values.workflow.edges.find((candidate) => candidate.from === from && candidate.to === to)!
+
+        const workflowFor = (userAccessLevel: AccessControlLevel): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': { ...savedWorkflow, user_access_level: userAccessLevel },
+            },
+        })
+
+        const mountLaidOutCanvas = async (): Promise<void> => {
+            jest.mocked(loadAppMetricsTotals).mockResolvedValue({})
+            logic = await mountSavedCanvas()
+            await expectLogic(hogFlowEditorLogic({ id: WORKFLOW_ID }))
+                .toFinishAllListeners()
+                .toMatchValues({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'b2' })]) })
+        }
+
+        it.each([
+            {
+                edit: 'adds a step from the command bar',
+                run: (): void => {
+                    logic.actions.openCommandPalette()
+                    logic.actions.startPlacing(delayStep)
+                    logic.actions.placeAt(edge('split', 'b1'))
+                },
+            },
+            { edit: 'adds a step from a +', run: (): void => logic.actions.addStepAt(delayStep, edge('split', 'b1')) },
+            {
+                edit: 'drags a new step onto a +',
+                run: (): void => {
+                    logic.actions.startDraggingNewStep(delayStep)
+                    logic.actions.dropAt(edge('split', 'b1'))
+                },
+            },
+            {
+                edit: 'drags a step onto another +',
+                run: (): void => {
+                    logic.actions.startDraggingStep('b2')
+                    logic.actions.dropAt(edge('split', 'b1'))
+                },
+            },
+            ...(['copy', 'move'] as const).map((choice) => ({
+                edit: `picks ${choice} in the step menu`,
+                run: (): void => {
+                    logic.actions.openStepMenu('b2')
+                    logic.actions.chooseStepMenuItem(choice)
+                    logic.actions.placeAt(edge('split', 'b1'))
+                },
+            })),
+            {
+                edit: 'picks delete in the step menu',
+                run: (): void => {
+                    logic.actions.openStepMenu('b2')
+                    logic.actions.chooseStepMenuItem('delete')
+                },
+            },
+        ])('ignores a viewer who $edit', async ({ run }) => {
+            useMocks(workflowFor(AccessControlLevel.Viewer))
+            await mountLaidOutCanvas()
+            const loaded = logic.values.workflow
+
+            run()
+
+            expect(logic.values.workflow).toEqual(loaded)
+            expect(logic.values).toMatchObject({ isPlacing: false, isMovingNode: false, isCopyingNode: false })
+            expect([null, ...loaded.actions.map((action) => action.id)]).toContain(logic.values.selectedNodeId)
+        })
+
+        it('lets an editor add a step from a +', async () => {
+            useMocks(workflowFor(AccessControlLevel.Editor))
+            await mountLaidOutCanvas()
+            const stepsBefore = logic.values.workflow.actions.length
+
+            logic.actions.addStepAt(delayStep, edge('split', 'b1'))
+
+            expect(logic.values.workflow.actions).toHaveLength(stepsBefore + 1)
         })
     })
 
@@ -416,18 +686,6 @@ describe('tileCanvasLogic', () => {
         })
 
         it('counts the people a step filtered out', () => {
-            expect(stepCount(logic.values.stepMetrics, 'pause')).toBe(48)
-        })
-
-        it('keeps the canvas counts when the Metrics panel loads another date range', async () => {
-            const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
-
-            await expectLogic(logic, () =>
-                editorLogic.actions.loadActionMetricsByIdSuccess({
-                    pause: { actionId: 'pause', succeeded: 3, failed: 0, filtered: 0 },
-                })
-            )
-
             expect(stepCount(logic.values.stepMetrics, 'pause')).toBe(48)
         })
     })

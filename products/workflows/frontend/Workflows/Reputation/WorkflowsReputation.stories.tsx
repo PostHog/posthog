@@ -96,10 +96,8 @@ const baseResponse: TeamEmailReputationResponseApi = {
     sending_allowance: {
         tier: 2,
         max_tier: 4,
-        emails_per_hour: 5000,
         emails_per_day: 50000,
         max_batch_audience: 25000,
-        emails_sent_last_hour: 1200,
         emails_sent_last_day: 18400,
         enforced: true,
     },
@@ -113,6 +111,8 @@ const meta: Meta<typeof WorkflowsReputation> = {
     component: WorkflowsReputation,
     parameters: {
         layout: 'padded',
+        // Pinned before the Nov 3, 2026 email metrics incident so its banner stays out of the snapshots.
+        mockDate: '2026-09-04 12:00:00',
         testOptions: { waitForLoadersToDisappear: true },
         featureFlags: [FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS],
     },

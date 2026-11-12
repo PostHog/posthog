@@ -14,9 +14,14 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
+import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
+import { IconBurst } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -25,19 +30,17 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
+import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTableSwitch'
 import { AvailableFeature } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
@@ -83,6 +86,8 @@ export function NewAccountMenu({
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const projectSubmenu = useSubmenuSafeTriangle()
     const organizationSubmenu = useSubmenuSafeTriangle()
+    const { switchAvailable, switchLabel } = useValues(navSwitchLogic)
+    const { switchNav } = useActions(navSwitchLogic)
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -454,6 +459,19 @@ export function NewAccountMenu({
                                             )}
                                         />
                                     </>
+                                )}
+                                <NewEventsTableSwitch />
+
+                                {switchAvailable && (
+                                    <Menu.Item
+                                        onClick={() => switchNav('account_menu')}
+                                        render={
+                                            <ButtonPrimitive menuItem data-attr="new-account-menu-nav-switch">
+                                                <IconBurst />
+                                                {switchLabel}
+                                            </ButtonPrimitive>
+                                        }
+                                    />
                                 )}
 
                                 <Label intent="menu" className="px-2 mt-2">

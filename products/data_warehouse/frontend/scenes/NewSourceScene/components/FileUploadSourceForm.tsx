@@ -56,7 +56,12 @@ export function FileUploadSourceForm(): JSX.Element {
                         />
                     )}
                 </LemonField>
-                <div className="mb-4 text-xs text-secondary">Files can be up to 50MB.</div>
+                <div className="mb-4 flex flex-col gap-1 text-xs text-secondary">
+                    <span>Files can be up to 50MB.</span>
+                    <span data-attr="file-upload-billing-note">
+                        Rows imported from this file count toward your data warehouse rows synced.
+                    </span>
+                </div>
 
                 <LemonField name="table_name" label="Table name">
                     {({ value = '' }) => (

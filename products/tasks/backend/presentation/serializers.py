@@ -20,7 +20,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
-from posthog.models.integration import Integration
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.user_integration import UserIntegration
 from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
@@ -29,7 +29,19 @@ from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_FAILURE_ERROR_TYPES
+from products.tasks.backend.facade.api import (
+    CHANNEL_INSTRUCTIONS_MAX_BYTES,
+    PUBLIC_RUN_OPTIONS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
+    TASK_RUN_FAILURE_ERROR_TYPES,
+    create_fields_from_options,
+    options_from_request,
+    public_idempotency_key,
+    request_fingerprint,
+    run_only_option_names,
+    run_options_record,
+    validate_run_options,
+)
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelContributorsDTO,
@@ -58,6 +70,18 @@ from products.tasks.backend.facade.contracts import (
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
+from products.tasks.backend.facade.profiles import (
+    RunOptionsCaller,
+    SourceKind,
+    TaskProfile,
+    TaskRunOptionsError,
+    TaskSource,
+    TaskSourceError,
+    check_task_source,
+    find_task_profile,
+    public_profile_for_origin,
+    resolve_task_origin,
+)
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -653,6 +677,17 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="First-party PostHog client that created this task.",
     )
+    last_client = serializers.ChoiceField(
+        choices=tasks_facade.TaskClient.choices,
+        allow_null=True,
+        required=False,
+        help_text="Client the latest person turn on this task came from. Null when no turn came from a known client.",
+    )
+    last_client_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="When the latest person turn from `last_client` arrived.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -684,6 +719,8 @@ class TaskSerializer(DataclassSerializer):
             "slack_thread_references",
             "origin_key",
             "client_provenance",
+            "last_client",
+            "last_client_at",
         ]
 
 
@@ -723,7 +760,6 @@ class TaskRunResponseSerializer(TaskCreateResponseSerializer):
         fields = [*TaskCreateResponseSerializer.Meta.fields, "run"]
 
 
-TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
     f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
     "surface can show a prompt snippet without the full body. Open the task for the complete text."
@@ -759,6 +795,20 @@ TaskListItemSerializer = PolymorphicProxySerializer(
     serializers=[TaskSerializer, TaskBasicSerializer],
     resource_type_field_name=None,
 )
+
+
+def normalized_repository_name(value: str) -> str:
+    parts = value.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise serializers.ValidationError("Repository must be in the format organization/repository")
+
+    return value.lower()
+
+
+def require_unique_repositories(repositories: list[str]) -> list[str]:
+    if len(set(repositories)) != len(repositories):
+        raise serializers.ValidationError("Repositories must be unique")
+    return repositories
 
 
 class TaskWriteSerializer(serializers.Serializer):
@@ -798,8 +848,8 @@ class TaskWriteSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories available to this task, each in `organization/repo` format.",
     )
-    github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
@@ -815,7 +865,7 @@ class TaskWriteSerializer(serializers.Serializer):
     # (team scope is enforced by validate_signal_report below). Bound lazily in __init__ so
     # importing this module never touches the signals model.
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
@@ -940,7 +990,7 @@ class TaskWriteSerializer(serializers.Serializer):
         ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Channel this task is owned by (the channel it was kicked off in).",
@@ -950,10 +1000,10 @@ class TaskWriteSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         # SignalReport is scoped to the request team by the field; bind its queryset lazily so
         # importing this module never touches the signals model at import time.
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
-        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
+        channel_field = cast(serializers.PrimaryKeyRelatedField, self.fields["channel"])
+        channel_field.queryset = tasks_facade.channel_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_channel(self, value):
         request = self.context.get("request")
@@ -972,12 +1022,6 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Space not found")
         return value
 
-    def validate_github_integration(self, value):
-        """Validate that the GitHub integration belongs to the same team"""
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
     def validate_github_user_integration(self, value):
         """Validate that the GitHub user integration belongs to the authenticated user."""
         request = self.context.get("request")
@@ -988,39 +1032,7 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        reserved_origins = {
-            tasks_facade.TaskOriginProduct.SPACE_SETUP,
-            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
-            tasks_facade.TaskOriginProduct.EXPERIMENTS,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
-            # sets the origin from outside, so reserve it before anything starts depending on it.
-            tasks_facade.TaskOriginProduct.AUTORESEARCH,
-            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
-            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
-            # behind its own rate limits and daily cap.
-            tasks_facade.TaskOriginProduct.ONBOARDING,
-            tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
-            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
-            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
-            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
-            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
-            # via its service JWT. A forged origin would fake that provenance.
-            tasks_facade.TaskOriginProduct.WORKFLOW,
-            # Maps to the mintable `review_hog` gateway product, so a forged origin would
-            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
-            tasks_facade.TaskOriginProduct.REVIEW_HOG,
-            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
-            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
-            tasks_facade.TaskOriginProduct.SLACK,
-            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
-            tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
-            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
-            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
-        }
-        if value in reserved_origins:
+        if value in tasks_facade.TASK_SERVER_ONLY_ORIGIN_PRODUCTS:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
@@ -1029,17 +1041,10 @@ class TaskWriteSerializer(serializers.Serializer):
         if not value:
             return value
 
-        parts = value.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
-
-        return value.lower()
+        return normalized_repository_name(value)
 
     def validate_repositories(self, value: list[str]) -> list[str]:
-        repositories = [self.validate_repository(repository) for repository in value]
-        if len(set(repositories)) != len(repositories):
-            raise serializers.ValidationError("Repositories must be unique")
-        return repositories
+        return require_unique_repositories([self.validate_repository(repository) for repository in value])
 
     def validate_signal_report(self, value):
         if value and value.team_id != self.context["team"].id:
@@ -1152,6 +1157,93 @@ class TaskRunScheduleSerializer(serializers.Serializer):
         return value
 
 
+class PublicReasoningEffort(models.TextChoices):
+    LOW = "low", "low"
+    MEDIUM = "medium", "medium"
+    HIGH = "high", "high"
+    XHIGH = "xhigh", "xhigh"
+    MAX = "max", "max"
+    ULTRACODE = "ultracode", "ultracode"
+
+
+class PublicTaskSourceKind(models.TextChoices):
+    SIGNAL_REPORT = SourceKind.SIGNAL_REPORT.value
+    HOG_FLOW = SourceKind.HOG_FLOW.value
+
+
+class TaskRunOptionsRepositorySerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="GitHub repository in `organization/repo` format.")
+    initial_branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        help_text="Branch the first run starts from. Omit to use the repository's default branch.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        return normalized_repository_name(value)
+
+
+class TaskRunOptionsRequestSerializer(serializers.Serializer):
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness for the task. It must be one the profile allows.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=RuntimeAdapter.choices,
+        required=False,
+        help_text="Agent harness for the first run. Derived from the model when omitted.",
+    )
+    model = serializers.CharField(required=False, help_text="LLM model for the first run.")
+    reasoning_effort = serializers.ChoiceField(
+        choices=PublicReasoningEffort.choices,
+        required=False,
+        help_text="Reasoning effort for the first run, for models that support it.",
+    )
+    repositories = serializers.ListField(
+        child=TaskRunOptionsRepositorySerializer(),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories available to the task. The first one's initial branch starts the first run.",
+    )
+    output_schema = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text="JSON schema that the agent's final answer must match.",
+    )
+    permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        help_text="The agent's starting permission mode for the first run.",
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        help_text="When true, the agent pushes its work and opens a draft pull request when it finishes.",
+    )
+
+    def validate_repositories(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        require_unique_repositories([repository["name"] for repository in value])
+        return value
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict):
+            unsupported = sorted(set(data) - PUBLIC_RUN_OPTIONS)
+            if unsupported:
+                raise serializers.ValidationError(
+                    dict.fromkeys(unsupported, "This option is not supported by this endpoint.")
+                )
+        return super().to_internal_value(data)
+
+
+class TaskSourceRequestSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=PublicTaskSourceKind.choices,
+        help_text="The kind of row the task starts from. It must be the kind the profile takes.",
+    )
+    id = serializers.CharField(max_length=64, help_text="ID of that row. It must belong to the current project.")
+
+
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
     start_run = serializers.BooleanField(
         required=False,
@@ -1200,8 +1292,129 @@ class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+    profile = serializers.CharField(
+        max_length=64,
+        required=False,
+        write_only=True,
+        help_text=(
+            "Key of a public task profile, which sets the limits for this kind of task. "
+            "Omit it to create a task from `origin_product` as before."
+        ),
+    )
+    options = TaskRunOptionsRequestSerializer(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Settings for this task, checked against the profile. Only the options the profile makes public are "
+            "accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. "
+            "Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, "
+            "`permission_mode`, `auto_publish` and the `initial_branch` of a repository."
+        ),
+    )
+    source = TaskSourceRequestSerializer(  # type: ignore[assignment]
+        required=False,
+        write_only=True,
+        help_text="The row this task starts from, for profiles that take one. Requires `profile`.",
+    )
+    idempotency_key = serializers.CharField(
+        max_length=64,
+        required=False,
+        write_only=True,
+        help_text=(
+            "Makes the request safe to retry. Sending the same key with the same body returns the task "
+            "that the first request created. The same key with a different body is refused. Requires `profile`."
+        ),
+    )
+
+    def validate_profile(self, value: str) -> TaskProfile:
+        profile = find_task_profile(value)
+        if (
+            profile is None
+            or not profile.public
+            or profile.origin_product in tasks_facade.TASK_SERVER_ONLY_ORIGIN_PRODUCTS
+        ):
+            raise serializers.ValidationError(f"Unknown task profile '{value}'")
+        return profile
+
+    def validate_source(self, value: dict[str, str]) -> TaskSource:
+        return TaskSource(kind=SourceKind(value["kind"]), id=value["id"])
+
+    def _apply_profile_request(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        profile = attrs.pop("profile", None)
+        options_data = attrs.pop("options", None)
+        source = attrs.pop("source", None)
+        idempotency_key = attrs.pop("idempotency_key", None)
+        if profile is None:
+            profile_only = {
+                name: "Requires profile."
+                for name, value in (("options", options_data), ("source", source), ("idempotency_key", idempotency_key))
+                if value is not None
+            }
+            if profile_only:
+                raise serializers.ValidationError(profile_only)
+            return self._with_origin_profile(attrs)
+        origin = resolve_task_origin(profile)
+        if attrs.get("origin_product", origin.origin_product) != origin.origin_product:
+            raise serializers.ValidationError(
+                {"origin_product": f"Origin {attrs['origin_product']!r} does not match task profile {profile.key!r}"}
+            )
+        try:
+            check_task_source(profile=profile, source=source)
+        except TaskSourceError as error:
+            raise serializers.ValidationError({"source": str(error)}) from error
+        if source is not None and attrs.get("signal_report") is not None:
+            raise serializers.ValidationError({"source": "Send the source or signal_report, not both."})
+        if source is not None and not tasks_facade.task_source_in_team(self.context["team"].id, source):
+            raise serializers.ValidationError({"source": "Source not found."})
+        attrs.update(profile=profile.key, origin_product=origin.origin_product, internal=origin.internal)
+        if source is not None:
+            attrs["source"] = source
+            if source.kind == SourceKind.SIGNAL_REPORT:
+                attrs["signal_report"] = self.fields["signal_report"].to_internal_value(source.id)
+        if idempotency_key is not None:
+            user_id = getattr(getattr(self.context.get("request"), "user", None), "id", None)
+            attrs["idempotency_key"] = public_idempotency_key(user_id, idempotency_key)
+            attrs["idempotency_fingerprint"] = request_fingerprint(self.initial_data)
+        if options_data is not None:
+            attrs.update(self._options_fields(profile, options_data, attrs))
+        return attrs
+
+    def _with_origin_profile(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        origin_product = attrs.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
+        profile = public_profile_for_origin(origin_product)
+        if profile is None:
+            raise serializers.ValidationError(
+                {"origin_product": f"origin_product '{origin_product}' is reserved for server-created tasks"}
+            )
+        attrs["profile"] = profile.key
+        return attrs
+
+    def _options_fields(
+        self, profile: TaskProfile, options_data: dict[str, Any], attrs: dict[str, Any]
+    ) -> dict[str, Any]:
+        options = options_from_request(options_data)
+        try:
+            validate_run_options(profile, options, caller=RunOptionsCaller.PUBLIC)
+        except TaskRunOptionsError as error:
+            raise serializers.ValidationError({"options": str(error)}) from error
+        run_only = run_only_option_names(options)
+        if run_only and not attrs.get("start_run"):
+            raise serializers.ValidationError({"options": f"Set start_run to true to use {', '.join(run_only)}."})
+        fields = create_fields_from_options(options, repositories_given="repositories" in options_data)
+        repeated = sorted(
+            name
+            for name in fields
+            if (name == "repositories" and ("repositories" in attrs or "repository" in attrs))
+            or (name != "repositories" and attrs.get(name) is not None)
+        )
+        if repeated:
+            raise serializers.ValidationError(
+                {"options": f"Set {', '.join(repeated)} in options or at the top level, not both."}
+            )
+        return {**fields, "options": run_options_record(options)}
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = self._apply_profile_request(attrs)
         attrs = super().validate(attrs)
         if attrs.get("scheduled_at") is not None and not attrs.get("start_run"):
             raise serializers.ValidationError({"scheduled_at": "Set start_run to true to schedule a run."})
@@ -2287,8 +2500,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 
@@ -2470,6 +2683,22 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class ChannelPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of channels the requester can access.")
+    next = serializers.URLField(allow_null=True, help_text="URL of the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL of the previous page, or null on the first page.")
+    results = ChannelSerializer(many=True, help_text="Channels on this page.")
+
+
+# The channel list is an array without `limit` and a page with `limit`, so its schema is one of the two.
+ChannelListResponseSerializer = PolymorphicProxySerializer(
+    component_name="ChannelListResponse",
+    serializers=[ChannelSerializer(many=True), ChannelPageSerializer],
+    resource_type_field_name=None,
+    many=False,
+)
+
+
 class ChannelContributorsSerializer(DataclassSerializer):
     """The people who own at least one task or canvas in a channel."""
 
@@ -2635,8 +2864,8 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
     )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="Team GitHub integration used for repositories linked to this channel.",
@@ -2666,11 +2895,6 @@ class ChannelUpdateSerializer(serializers.Serializer):
     def validate_name(self, value: str) -> str:
         if tasks_facade.is_reserved_channel_name(value):
             raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
-        return value
-
-    def validate_github_integration(self, value):
-        if value is not None and value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("GitHub integration must belong to this project")
         return value
 
     def validate_repositories(self, value: list[str]) -> list[str]:
@@ -3061,10 +3285,22 @@ class TaskActivityPageSerializer(DataclassSerializer):
         required=False,
         help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
     )
+    next = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the next page, with before and before_id set, or null on the final page.",
+    )
+    previous = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Always null: the feed pages forward only.",
+    )
 
     class Meta:
         dataclass = TaskActivityPageDTO
-        fields = ["results", "unread_count", "next_before", "next_before_id"]
+        fields = ["results", "unread_count", "next_before", "next_before_id", "next", "previous"]
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
@@ -4146,7 +4382,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         ),
     )
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         default=None,
         allow_null=True,
@@ -4158,9 +4394,8 @@ class WarmTaskRequestSerializer(serializers.Serializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:

@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -20,7 +21,11 @@ from posthog.models import Organization, Team, User
 from posthog.security.outbound_proxy import internal_requests
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
+from products.signals.backend.facade.testing import claim_trial, trial_incomplete_sources
+from products.signals.backend.facade.trial import TrialExecutionRefused
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
+from products.signals.backend.spend import record_task_spend
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.exceptions import (
@@ -30,6 +35,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
 from products.tasks.backend.logic.services.gateway_model_pin import (
     DESKTOP_AGENT_MODELS,
@@ -93,6 +99,8 @@ class TestResolveSandboxAiProduct:
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
             ("metrics_import", None, "posthog_ai"),
+            ("feature_flags", None, "posthog_ai"),
+            ("feature_flags", "implementation", "posthog_ai"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):
@@ -117,6 +125,27 @@ class TestResolveSandboxAiProduct:
     def test_stage_does_not_split_non_signals_products(self):
         assert resolve_sandbox_ai_product("loop", "implementation") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", "implementation", internal=True) == "review_hog"
+
+    @pytest.mark.parametrize(
+        "origin_product,ai_stage,billing_product,profile_billing_product,expected",
+        [
+            ("user_created", None, None, "background_agents", "background_agents"),
+            ("signals_chat", "research", None, "signals", "signals_research"),
+            ("signal_report", None, "posthog_ai", "signals", "posthog_ai"),
+        ],
+    )
+    def test_profile_billing_product_replaces_the_origin_product(
+        self, origin_product, ai_stage, billing_product, profile_billing_product, expected
+    ):
+        assert (
+            resolve_sandbox_ai_product(
+                origin_product,
+                ai_stage,
+                billing_product=billing_product,
+                profile_billing_product=profile_billing_product,
+            )
+            == expected
+        )
 
 
 class TestSharedRoutingContract:
@@ -306,7 +335,9 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "account_audit", "review_hog", "slack_app", "workflows"])
+    @pytest.mark.parametrize(
+        "product", ["posthog_ai", "account_audit", "background_agents", "review_hog", "slack_app", "workflows"]
+    )
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -327,6 +358,22 @@ class TestMintScopedToken:
                 "gpt-6.1-terra",
             }
         assert set(pin) == expected
+
+    def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="onboarding", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "onboarding"
+        assert body["allowed_models"] == ["claude-sonnet-5", "claude-opus-4-8"]
+
+    def test_conversations_mint_carries_the_legacy_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="conversations", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "conversations"
+        assert body["allowed_models"] == ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"]
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -558,13 +605,30 @@ class TestMintableGate:
     """Mint scope needs server-side provenance: `internal` and some origin_product
     values are API-settable, so a routed-but-unmintable product must never mint."""
 
-    @pytest.mark.parametrize("origin_product", ["image_builder", "business_knowledge"])
-    def test_caller_internal_flag_cannot_mint_for_background_agents(self, mint_settings, origin_product):
+    @pytest.mark.parametrize(
+        "origin_product,mints",
+        [
+            ("autoresearch", True),
+            ("business_knowledge", True),
+            ("context_layer", True),
+            ("task_analysis", True),
+            ("image_builder", False),
+            ("user_created", False),
+            (None, False),
+        ],
+    )
+    def test_background_agents_mints_only_for_reserved_origins(self, mint_settings, origin_product, mints):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
-        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+        ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
-        assert "AI_GATEWAY_TOKEN" not in env
-        mint.assert_not_called()
+        assert ("AI_GATEWAY_TOKEN" in env) is mints
+        if mints:
+            assert env["AI_GATEWAY_PRODUCT"] == "background_agents"
+            mint.assert_called_once_with(ai_product="background_agents", team_id=123, user=None)
+        else:
+            mint.assert_not_called()
 
     def test_routed_review_hog_mints(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
@@ -575,6 +639,18 @@ class TestMintableGate:
             env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_routed_wizard_run_mints_onboarding(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "onboarding"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(
+                team_id=2, origin_product="onboarding", ai_stage="wizard_pr_agent", model="claude-sonnet-5"
+            )
+        assert env["AI_GATEWAY_PRODUCT"] == "onboarding"
+        mint.assert_called_once_with(ai_product="onboarding", team_id=2, user=None)
 
     def test_non_internal_review_hog_does_not_mint(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
@@ -642,10 +718,68 @@ class TestProvisioningBoundaries:
         ctx.task_runtime = "acp"
         return ctx
 
-    def _task(self):
+    def _task(self, profile=None):
         task = MagicMock()
         task.internal = True
+        task.stored_profile = profile
         return task
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "runtime,failure,expected_error",
+        [
+            ("acp", None, GatewayNotConfiguredError),
+            ("acp", RuntimeError("mint unavailable"), GatewayNotConfiguredError),
+            ("pi", None, GatewayTokenUnavailableError),
+            ("pi", RuntimeError("mint unavailable"), ProcessTaskTransientError),
+        ],
+    )
+    def test_trial_provisioning_retry_does_not_invent_missing_usage(
+        self,
+        mint_settings: Settings,
+        test_task_run: TaskRun,
+        failure: RuntimeError | None,
+        runtime: str,
+        expected_error: type[Exception],
+    ) -> None:
+        task = test_task_run.task
+        task.origin_product = "signals_scout" if runtime == "pi" else "signal_report"
+        task.runtime = runtime
+        task.internal = True
+        task.signal_report = SignalReport.objects.create(team=task.team, triggering_signal_id=uuid4())
+        task.save()
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+            assert task.created_by_id is not None
+            grant_id = claim_trial(team=task.team, user_id=task.created_by_id)
+            model = "deepseek-ai/deepseek-v4.1-flash-1017-fast" if runtime == "pi" else "claude-sonnet-5"
+            run = task.create_run(extra_state={"ai_stage": "scout" if runtime == "pi" else "research", "model": model})
+            if runtime == "pi":
+                scout_run = SignalScoutRun.objects.for_team(task.team_id).create(
+                    team=task.team, task_run=run, skill_name="signals-scout-first-report", skill_version=1
+                )
+                record_task_spend(
+                    team_id=task.team_id, run_id=str(run.id), stage="scout", scout_run_id=str(scout_run.id)
+                )
+            ctx = self._ctx()
+            ctx.task_runtime, ctx.model = runtime, model
+            ctx.run_id, ctx.team_id, ctx.origin_product, ctx.state = (
+                str(run.id),
+                run.team_id,
+                task.origin_product,
+                run.state,
+            )
+            with patch.object(utils, "mint_scoped_token", side_effect=[failure, "synthetic-token"]):
+                with pytest.raises(expected_error):
+                    utils.run_gateway_env_vars(ctx, task)
+                env = utils.run_gateway_env_vars(ctx, task)
+                assert env["AI_GATEWAY_TOKEN"] == "synthetic-token"
+                assert env["AI_GATEWAY_PRODUCT"] == ("signals_scout" if runtime == "pi" else "signals_research")
+        run.refresh_from_db()
+        assert not run.state.get("token_cost_incomplete")
+        assert trial_incomplete_sources(team=task.team, grant_id=grant_id) == 0
+        spend = SignalSpend.objects.for_team(task.team_id).get(task_run_id=run.id)
+        assert spend.trial_grant_id == grant_id
+        assert spend.billing_exempt
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -684,14 +818,18 @@ class TestProvisioningBoundaries:
             None if incomplete else 0
         )
 
-    def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings):
+    @pytest.mark.parametrize(
+        "profile,profile_billing_product",
+        [(None, None), (get_task_profile("business_knowledge"), "background_agents")],
+    )
+    def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings, profile, profile_billing_product):
         from products.tasks.backend.temporal.process_task import utils
 
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
             patch.object(utils, "record_gateway_routing"),
         ):
-            out = utils.run_gateway_env_vars(self._ctx(), self._task())
+            out = utils.run_gateway_env_vars(self._ctx(), self._task(profile))
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
             team_id=7,
@@ -703,6 +841,8 @@ class TestProvisioningBoundaries:
             model="claude-sonnet-5",
             runtime="acp",
             prior_slack_run=False,
+            profile_billing_product=profile_billing_product,
+            run_id=str(self._ctx().run_id),
         )
 
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
@@ -787,12 +927,32 @@ class TestProvisioningBoundaries:
             assert post.call_args.kwargs["json"]["capture_mode"] == "none"
             assert post.call_args.kwargs["json"]["obo"] == str(ctx.team_id)
             assert post.call_args.kwargs["json"]["user"] == ctx.distinct_id
+            assert post.call_args.kwargs["json"]["run"] == ctx.run_id
             record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
         else:
             assert out == {}
             ordinary_route.assert_called_once()
             post.assert_not_called()
             record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
+
+    @pytest.mark.parametrize(
+        "claude_access,codex_access,runtime,origin",
+        [
+            ("own-subscription", "posthog-gateway", "acp", "signals_scout"),
+            ("posthog-gateway", "own-subscription", "acp", "signals_scout"),
+            ("posthog-gateway", "posthog-gateway", "pi", "signal_report"),
+        ],
+    )
+    def test_trial_execution_refusal_is_expected(
+        self, claude_access: str, codex_access: str, runtime: str, origin: str
+    ) -> None:
+        ctx = self._ctx()
+        ctx.origin_product = origin
+        ctx.state = {"self_driving_funding": {"funding": "trial"}}
+        ctx.claude_model_access, ctx.codex_model_access, ctx.task_runtime = claude_access, codex_access, runtime
+        with pytest.raises(TrialExecutionRefused, match="PostHog AI gateway") as error:
+            utils.run_gateway_env_vars(ctx, self._task())
+        assert is_expected_activity_failure(error.value)
 
     @pytest.mark.parametrize(
         ("private_capture", "claude_model_access", "codex_model_access", "runtime"),
@@ -855,23 +1015,6 @@ class TestProvisioningBoundaries:
             patch.object(utils, "get_sandbox_api_url", return_value="url"),
         ):
             out = utils.build_sandbox_environment_variables(github_token="", access_token="tok", ctx=ctx, task=task)
-        env.assert_called_once_with(ctx, task)
-        assert out["AI_GATEWAY_TOKEN"] == "phe"
-
-    def test_repository_builder_uses_the_shared_derivation(self, mint_settings):
-        import importlib
-
-        mod = importlib.import_module(
-            "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
-        )
-
-        ctx, task = self._ctx(), self._task()
-        with (
-            patch.object(mod, "run_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
-            patch.object(mod, "get_sandbox_jwt_public_key", return_value="jwt"),
-            patch.object(mod, "get_sandbox_api_url", return_value="url"),
-        ):
-            out = mod._build_environment_variables(ctx, task, "", "tok")
         env.assert_called_once_with(ctx, task)
         assert out["AI_GATEWAY_TOKEN"] == "phe"
 
@@ -1053,14 +1196,16 @@ class TestUserPinAndCapOverride:
     def test_mint_pins_the_acting_user(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
-            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1")
+            mint_scoped_token(ai_product="signals_scout", team_id=123, user="user-distinct-1", run_id="run-1")
         assert post.call_args.kwargs["json"]["user"] == "user-distinct-1"
+        assert post.call_args.kwargs["json"]["run"] == "run-1"
 
     def test_mint_omits_user_when_unknown(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response({"token": "phe_abc"})
             mint_scoped_token(ai_product="signals_scout", team_id=123)
         assert "user" not in post.call_args.kwargs["json"]
+        assert "run" not in post.call_args.kwargs["json"]
 
     def test_cap_override_applies_per_team(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES = '{"2": "10"}'
@@ -1315,19 +1460,35 @@ class TestSlackAppMint:
 
         organization = Organization.objects.create(name="Quota Org")
         team = Team.objects.create(organization=organization, name="Quota Team")
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True) as quota:
+        ai_credits_limited = {QuotaResource.AI_CREDITS: True, QuotaResource.POSTHOG_CODE_CREDITS: False}
+        with patch(
+            "ee.billing.quota_limiting.get_fresh_team_limited_resources", return_value=ai_credits_limited
+        ) as quota:
             assert _team_credit_refusal(team.id, "ai_credits") == "ai_credits_exhausted"
             assert _team_credit_refusal(team.id + 10_000, "ai_credits") is None
-        quota.assert_called_once_with(team.api_token, QuotaResource.AI_CREDITS)
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=False) as quota:
             assert _team_credit_refusal(team.id, "posthog_code_credits") is None
-        quota.assert_called_once_with(team.api_token, QuotaResource.POSTHOG_CODE_CREDITS)
+        assert [lookup.args for lookup in quota.call_args_list] == [(team.api_token,), (team.api_token,)]
+
+    @pytest.mark.django_db
+    def test_quota_check_ignores_a_stale_cached_limit(self):
+        from ee.billing.quota_limiting import QuotaResource
+
+        organization = Organization.objects.create(name="Just Paid Org")
+        team = Team.objects.create(organization=organization, name="Just Paid Team")
+        with (
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=True),
+            patch(
+                "ee.billing.quota_limiting.get_fresh_team_limited_resources",
+                return_value={QuotaResource.AI_CREDITS: False},
+            ),
+        ):
+            assert _team_credit_refusal(team.id, "ai_credits") is None
 
     @pytest.mark.django_db
     def test_deactivated_org_refuses_before_the_bucket_is_read(self):
         organization = Organization.objects.create(name="Gone Org", is_active=False)
         team = Team.objects.create(organization=organization, name="Gone Team")
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget") as quota:
+        with patch("ee.billing.quota_limiting.get_fresh_team_limited_resources") as quota:
             assert _team_credit_refusal(team.id, "ai_credits") == "org_deactivated"
         quota.assert_not_called()
 
@@ -1429,18 +1590,39 @@ class TestMintRefusalScope:
             == expected
         )
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog", "onboarding", "conversations"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
-        refusal = mint_refusal(product, team_id=2, state=None, model="claude-opus-3", runtime="acp")
+        refusal = mint_refusal(
+            product,
+            team_id=2,
+            state=None,
+            model="claude-opus-3",
+            runtime="acp",
+            internal=True,
+            origin_product="support_reply",
+        )
         assert refusal == "model_outside_pin"
 
     def test_unpinned_products_take_any_model(self):
         assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
 
-    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
+    @pytest.mark.parametrize(
+        "product", ["review_hog", "signals_scout", "signals_implementation", "onboarding", "conversations"]
+    )
     def test_products_billed_elsewhere_skip_the_credit_check(self, product):
         with patch(_CREDIT_LOOKUP, return_value="ai_credits_exhausted") as quota:
-            assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
+            assert (
+                mint_refusal(
+                    product,
+                    team_id=2,
+                    state=None,
+                    model=None,
+                    runtime="acp",
+                    internal=True,
+                    origin_product="support_reply",
+                )
+                is None
+            )
         quota.assert_not_called()
 
 
@@ -1587,15 +1769,13 @@ class TestPosthogAiMint:
     [
         ("account_audit", True, True),
         ("account_audit", False, False),
-        ("onboarding", False, False),
-        ("onboarding", True, False),
     ],
 )
 def test_account_audit_cost_routing_requires_server_provenance(
     settings: Settings, origin: str, internal: bool, mints: bool
 ) -> None:
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
-    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit,onboarding"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit"
     # A non-internal account_audit origin resolves to posthog_code, which is unrouted here.
     resolves_to_posthog_code = origin == "account_audit" and not internal
     with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
@@ -1611,6 +1791,21 @@ def test_account_audit_cost_routing_requires_server_provenance(
     assert mint.called is mints
     if mints:
         mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
+
+
+@pytest.mark.parametrize("internal", [True, False])
+def test_support_reply_mint_requires_server_provenance(settings: Settings, internal: bool) -> None:
+    settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "conversations"
+    with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
+        env = ai_gateway_env_vars(
+            team_id=123, origin_product="support_reply", internal=internal, model=None, runtime="acp"
+        )
+    assert ("AI_GATEWAY_TOKEN" in env) is internal
+    if internal:
+        mint.assert_called_once_with(ai_product="conversations", team_id=123, user=None)
+    else:
+        mint.assert_not_called()
 
 
 class TestPosthogCodeSandboxMint:
@@ -1639,7 +1834,7 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
         assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
-        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini"} <= set(pin)
 
     def test_pin_carries_the_go_spelling_of_every_cf_id(self):
         pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])
@@ -1829,6 +2024,25 @@ class TestPosthogCodeSandboxMint:
         )
 
     @pytest.mark.django_db
+    def test_retry_after_credit_top_up_rechecks_credit_availability(self, mint_settings):
+        team = self._team(paid=True)
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        with (
+            patch(_CREDIT_LOOKUP, side_effect=["posthog_code_credits_exhausted", None]) as credit,
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="synthetic-token"
+            ) as mint,
+        ):
+            with pytest.raises(GatewayTokenUnavailableError) as refused:
+                ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="claude-opus-5")
+            assert refused.value.non_retryable is True
+            mint.assert_not_called()
+            env = ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="claude-opus-5")
+            assert env["AI_GATEWAY_TOKEN"] == "synthetic-token"
+            assert credit.call_count == 2
+            mint.assert_called_once()
+
+    @pytest.mark.django_db
     @pytest.mark.parametrize("setting", ["SANDBOX_AI_GATEWAY_URL", "SANDBOX_AI_GATEWAY_MINT_KEY"])
     def test_a_posthog_code_run_with_the_gateway_unconfigured_fails_and_logs(self, mint_settings, setting):
         team = self._team(paid=True)
@@ -1849,7 +2063,7 @@ class TestPosthogCodeSandboxMint:
         ctx = MagicMock(
             claude_model_access="gateway", codex_model_access="gateway", state={}, team_id=2, run_id="run-1"
         )
-        task = MagicMock(is_scout_experiment=False, internal=False)
+        task = MagicMock(is_scout_experiment=False, internal=False, stored_profile=None)
         with (
             patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("boom")),
             patch.object(utils, "record_gateway_routing"),

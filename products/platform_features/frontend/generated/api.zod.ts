@@ -9,32 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
- */
-export const internalFeedbackCreateBodyCommentMax = 4000
-
-export const internalFeedbackCreateBodyPageUrlMax = 2000
-
-export const internalFeedbackCreateBodyElementIdentifierMax = 1000
-
-export const InternalFeedbackCreateBody = /* @__PURE__ */ zod.object({
-    comment: zod
-        .string()
-        .max(internalFeedbackCreateBodyCommentMax)
-        .describe('What the person wants to tell the developers.'),
-    page_url: zod.url().max(internalFeedbackCreateBodyPageUrlMax).describe('URL of the page the feedback is about.'),
-    element_identifier: zod
-        .string()
-        .max(internalFeedbackCreateBodyElementIdentifierMax)
-        .optional()
-        .describe('CSS selector of the element the person selected. Empty for feedback about the whole page.'),
-    screenshot: zod
-        .instanceof(File)
-        .optional()
-        .describe('JPEG screenshot of the page, with the selected element outlined when there is one.'),
-})
-
 export const createBodyNameMax = 64
 
 export const createBodyMemberNoticeOneMessageMax = 1000
@@ -42,6 +16,10 @@ export const createBodyMemberNoticeOneMessageMax = 1000
 export const createBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const createBodyIpRestrictionsItemMax = 64
+
+export const createBodyIpRestrictionsMax = 100
 
 export const CreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(createBodyNameMax),
@@ -117,6 +95,15 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(createBodyIpRestrictionsItemMax))
+        .max(createBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const updateBodyNameMax = 64
@@ -126,6 +113,10 @@ export const updateBodyMemberNoticeOneMessageMax = 1000
 export const updateBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const updateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const updateBodyIpRestrictionsItemMax = 64
+
+export const updateBodyIpRestrictionsMax = 100
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(updateBodyNameMax),
@@ -201,6 +192,15 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(updateBodyIpRestrictionsItemMax))
+        .max(updateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const partialUpdateBodyNameMax = 64
@@ -210,6 +210,10 @@ export const partialUpdateBodyMemberNoticeOneMessageMax = 1000
 export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const partialUpdateBodyIpRestrictionsItemMax = 64
+
+export const partialUpdateBodyIpRestrictionsMax = 100
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
@@ -285,6 +289,15 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(partialUpdateBodyIpRestrictionsItemMax))
+        .max(partialUpdateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
@@ -585,7 +598,7 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
  */
 export const commentsSendToSlackCreateBodyChannelIdMax = 255
 

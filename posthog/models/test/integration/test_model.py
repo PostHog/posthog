@@ -11,10 +11,15 @@ from unittest.mock import patch
 
 from django.db import connection
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.integrations import IntegrationManager
+from posthog.integrations.backend.django_backend import _reported_over_encrypted
+from posthog.integrations.contracts import FrozenIntegrationRecord
+from posthog.integrations.secret_reads import integration_secret_decrypt_counter
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration, SlackIntegration, UndecryptedIntegrationSecretError
 
@@ -73,28 +78,60 @@ class TestIntegrationModel(BaseTest):
                     == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
                 )
 
-    @parameterized.expand([("access_token",), ("refresh_token",)])
-    def test_oauth_token_property_raises_if_still_encrypted(self, field_name: str) -> None:
+    @parameterized.expand(
+        [
+            ("model_access_token", "model", "access_token"),
+            ("model_refresh_token", "model", "refresh_token"),
+            ("frozen_access_token", "frozen", "access_token"),
+            ("frozen_refresh_token", "frozen", "refresh_token"),
+        ]
+    )
+    def test_oauth_token_property_raises_if_still_encrypted(
+        self, _name: str, record_type: str, field_name: str
+    ) -> None:
         # `sensitive_config` uses `ignore_decrypt_errors=True`, so a value that fails to decrypt
         # under every configured key comes back as raw Fernet ciphertext instead of raising. If the
         # `access_token`/`refresh_token` properties didn't check for that, this ciphertext would
         # get sent straight to the third-party API as the live credential.
-        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "gAAAAABleftover=="})
+        sensitive_config = {field_name: "gAAAAABleftover=="}
+        record: object = Integration(team=self.team, kind="stripe", sensitive_config=sensitive_config)
+        if record_type == "frozen":
+            record = FrozenIntegrationRecord(
+                id=1,
+                reference="1",
+                team_id=self.team.id,
+                kind="stripe",
+                integration_id=None,
+                config={},
+                sensitive_config=sensitive_config,
+                errors="",
+                created_at=timezone.now(),
+                created_by_id=None,
+                auth_type="oauth",
+                display_name="",
+            )
         with pytest.raises(UndecryptedIntegrationSecretError):
-            getattr(integration, field_name)
+            getattr(record, field_name)
 
     @parameterized.expand([("access_token",), ("refresh_token",)])
     def test_oauth_token_property_passes_through_decrypted_value(self, field_name: str) -> None:
         integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "a-real-token"})
         assert getattr(integration, field_name) == "a-real-token"
 
-    @parameterized.expand([("access_token",), ("refresh_token",)])
-    def test_oauth_token_property_recovers_an_over_encrypted_value(self, field_name: str) -> None:
+    @parameterized.expand(
+        [
+            ("refresh_from_db_access_token", "refresh_from_db", "access_token"),
+            ("refresh_from_db_refresh_token", "refresh_from_db", "refresh_token"),
+            ("sdk_access_token", "sdk", "access_token"),
+            ("sdk_refresh_token", "sdk", "refresh_token"),
+        ]
+    )
+    def test_load_recovers_an_over_encrypted_value(self, _name: str, load: str, field_name: str) -> None:
         # Saving an integration whose secret failed to decrypt re-encrypts the ciphertext, so the
         # stored value ends up with an extra layer and one decrypt still leaves ciphertext behind.
         # The secret is intact underneath, so the connection must keep working.
         integration = self.create_integration("stripe", sensitive_config={field_name: "a-real-token"})
-        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
         stored = json.loads(get_db_field_value("sensitive_config", integration.id))
         update_db_field_value(
             "sensitive_config",
@@ -102,9 +139,53 @@ class TestIntegrationModel(BaseTest):
             json.dumps({**stored, field_name: field.encrypt(stored[field_name])}),
         )
 
-        integration.refresh_from_db()
+        if load == "sdk":
+            record = IntegrationManager.stripe.oauth.get(self.team.id, integration.id)
+        else:
+            integration.refresh_from_db()
+            record = integration
 
-        assert getattr(integration, field_name) == "a-real-token"
+        assert getattr(record, field_name) == "a-real-token"
+        assert record.sensitive_config[field_name] == "a-real-token"
+
+    def test_over_encrypted_row_is_reported_once_and_clean_row_does_no_decrypt(self) -> None:
+        _reported_over_encrypted.clear()
+        integration = self.create_integration("stripe", sensitive_config={"access_token": "a-real-token"})
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
+        stored = json.loads(get_db_field_value("sensitive_config", integration.id))
+        update_db_field_value(
+            "sensitive_config",
+            integration.id,
+            json.dumps({**stored, "access_token": field.encrypt(stored["access_token"])}),
+        )
+        counter = integration_secret_decrypt_counter.labels(kind="stripe", result="recovered")
+        before = counter._value.get()
+
+        with patch("posthog.integrations.backend.django_backend.logger") as mock_logger:
+            for _ in range(3):
+                loaded = Integration.objects.get(pk=integration.id)
+                assert loaded.access_token == "a-real-token"
+
+        assert counter._value.get() - before == 1
+        assert mock_logger.warning.call_count == 1
+
+        update_db_field_value("sensitive_config", integration.id, json.dumps(stored))
+        with patch.object(EncryptedJSONField, "decrypt_all_layers") as decrypt_all_layers:
+            Integration.objects.get(pk=integration.id)
+        decrypt_all_layers.assert_not_called()
+
+    def test_unreadable_value_is_not_reported_as_recovered_and_is_refused(self) -> None:
+        _reported_over_encrypted.clear()
+        integration = self.create_integration("stripe", sensitive_config={"access_token": "a-real-token"})
+        update_db_field_value("sensitive_config", integration.id, json.dumps({"access_token": "gAAAAABleftover=="}))
+        counter = integration_secret_decrypt_counter.labels(kind="stripe", result="recovered")
+        before = counter._value.get()
+
+        loaded = Integration.objects.get(pk=integration.id)
+
+        assert counter._value.get() == before
+        with pytest.raises(UndecryptedIntegrationSecretError):
+            _ = loaded.access_token
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)

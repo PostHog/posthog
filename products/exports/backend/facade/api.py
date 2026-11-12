@@ -24,7 +24,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
@@ -33,6 +33,7 @@ from products.exports.backend.models.exported_asset import (
     save_content_from_file as _save_content_from_file,
 )
 from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERROR_NAMES,
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
 )
@@ -56,6 +57,8 @@ def create_export_asset_async(
     created_by: User,
     export_format: str,
     export_context: dict[str, object],
+    expires_after: datetime | None = None,
+    is_system: bool = False,
 ) -> ExportedAsset:
     if export_format not in ExportedAsset.get_supported_format_values():
         raise ValueError(f"Unsupported export format: {export_format}")
@@ -65,6 +68,9 @@ def create_export_asset_async(
         created_by=created_by,
         export_format=export_format,
         export_context=export_context,
+        is_system=is_system,
+        # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=ExportedAsset.round_up_expiry(expires_after) if expires_after is not None else None,
     )
 
     async def _start() -> None:
@@ -97,6 +103,16 @@ def create_export_asset_async(
 
 def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
     return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+
+
+def is_export_failure_final(*, exception_type: str | None, failure_type: str | None) -> bool:
+    """Whether a recorded export failure is final, rather than one the export workflow retries."""
+    # Every failure the workflow records carries a failure type, so one without it comes from a workflow that never
+    # started, and nothing will retry it.
+    if failure_type is None:
+        return True
+    # Mirrors the non-retryable error types of EXPORT_RETRY_POLICY.
+    return exception_type in USER_QUERY_ERROR_NAMES
 
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
@@ -272,9 +288,9 @@ def _create_png_export_asset(
             raise ValueError("Insight not found")
         insight_id = insight.id
     if dashboard_id is not None:
-        dashboard = Dashboard.objects.filter(team_id=team.id, id=dashboard_id, deleted=False).first()
-        if dashboard is None or not UserAccessControl(user=created_by, team=team).check_access_level_for_object(
-            dashboard, "viewer"
+        dashboard = dashboards_api.get_dashboard(team_id=team.id, dashboard_id=dashboard_id)
+        if dashboard is None or not dashboards_api.can_access_dashboard(
+            dashboard, user_access_control=UserAccessControl(user=created_by, team=team)
         ):
             raise ValueError("Dashboard not found")
     if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:

@@ -2,11 +2,13 @@ from typing import cast
 from urllib.parse import parse_qs, urlencode
 
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 from django.utils.crypto import get_random_string
 
 import requests
 import structlog
+from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 
 from posthog.api.github_callback import state
 from posthog.api.github_callback.install_requests import record_install_request
@@ -21,8 +23,10 @@ from posthog.api.github_callback.types import (
 )
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
-from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
+from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration
 from posthog.models.user_integration import (
     UserIntegration,
     refresh_user_github_installation_access,
@@ -53,8 +57,33 @@ def finish_personal(request: HttpRequest) -> FinishResult:
         return _error("missing_params")
 
     token = _github_state_token(state_raw)
-    authorize_state = state.consume_authorize_state(token, user_id=user.id)
+    authorize_state = state.load_authorize_state(token, user_id=user.id)
     if authorize_state is None:
+        return _error("invalid_state")
+
+    if authorize_state.flow.creates_team_integration:
+        team_id = authorize_state.team_id
+        if team_id is None:
+            return _error("invalid_state")
+        team = user.teams.select_related("organization").filter(id=team_id).first()
+        if team is None:
+            return _error("insufficient_permissions")
+        existing_integration = IntegrationManager.github.oauth.find(
+            team.id, external_id=str(authorize_state.installation_id)
+        )
+        has_required_access = (
+            state.has_team_management_access(user, team)
+            if existing_integration is not None
+            else state.has_team_membership_access(user, team)
+        )
+        if not has_required_access:
+            return _error("insufficient_permissions")
+        try:
+            enforce_ip_restrictions(request, user, organization_id=str(team.organization_id))
+        except DRFPermissionDenied as error:
+            raise PermissionDenied(str(error.detail)) from error
+
+    if state.consume_authorize_state(token, user_id=user.id) is None:
         return _error("invalid_state")
 
     connect_from_value = authorize_state.connect_from
@@ -96,9 +125,9 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             installation_id = authorize_state.installation_id
             if not installation_id:
                 return _error("missing_params")
-            if not Integration.objects.filter(
-                kind="github", integration_id=installation_id, team__in=user.teams.all()
-            ).exists():
+            if not IntegrationManager.github.oauth.exists(
+                team_ids=user.teams.values_list("id", flat=True), external_id=str(installation_id)
+            ):
                 return _error("invalid_installation")
             installation_ids = [installation_id]
         case FlowKind.TEAM_OAUTH:
@@ -107,9 +136,6 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 return _error("missing_params")
             if authorize_state.team_id is None:
                 return _error("invalid_state")
-            # `user.teams` membership is no longer re-checked here — losing access between
-            # OAuth-trigger and OAuth-return is a rare timing edge case. If it happens,
-            # `integration_from_installation_id` below will raise rather than emit a typed code.
             installation_ids = [installation_id]
         case FlowKind.OAUTH_DISCOVER:
             pass
@@ -211,7 +237,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])
         try:
-            team_integration = GitHubIntegration.integration_from_installation_id(
+            team_integration: IntegrationRecord = GitHubIntegration.integration_from_installation_id(
                 installation_id, authorize_state.team_id, user
             )
         except (GitHubInstallationAccessFetchError, requests.RequestException):
@@ -223,8 +249,11 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             )
             return _error("integration_create_failed")
 
-        team_integration.config["connecting_user_github_login"] = authorization.gh_login
-        team_integration.save(update_fields=["config"])
+        team_integration = IntegrationManager.github.oauth.update(
+            team_integration.team_id,
+            team_integration.id,
+            config_patch={"connecting_user_github_login": authorization.gh_login},
+        )
 
         return FinishResult(
             redirect_kind="team_oauth_success",

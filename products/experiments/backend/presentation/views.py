@@ -31,13 +31,9 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.api.utils import action
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-)
+from posthog.api.utils import MAX_LISTED_IDS, action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -78,7 +74,7 @@ from products.access_control.backend.facade.user_access_control import (
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import (
     get_experiment_health,
@@ -140,6 +136,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionEventDeltaResponseSerializer,
     ExperimentSetupContextInputSerializer,
     ExperimentSetupContextResponseSerializer,
+    ExperimentTimeseriesResultsSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -151,6 +148,7 @@ from products.experiments.backend.presentation.serializers import (
 from products.experiments.backend.recalculation import (
     build_job_payload,
     build_timeseries_cold_start_payload,
+    exceeds_recalculation_age_limit,
     get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
@@ -185,6 +183,8 @@ from products.experiments.backend.setup_context import (
     SetupContextInputs,
     build_setup_context,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
@@ -339,6 +339,13 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         type=int,
         description="Filter to experiments linked to the given feature flag ID.",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="feature_flag_ids",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=f"Comma-separated feature flag IDs, at most {MAX_LISTED_IDS}. Returns experiments linked to any of them.",
         required=False,
     ),
     OpenApiParameter(
@@ -536,6 +543,17 @@ class EnterpriseExperimentsViewSet(
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
+        # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
+        if isinstance(exc, ConfigFormatError | ExperimentRuleError):
+            capture_exception(exc)
+            exc = ValidationError(
+                "This is not supported yet for an experiment on a feature flag that has rules.",
+                code="feature_flag_rules_not_supported",
+            )
+        return super().handle_exception(exc)
+
     def _check_scout_update(self, request: Request) -> None:
         # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
         if is_true(request.data.get("deleted", False)):
@@ -695,14 +713,8 @@ class EnterpriseExperimentsViewSet(
         only experiment:write. Session and other non-token auth aren't scope-limited (gated by
         access control instead), mirroring APIScopePermission.
         """
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scopes = authenticator.personal_api_key.scopes or []
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scopes = (authenticator.access_token.scope or "").split()
-        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
-            scopes = list(authenticator.scopes or [])
-        else:
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        if scopes is None:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
 
@@ -960,38 +972,103 @@ class EnterpriseExperimentsViewSet(
         each check, so a check that found no problem can be told from one that did not apply or could
         not read an input.
 
-        The checks here read the experiment, its flag, its linked metrics, and the changes of the
-        flag's variant split since launch. The checks that read exposure counts come with the
+        The checks here read the experiment, its flag, its linked metrics, the project's event and
+        property definitions, the cohorts of the exposure criteria, and the changes of the flag's
+        variant split since launch. The checks that read exposure counts come with the
         exposure query. The split-change check compares the split changes with the exposures only
         for exposure criteria that name an event without property filters. When the split changed
         after launch and the criteria have filters or an action, or an API key lacks `query:read`,
         it returns an info finding with the subcode `not_checked` and the cause in
-        `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+        `reason`. A caller who can't view the linked flag's history (viewer access to the
         flag and, with an API key, `activity_log:read`) gets that finding for every running
-        experiment, because the changes are not read.
+        experiment, because the changes are not read. A split-change finding that tells the reader to
+        move the start date offers `move_start_date`, and `evidence.suggested_start_date` holds that
+        date in UTC: set the experiment's `start_date` to it. When one variant was set to 100% of the
+        split, the finding offers `end_experiment` instead.
 
         Two checks read whether the project received an event from its event definitions: a
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
         not received. A name whose definition was deleted since launch, or in the last day for a
         draft, is not checked, because ingestion writes the definition again only when the event
-        arrives. `metric_event_not_ingested` names each metric that
+        arrives. No missing definition is checked when ingestion saw none of the experiment's events
+        in the last day, because ingestion can be set to skip a team. `metric_event_not_ingested`
+        names each metric that
         reads an event the project never received, in the `evidence` keys `metric_N`,
         `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
-        exposure event the project never received (`exposure_event_not_ingested`), and a
+        exposure event the project never received (`exposure_event_not_ingested`), a
         `$feature_flag` filter on the flag call events that requires another flag
-        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
-        hours after launch, and when only secondary metrics read it, and a warning otherwise.
-        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
+        (`filter_on_another_flag`), and a filter on an event or person property that the project has
+        no definition of, with an operator that a missing property fails
+        (`filter_on_property_not_ingested`, the keys in `evidence.properties`). A property whose
+        definition was ever deleted is not checked, and neither is an event property filter on an
+        action or on `$groupidentify`, whose properties ingestion keeps no definitions of. An event
+        or property not received is info before launch, in the first 24 hours after launch, and when
+        only secondary metrics read it, and a warning otherwise. `filter_on_another_flag` is a
+        warning in every state, `filter_on_property_not_ingested` also reports after the end, and
+        the other findings stop at the end.
+
+        `exposure_filters` reads the cohort filters of the exposure criteria and of the activation,
+        not the test account filters. `exposure_filter_on_dynamic_cohort` is a warning in every
+        state: the results use the members of a dynamic cohort at the calculation, not at exposure.
+        Its subcode is `cohort_forces_variant` when a release condition of the flag that matches the
+        cohort's members gives one variant, `cohort_in_release_conditions` when the release
+        conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts. Both
+        subcodes need the exposure criteria to keep the members too, not to leave them out.
 
         `metric_cannot_compile` builds and compiles the query of each metric without running it, as
         the caller, so a metric that every calculation fails on shows before launch. A metric that
         reads a warehouse table or view the caller may not query is not checked for them. The finding
         names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
         (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
-        compiler's message). It is a warning when a primary metric fails before the end, and info
-        otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
-        failing metric compiles again on every request. A metric that compiles is cached per caller
-        for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+        compiler's message). It is a warning when a primary metric fails, also after the end, because
+        the calculation after the fix reads the events up to the end. It is info otherwise. A failure
+        inside ClickHouse, such as a type that the data holds, isn't found. A failing metric compiles
+        again on every request. A metric that compiles is cached per caller for a day, so a cohort or
+        table that is deleted after a compile can take up to a day to show.
+
+        `metric_calculation_failed` reports each metric whose latest calculation failed, from the
+        latest finished calculation that the results page shows. It leaves out a metric that
+        `metric_cannot_compile` reports. The subcode is the kind of the first failure: `busy`,
+        `query_limit` (the query reached the read, memory, time or length limit), `settings` (a setting of
+        the metric or the experiment), `not_enough_data`, `experiment_too_old` (the experiment
+        started too long ago to calculate again) or `unexpected_error`. Each metric is in the
+        `evidence` keys `metric_N`, `metric_N_role`, `metric_N_failure` (the kind), `metric_N_error`
+        (the limit, or the family of a setting) and `metric_N_message` (only a message that PostHog
+        wrote for users), and `calculated_at` is when the calculation finished. It is a
+        warning when a primary metric fails for a kind that a change fixes (`query_limit`,
+        `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
+        reads the events up to the end. It is info otherwise. When the first failure reached the
+        read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
+        when another metric of the same calculation completed the same read of the exposures, or
+        `exposure_criteria` when every metric reached a limit and an exposure or test account filter
+        makes each query read all the properties of an event, person or group. `evidence.properties`
+        then names the filters. A query that read precomputed exposures doesn't apply those filters,
+        so it can't get `exposure_criteria`. It is null otherwise.
+
+        `metric_all_zero` reports a metric that reads zero in every variant, from the same latest
+        finished calculation, so the results page shows "Not enough data yet" at any sample size.
+        Each side of a ratio that is zero in every variant counts on its own. It reads the stored
+        result and the project's event definitions, and no events. A primary metric needs 1,000
+        exposures in the result and 72 hours of data, because most zeros before that are outcomes
+        that take time. A retention metric counts those hours from the start of its retention
+        window. The subcode is the cause of the first metric: `blank_event` (an event with an empty
+        name), `event_stopped` (the project last received the event before launch, while ingestion
+        still records the project), `outlier_bound` (an upper outlier bound that is 0 while some
+        exposures have a value) or null when none shows a cause. `blank_event` and `outlier_bound`
+        also report a secondary metric, and need only 100 exposures and 12 hours of data, because
+        they read 0 at any traffic. A bound on the largest value of the exposures can't be 0 while
+        one has a value, so it is no cause. Neither is a bound on a metric with breakdowns, which
+        gets one bound per breakdown group. Until the end, the check leaves out a metric that uses an
+        event `metric_event_not_ingested` reports. Each metric, or side of a ratio, is in the
+        `evidence` keys `metric_N`, `metric_N_role`, `metric_N_side`, `metric_N_exposures` and
+        `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
+        for a cause that a setting fixes, because the calculation after the fix reads the events up
+        to the end. It is info otherwise.
+
+        A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+        after its start date, when the daily calculation leaves it out, with `days_running` from the
+        start date in `evidence`.
+        It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
@@ -999,7 +1076,7 @@ class EnterpriseExperimentsViewSet(
         the flag's calls that name the matched condition, not the experiment's exposure criteria:
         info up to 5%, warning above, and no finding under 1% when at least half of the calls
         that returned a variant name a condition. The finding is info when the share is unknown,
-        and `evidence.reason` says why: `not_measured` (for example an API key without
+        and `reason` says why: `not_measured` (for example an API key without
         `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
         `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
         the caller's own assignment). A pin to a variant with 0% in the split adds an info,
@@ -1011,7 +1088,10 @@ class EnterpriseExperimentsViewSet(
         `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
         flag version that are no local evaluation, from an hour after the window starts. When
         every condition that includes users pins the variant whose key one property holds,
-        `assigned_by_property` replaces `all_conditions_pinned`.
+        `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
+        everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
+        as a warning. A condition without filters, or with only filters that leave users out,
+        includes everyone.
 
         A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
         is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
@@ -1023,10 +1103,14 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
-        An ended experiment whose flag is still active with multiple variants gets
-        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
-        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
-        an extra hour, because `last_called_at` trails a call.
+        An ended experiment whose flag is still active with multiple variants gets no finding when
+        another experiment on the flag is running or launched after the end. Otherwise it gets
+        `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+        `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+        after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+        not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+        then without such a call, or when the organization's flag calls can't be read, it gets
+        `ended_flag_calls_unknown` as info.
 
         A running experiment whose first primary metric is a funnel gets the info
         `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -1034,6 +1118,10 @@ class EnterpriseExperimentsViewSet(
         sample is below the one the running time estimate plans for the minimum detectable
         effect. It reads the metric's current stored result, the one the results page shows
         after its last calculation, and the running time calculator's formula.
+
+        A running experiment with `only_count_matured_users` on gets the info
+        `metrics_not_matured` while it is younger than the conversion or retention window of
+        every primary metric, because no user can count for those metrics until a window passes.
         """
         experiment: Experiment = self.get_object()
         health = get_experiment_health(
@@ -1509,41 +1597,43 @@ class EnterpriseExperimentsViewSet(
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
-                    "each metric in the experiment's metrics array."
+                    "Ignored. The server derives the metric's calculation key from the experiment's current "
+                    "settings. Accepted so that existing clients keep working."
                 ),
-                required=True,
+                required=False,
+                deprecated=True,
             ),
         ],
+        responses={200: ExperimentTimeseriesResultsSerializer},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         metric_uuid = request.query_params.get("metric_uuid")
-        fingerprint = request.query_params.get("fingerprint")
 
         if not metric_uuid:
             raise ValidationError("metric_uuid query parameter is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid, fingerprint=fingerprint))
+        return Response(
+            ExperimentTimeseriesResultsSerializer(
+                service.get_timeseries_results(experiment, metric_uuid=metric_uuid)
+            ).data
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
 
+        # Only the metric's uuid is read, and a `fingerprint` in the body is ignored: the service derives the
+        # definition and the key from the experiment.
         metric = request.data.get("metric")
-        fingerprint = request.data.get("fingerprint")
 
-        if not metric:
+        if not isinstance(metric, dict) or not metric:
             raise ValidationError("metric is required")
-        if not fingerprint:
-            raise ValidationError("fingerprint is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
+        result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:
@@ -1645,7 +1735,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1653,10 +1743,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            return Response(_serialize_latest(fallback, active_run))
+            return Response(_serialize_latest(experiment, fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_latest(_build_run_payload(active), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -2110,7 +2200,8 @@ def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     return payload
 
 
-def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
+def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
+    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
     return ExperimentMetricsRecalculationLatestSerializer(payload).data

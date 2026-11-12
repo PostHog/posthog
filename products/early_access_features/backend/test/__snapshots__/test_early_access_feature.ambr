@@ -32,15 +32,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.10
@@ -151,6 +155,7 @@
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."image_url",
          "posthog_earlyaccessfeature"."payload",
          "posthog_earlyaccessfeature"."created_at",
          "posthog_earlyaccessfeature"."assigned_user_id",
@@ -281,15 +286,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.5
@@ -446,15 +455,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.2
@@ -661,6 +674,7 @@
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."image_url",
          "posthog_earlyaccessfeature"."payload",
          "posthog_earlyaccessfeature"."created_at",
          "posthog_earlyaccessfeature"."assigned_user_id",
@@ -872,15 +886,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.3
@@ -989,6 +1007,7 @@
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."image_url",
          "posthog_earlyaccessfeature"."payload",
          "posthog_earlyaccessfeature"."created_at",
          "posthog_earlyaccessfeature"."assigned_user_id",
@@ -1102,15 +1121,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.2
@@ -1219,6 +1242,7 @@
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."image_url",
          "posthog_earlyaccessfeature"."payload",
          "posthog_earlyaccessfeature"."created_at",
          "posthog_earlyaccessfeature"."assigned_user_id",

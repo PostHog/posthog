@@ -76,12 +76,17 @@ The headline exports per module:
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
-  **`attachedContextLogic`** + **`useAttachedContext`** (context injection, see §3), and
+  **`useAttachedContext`** (context injection, see §3), and
   **`toolStreamEventsLogic`** + **`useToolStreamListener`** (tool-stream subscriptions, see §3).
   Imports only `logics/*` + `hooks/*` + `utils/*` — never a component or the registry. The two hooks are a
   deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
   components, so the lane stays registry- and presenter-free.
-- **`api/types`** — folded-thread + tool domain types, `AttachedContextItem`, `ToolStreamEvent` (pure types).
+- **The shell contract (`frontend/src/layout/ai/`)** — the app shell owns the small AI state it reads on every
+  page, and this product imports it from there: **`runnerPanelLogic`** (panel view state, `ActiveCreation`),
+  **`attachedContextLogic`** (the context store, see §3), and `attachedContext` (`AttachedContextItem`,
+  `attachedContextItemKey`). The shell must not import this product, so these files import only `kea` and pure
+  types. Never move a stream, interaction or task logic there; those belong in `api/logics`.
+- **`api/types`** — folded-thread + tool domain types, `ToolStreamEvent` (pure types).
 - **`api/tools`** — **`toolRegistry`**, **`ToolRegistryEntry`** (the declaration contract, see §2),
   `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
   diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
@@ -154,11 +159,11 @@ Supporting modules live in `policy/` (tool policy + permission/question utils) a
 (`streamTypes` = folded thread shapes; `wireTypes` = ACP wire shapes + guards). Wire types are
 loosely typed — guard at the parse boundary with runtime checks; never assume a field is present.
 
-**Context injection (`logics/attachedContextLogic.ts`):** a global registry of on-screen context. A provider
+**Context injection (`~/layout/ai/attachedContextLogic`, shell-owned):** a global registry of on-screen context. A provider
 (a mounted `useAttachedContext` hook / `AttachedContextProvider` component, or a kea logic registering via
 `cache.disposables` — setup dispatches `registerContext(providerId, items)`, cleanup `deregisterContext`,
 with `pauseOnPageHidden: false` since a hide-paused registration would drop context from sends that happen
-while the tab is hidden; `contextPickerLogic` is the exemplar) contributes
+while the tab is hidden) contributes
 abstract `AttachedContextItem`s — `type` is an **arbitrary string** (`'insight'`, `'dashboard'`, `'trace'`,
 `'text'`…; never an enumerated union), plus `key`/`label`/`value`. `contextItems` flattens and dedupes by
 `${type}:${key ?? value}`. At send time the send paths (`runInteractionLogic.sendNow`/`startNewRun`,
@@ -179,15 +184,22 @@ message, and since the `logs/` snapshot replays the full resume chain this survi
 other users' sessions (matching the backend's `_collect_seen_entity_refs`/`prune_repeated_entity_refs`);
 `text` items are never deduped, repeated text is intentional.
 
+**A chat's visible context is frozen when it starts. `logics/chatContextLogic.ts`, keyed by task, is the one definition of what is in a chat.**
+A new chat shows and sends `contextItems` plus its picks.
+A started chat shows its saved chips (`attachedContextLogic.chatChipsByTask`) plus its own picks, and sends those picks plus the `hidden` items, which follow the current page because tools act on that state.
+Every send path takes its items from `chatSendItems`, and reports what it delivered with `contextDelivered(taskId, items, fromNewChat)`, which updates the dedupe keys, the chat's chips and the picks in one action.
+`chatChipsByTask` persists in `localStorage`, so a stored chip keeps only references and labels, never `value` or `previewHtml`.
+Removing a chip from a started chat also stops the hidden items in its `dismissGroup` for that chat (`removedGroupsByTask`).
+
 **User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
 composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Header`, the top-of-frame row above the textarea; already wired into
 `TaskComposer` and `TaskRunChat`) renders a `TaxonomicPopover` whose selections are projected to flat refs by
 `taxonomicItemToAttachedContext` — no entity loading, the agent fetches details — and stored in
-`contextPickerLogic`, which is just another provider (`user-picker`) on `attachedContextLogic`. The bar's chips
-render **all** of `contextItems`; closing a picked chip removes it from the picker, closing any other
-provider's chip dispatches `attachedContextLogic.dismissContext(key)`. Dismissal filters the key out of
+`attachedContextLogic.pickedByChat`. Picks are not a provider, so they never appear in `contextItems`. The
+bar's chips render what `chatContextLogic` returns; closing a picked chip removes it from the picker, closing a
+provider's chip in a new chat dispatches `attachedContextLogic.dismissContext(key)`. Dismissal filters the key out of
 `contextItems` and **survives provider re-registration** (the scene bridge upserts on every scene read — a
-closed chip must not resurrect); re-picking the same item `undismissContext`s it.
+closed chip must not resurrect); re-picking the same item adds it back as a pick.
 
 **Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
 tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via
@@ -229,6 +241,7 @@ ingestion).
   The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).
   A registry entry marked `pinned` (a plan, a question) never folds.
   A `keepVisible` widget result folds in quill, except the last finished call of a closed run.
+  The `task_summary_update` call never counts as that last call, because the agent must make it after every chart.
 - **A tool card is two header lines plus an accordion — overflow goes in the accordion.** Every tool
   renderer wraps its content in `ToolActivity`, which exposes exactly two always-visible header lines:
   the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other
@@ -250,8 +263,8 @@ api/                # public API facade — the contract (import api/<module>, n
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
   composer.ts       #   Tier 2: Composer + quill composer frame only, for eager surfaces that must not pull the thread
-  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
-  types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
+  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context hooks, tool-event bus (headless)
+  types.ts          #   Tier 3: folded-thread + tool domain types, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: lookup + declaration contract (registry isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
@@ -262,11 +275,11 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
     widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/notebook/query)
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
-logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, contextPickerLogic, toolStreamEventsLogic;
+logics/             # runStreamLogic, runInteractionLogic, contextPickerLogic, toolStreamEventsLogic;
                     #   tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
-types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), contextTypes
-                    #   (AttachedContextItem), toolTypes, taskTypes (task/run domain)
+types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), toolTypes,
+                    #   taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
 utils/              # thinkingMessages, posthogContextBlock (trusted/untrusted context-block builder)
 lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)

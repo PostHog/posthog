@@ -5,8 +5,19 @@ import { promptConsensusMatrix, promptReportKpis, promptSentimentSummary } from 
 const day = (
     date: string,
     engine: string,
-    counts: Partial<Pick<AEOPromptStatsApi['daily'][number], 'checks' | 'cited' | 'mentioned' | 'failed'>>
-): AEOPromptStatsApi['daily'][number] => ({ date, engine, checks: 1, cited: 0, mentioned: 0, failed: 0, ...counts })
+    counts: Partial<
+        Pick<AEOPromptStatsApi['daily'][number], 'checks' | 'cited' | 'mentioned' | 'failed' | 'avg_position'>
+    >
+): AEOPromptStatsApi['daily'][number] => ({
+    date,
+    engine,
+    checks: 1,
+    cited: 0,
+    mentioned: 0,
+    failed: 0,
+    avg_position: null,
+    ...counts,
+})
 
 const stats = (daily: AEOPromptStatsApi['daily'], overrides: Partial<AEOPromptStatsApi> = {}): AEOPromptStatsApi => ({
     ...EXAMPLE_PROMPT_STATS,
@@ -21,21 +32,22 @@ describe('promptReport', () => {
         it('pools the window and compares the latest answered day against it', () => {
             const kpis = promptReportKpis(
                 stats([
-                    day('2026-09-01', 'a', { cited: 1, mentioned: 1 }),
+                    day('2026-09-01', 'a', { checks: 3, cited: 3, mentioned: 3, avg_position: 1 }),
                     day('2026-09-01', 'b', { mentioned: 1 }),
                     day('2026-09-02', 'a', { failed: 1 }),
                     day('2026-09-05', 'a', {}),
-                    day('2026-09-05', 'b', { cited: 1, mentioned: 1 }),
+                    day('2026-09-05', 'b', { cited: 1, mentioned: 1, avg_position: 5 }),
                     // The latest day only failed, so the day before it is the latest with an answer.
                     day('2026-09-10', 'a', { failed: 1 }),
                 ])
             )
 
             expect(kpis).toEqual({
-                answers: 4,
+                answers: 6,
                 days: 10,
-                visibility: { average: 0.75, latest: 0.5, latestDate: '2026-09-05', delta: -0.25 },
-                citation: { average: 0.5, latest: 0.5, latestDate: '2026-09-05', delta: 0 },
+                visibility: { average: 5 / 6, latest: 0.5, latestDate: '2026-09-05', delta: 0.5 - 5 / 6 },
+                citation: { average: 4 / 6, latest: 0.5, latestDate: '2026-09-05', delta: 0.5 - 4 / 6 },
+                position: { average: 2, latest: 5, latestDate: '2026-09-05' },
             })
         })
 

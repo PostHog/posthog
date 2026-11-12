@@ -6,25 +6,29 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 from django.conf import settings
+from django.contrib.auth import get_user
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.frontend_views import app_context
 from posthog.models import Team, User, UserHomeSettings
+from posthog.session.backend import SessionStore
+from posthog.session.models import Session
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
-    DEFERRED_APP_CONTEXT_FLAG,
-    flags_for_app_evaluation_context,
+    app_flag_keys,
+    feature_flag_bootstrap,
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
-    should_defer_app_context,
+    signed_out_session_reason,
 )
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -100,7 +104,7 @@ STABLE_CHUNKS = StableChunks(
 )
 
 
-class TestFlagsForAppEvaluationContext(SimpleTestCase):
+class TestAppFlagKeys(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_contexts_is_kept", {"evaluation_contexts": None}, True),
@@ -114,52 +118,86 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
         ]
     )
     def test_keeps_flags_the_app_evaluates(self, _name, definition, kept):
-        definitions = [{"key": "the-flag", **definition}]
+        definitions = [{"key": "the-flag", **definition}, {"key": "untagged"}]
 
-        actual = flags_for_app_evaluation_context({"the-flag": True, "untagged": True}, definitions)
-
-        assert actual == ({"the-flag": True, "untagged": True} if kept else {"untagged": True})
-
-    def test_keeps_every_flag_before_definitions_load(self):
-        assert flags_for_app_evaluation_context({"the-flag": True}, None) == {"the-flag": True}
-
-    def test_keeps_no_flags_when_analytics_is_disabled(self):
-        definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
-
-        assert flags_for_app_evaluation_context(None, definitions) is None
+        assert app_flag_keys(definitions) == (["the-flag", "untagged"] if kept else ["untagged"])
 
 
-class TestShouldDeferAppContext(SimpleTestCase):
+class TestFeatureFlagBootstrap(SimpleTestCase):
+    def user(self) -> User:
+        return User(distinct_id="user-1", email="someone@example.com", date_joined=timezone.now())
+
+    def test_asks_the_sdk_for_the_app_flags_only(self):
+        definitions = [{"key": "app"}, {"key": "server", "evaluation_runtime": "server"}]
+        with (
+            mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=definitions),
+            mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={"app": True}) as get_all_flags,
+        ):
+            actual = feature_flag_bootstrap(self.user(), {})
+
+        assert actual == {"app": True}
+        assert get_all_flags.call_args.kwargs["flag_keys_to_evaluate"] == ["app"]
+
     @parameterized.expand(
         [
-            ("test variant defers and reports", "", "test", True, True),
-            ("control variant renders inline and reports", "", "control", False, True),
-            ("outside the experiment renders inline silently", "", None, False, False),
-            ("param on beats control", "?deferred_app_context=1", "control", True, False),
-            ("param off beats test", "?deferred_app_context=0", "test", False, False),
+            ("app_has_no_flags", [{"key": "server", "evaluation_runtime": "server"}], {}),
+            ("definitions_not_loaded", None, None),
         ]
     )
-    def test_only_the_test_variant_defers(self, _name, query, variant, expect_deferred, expect_exposure):
-        request = RequestFactory().get(f"/{query}")
-        user = User(distinct_id="user-1", email="someone@example.com")
-
+    def test_skips_the_sdk_when_it_would_evaluate_every_flag(self, _name, definitions, expected):
         with (
-            mock.patch("posthog.utils.posthoganalytics.get_feature_flag", return_value=variant),
-            mock.patch("posthog.utils.posthoganalytics.capture") as capture,
+            mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=definitions),
+            mock.patch("posthog.utils.posthoganalytics.get_all_flags") as get_all_flags,
         ):
-            assert should_defer_app_context(request, user) is expect_deferred
+            actual = feature_flag_bootstrap(self.user(), {})
 
-        if expect_exposure:
-            capture.assert_called_once_with(
-                "$feature_flag_called",
-                distinct_id="user-1",
-                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
-            )
-        else:
-            capture.assert_not_called()
+        assert actual == expected
+        get_all_flags.assert_not_called()
+
+
+class TestSignedOutSessionReason(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no session cookie", False, False, {}, None),
+            ("a session the store did not return", True, False, {}, "session_not_found"),
+            ("a stored session that auth flushed", True, True, {}, "session_without_user"),
+            (
+                "a session that names a user who did not authenticate",
+                True,
+                True,
+                {"_auth_user_id": "1"},
+                "user_not_resolved",
+            ),
+        ]
+    )
+    def test_names_why_a_request_with_a_session_cookie_is_signed_out(
+        self, _name, has_cookie, store_found_row, session_data, expected
+    ):
+        request = RequestFactory().get("/login")
+        if has_cookie:
+            request.COOKIES[settings.SESSION_COOKIE_NAME] = "a-session-key"
+        session = SessionStore()
+        session.__dict__["_session_cache"] = session_data
+        session.loaded_row = Session() if store_found_row else None
+        request.session = session
+
+        assert signed_out_session_reason(request) == expected
 
 
 class TestGetContextForTemplate(APIBaseTest):
+    def test_signed_out_session_reason_survives_auth_flushing_a_stale_session(self):
+        self.client.force_login(self.user)
+        session_key = self.client.session.session_key
+        assert session_key is not None
+        self.user.set_password("a-different-password-1234")
+        self.user.save()
+        request = RequestFactory().get("/")
+        request.COOKIES[settings.SESSION_COOKIE_NAME] = session_key
+        request.session = SessionStore(session_key)
+
+        assert get_user(request).is_anonymous
+        assert signed_out_session_reason(request) == "session_without_user"
+
     def test_get_context_for_template(self):
         with (
             self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),
@@ -257,13 +295,15 @@ class TestGetContextForTemplate(APIBaseTest):
 
     @parameterized.expand([("shares_email", False, "user@example.com"), ("anonymized", True, None)])
     @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={})
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[{"key": "some-flag"}])
     def test_flag_bootstrap_evaluates_with_the_identity_the_browser_sends(
-        self, _name, anonymize_data, expected_email, mock_get_all_flags
+        self, _name, anonymize_data, expected_email, _mock_definitions, mock_get_all_flags
     ):
         self.user.email = "user@example.com"
         self.user.anonymize_data = anonymize_data
         self.user.save()
         self.organization.customer_id = "cus_123"
+        self.organization.available_product_features = None
         self.organization.save()
         request = RequestFactory().get("/")
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
@@ -297,7 +337,7 @@ class TestGetContextForTemplate(APIBaseTest):
             "name": self.organization.name,
             "slug": self.organization.slug,
             "created_at": mock.ANY,
-            "available_product_features": self.organization.available_product_features or [],
+            "available_product_features": None,
             "member_count": 1,
             "project_count": 1,
             "instance_tag": settings.INSTANCE_TAG,
@@ -395,7 +435,7 @@ class TestGetContextForTemplate(APIBaseTest):
             assert "stable_chunks_importmap" not in context
 
     @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={"some-flag": True})
-    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=None)
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[{"key": "some-flag"}])
     def test_deferred_page_gets_the_user_data_from_app_context(self, _mock_definitions, _mock_get_all_flags):
         def user_request(path: str) -> HttpRequest:
             request = RequestFactory().get(path)
@@ -403,14 +443,21 @@ class TestGetContextForTemplate(APIBaseTest):
             request.user = self.user
             return request
 
+        self.user.shortcut_position = "below"
+        self.user.save()
         inline = get_context_for_template("index.html", user_request("/?deferred_app_context=0"))
-        deferred = get_context_for_template("index.html", user_request("/?deferred_app_context=1"))
+        deferred = get_context_for_template("index.html", user_request("/"))
         fetched = json.loads(app_context(user_request("/_app_context")).content)
+        fetched_full = json.loads(app_context(user_request("/_app_context?stage=full")).content)
 
         assert deferred["posthog_app_context"]["deferred"] is True
         assert deferred["posthog_app_context"]["current_user"] is None
         assert "featureFlags" not in deferred["posthog_bootstrap"]
+        assert "product_intents" not in fetched["app_context"]["current_team"]
+        assert "product_intents" not in fetched["app_context"]["current_project"]
         page_with_fetched = {**deferred["posthog_app_context"], **fetched["app_context"]}
+        for key, value in fetched_full["app_context"].items():
+            page_with_fetched[key] = {**page_with_fetched[key], **value} if isinstance(value, dict) else value
         page_with_fetched.pop("deferred")
         assert page_with_fetched == json.loads(json.dumps(inline["posthog_app_context"], cls=TolerantJSONEncoder))
         assert fetched["feature_flags"] == inline["posthog_bootstrap"]["featureFlags"]

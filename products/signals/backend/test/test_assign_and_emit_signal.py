@@ -3,7 +3,7 @@ import random
 from datetime import timedelta
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
@@ -11,16 +11,28 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
+from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, RelatedTo, ReportLink, SourceIssue
 from products.signals.backend.daily_limit import DailyReportLimitGate
-from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
-from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportMonitoringAttempt,
+    SignalReportPullRequest,
+    SignalSpend,
+)
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
+from products.signals.backend.temporal.agentic.select_repository import (
+    SelectRepositoryInput,
+    select_repository_activity,
+)
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -119,6 +131,76 @@ def _build_input(
         embedding=[0.0] * 1536,
         match_result=match_result,
     )
+
+
+async def _monitoring_input(team: Team) -> AssignAndEmitSignalInput:
+    now = timezone.now()
+    report = await SignalReport.objects.acreate(
+        team=team, status="closed", title="Checkout recovery", monitoring_started_at=now
+    )
+    attempt = await SignalReportMonitoringAttempt.objects.for_team(team.id).acreate(
+        team=team, report=report, monitoring_started_at=now, research_requested_at=now
+    )
+    signal = _build_input(team.id, _new_match(), weight=1.0, source_product=SignalSourceProduct.SIGNALS_CHECK)
+    signal.source_type = SignalSourceType.MONITORING_UNRESOLVED
+    signal.source_id = str(attempt.id)
+    signal.extra = {"report_id": str(report.id), "attempt_id": str(attempt.id)}
+    signal.sync_with_source = True
+    return signal
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("existing_count", [None, 0, 4])
+@pytest.mark.parametrize("exempt_origin", [False, True])
+async def test_monitoring_signal_uses_normal_grouping_and_billing(
+    ateam: Team, patch_side_effects, existing_count: int | None, exempt_origin: bool
+) -> None:
+    signal = await _monitoring_input(ateam)
+    exemption = SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK if exempt_origin else None
+    await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(billing_exempt_reason=exemption)
+    if existing_count is not None:
+        target = await SignalReport.objects.acreate(
+            team=ateam,
+            status="ready",
+            signal_count=existing_count,
+            signals_researched=existing_count,
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
+        )
+        signal.match_result = _existing_match(str(target.id))
+    with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+        result = await assign_and_emit_signal_activity(signal)
+    successor = await SignalReport.objects.aget(team=ateam, id=result.report_id)
+    assert successor.billing_exempt_reason == (
+        exemption if existing_count is None else SignalReport.BillingExemptReason.POSTHOG_SYSTEM
+    )
+    assert successor.signal_count == (existing_count or 0) + 1
+    assert result.promoted is (existing_count != 4)
+    assert await SignalReportArtefact.objects.filter(
+        team=ateam, report_id=successor.id, type="report_link", link_target_id=signal.extra["report_id"]
+    ).aexists()
+    assert await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"], status="closed").aexists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("change", ["ready", "resolved", "suppressed", "new_attempt", "disabled", "wrong_report"])
+async def test_stale_monitoring_signal_cannot_attach_to_a_changed_report(ateam: Team, change: str) -> None:
+    signal = await _monitoring_input(ateam)
+    if change == "new_attempt":
+        await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(
+            monitoring_started_at=timezone.now() + timedelta(hours=1)
+        )
+    elif change == "wrong_report":
+        signal.extra["report_id"] = str(uuid.uuid4())
+    elif change != "disabled":
+        await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(status=change)
+    with patch(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=change != "disabled"
+    ):
+        with pytest.raises(ValueError, match="no longer current"):
+            await assign_and_emit_signal_activity(signal)
+    assert await SignalReport.objects.filter(team=ateam).acount() == 1
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +532,8 @@ async def test_ready_repromotes_to_candidate_on_a_bucket_regardless_of_weight(at
     "report_status,flag_result,recurs",
     [
         (SignalReport.Status.RESOLVED, False, True),
+        (SignalReport.Status.CLOSED, False, True),
+        (SignalReport.Status.CLOSED, True, True),
         (SignalReport.Status.MONITORING, False, True),
         (SignalReport.Status.MONITORING, RuntimeError("flag service unavailable"), True),
         (SignalReport.Status.MONITORING, True, False),
@@ -506,6 +590,82 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(
     assert refreshed_resolved.signal_count == 2
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("signals_researched", "pr_state", "forks", "inherits"),
+    [
+        (None, None, True, False),
+        (2, None, True, True),
+        (None, SignalReportPullRequest.State.CLOSED, True, False),
+        (None, SignalReportPullRequest.State.OPEN, False, False),
+    ],
+)
+async def test_failed_match_spawns_one_fork_that_later_signals_join(
+    ateam: Team, signals_researched: int | None, pr_state: str | None, forks: bool, inherits: bool
+) -> None:
+    failed = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.FAILED,
+        total_weight=1.5,
+        signal_count=2,
+        signals_at_run=2 if signals_researched else 0,
+        signals_researched=signals_researched,
+        title="original title",
+        summary="original summary",
+    )
+    if pr_state is not None:
+
+        def _attach_pr() -> None:
+            with team_scope(ateam.id):
+                pr = SignalReportPullRequest.objects.create(
+                    team_id=ateam.id,
+                    repository="owner/repo",
+                    number=7,
+                    url="https://github.com/owner/repo/pull/7",
+                    state=pr_state,
+                )
+                link = SignalReportArtefact.add_log(
+                    team_id=ateam.id,
+                    report_id=str(failed.id),
+                    content=PullRequestLink(url=pr.url),
+                    attribution=ArtefactAttribution.system(),
+                )
+                link.pull_request = pr
+                link.save(update_fields=["pull_request"])
+
+        await database_sync_to_async(_attach_pr)()
+
+    first = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(failed.id)), weight=WEIGHT_THRESHOLD * 0.5)
+    )
+    second = await assign_and_emit_signal_activity(
+        _build_input(ateam.id, _existing_match(str(failed.id)), weight=WEIGHT_THRESHOLD * 0.5)
+    )
+
+    refreshed_failed = await database_sync_to_async(SignalReport.objects.get)(id=failed.id)
+    assert refreshed_failed.status == SignalReport.Status.FAILED
+    if not forks:
+        assert first.report_id == second.report_id == str(failed.id)
+        assert second.promoted is False
+        assert refreshed_failed.signal_count == 4
+        return
+
+    assert first.report_id == second.report_id != str(failed.id)
+    assert refreshed_failed.signal_count == 2
+    fork = await database_sync_to_async(SignalReport.objects.get)(id=first.report_id)
+    assert fork.signal_count == 2
+    assert second.promoted is True
+    assert fork.status == SignalReport.Status.CANDIDATE
+    assert (fork.title, fork.summary) == (("original title", "original summary") if inherits else ("", ""))
+    link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(report=fork, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
+    )()
+    assert ReportLink.model_validate_json(link.content) == ReportLink(
+        kind=ReportLinkKind.RECURRENCE_OF, report_id=str(failed.id)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Recurrence after a dismissal that claimed the issue was fixed
 # ---------------------------------------------------------------------------
@@ -541,6 +701,7 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
         ("already_fixed", True),
         ("fixed_outside_posthog", True),
         ("pr_merged", True),
+        ("wrong_repo", True),
         ("wontfix_intentional", False),
         ("wontfix_irrelevant", False),
         ("analysis_wrong", False),
@@ -549,10 +710,7 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
     ],
 )
 @pytest.mark.parametrize("unsafe_parent", [False, True])
-async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason, forks, unsafe_parent):
-    # A dismissal that claims the issue is fixed is contradicted by a new signal, so the signal
-    # starts a fresh report, exactly as a resolved report does. Every other reason states a
-    # preference about the report, so a sink stays the right answer.
+async def test_suppressed_report_forks_for_fixed_or_wrong_repo_dismissals(ateam, reason, forks, unsafe_parent):
     parent = await _suppressed_report(ateam, reason)
     if unsafe_parent:
         await database_sync_to_async(SignalReportArtefact.objects.create)(
@@ -590,10 +748,76 @@ async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam):
-    # Dismissals stack, so an "already fixed" a reviewer has since overruled with a won't-fix must
-    # stop forking reports.
-    parent = await _suppressed_report(ateam, "already_fixed")
+@pytest.mark.parametrize(
+    "reason,corrected,eligible,match_parent,overridden,expected",
+    [
+        ("wrong_repo", None, "example/website", True, False, None),
+        ("wrong_repo", "example/checkout", "example/website", True, False, None),
+        ("wrong_repo", "example/checkout", "example/checkout", True, False, "example/checkout"),
+        ("already_fixed", None, "example/website", True, False, "example/website"),
+        ("wrong_repo", None, "example/website", False, False, "example/website"),
+        ("wrong_repo", None, "example/website", True, True, "example/website"),
+    ],
+)
+async def test_recurrence_selection_does_not_reuse_a_rejected_single_repository(
+    ateam: Team,
+    reason: str,
+    corrected: str | None,
+    eligible: str,
+    match_parent: bool,
+    overridden: bool,
+    expected: str | None,
+) -> None:
+    parent = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.SUPPRESSED
+    )
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=ateam.id,
+        report_id=str(parent.id),
+        content=Dismissal(reason=reason, selected_repository="Example/Website", corrected_repository=corrected),
+        attribution=ArtefactAttribution.system(),
+    )
+    assigned = await assign_and_emit_signal_activity(
+        _build_input(
+            ateam.id, _existing_match(str(parent.id)) if match_parent else _new_match(), weight=WEIGHT_THRESHOLD
+        )
+    )
+    assert assigned.report_id != str(parent.id)
+    if overridden:
+        await _dismiss(parent, "analysis_wrong")
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": eligible, "private": True}]
+    selector = "products.tasks.backend.logic.repo_selection.agent"
+    activity = "products.signals.backend.temporal.agentic.select_repository"
+    with (
+        patch(f"{selector}.resolve_team_github_integration", return_value=github),
+        patch(f"{selector}._list_candidate_repos", return_value=[eligible]),
+        patch(f"{selector}._list_eligible_full_names", return_value={eligible}),
+        patch(f"{selector}.GitHubRepositoryFullCache") as cache,
+        patch(f"{selector}.MultiTurnSession.start", new_callable=AsyncMock) as start,
+        patch(
+            "products.signals.backend.report_generation.select_repo.resolve_agent_runtime", return_value=DEFAULT_RUNTIME
+        ),
+        patch(f"{activity}._resolve_sandbox_user_id", return_value=1),
+        patch(f"{activity}.get_or_create_signals_sandbox_env", return_value=None),
+        patch(f"{activity}.Heartbeater"),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id=assigned.report_id, signals=[])
+        )
+
+    assert result.repository == expected
+    if expected is None:
+        assert "Choose a repository" in result.reason
+    start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("reason", ["already_fixed", "wrong_repo"])
+async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam, reason):
+    parent = await _suppressed_report(ateam, reason)
     await _dismiss(parent, "wontfix_intentional")
 
     result = await assign_and_emit_signal_activity(
@@ -606,18 +830,19 @@ async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("reason", ["already_fixed", "wrong_repo"])
 @pytest.mark.parametrize("repeat_feedback", [False, True])
 @pytest.mark.parametrize("restore_parent", [False, True])
-async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedback, restore_parent):
+async def test_second_recurrence_signal_joins_the_open_fork(ateam, reason, repeat_feedback, restore_parent):
     # A parent that absorbed hundreds of signals must produce one live recurrence report, not one
     # per signal: the second signal accumulates on the first signal's fork.
-    parent = await _suppressed_report(ateam, "already_fixed")
+    parent = await _suppressed_report(ateam, reason)
 
     first = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
     )
     if repeat_feedback:
-        await _dismiss(parent, "already_fixed")
+        await _dismiss(parent, reason)
     if restore_parent:
         parent.status = SignalReport.Status.READY
         await database_sync_to_async(parent.save)(update_fields=["status"])
@@ -839,23 +1064,105 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(ateam, patch_side_effects):
+@pytest.mark.parametrize(
+    "status,attaches",
+    [
+        (SignalReport.Status.READY, True),
+        (SignalReport.Status.PENDING_INPUT, True),
+        (SignalReport.Status.RESOLVED, False),
+        (SignalReport.Status.SUPPRESSED, False),
+        (SignalReport.Status.FAILED, False),
+    ],
+)
+async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(ateam, status, attaches):
+    triggering_signal_id = uuid.uuid4()
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
+    )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=SourceIssue.github("acme/widgets", 42),
+        attribution=ArtefactAttribution.system(),
+    )
+    semantic = NewReportMatch(
+        title="Exports time out", summary="", match_metadata=NoMatchMetadata(reason="nothing similar")
+    )
+    with (
+        patch(f"{GROUPING_MODULE_PATH}.fetch_source_signal_matches", return_value={}),
+        patch(f"{GROUPING_MODULE_PATH}.match_signal_to_report", new=AsyncMock(return_value=semantic)) as semantic_match,
+    ):
+        match = await match_signal_to_report_activity(
+            MatchSignalToReportInput(
+                team_id=ateam.id,
+                description="Exports time out on large date ranges",
+                source_product="github",
+                source_type="issue",
+                source_id="2001",
+                sync_with_source=True,
+                queries=[],
+                query_results=[],
+                report_contexts={},
+                source_issue_url="https://github.com/Acme/Widgets/issues/42",
+            )
+        )
+
+    if attaches:
+        assert isinstance(match, ExistingReportMatch)
+        assert match.report_id == str(report.id)
+        assert match.match_metadata.parent_signal_id == str(triggering_signal_id)
+        assert match.source_issue_matched is True
+        semantic_match.assert_not_awaited()
+    else:
+        assert match is semantic
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("researching,pending_is_driver", [(False, False), (True, False), (True, True)])
+async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(
+    ateam, patch_side_effects, researching, pending_is_driver
+):
+    pending_signal_id = uuid.uuid4() if researching else None
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.READY,
+        status=SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.READY,
         total_weight=2,
         signal_count=2,
         signals_researched=2,
+        triggering_signal_id=pending_signal_id if pending_is_driver else uuid.uuid4(),
+        pending_triggering_signal_id=pending_signal_id,
     )
+    if pending_signal_id is not None:
+        await database_sync_to_async(record_llm_spend)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), stage="grouping", token_cost_microusd=100
+        )
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), report_id=str(report.id)
+        )
+        pending_spend = await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=pending_signal_id)
+        )()
+        assert pending_spend.finalized_at is None
     input_ = _build_input(ateam.id, _existing_match(str(report.id), source_synced=True), weight=0.5)
     input_.sync_with_source = True
 
     result = await assign_and_emit_signal_activity(input_)
 
     assert result.report_id == str(report.id)
-    assert result.promoted is True
+    assert result.promoted is not researching
     await database_sync_to_async(report.refresh_from_db)()
-    assert report.status == SignalReport.Status.CANDIDATE
+    assert report.status == (SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.CANDIDATE)
+    if researching:
+        assert str(report.pending_triggering_signal_id) == input_.signal_id
+        await database_sync_to_async(pending_spend.refresh_from_db)()
+        assert (pending_spend.finalized_at is None) is pending_is_driver
+        assert pending_spend.spend > 0
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), report_id=str(report.id)
+        )
+        await database_sync_to_async(pending_spend.refresh_from_db)()
+        assert (pending_spend.finalized_at is None) is pending_is_driver
     events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
     assert "signal_source_report_refresh_requested" in events
     refresh = next(
@@ -1056,42 +1363,6 @@ async def test_withheld_research_emits_skipped_event(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_bucket_reached_under_suppression_is_claimed_by_the_next_signal(ateam):
-    """A quota-suppressed crossing must not cost the report that bucket. Promotion compares the
-    count the report has reached against its next bucket, so the bucket stays claimable until a
-    pass actually covers it — where testing the crossing itself would hand bucket 2 to the
-    suppressed signal and leave every later signal measuring against bucket 4."""
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam,
-        status=SignalReport.Status.READY,
-        total_weight=2.0,
-        signal_count=1,
-        run_count=1,
-        signals_researched=1,
-    )
-
-    with patch(
-        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-        return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-    ):
-        suppressed = await assign_and_emit_signal_activity(
-            _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
-        )
-
-    assert suppressed.promoted is False
-    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
-    assert refreshed.status == SignalReport.Status.READY
-    assert refreshed.signal_count == 2
-
-    claimed = await assign_and_emit_signal_activity(_build_input(ateam.id, _existing_match(str(report.id)), weight=0.5))
-
-    assert claimed.promoted is True
-    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
-    assert refreshed.status == SignalReport.Status.CANDIDATE
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_promotion_on_a_bucket_does_not_emit_skipped_event(ateam, patch_side_effects):
     """A report that reaches its next bucket re-promotes normally and fires only the assign event."""
     report = await database_sync_to_async(SignalReport.objects.create)(
@@ -1147,12 +1418,11 @@ async def test_potential_promotes_past_last_bucket_for_first_research(ateam):
     [
         SignalReport.Status.IN_PROGRESS,
         SignalReport.Status.PENDING_INPUT,
-        SignalReport.Status.FAILED,
         SignalReport.Status.SUPPRESSED,
     ],
 )
 async def test_non_promoting_states_increment_counters_but_do_not_promote(ateam, starting_status):
-    """For IN_PROGRESS / PENDING_INPUT / FAILED / SUPPRESSED:
+    """For IN_PROGRESS / PENDING_INPUT / SUPPRESSED:
     - weight + signal_count still update
     - status is unchanged
     - promoted=False so no workflow spawn attempt
@@ -1332,134 +1602,66 @@ async def test_deleted_report_emits_matched_deleted_telemetry(ateam, patch_side_
     assert properties["source_product"] == "conversations"
 
 
-# ---------------------------------------------------------------------------
-# Quota gate: promotion withheld for enforced over-quota teams
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("enforced", "expected_status", "expected_promoted"),
-    [
-        # Enforced over-quota team: the signal is assigned and weighted, but no summary run spawns
-        # and the status is untouched so the first post-quota signal re-evaluates promotion.
-        (True, SignalReport.Status.POTENTIAL, False),
-        # Dark launch (limited, enforcement flag off): behavior unchanged, telemetry only.
-        (False, SignalReport.Status.CANDIDATE, True),
-    ],
-)
-async def test_quota_gate_withholds_promotion_only_when_enforced(
-    ateam, patch_side_effects, enforced, expected_status, expected_promoted
-):
-    with patch(
-        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-        return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
-    ):
-        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
+@pytest.mark.parametrize("kind", ["trial_source", "free_system_source", "unfunded_source"])
+async def test_grouping_leaves_trial_admission_to_report_pass(ateam, kind):
+    from products.signals.backend.spend import record_llm_spend
+    from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
+    from products.signals.backend.trial.reports import prepare_report_pass
 
-    assert result.promoted is expected_promoted
-    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert report.status == expected_status
-    assert report.signal_count == 1
-    assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
+    inputs = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)
+    if kind == "free_system_source":
+        inputs.source_product = SignalSourceProduct.HEALTH_CHECKS
 
-    quota_events = [
-        call
-        for call in patch_side_effects["capture"].call_args_list
-        if call.kwargs.get("event") == "signal_report_quota_paused"
-    ]
-    assert len(quota_events) == 1
-    assert quota_events[0].kwargs["properties"]["stage"] == "promotion"
-    assert quota_events[0].kwargs["properties"]["enforced"] is enforced
+    def exhaust():
+        grant = TrialPolicy(ateam).claim(user_id=42)
+        record_llm_spend(
+            "accepted-signal",
+            team_id=ateam.id,
+            signal_id=inputs.signal_id if kind == "trial_source" else str(uuid.uuid4()),
+            stage="grouping",
+            token_cost_microusd=grant.allowance_microusd + 1,
+            trial_grant_id=str(grant.id),
+        )
 
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_quota_gate_emits_no_event_when_signal_would_not_promote(ateam, patch_side_effects):
-    """A limited team's below-threshold signal must not emit quota telemetry: the event volume
-    measures withheld summary runs, not every assignment on a limited team."""
-    with patch(
-        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-        return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-    ):
-        await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
-
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_quota_paused" not in events
-
-
-# ---------------------------------------------------------------------------
-# Daily report limit gate: promotion withheld once the team's day is spent
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_daily_limit_gate_withholds_promotion(ateam, patch_side_effects):
-    with patch(
-        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
-    ):
-        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
-
-    # The signal is still assigned, weighted, and emitted; only the summary spawn is withheld,
-    # with the status untouched so the first post-limit signal re-evaluates promotion.
-    assert result.promoted is False
-    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert report.status == SignalReport.Status.POTENTIAL
-    assert report.signal_count == 1
-    assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
-
-    daily_events = [
-        call
-        for call in patch_side_effects["capture"].call_args_list
-        if call.kwargs.get("event") == "signal_report_daily_limit_paused"
-    ]
-    assert len(daily_events) == 1
-    properties = daily_events[0].kwargs["properties"]
-    assert properties["stage"] == "promotion"
-    assert properties["limit"] == 2
-    assert properties["reports_today"] == 2
-    # The org's billing quota is clear, so its event stream must stay silent.
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_quota_paused" not in events
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_both_limits_emit_both_events(ateam, patch_side_effects):
-    # Each event stream must stay complete for its own gate's dashboards; neither suppresses
-    # the other when both limits are hit at once.
     with (
-        patch(
-            f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
-            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
-        ),
-        patch(
-            f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
-        ),
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.signals.backend.trial.billing.paid_trial_continuation_authorized", return_value=False),
     ):
-        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
-
-    assert result.promoted is False
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_quota_paused" in events
-    assert "signal_report_daily_limit_paused" in events
+        await database_sync_to_async(exhaust)()
+        result = await assign_and_emit_signal_activity(inputs)
+        assert result.promoted is True
+        if kind == "unfunded_source":
+            with pytest.raises(TrialRefused):
+                await database_sync_to_async(prepare_report_pass)(
+                    team=ateam, report_id=result.report_id, operation_key="first", signal_id=inputs.signal_id
+                )
+        else:
+            await database_sync_to_async(prepare_report_pass)(
+                team=ateam, report_id=result.report_id, operation_key="first", signal_id=inputs.signal_id
+            )
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ateam, patch_side_effects):
-    with patch(
-        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
-        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+async def test_grouping_does_not_recheck_limits(ateam, patch_side_effects):
+    with (
+        patch("products.signals.backend.quota.is_team_signals_quota_limited", return_value=True) as billing,
+        patch(
+            "products.signals.backend.daily_limit.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+        ) as daily,
     ):
-        await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
+        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
 
-    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
-    assert "signal_report_daily_limit_paused" not in events
+    billing.assert_not_called()
+    daily.assert_not_called()
+    assert result.promoted is True
+    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert report.status == SignalReport.Status.CANDIDATE
+    assert report.signal_count == 1
+    assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
 
 
 @pytest.mark.asyncio

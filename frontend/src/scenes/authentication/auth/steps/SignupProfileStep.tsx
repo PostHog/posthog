@@ -8,11 +8,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { TurnstileChallenge } from 'scenes/authentication/shared/TurnstileChallenge'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
 

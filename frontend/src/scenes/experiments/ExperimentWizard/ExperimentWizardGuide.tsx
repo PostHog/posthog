@@ -5,7 +5,7 @@ import { IconLightBulb, IconSparkles } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
@@ -93,10 +93,7 @@ export function ExperimentWizardGuide(): JSX.Element {
                         >
                             {/* Skip the animation in Storybook so visual snapshots don't flake on the moving gradient */}
                             <span
-                                className={cn(
-                                    'rainbow-text font-semibold',
-                                    !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
-                                )}
+                                className={cn('rainbow-text font-semibold', !inStorybook() && 'rainbow-text-animating')}
                             >
                                 Ask AI
                             </span>

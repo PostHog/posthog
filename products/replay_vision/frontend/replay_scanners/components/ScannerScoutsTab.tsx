@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import {
     IconCalendar,
@@ -14,16 +13,13 @@ import {
 import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 
+import type { ScannerScoutTemplateApi } from '../../generated/api.schemas'
 import { getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-import {
-    scannerScoutTemplates,
-    variantAnalysisScout,
-    type ScannerScoutTemplate,
-    type ScannerScoutTemplateKey,
-} from '../scannerScout'
+import { variantAnalysisScout, type ScannerScoutTemplateKey } from '../scannerScout'
 import { scannerScoutLogic } from '../scannerScoutLogic'
 import { parseScoutCadence, SCOUT_FREQUENCY_OPTIONS } from '../scoutCadence'
 import { ScannerScoutFormModal } from './ScannerScoutFormModal'
@@ -41,7 +37,7 @@ const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
 }
 
 /** Derived from the template's own cron, so a changed schedule can't leave a stale label behind. */
-function templateScheduleLabel(template: ScannerScoutTemplate): string {
+function templateScheduleLabel(template: ScannerScoutTemplateApi): string {
     const cadence = parseScoutCadence(template.cron)
     const option = cadence && SCOUT_FREQUENCY_OPTIONS.find(({ value }) => value === cadence.frequency)
     return cadence && option ? `${option.shortLabel} at ${cadence.time}` : template.cron
@@ -53,7 +49,7 @@ function ScoutTemplateCard({
     alreadySetUp,
     onUse,
 }: {
-    template: ScannerScoutTemplate
+    template: ScannerScoutTemplateApi
     disabledReason?: string
     /** The scanner already has the one scout this template allows, so the card opens it instead. */
     alreadySetUp?: boolean
@@ -120,12 +116,11 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
         settingsSkillName,
         enrolled,
         scoutConfigsFailed,
+        scoutTemplates: templates,
+        scoutTemplatesFailed,
     } = useValues(logic)
-    const { openCreateModal, openScoutSettings, loadScoutConfigs } = useActions(logic)
-    const templates = useMemo(
-        () => scannerScoutTemplates(scannerId, scanner?.scanner_type, scannerName),
-        [scannerId, scanner?.scanner_type, scannerName]
-    )
+    const { openCreateModal, openScoutSettings, loadScoutConfigs, loadScoutTemplates } = useActions(logic)
+    useOnMountEffect(loadScoutTemplates)
 
     if (scoutConfigs === null && scoutConfigsLoading) {
         return null
@@ -162,6 +157,15 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                         worth a look. Pick a starting point, then review and edit it before saving.
                     </p>
                 </div>
+                {scoutTemplatesFailed && templates.length === 0 && (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: () => loadScoutTemplates() }}
+                        className="text-sm"
+                    >
+                        Couldn't load the scout templates.
+                    </LemonBanner>
+                )}
                 {/* Container query: the scene is much narrower than the viewport with a side panel open. */}
                 <div className="@container">
                     {/* One row from about 1,000px wide. The cards are sized for it, so a scanner type's

@@ -8,12 +8,13 @@ Queries, rows and series nodes are JSON-shaped, as stored on an insight or dumpe
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade import api as actions_facade
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
 WAREHOUSE_NODE_KINDS = frozenset({"DataWarehouseNode", "LifecycleDataWarehouseNode"})
+ACTION_NAMES_QUERY_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery"})
 
 
 def get_result_order(result: Mapping[str, Any]) -> int:
@@ -57,7 +58,19 @@ def get_action_names(team: "Team", query: Mapping[str, Any]) -> dict[int, str | 
     action_ids = {action_id for node in _series_nodes(query) if (action_id := _action_id(node)) is not None}
     if not action_ids:
         return {}
-    return dict(Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id).values_list("pk", "name"))
+    return actions_facade.get_action_names(project_id=team.project_id, action_ids=action_ids)
+
+
+def get_response_action_names(team: "Team", query: Mapping[str, Any]) -> dict[str, str] | None:
+    """The `action_names` a trends, stickiness or lifecycle response carries, keyed by action id.
+
+    None for any other query. Pass an insight's stored query through `upgrade` first, because it stamps `kind` on
+    legacy series nodes. An action without a name is absent, because the field only supplies names to display.
+    """
+    source = query.get("source") if query.get("kind") == "InsightVizNode" else query
+    if not isinstance(source, Mapping) or source.get("kind") not in ACTION_NAMES_QUERY_KINDS:
+        return None
+    return {str(action_id): name for action_id, name in get_action_names(team, source).items() if name}
 
 
 def get_series_key(node: Mapping[str, Any], action_names: Mapping[int, str | None] | None = None) -> str | None:

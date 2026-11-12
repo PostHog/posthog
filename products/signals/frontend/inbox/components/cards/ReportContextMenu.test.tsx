@@ -2,12 +2,16 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { agentClaim, myAgentClaim, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, SignalReport, SignalReportStatus } from '../../types'
 import { ReportContextMenu } from './ReportContextMenu'
 
@@ -49,12 +53,18 @@ function menuRowText(): (string | null)[] {
 
 describe('ReportContextMenu', () => {
     let stateRequests: { reportId: string; body: Record<string, unknown> }[]
+    let claimRequests: { reportId: string; body: Record<string, unknown> }[]
 
     beforeEach(() => {
         stateRequests = []
+        claimRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
+                // The menu mounts logics that load these. Without a valid answer the loaders log errors, and
+                // Jest formats those stack traces synchronously, which blocks waitFor long enough to time out.
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                '/api/projects/:team_id/signals/scout/configs/': [],
             },
             post: {
                 '/api/projects/:team_id/signals/reports/:report_id/state/': async ({ request, params }) => {
@@ -64,13 +74,24 @@ describe('ReportContextMenu', () => {
                     })
                     return [200, {}]
                 },
+                '/api/projects/:team_id/signals/reports/:report_id/claim/': async ({ request, params }) => {
+                    claimRequests.push({
+                        reportId: params.report_id as string,
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [200, { id: params.report_id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
+                },
             },
         })
         initKeaTests()
     })
 
     // The menu content renders in a portal, so cleanup keeps one case's rows out of the next.
-    afterEach(cleanup)
+    // The verdict dialogs mount a separate React root on document.body. cleanup does not remove it.
+    afterEach(() => {
+        cleanup()
+        document.body.innerHTML = ''
+    })
 
     // The menu must mirror the detail pane's eligibility rules; a drifted guard silently offers a
     // dead-end action (a 409 transition, a duplicate PR) or hides a legitimate one. Every menu
@@ -79,17 +100,27 @@ describe('ReportContextMenu', () => {
         {
             name: 'a ready actionable report offers every action',
             report: makeReport(),
-            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
+            expected: ['Select', 'Claim', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'a report with a PR does not offer creating another',
             report: makeReport({ implementation_pr_url: 'https://github.com/posthog/posthog/pull/1' }),
-            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
+            expected: ['Select', 'Claim', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'an in-progress report cannot be resolved yet',
             report: makeReport({ status: SignalReportStatus.IN_PROGRESS, actionability: null }),
-            expected: ['Select', 'Dismiss', 'Reviewers', 'Remove yourself'],
+            expected: ['Select', 'Claim', 'Dismiss', 'Reviewers', 'Remove yourself'],
+        },
+        {
+            name: 'a report the user claimed offers unclaim',
+            report: makeReport({ assignee: myClaim }),
+            expected: ['Select', 'Unclaim', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
+        },
+        {
+            name: 'a monitoring report nobody claimed cannot be claimed',
+            report: makeReport({ status: SignalReportStatus.MONITORING }),
+            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'a dismissed report only offers restore',
@@ -112,6 +143,93 @@ describe('ReportContextMenu', () => {
         openMenu(makeReport({ is_suggested_reviewer: isReviewer }))
 
         expect(menuRowText().includes('Remove yourself')).toBe(offered)
+    })
+
+    // The menu closes on click, so the claim must go through the list logic, which outlives it.
+    it.each([
+        { name: 'claims an unclaimed report', report: makeReport(), item: 'Claim', body: { takeover: false } },
+        {
+            name: 'releases the user claim',
+            report: makeReport({ assignee: myClaim }),
+            item: 'Unclaim',
+            body: { release: true },
+        },
+        {
+            name: 'releases the claim made by the user through their agent',
+            report: makeReport({ assignee: myAgentClaim }),
+            item: 'Unclaim',
+            body: { release: true },
+        },
+    ])('$name', async ({ report, item, body }) => {
+        openMenu(report)
+
+        fireEvent.click(screen.getByText(item))
+
+        await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body }]))
+    })
+
+    // A 409 has two causes. Telling the user a teammate took the report when its status changed sends them
+    // looking for a person who does not exist.
+    it.each([
+        {
+            cause: 'a teammate claimed it',
+            current: { assignee: teammateClaim, status: SignalReportStatus.READY },
+            toast: 'Someone else is already working on this report.',
+        },
+        {
+            cause: 'its status no longer allows a claim',
+            current: { assignee: null, status: SignalReportStatus.RESOLVED },
+            toast: 'This report changed. Check it and try again.',
+        },
+    ])('explains a refused claim when $cause', async ({ current, toast }) => {
+        useMocks({
+            get: { '/api/projects/:team_id/signals/reports/:report_id/': { ...makeReport(), ...current } },
+            post: { '/api/projects/:team_id/signals/reports/:report_id/claim/': [409, {}] },
+        })
+        const errorToast = jest.spyOn(lemonToast, 'error')
+        try {
+            openMenu(makeReport())
+
+            fireEvent.click(screen.getByText('Claim'))
+
+            await waitFor(() => expect(errorToast).toHaveBeenCalledWith(toast))
+        } finally {
+            errorToast.mockRestore()
+        }
+    })
+
+    // A silent takeover would move a teammate's work to the user without the teammate knowing.
+    it.each([
+        { holder: 'a teammate', assignee: teammateClaim, description: 'Robin is working on this report.' },
+        {
+            holder: "a teammate's agent",
+            assignee: agentClaim(teammateClaim.user!, 'codex'),
+            description: "Robin's agent is working on this report.",
+        },
+    ])('asks before it takes over a report $holder is working on', async ({ assignee, description }) => {
+        // The list keeps its logic mounted after the menu closes for the dialog.
+        reportListLogic(sectionListLogicProps('needs-decision')).mount()
+        openMenu(makeReport({ assignee }))
+
+        fireEvent.click(screen.getByText('Take over'))
+
+        expect(await screen.findByText(new RegExp(description))).toBeInTheDocument()
+        expect(claimRequests).toEqual([])
+        fireEvent.click(screen.getAllByText('Take over').at(-1)!)
+
+        await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body: { takeover: true } }]))
+    })
+
+    // Only a run in flight blocks Create PR. A claim leads to a dialog instead, so it must not disable the item.
+    it.each([
+        { name: "a teammate's claim", report: { assignee: teammateClaim }, disabled: false },
+        { name: "the user's agent claim", report: { assignee: myAgentClaim }, disabled: false },
+        { name: "the user's own claim", report: { assignee: myClaim }, disabled: false },
+        { name: 'a run in flight', report: { assignee: myClaim, implementation_in_flight: true }, disabled: true },
+    ])('gates Create PR on $name', ({ report, disabled }) => {
+        openMenu(makeReport(report))
+
+        expect(screen.getByText('Create PR').closest('[role="menuitem"]')?.hasAttribute('data-disabled')).toBe(disabled)
     })
 
     // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.
@@ -210,5 +328,7 @@ describe('ReportContextMenu', () => {
 
         expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
+        fireEvent.click(screen.getByText('Cancel'))
+        await waitFor(() => expect(screen.queryByText(dialog)).not.toBeInTheDocument())
     })
 })

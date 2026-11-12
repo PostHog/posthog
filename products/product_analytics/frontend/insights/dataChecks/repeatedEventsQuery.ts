@@ -1,4 +1,4 @@
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
 
 // Matches the check's window on the server, so the query lists the same repeats the check counted.
 export const REPEAT_WINDOW_MILLISECONDS = 100

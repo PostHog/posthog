@@ -5,15 +5,17 @@ import time
 import uuid
 import posixpath
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
-from typing import Optional, cast
-from urllib.parse import urlencode
+from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
+from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -23,17 +25,21 @@ from django.db import (
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
-from django.utils.http import http_date, url_has_allowed_host_and_scheme
+from django.utils.functional import SimpleLazyObject
+from django.utils.http import escape_leading_slashes, http_date, url_has_allowed_host_and_scheme
 
+import requests
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -49,9 +55,11 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.ip_restrictions import enforce_ip_restrictions, get_restriction_client_ip
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
+    ACTIVITY_LOG_INTENT_HEADER,
     ActivityCredential,
     activity_storage,
     client_from_header,
@@ -60,16 +68,21 @@ from posthog.models.activity_logging.utils import (
 from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
-from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import find_action_team_id
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.mcp_intents import buffer_mcp_intent
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -228,7 +241,12 @@ def pop_mcp_client_ip(request: HttpRequest) -> str | None:
 
     outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
     MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-    return ip if outcome is SignedClientIPOutcome.VALID else None
+    if outcome is SignedClientIPOutcome.VALID:
+        # Keep the verified end-user IP on the request for the IP restriction checks, which run
+        # after this middleware but still need to judge the MCP caller rather than the pod address.
+        setattr(request, "verified_mcp_client_ip", ip)  # noqa: B010 — dynamic attr the stubs don't know
+        return ip
+    return None
 
 
 class ManagedProxyClientIPMiddleware:
@@ -350,6 +368,9 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
+        # Admin pages authenticate by session only, so a personal API key never stands in for their CSRF token.
+        if request.path.startswith("/admin/"):
+            return result
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
             return self._accept(request)
@@ -439,6 +460,10 @@ class AutoProjectMiddleware:
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
+            else:
+                target_team_id = self.get_target_team_id(request)
+                if target_team_id is not None:
+                    self.switch_to_team_id_if_needed_and_allowed(request, target_team_id)
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
@@ -447,12 +472,7 @@ class AutoProjectMiddleware:
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
-            if path_parts[0] == "dashboard":
-                dashboard_id = path_parts[1]
-                if dashboard_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
-            elif path_parts[0] == "insights":
+            if path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
             elif path_parts[0] == "notebooks":
@@ -463,11 +483,6 @@ class AutoProjectMiddleware:
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(id=feature_flag_id)
-            elif path_parts[0] == "action":
-                action_id = path_parts[1]
-                if action_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
@@ -475,10 +490,34 @@ class AutoProjectMiddleware:
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
+    def get_target_team_id(self, request: HttpRequest) -> Optional[int]:
+        """The team owning the object a legacy app path names, for objects read through a product facade."""
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
+            # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
+            return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        if len(path_parts) >= 2 and path_parts[0] == "dashboard" and path_parts[1].isnumeric():
+            return find_dashboard_team_id(dashboard_id=int(path_parts[1]))
+        return None
+
+    def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and current_team.pk != target_team_id:
+            target_team = Team.objects.filter(pk=target_team_id).first()
+            if target_team is not None:
+                self.switch_team_if_allowed(target_team, request)
+
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
+            if not user.is_staff:
+                # A short_id is unique per team only, and no index starts with short_id, so a lookup across all
+                # teams reads the whole table. Staff keep the lookup across all teams, because can_switch_to_team
+                # suggests users to log in as when a staff user opens an object in a team they cannot access.
+                target_queryset = target_queryset.filter(team__in=user.teams)
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
@@ -500,14 +539,11 @@ class AutoProjectMiddleware:
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        user_access_control = UserAccessControl(user=user, team=new_team)
 
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if (
-            not user_access_control.check_access_level_for_object(new_team, "member")
-            and user_permissions.team(new_team).effective_membership_level is None
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PROJECT, id=str(new_team.pk)),
+            action=AuthorizationAction.VIEW,
+            subject=Subject(user_id=user.pk),
         ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
@@ -519,13 +555,83 @@ class AutoProjectMiddleware:
         return True
 
 
+UNMATCHED_ROUTE = "unmatched"
+_PATH_CONVERTER = re.compile(r"<(?:\w+:)?(\w+)>")
+_REGEX_LEFTOVER = re.compile(r"[()\[\]*+|]")
+
+
+def _closing_paren(pattern: str, start: int) -> int:
+    depth = 0
+    in_class = False
+    i = start
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(pattern)
+
+
+@lru_cache(maxsize=8192)
+def route_template(route: str) -> str:
+    """Turn a resolver route into a readable, id-free template.
+
+    `^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/(?P<pk>[^/.]+)/?$`
+    becomes `api/projects/{project_id}/feature_flags/{pk}/`. The input comes from the URLconf,
+    never the request path, so the set of outputs is bounded by the number of URL patterns.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(route):
+        char = route[i]
+        if route.startswith("(?P<", i):
+            name = route[i + 4 : route.index(">", i)]
+            out.append("{" + name.removeprefix("parent_lookup_") + "}")
+            i = _closing_paren(route, i) + 1
+        elif route.startswith("(?:", i) and route[(end := _closing_paren(route, i)) + 1 : end + 2] == "?":
+            # Optional suffixes such as opt_slash_path's `(?:[?#].*)?` share the base route's label.
+            i = end + 2
+        elif char == "\\" and i + 1 < len(route):
+            out.append(route[i + 1])
+            i += 2
+        elif char in "^$" or (char == "?" and out and out[-1] == "/"):
+            i += 1
+        else:
+            out.append(char)
+            i += 1
+    template = _PATH_CONVERTER.sub(r"{\1}", "".join(out))
+    # DRF registers a `.json`-style format-suffix twin of every route; fold it into the base route.
+    template = template.replace(".{format}", "").replace("//", "/")
+    if not template or _REGEX_LEFTOVER.search(template):
+        return UNMATCHED_ROUTE
+    return template
+
+
+def request_route(request: HttpRequest) -> str:
+    match = getattr(request, "resolver_match", None)
+    if match is None or not match.route:
+        return UNMATCHED_ROUTE
+    return route_template(match.route)
+
+
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
     # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
     # or "error" when the view raised before producing one — keeps error-path
     # latency from polluting success buckets while still recording it.
-    labelnames=["view", "method", "source", "access_method", "status_class"],
+    labelnames=["view", "route", "method", "source", "access_method", "status_class"],
     # Same buckets as django_prometheus' default so we line up with
     # django_http_requests_latency_seconds_by_view_method.
     buckets=(
@@ -559,21 +665,20 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        route = resolve(request.path)
-        route_id = f"{route.route} ({route.func.__name__})"
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
 
-        with suppress(Exception):
-            if request_id := structlog.contextvars.get_contextvars().get("request_id"):
-                tag_queries(http_request_id=uuid.UUID(request_id))
+        http_request_id: uuid.UUID | None = None
+        with suppress(ValueError):
+            if isinstance(request_id := structlog.contextvars.get_contextvars().get("request_id"), str):
+                http_request_id = uuid.UUID(request_id)
 
         tag_queries(
+            http_request_id=http_request_id,
             user_id=user.pk,
             kind="request",
             id=request.path,
-            route_id=route.route,
             is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
@@ -593,20 +698,21 @@ class CHQueries:
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
 
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
                     "http_api_request_response",
-                    tags={"id": route_id, "status_code": response.status_code},
+                    tags={"id": f"{route.route} ({route.func.__name__})", "status_code": response.status_code},
                 )
 
             return response
         finally:
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
+                    route=request_route(request),
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -615,6 +721,16 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
             reset_query_tags()
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[Any, ...],
+        view_kwargs: dict[str, Any],
+    ) -> None:
+        if request.resolver_match is not None:
+            tag_queries(route_id=request.resolver_match.route)
 
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
@@ -636,20 +752,31 @@ class QueryTimeCountingMiddleware:
         "properties",
         "person",
     ]
+    LABELLED_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not settings.CAPTURE_TIME_TO_SEE_DATA or not self._should_instrument(request):
+        add_server_timing = settings.CAPTURE_TIME_TO_SEE_DATA and self._should_instrument(request)
+        record_pg_queries = request.path.startswith("/api/")
+        if not add_server_timing and not record_pg_queries:
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
         start_time = time.perf_counter()
-        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+        with (
+            connection.execute_wrapper(pg_query_counter),
+            clickhouse_query_counter(ch_query_counter) if add_server_timing else nullcontext(),
+        ):
             response: HttpResponse = self.get_response(request)
 
-        response.headers["Server-Timing"] = self._construct_header(
+        if record_pg_queries:
+            self._record_pg_queries(request, response, pg_query_counter.count)
+        if not add_server_timing:
+            return response
+
+        server_timing = self._construct_header(
             durations_ms={
                 "django": (time.perf_counter() - start_time) * 1000,
                 "pg": pg_query_counter.query_time_ms,
@@ -664,7 +791,29 @@ class QueryTimeCountingMiddleware:
                 "ch_slow": ch_query_counter.slow_count,
             },
         )
+        if existing_server_timing := response.headers.get("Server-Timing"):
+            server_timing = f"{existing_server_timing}, {server_timing}"
+        response.headers["Server-Timing"] = server_timing
         return response
+
+    def _record_pg_queries(self, request: HttpRequest, response: HttpResponse, query_count: int) -> None:
+        match = request.resolver_match
+        client = posthoganalytics.default_client
+        if match is None or client is None:
+            return
+        method = request.method or ""
+        client.metrics.histogram(
+            "api.request.pg_queries",
+            query_count,
+            unit="{query}",
+            attributes={
+                # The URLconf bounds view_name. The raw path carries ids, so it must never be a label.
+                "route": match.view_name,
+                # A client can send any method token, so unknown methods share one label.
+                "method": method if method in self.LABELLED_METHODS else "other",
+                "status_class": f"{response.status_code // 100}xx",
+            },
+        )
 
     def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:
         parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]
@@ -1150,6 +1299,34 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     return min(idle_expiry_time, total_expiry_time)
 
 
+def _get_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_cached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+    return getattr(request, "_cached_user")  # noqa: B009
+
+
+async def _aget_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_acached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+    return getattr(request, "_acached_user")  # noqa: B009
+
+
+class AuthenticationMiddleware(DjangoAuthenticationMiddleware):
+    """Load the session user with its current organization in one query.
+
+    The 2FA and verified-domain checks in `SessionAuthentication` read `user.organization` on every
+    session request, so a separate lazy load costs one query each time.
+    """
+
+    def process_request(self, request: HttpRequest) -> None:
+        super().process_request(request)
+        # The attribute names match Django's middleware, because AdminImpersonationMiddleware writes `_cached_user`.
+        setattr(request, "user", SimpleLazyObject(lambda: _get_session_user(request)))  # noqa: B010
+        setattr(request, "auser", partial(_aget_session_user, request))  # noqa: B010
+
+
 class AdminImpersonationMiddleware:
     """
     During impersonation, allow the original (staff) user to keep using the admin panel.
@@ -1380,6 +1557,63 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     return session_activity_credential(request, get_original_user_id_from_session(request))
 
 
+# Credentials a person holds. A server-minted sandbox token is OAuth too, but it binds a task.
+_MCP_INTENT_CREDENTIAL_TYPES = frozenset({"oauth", "personal_api_key"})
+
+
+def _resolved_team_id(response: HttpResponse) -> int | None:
+    """The team that a DRF view resolved for the request, read without a query.
+
+    Reads only the cached values, because a view that never resolved a team has no team to report.
+    """
+    renderer_context = getattr(response, "renderer_context", None) or {}
+    cached = getattr(renderer_context.get("view"), "__dict__", {})
+    team = cached.get("team")
+    if isinstance(team, Team):
+        return team.id
+    team_id = cached.get("team_id")
+    return team_id if isinstance(team_id, int) else None
+
+
+def _buffer_mcp_intent(request: HttpRequest, response: HttpResponse) -> None:
+    """Keep the intent of an MCP read for the activity summary, which sees only the calls that write.
+
+    Runs after the view, because bearer authentication sets the user inside it. The buffer is
+    optional context, so a failure here must not fail the request.
+    """
+    if not settings.ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED:
+        return
+    try:
+        if request.headers.get(ACTIVITY_LOG_CLIENT_HEADER, "").strip().lower() != "mcp" or response.status_code >= 400:
+            return
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()
+        if not intent:
+            return
+        credential = activity_storage.get_credential()
+        if (
+            credential is None
+            or credential.type not in _MCP_INTENT_CREDENTIAL_TYPES
+            or credential.impersonated_by_id is not None
+            or activity_storage.get_agent_task_id() is not None
+        ):
+            return
+        user = activity_storage.get_user()
+        team_id = _resolved_team_id(response)
+        if user is None or team_id is None:
+            return
+        resolver_match = request.resolver_match
+        buffer_mcp_intent(
+            team_id=team_id,
+            user_id=user.pk,
+            session_id=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id"))
+            or sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id")),
+            route_name=resolver_match.view_name if resolver_match else None,
+            intent=intent,
+        )
+    except Exception:
+        logger.warning("activity_summary.mcp_intent_buffer_failed", exc_info=True)
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -1410,6 +1644,7 @@ class ActivityLoggingMiddleware:
 
         try:
             response = self.get_response(request)
+            _buffer_mcp_intent(request, response)
         finally:
             # Clean up activity storage after request
             activity_storage.clear_all()
@@ -1423,6 +1658,14 @@ class SocialAuthExceptionMiddleware:
     """
 
     _AUTH_FAILED_PREFIX = "Authentication failed: "
+
+    # `OrganizationInvite.validate()` codes mapped to login page error codes.
+    _INVITE_ERROR_CODES = {
+        "expired": "invalid_invite",
+        "invalid_recipient": "invite_email_mismatch",
+        "user_already_member": "invite_already_member",
+        "existing_email_address": "invite_email_taken",
+    }
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1456,11 +1699,27 @@ class SocialAuthExceptionMiddleware:
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
-            url = sso_failure_redirect_url(request, "social_login_failure")
-            separator = "&" if "?" in url else "?"
-            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
+            return redirect(sso_failure_redirect_url(request, "social_login_failure", error_detail=error_detail))
+
+        # The social auth pipeline validates invites with DRF exceptions. The callback is a plain
+        # Django view, so without this branch they render the 500 page.
+        if isinstance(exception, ValidationError):
+            error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
+            return redirect(sso_failure_redirect_url(request, error_code))
+
+        # social-core wraps only ConnectionError from provider calls, so a read timeout or a provider 5xx
+        # arrives here as a plain requests error. The detail holds the provider URL, so it stays out of the redirect.
+        if isinstance(exception, requests.RequestException):
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
+
+    def _error_code(self, exception: ValidationError) -> str:
+        # `OrganizationInvite.validate()` raises ValidationError("message", code=...), which DRF stores
+        # as a one-element list. Any other shape gets the generic login message.
+        codes = exception.get_codes()
+        first = codes[0] if isinstance(codes, list) and codes else None
+        return first if isinstance(first, str) else "unknown"
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()
@@ -1510,6 +1769,53 @@ def organization_block_page(organization: Organization) -> Optional[str]:
     if organization.is_active is False:
         return "/organization-deactivated"
     return None
+
+
+class IPRestrictionsMiddleware(MiddlewareMixin):
+    """Block requests from an IP that the caller's organization does not allow.
+
+    Runs after `AuthenticationMiddleware` for session requests. Routed viewsets defer to
+    `IPRestrictionsPermission` so the check includes the view's team and organization overrides.
+    Both use the cached organization restrictions and
+    `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
+    verified IP is available.
+    """
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[object, ...],
+        view_kwargs: dict[str, object],
+    ) -> HttpResponse | None:
+        if request.path in ("/logout", "/logout/"):
+            return None
+        try:
+            enforce_ip_restrictions(request, getattr(request, "user", None))
+        except PermissionDenied as error:
+            if (
+                request.method in ("GET", "HEAD")
+                and not request.path_info.startswith("/api/")
+                and "text/html" in request.headers.get("Accept", "")
+            ):
+                response = render(
+                    request,
+                    "ip_restricted.html",
+                    {"detail": str(error.detail), "retry_url": escape_leading_slashes(request.get_full_path())},
+                    status=403,
+                )
+                add_never_cache_headers(response)
+                return response
+            return JsonResponse(
+                {
+                    "type": "authentication_error",
+                    "code": "ip_not_allowed",
+                    "detail": str(error.detail),
+                    "ip": get_restriction_client_ip(request),
+                },
+                status=403,
+            )
+        return None
 
 
 class ActiveOrganizationMiddleware:

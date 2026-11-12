@@ -20,10 +20,14 @@ class SignalsConfig(AppConfig):
         # receivers: post_save receiver that closes a report's implementation PR on suppression/snooze.
         from . import (
             activity_logging,  # noqa: F401
+            implementation_pr_cache,
             receivers,  # noqa: F401
+            task_profiles,
         )
 
+        task_profiles.register()
         receivers.connect_task_run_assignment_sync()
+        implementation_pr_cache.connect_implementation_pr_cache_receivers()
         self._register_task_spend_updates()
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()
@@ -97,7 +101,13 @@ class SignalsConfig(AppConfig):
 
 
 def _record_task_spend_delta(
-    *, team_id: int, run_id: UUID, cost_delta_microusd: int, origin_product: str, **kwargs: object
+    *,
+    team_id: int,
+    run_id: UUID,
+    cost_delta_microusd: int,
+    origin_product: str,
+    accounting_failed: bool = False,
+    **kwargs: object,
 ) -> None:
     if origin_product not in {"signal_report", "signals_scout"}:
         return
@@ -106,4 +116,6 @@ def _record_task_spend_delta(
         record_task_cost_delta,  # noqa: PLC0415 — keeps accounting off Django startup
     )
 
-    record_task_cost_delta(team_id=team_id, run_id=run_id, cost_delta_microusd=cost_delta_microusd)
+    record_task_cost_delta(
+        team_id=team_id, run_id=run_id, cost_delta_microusd=cost_delta_microusd, accounting_failed=accounting_failed
+    )

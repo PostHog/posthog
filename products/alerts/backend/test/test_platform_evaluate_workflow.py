@@ -2,6 +2,8 @@ import uuid
 import asyncio
 import threading
 from collections.abc import AsyncIterator
+from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import patch
@@ -15,22 +17,41 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.alerts.retry_policy import ALERT_SIGNAL_SCHEDULE_TO_CLOSE
+
 from products.alerts.backend.platform_chart_detail import (
     CHART_ASSET_ID_KEY,
     CHART_PENDING_KEY,
     CHART_RENDER_USER_ID_KEY,
+    LATE_CHART_WORKFLOW,
     RenderedChart,
+)
+from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_REQUESTED_KEY, FiringSignalRequest
+from products.alerts.backend.platform_investigation_detail import (
+    METRICS_INVESTIGATION_REQUESTED_KEY,
+    InvestigationClaims,
+    MetricsInvestigationRun,
 )
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
+    CHART_RENDER_FAILED,
+    CHART_RENDER_TIMED_OUT,
+    CHART_START_TO_CLOSE,
+    CHECK_HEARTBEAT_TIMEOUT,
+    CHECK_RETRY_POLICY,
+    CLAIM_SCHEDULE_TO_CLOSE,
     EVALUATION_BUDGET,
+    METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE,
     REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
     AdmittedInsightCheck,
+    ClaimInsightInvestigationsInputs,
     FailedInsightCheckInputs,
+    FiringSignalsInputs,
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
     InsightChartInputs,
     InsightCheckInputs,
+    MetricsInvestigationsInputs,
     StopInsightQueriesInputs,
     evaluate_platform_insight_llm_check_activity,
 )
@@ -39,7 +60,9 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
     AlertDeliveryRequest,
     AlertEventKind,
+    FiringEpisode,
     GroupOutcome,
+    HeldDelivery,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceEvaluationInputs,
@@ -47,8 +70,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceOutcomeInputs,
 )
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
+from products.exports.backend.facade.api import RENDER_TIMEOUT
 
 QUEUE = "test-platform-insight-evaluation"
+_CHART = RenderedChart(asset_id=7, render_user_id=3)
+_FAILED_RENDER = RenderedChart(asset_id=-1, render_user_id=-1)
+_TIMED_OUT_RENDER = RenderedChart(asset_id=-2, render_user_id=-2)
 ADMITTED = ("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
 AI_CHECK = "00000000-0000-0000-0000-000000000003"
 
@@ -72,8 +99,9 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     recorded: list[SourceOutcomeInputs] = []
     failed: list[FailedInsightCheckInputs] = []
     stopped: list[StopInsightQueriesInputs] = []
+    hourly_attempts: list[int] = []
 
-    # Only the real-time and AI checks have a retry, so the same first failure loses the other one.
+    # Every check retries a first failure. The first check fails every attempt, so it ends errored.
     @activity.defn(name="plan_platform_insight_checks_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
         admitted = [
@@ -85,7 +113,9 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
-        if activity.info().attempt == 1:
+        if inputs.configuration_id == ADMITTED[0]:
+            hourly_attempts.append(activity.info().attempt)
+        if activity.info().attempt == 1 or inputs.configuration_id == ADMITTED[0]:
             raise ApplicationError("worker lost")
         return _fired(inputs)
 
@@ -151,23 +181,25 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
         history = await handle.fetch_history()
 
     assert result == 3
-    # The check with no retry left no outcome of its own, so it is recorded as errored, with the reason.
+    # The check whose every attempt failed left no outcome of its own, so it is recorded as errored, with the reason.
+    assert hourly_attempts == list(range(1, CHECK_RETRY_POLICY.maximum_attempts + 1))
     assert [(inputs.configuration_id, inputs.error_message) for inputs in failed] == [(ADMITTED[0], "worker lost")]
-    # Its one attempt's query may still run, which nothing else stops.
-    assert [(inputs.configuration_id, len(inputs.query_ids)) for inputs in stopped] == [(ADMITTED[0], 1)]
+    # Each attempt's query may still run, which nothing else stops.
+    assert [(inputs.configuration_id, len(inputs.query_ids)) for inputs in stopped] == [
+        (ADMITTED[0], CHECK_RETRY_POLICY.maximum_attempts)
+    ]
     assert sorted(
         (str(o.configuration_id), o.groups[0].new_state) for batch in recorded for o in batch.outcomes
     ) == sorted([(ADMITTED[0], "errored"), (ADMITTED[1], "firing"), (AI_CHECK, "firing")])
-    real_time_heartbeats = [
+    check_heartbeats = [
         event.activity_task_scheduled_event_attributes.heartbeat_timeout.ToTimedelta()
         for event in history.events
         if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
         and event.activity_task_scheduled_event_attributes.activity_type.name
         == "evaluate_platform_insight_check_activity"
-        and event.activity_task_scheduled_event_attributes.heartbeat_timeout.ToTimedelta()
     ]
-    # Only the real-time check heartbeats, so a dead worker's check is retried inside its budget.
-    assert real_time_heartbeats == [REAL_TIME_CHECK_HEARTBEAT_TIMEOUT]
+    # Every cadence heartbeats, so a check whose worker never ran it is retried inside its budget.
+    assert sorted(check_heartbeats) == sorted([CHECK_HEARTBEAT_TIMEOUT, REAL_TIME_CHECK_HEARTBEAT_TIMEOUT])
     children = [
         event.child_workflow_execution_started_event_attributes
         for event in history.events
@@ -256,10 +288,11 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_
 
 
 @pytest.mark.parametrize(
-    "fail_second_plan, expected",
+    "fail_second_plan, pool_full_rounds, expected",
     [
         (
             False,
+            0,
             [
                 "00000000-0000-0000-0000-000000000001",
                 "00000000-0000-0000-0000-000000000002",
@@ -267,11 +300,21 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_
             ],
         ),
         # A later plan that fails stops admission, but the checks that already ran still record.
-        (True, ["00000000-0000-0000-0000-000000000001"]),
+        (True, 0, ["00000000-0000-0000-0000-000000000001"]),
+        # Other batches hold every slot at first. The batch waits for one rather than leave its checks to a later tick.
+        (
+            False,
+            2,
+            [
+                "00000000-0000-0000-0000-000000000001",
+                "00000000-0000-0000-0000-000000000002",
+                "00000000-0000-0000-0000-000000000003",
+            ],
+        ),
     ],
 )
 async def test_a_batch_refills_the_slots_its_finished_checks_free(
-    environment: WorkflowEnvironment, fail_second_plan: bool, expected: list[str]
+    environment: WorkflowEnvironment, fail_second_plan: bool, pool_full_rounds: int, expected: list[str]
 ) -> None:
     due = [f"00000000-0000-0000-0000-00000000000{n}" for n in range(1, 4)]
     plans: list[tuple[str, ...]] = []
@@ -284,6 +327,8 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
         plans.append(inputs.exclude)
         if fail_second_plan and len(plans) == 2:
             raise ApplicationError("redis unavailable", non_retryable=True)
+        if len(plans) <= pool_full_rounds:
+            return []
         if set(inputs.exclude) - set(evaluated):
             return []
         return [
@@ -384,19 +429,44 @@ async def test_a_slow_check_does_not_hold_back_the_record_of_a_check_that_finish
 
 
 @pytest.mark.parametrize(
-    "failed_attempts, expected_detail",
+    "failed_attempts, chart, expected_detail, render_outcome, renders_late",
     [
-        (0, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
+        (
+            0,
+            _CHART,
+            {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3},
+            "rendered",
+            False,
+        ),
         # The render pool was full at first, so the render waited for a slot.
-        (1, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
-        (None, {"alert_id": "legacy-alert"}),
+        (
+            1,
+            _CHART,
+            {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3},
+            "rendered",
+            False,
+        ),
+        pytest.param(None, _CHART, {"alert_id": "legacy-alert"}, "timed_out", True, id="no_slot_renders_late"),
+        pytest.param(0, None, {"alert_id": "legacy-alert"}, "no_chart", False, id="no_chart_applies"),
+        pytest.param(
+            0, _FAILED_RENDER, {"alert_id": "legacy-alert"}, "no_chart", True, id="failed_export_renders_late"
+        ),
+        pytest.param(
+            0, _TIMED_OUT_RENDER, {"alert_id": "legacy-alert"}, "timed_out", True, id="timed_out_export_renders_late"
+        ),
     ],
 )
 async def test_a_firing_records_the_chart_rendered_after_its_check(
-    environment: WorkflowEnvironment, failed_attempts: int | None, expected_detail: dict[str, object]
+    environment: WorkflowEnvironment,
+    failed_attempts: int | None,
+    chart: RenderedChart | None,
+    expected_detail: dict[str, object],
+    render_outcome: str,
+    renders_late: bool,
 ) -> None:
     events: list[str] = []
     recorded: list[SourceOutcomeInputs] = []
+    counted: list[str] = []
 
     @activity.defn(name="plan_platform_insight_checks_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
@@ -419,14 +489,26 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
                 ),
             ),
         )
-        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=())
+        delivery = AlertDeliveryRequest(
+            source=SourceKind.INSIGHT,
+            team_id=1,
+            configuration_id=inputs.configuration_id,
+            evaluation_key=outcome.evaluation_key,
+            destination_alert_id="legacy-alert",
+            event_ids_by_kind={"firing": "$insight_alert_firing"},
+        )
+        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,))
 
     @activity.defn(name="render_platform_insight_chart_activity")
     async def render(inputs: InsightChartInputs) -> RenderedChart | None:
         if failed_attempts is None or activity.info().attempt <= failed_attempts:
             raise ApplicationError("render pool full")
         events.append(f"render:{inputs.alert_id}")
-        return RenderedChart(asset_id=7, render_user_id=3)
+        if chart is _FAILED_RENDER:
+            raise ApplicationError("export failed", type=CHART_RENDER_FAILED)
+        if chart is _TIMED_OUT_RENDER:
+            raise ApplicationError("export timed out", type=CHART_RENDER_TIMED_OUT)
+        return chart
 
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
     async def record(inputs: SourceOutcomeInputs) -> int:
@@ -441,25 +523,44 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
         activities=[plan, evaluate, render, record],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
-        await environment.client.execute_workflow(
-            InsightAlertPlatformEvaluateWorkflow.run,
-            SourceEvaluationInputs(
-                source=SourceKind.INSIGHT,
-                cutoff="2026-09-16T10:00:00+00:00",
-                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
-            ),
-            id=f"test-{uuid.uuid4()}",
-            task_queue=QUEUE,
-        )
+        with patch(
+            "products.alerts.backend.temporal.platform_evaluate.increment_chart_renders",
+            side_effect=lambda _source, outcome: counted.append(outcome),
+        ):
+            handle = await environment.client.start_workflow(
+                InsightAlertPlatformEvaluateWorkflow.run,
+                SourceEvaluationInputs(
+                    source=SourceKind.INSIGHT,
+                    cutoff="2026-09-16T10:00:00+00:00",
+                    batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+                ),
+                id=f"test-{uuid.uuid4()}",
+                task_queue=QUEUE,
+            )
+            await handle.result()
+            history = await handle.fetch_history()
 
     assert events == (["check", "record"] if failed_attempts is None else ["check", "render:legacy-alert", "record"])
     assert [group.source_detail for batch in recorded for o in batch.outcomes for group in o.groups] == [
         expected_detail
     ]
+    assert counted == [render_outcome]
+    started = [
+        event.start_child_workflow_execution_initiated_event_attributes.workflow_type.name
+        for event in history.events
+        if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+    ]
+    assert (LATE_CHART_WORKFLOW in started) is renders_late
 
 
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
+    # The inbox signal runs beside the claim, so it must fit the claim's share of the budget.
+    assert ALERT_SIGNAL_SCHEDULE_TO_CLOSE <= CLAIM_SCHEDULE_TO_CLOSE + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
+
+
+def test_a_firing_waits_for_one_render_at_most() -> None:
+    assert CHART_START_TO_CLOSE > RENDER_TIMEOUT
 
 
 async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_its_thread_ends() -> None:
@@ -571,3 +672,152 @@ async def test_a_record_that_fails_while_a_check_still_runs_records_again_at_the
     assert result == 2
     assert attempts[0] == [fast]
     assert sorted(configuration_id for attempt in attempts[1:] for configuration_id in attempt) == [fast, slow]
+
+
+async def test_a_metrics_firing_is_delivered_once_its_investigation_releases_it(
+    environment: WorkflowEnvironment,
+) -> None:
+    released: list[AlertDeliveryRequest] = []
+
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [] if inputs.exclude else [AdmittedInsightCheck(configuration_id=ADMITTED[0], owned_by_platform=True)]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        outcome = _outcome(inputs.configuration_id, AlertEventKind.FIRING, "firing")
+        group = outcome.groups[0]
+        outcome = PlatformAlertOutcome(
+            configuration_id=outcome.configuration_id,
+            evaluation_key=outcome.evaluation_key,
+            consecutive_failures=0,
+            groups=(
+                GroupOutcome(
+                    grouping_key=group.grouping_key,
+                    kind=group.kind,
+                    new_state=group.new_state,
+                    notified=group.notified,
+                    source_detail={METRICS_INVESTIGATION_REQUESTED_KEY: "legacy-alert"},
+                ),
+            ),
+        )
+        delivery = AlertDeliveryRequest(
+            source=SourceKind.INSIGHT,
+            team_id=1,
+            configuration_id=inputs.configuration_id,
+            evaluation_key=outcome.evaluation_key,
+            destination_alert_id="legacy-alert",
+            event_ids_by_kind={"firing": "$insight_alert_firing"},
+        )
+        # Held by the check, so only the investigation's release starts it.
+        held = replace(
+            outcome,
+            held_delivery=HeldDelivery(request=delivery, reason="metrics_investigation", release_after_seconds=300),
+        )
+        released.append(delivery)
+        return SourceBatchEvaluation(outcomes=(held,), deliveries=())
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        return len(inputs.outcomes)
+
+    @activity.defn(name="claim_platform_insight_investigations_activity")
+    async def claim(inputs: ClaimInsightInvestigationsInputs) -> InvestigationClaims:
+        return InvestigationClaims(metrics=(MetricsInvestigationRun(team_id=1, investigation_id="inv-1"),))
+
+    @activity.defn(name="run_platform_metrics_investigations_activity")
+    async def investigate(inputs: MetricsInvestigationsInputs) -> list[AlertDeliveryRequest]:
+        return released
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record, claim, investigate],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+        await handle.result()
+        history = await handle.fetch_history()
+
+    order = []
+    for event in history.events:
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            order.append(event.activity_task_scheduled_event_attributes.activity_type.name)
+        elif event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+            order.append("delivery")
+    assert order.index("run_platform_metrics_investigations_activity") < order.index("delivery")
+
+
+@pytest.mark.parametrize("send_fails", [False, True])
+async def test_a_recorded_firing_emits_its_inbox_signal_and_a_failed_send_keeps_the_batch(
+    environment: WorkflowEnvironment, send_fails: bool
+) -> None:
+    started_at = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    scheduled: list[str] = []
+    sent: list[FiringSignalsInputs] = []
+
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [] if inputs.exclude else [AdmittedInsightCheck(configuration_id=ADMITTED[0], owned_by_platform=True)]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        outcome = _outcome(inputs.configuration_id, AlertEventKind.FIRING, "firing")
+        group = replace(
+            outcome.groups[0],
+            firing_episode=FiringEpisode(started_at=started_at, ended=False),
+            source_detail={FIRING_SIGNAL_REQUESTED_KEY: "legacy-alert", "breaches": ["above 100"]},
+        )
+        return SourceBatchEvaluation(outcomes=(replace(outcome, groups=(group,)),), deliveries=())
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        scheduled.append("record")
+        return len(inputs.outcomes)
+
+    @activity.defn(name="emit_platform_insight_firing_signals_activity")
+    async def emit(inputs: FiringSignalsInputs) -> None:
+        scheduled.append("emit")
+        sent.append(inputs)
+        if send_fails:
+            raise ApplicationError("signals unavailable", non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record, emit],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await environment.client.execute_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+
+    assert result == 1
+    assert scheduled[:2] == ["record", "emit"]
+    assert sent[0].requests == (
+        FiringSignalRequest(
+            team_id=1,
+            alert_id="legacy-alert",
+            configuration_id=ADMITTED[0],
+            episode_started_at=started_at,
+            breaches=("above 100",),
+        ),
+    )

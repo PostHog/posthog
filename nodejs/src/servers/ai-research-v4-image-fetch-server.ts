@@ -15,6 +15,8 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
+import { CachedConfigurationCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/cached-configuration-crawl-history'
+import { MAX_RECORD_BYTES } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/collected-urls-record'
 import {
     ConfigurationPolicyService,
     HttpConfigurationFetcher,
@@ -38,10 +40,8 @@ import {
     V4_IMAGE_FETCH_DELAY_TOPICS,
     V4_IMAGE_FETCH_LANE,
     assertOwnImageFetchGroup,
-    v4HostLimits,
 } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/lane'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/origin-request-scheduler'
-import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/politeness-key'
 import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/pool-window-batch-handler'
 import {
     AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER,
@@ -55,6 +55,7 @@ import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ai-resea
 import { SharedImageFetcher } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/shared-image-fetcher'
 import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/url-fetch-consumer'
+import { assertSharedRulesLoaded } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/v4-native'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/web-bot-auth'
 import { AiResearchV4ConsumerServer } from '~/ingestion/pipelines/sessionreplay/ai-research/server/v4-consumer-server'
 import { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
@@ -105,7 +106,12 @@ function getUrlPolicy(): typeof import('@posthog/ai-research-v4-native') {
     return urlPolicy
 }
 
-export function buildFrontierPublisher(producer: KafkaProducer, maxConcurrentRepublishes: number): FrontierPublisher {
+export function buildFrontierPublisher(
+    producer: KafkaProducer,
+    maxConcurrentRepublishes: number,
+    maxUrlAgeMs: number,
+    maxUrlAgeFromMs: number
+): FrontierPublisher {
     return new FrontierPublisher(producer, {
         frontierTopic: V4_IMAGE_FETCH_LANE.frontier,
         delayTiers: [
@@ -114,19 +120,17 @@ export function buildFrontierPublisher(producer: KafkaProducer, maxConcurrentRep
             { topic: V4_IMAGE_FETCH_LANE.retry1h, delayMs: 3_600_000, metricTopic: 'retry_1h' },
         ],
         maxConcurrentRepublishes,
+        maxUrlAgeMs,
+        maxUrlAgeFromMs,
     })
 }
 
-/** The lane's per registrable domain limits: the configured share of the configured limits. */
 export function imageFetchHostLimits(config: AiResearchV4ServerConfig): HostLimits {
-    return v4HostLimits(
-        {
-            requestsPerSecond: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
-            burst: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
-            maxConcurrent: config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
-        },
-        config.AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE
-    )
+    return {
+        requestsPerSecond: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
+        burst: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
+        maxConcurrent: config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+    }
 }
 
 export function buildFetchRunner(
@@ -218,7 +222,8 @@ export function buildImageFetchConsumerOverrides(
     consumerCount: number
 ): RdKafkaConsumerOverrides {
     assertImageFetchBatchTarget(consumerCount)
-    const maximumRecordBytes = config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
+    // The frontier carries job records and never an image, and each of its writers caps a record at MAX_RECORD_BYTES.
+    const maximumRecordBytes = MAX_RECORD_BYTES * 2 + 64 * 1024
     return {
         'fetch.message.max.bytes': maximumRecordBytes,
         'max.partition.fetch.bytes': maximumRecordBytes,
@@ -294,7 +299,7 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         // Here rather than on the first record. The parser calls into this addon for every URL, and
         // it must answer with a reason rather than raise, so a build that shipped without the addon
         // has to stop the pod at startup instead.
-        assertUrlPolicyLoaded()
+        assertSharedRulesLoaded()
 
         const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
         const dryRun = this.config.AI_RESEARCH_V4_IMAGE_FETCH_DRY_RUN
@@ -314,7 +319,15 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
                 `AI_RESEARCH_V4_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS must be a positive number, got ${dynamoDBTimeoutMs}`
             )
         }
-        const s3 = buildSessionRecordingS3Client(this.config)
+        // A write past the agent's socket limit waits with its sealed image in memory and its timeout running.
+        const storeSockets = {
+            keepAlive: true,
+            maxSockets: this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+        }
+        const s3 = buildSessionRecordingS3Client(
+            this.config,
+            new NodeHttpHandler({ httpAgent: storeSockets, httpsAgent: storeSockets })
+        )
         if (!s3) {
             throw new Error('SESSION_RECORDING_V2_S3_* must be configured for the v4 image fetch lane')
         }
@@ -325,13 +338,17 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
             maxAttempts: 5,
             requestHandler: new NodeHttpHandler(),
         })
-        const crawlHistory = new DynamoDBCrawlHistory(
+        const storedCrawlHistory = new DynamoDBCrawlHistory(
             this.crawlHistoryClient,
             historyTable,
             dynamoDBTimeoutMs,
             STORE_BATCH_BUDGET_MS
         )
-        await crawlHistory.validateAccess(Date.now())
+        await storedCrawlHistory.validateAccess(Date.now())
+        // Each origin the pod tracks has a robots item and a TDMRep item.
+        const crawlHistory = new CachedConfigurationCrawlHistory(storedCrawlHistory, {
+            maxEntries: 2 * this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
+        })
 
         const keys = new TeamMonthKeys(
             new DynamoDBClient({ region, endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT, maxAttempts: 5 }),
@@ -362,7 +379,12 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         this.topHog.start()
         const topHogMetrics = new ImageFetchTopHogMetrics(this.topHog)
         const producer = this.producerRegistry.getProducer(AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER)
-        const publisher = buildFrontierPublisher(producer, this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES)
+        const publisher = buildFrontierPublisher(
+            producer,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS
+        )
         const deadLetterTopic = this.config.AI_RESEARCH_V4_IMAGE_FETCH_DLQ_TOPIC
         const deadLetters = deadLetterTopic
             ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)

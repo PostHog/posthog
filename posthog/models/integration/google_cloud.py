@@ -8,10 +8,11 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model, refresh_tracking
+from . import model, refresh_tracking, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -71,8 +72,8 @@ def is_unique_service_account_by_organization_id(service_account_email: str, org
 class GoogleCloudServiceAccountIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
-        self.integration = integration
+    def __init__(self, integration: IntegrationRecord) -> None:
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def integration_from_service_account(
@@ -85,7 +86,7 @@ class GoogleCloudServiceAccountIntegration:
         private_key_id: str | None = None,
         token_uri: str | None = None,
         created_by: User | None = None,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         if private_key is None:
             if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
@@ -101,25 +102,20 @@ class GoogleCloudServiceAccountIntegration:
 
         variant = "impersonated" if is_impersonated else "key-file"
 
-        integration, _ = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
+        integration, _ = row_writes.creator_accessor(
+            model.Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value
+        ).upsert(
+            team_id,
             # Including team_id to allow teams from the same organization to use the
             # same service account. Otherwise different teams would overwrite each other.
-            integration_id=f"{service_account_email}-{team_id}-{variant}",
-            defaults={
-                "config": {
-                    "project_id": project_id,
-                    "service_account_email": service_account_email,
-                },
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
+            f"{service_account_email}-{team_id}-{variant}",
+            config={
+                "project_id": project_id,
+                "service_account_email": service_account_email,
             },
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 
@@ -158,13 +154,13 @@ class GoogleCloudIntegration:
     supported_kinds = ["google-pubsub", "google-cloud-storage"]
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
-        self.integration = integration
+    def __init__(self, integration: IntegrationRecord) -> None:
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def integration_from_key(
         cls, kind: str, key_info: dict, team_id: int, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
         elif kind == "google-cloud-storage":
@@ -180,26 +176,19 @@ class GoogleCloudIntegration:
         except Exception:
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=kind,
-            integration_id=credentials.service_account_email,
-            defaults={
-                "config": {
-                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                    "refreshed_at": int(time.time()),
-                },
-                "sensitive_config": {
-                    "key_info": key_info,
-                    "access_token": credentials.token,
-                },
-                "created_by": created_by,
+        integration, _ = row_writes.creator_accessor(kind).upsert(
+            team_id,
+            credentials.service_account_email,
+            config={
+                "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                "refreshed_at": int(time.time()),
             },
+            sensitive_config={
+                "key_info": key_info,
+                "access_token": credentials.token,
+            },
+            created_by_id=created_by.id if created_by else None,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 
@@ -225,43 +214,48 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
-        key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        sensitive_config = self.integration.sensitive_config
+        key_info = dict(sensitive_config.get("key_info", sensitive_config))
         try:
             key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
         except InvalidGoogleTokenUriError:
-            refresh_tracking.record_refresh_failure(
+            failure, _ = refresh_tracking.refresh_failure_patch(
                 self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
             )
-            self.integration.save(update_fields=["config"])
+            self._store(failure)
             raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
-            refresh_tracking.record_refresh_failure(self.integration)
-            self.integration.save(update_fields=["config"])
+            failure, _ = refresh_tracking.refresh_failure_patch(self.integration)
+            self._store(failure)
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
         # Wholesale replacement also clears any refresh backoff state
-        self.integration.config = {
+        new_config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
         }
-        # Migrate pre-migration integrations where sensitive_config contains the
-        # keyfile directly (not nested under "key_info"). Without this, setting
-        # access_token pollutes the keyfile dict and breaks subsequent refreshes.
-        if "key_info" not in self.integration.sensitive_config:
-            self.integration.sensitive_config = {
-                "key_info": self.integration.sensitive_config,
-                "access_token": credentials.token,
-            }
+        if "key_info" in sensitive_config:
+            tokens = IntegrationPatch(sensitive_config_patch={"key_info": key_info, "access_token": credentials.token})
         else:
-            self.integration.sensitive_config["access_token"] = credentials.token
-        self.integration.save()
+            # Migrate pre-migration integrations where sensitive_config contains the
+            # keyfile directly (not nested under "key_info"). Without this, setting
+            # access_token pollutes the keyfile dict and breaks subsequent refreshes.
+            tokens = row_writes.replaced_sensitive_config_patch(
+                sensitive_config, {"key_info": key_info, "access_token": credentials.token}
+            )
+        self._store(
+            row_writes.merged_patch(row_writes.replaced_config_patch(self.integration.config, new_config), tokens)
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+    def _store(self, patch: IntegrationPatch) -> None:
+        self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
 
     def get_access_token(self) -> str:
         if self.access_token_expired():

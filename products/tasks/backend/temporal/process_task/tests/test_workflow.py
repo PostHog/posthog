@@ -22,7 +22,13 @@ from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    RetryState,
+    TimeoutError as ActivityTimeoutError,
+    TimeoutType,
+)
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -574,9 +580,7 @@ class TestSandboxRotation:
         return cast("asyncio.Task[None]", name)
 
     def _snapshot(self, external_id: str | None = "snap-1") -> CreateResumeSnapshotOutput:
-        return CreateResumeSnapshotOutput(
-            external_id=external_id, snapshot_kind="directory", snapshot_mount_path="/mnt/work"
-        )
+        return CreateResumeSnapshotOutput(external_id=external_id, snapshot_mount_path="/mnt/work")
 
     def _replacement(self, used_snapshot: bool = True) -> GetSandboxForRepositoryOutput:
         return GetSandboxForRepositoryOutput(
@@ -1301,14 +1305,14 @@ class TestProcessTaskFollowupDispatch:
 
 
 class TestFollowupDeliveryFailureBookkeeping:
-    def _workflow(self, monkeypatch, *, mode: str):
+    def _workflow(self, monkeypatch, *, mode: str, delivery_error: Exception | None = None):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
         emitted: list[EmitProgressInput] = []
 
         async def fake_execute_activity(_activity, activity_input, **_kwargs):
             if isinstance(activity_input, SendFollowupToSandboxInput):
-                raise RuntimeError("delivery failed")
+                raise delivery_error or RuntimeError("delivery failed")
             if isinstance(activity_input, EmitProgressInput):
                 emitted.append(activity_input)
             return None
@@ -1343,6 +1347,34 @@ class TestFollowupDeliveryFailureBookkeeping:
         assert workflow._completion_status == "failed"
         assert workflow._completion_error_type == "followup_delivery_failed"
         assert emitted == []
+
+    @pytest.mark.parametrize("mode", ["interactive", "background"])
+    async def test_active_session_cap_on_delivery_fails_the_run(self, monkeypatch, mode: str) -> None:
+        delivery_error = ActivityError(
+            "Activity task failed",
+            scheduled_event_id=10,
+            started_event_id=11,
+            identity="worker-1",
+            activity_type="send_followup_to_sandbox",
+            activity_id="activity-1",
+            retry_state=RetryState.NON_RETRYABLE_FAILURE,
+        )
+        delivery_error.__cause__ = ApplicationError(
+            "You already have 2 cloud sandboxes running.", type="ActiveSessionCapError"
+        )
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, delivery_error=delivery_error)
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert any(key.endswith(":msg-1") for key in workflow._accepted_message_ids)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "ActiveSessionCapError"
+        assert workflow._completion_error == "You already have 2 cloud sandboxes running."
+        assert emitted == []
+        assert not any(key.endswith(":msg-1") for key in workflow._accepted_message_ids)
 
 
 async def test_agent_shadow_result_is_reported_separately(monkeypatch):
@@ -1521,6 +1553,43 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
     )
 
 
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("scheduled_during_flush", [False, True])
+async def test_flush_boot_telemetry_drains_finished_and_late_milestones(monkeypatch, scheduled_during_flush):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
+    workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    tracked: list[str] = []
+
+    async def track(event_name: str, properties: dict[str, Any]) -> None:
+        tracked.append(event_name)
+        if scheduled_during_flush and event_name == "agent_first_command_dispatched":
+            workflow_instance._schedule_boot_milestone("agent_first_activity_observed")
+
+    monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "now",
+        Mock(return_value=datetime(2026, 8, 28, 10, 0, 21, tzinfo=UTC)),
+    )
+
+    workflow_instance._schedule_boot_milestone("agent_first_command_dispatched")
+    if not scheduled_during_flush:
+        (task,) = workflow_instance._boot_telemetry_tasks
+        while not task.done():
+            await asyncio.sleep(0)
+    await workflow_instance._flush_boot_telemetry_tasks()
+
+    assert workflow_instance._boot_telemetry_tasks == []
+    expected = ["agent_first_command_dispatched"]
+    if scheduled_during_flush:
+        expected.append("agent_first_activity_observed")
+    assert tracked == expected
+
+
 @pytest.mark.parametrize("timing_enabled", [False, True])
 @pytest.mark.parametrize(
     ("same_run_resume", "requested_at"),
@@ -1659,6 +1728,21 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    @pytest.mark.parametrize("origin", ["signals_scout", "signal_report", "signals_chat", "scout_suggestions"])
+    @pytest.mark.parametrize("patched", [False, True])
+    def test_trial_quota_rechecks_cover_non_pr_work_with_replay_gate(
+        self, origin: str, patched: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        wf = ProcessTaskWorkflow()
+        wf._context = dataclasses.replace(
+            _build_context(github_integration_id=None),
+            origin_product=origin,
+            create_pr=False,
+            state={"self_driving_funding": {"funding": "trial"}},
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: patched)
+        assert wf._self_driving_quota_recheck_scheduled() is patched
+
     @pytest.mark.parametrize("create_pr, state", [(False, {}), (True, {"billing_product": "posthog_ai"})])
     def test_quota_recheck_not_scheduled_outside_automatic_implementation(self, create_pr, state):
         wf = ProcessTaskWorkflow()
@@ -2394,18 +2478,31 @@ class TestProcessTaskWorkflowUnit:
             run_id="run-id", stream_generation="resumed-generation"
         )
 
-    async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "activity_type, error_type, message",
+        [
+            ("inject_fresh_tokens_on_resume", "SandboxNotRunningError", "Sandbox not in running state."),
+            (
+                "create_sandbox_for_repository",
+                "ActiveSessionCapError",
+                "You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.",
+            ),
+        ],
+    )
+    async def test_run_persists_activity_failure_cause_not_the_wrapper(
+        self, monkeypatch, activity_type: str, error_type: str, message: str
+    ):
         workflow = ProcessTaskWorkflow()
         error = ActivityError(
             "Activity task failed",
             scheduled_event_id=10,
             started_event_id=11,
             identity="worker-1",
-            activity_type="inject_fresh_tokens_on_resume",
+            activity_type=activity_type,
             activity_id="activity-1",
             retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
         )
-        error.__cause__ = ApplicationError("Sandbox not in running state.", type="SandboxNotRunningError")
+        error.__cause__ = ApplicationError(message, type=error_type)
         update_task_run_status_mock = AsyncMock()
 
         monkeypatch.setattr(
@@ -2420,12 +2517,12 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is False
-        assert result.error == "Sandbox not in running state."
+        assert result.error == message
         update_task_run_status_mock.assert_awaited_with(
             "failed",
-            error_message="Sandbox not in running state.",
+            error_message=message,
             run_id="run-id",
-            error_type="SandboxNotRunningError",
+            error_type=error_type,
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):
@@ -3323,6 +3420,7 @@ class TestProcessTaskWorkflowUnit:
         assert cloned == ["posthog/posthog", "posthog/code"]
         for repository in ("posthog/posthog", "posthog/code"):
             assert clone_options[repository]["start_to_close_timeout"] == timedelta(minutes=5)
+            assert clone_options[repository]["schedule_to_close_timeout"] == timedelta(minutes=5)
             assert clone_options[repository]["retry_policy"].maximum_attempts == 6
         assert result.clone_ms is None
 
@@ -3399,7 +3497,24 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].release_barrier is False
 
     @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
-    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
+    @pytest.mark.parametrize("clone_times_out", [True, False])
+    async def test_overlap_primary_clone_failure(
+        self, monkeypatch: pytest.MonkeyPatch, fail_on_primary_clone_failure: bool, clone_times_out: bool
+    ) -> None:
+        clone_error: Exception = RuntimeError("clone timed out")
+        if clone_times_out:
+            clone_error = ActivityError(
+                "clone timed out",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="test-worker",
+                activity_type="clone_repository_in_sandbox",
+                activity_id="clone",
+                retry_state=RetryState.TIMEOUT,
+            )
+            clone_error.__cause__ = ActivityTimeoutError(
+                "clone deadline exceeded", type=TimeoutType.SCHEDULE_TO_CLOSE, last_heartbeat_details=[]
+            )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3439,7 +3554,7 @@ class TestProcessTaskWorkflowUnit:
                 return StartAgentServerOutput(sandbox_url=created.sandbox_url)
             if activity_fn is clone_repository_in_sandbox:
                 assert kwargs["retry_policy"].maximum_attempts == 6
-                raise RuntimeError("clone timed out")
+                raise clone_error
             if activity_fn is mark_repo_ready:
                 ready_inputs.append(args[0])
                 return None
@@ -3460,7 +3575,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         if fail_on_primary_clone_failure:
-            with pytest.raises(RuntimeError, match="clone timed out"):
+            with pytest.raises(type(clone_error), match="clone timed out"):
                 await workflow._get_sandbox_for_repository()
             assert mark_repo_ready not in calls
             assert checkout_branch_in_sandbox not in calls

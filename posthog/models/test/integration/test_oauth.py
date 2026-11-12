@@ -33,12 +33,16 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
+    LinearIntegration,
     OauthClientCredentials,
     OauthIntegration,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
+from posthog.models.integration.model import integration_model
+from posthog.models.integration.oauth import posthog_slack_scope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -58,6 +62,26 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
+@pytest.mark.parametrize(
+    "debug, cloud_deployment, requests_in_review",
+    [
+        (False, "US", False),
+        (False, "EU", False),
+        (False, None, False),
+        (False, "DEV", True),
+        (True, None, True),
+    ],
+)
+def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
+    debug: bool, cloud_deployment: str | None, requests_in_review: bool
+) -> None:
+    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
+        requested = set(posthog_slack_scope().split(","))
+
+    assert {scope.value for scope in SlackIntegrationScope} <= requested
+    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+
+
 class TestOauthIntegrationModel(BaseTest):
     mock_settings = {
         "SALESFORCE_CONSUMER_KEY": "salesforce-client-id",
@@ -68,6 +92,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
         "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID": "google-search-console-client-id",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET": "google-search-console-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
@@ -76,6 +102,10 @@ class TestOauthIntegrationModel(BaseTest):
         "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
         "HELPSCOUT_APP_CLIENT_ID": "helpscout-client-id",
         "HELPSCOUT_APP_CLIENT_SECRET": "helpscout-client-secret",
+        "STRIPE_APP_CLIENT_ID": "stripe-client-id",
+        "STRIPE_APP_SECRET_KEY": "stripe-secret-key",
+        "INSTAGRAM_APP_CLIENT_ID": "instagram-client-id",
+        "INSTAGRAM_APP_CLIENT_SECRET": "instagram-client-secret",
     }
 
     def create_integration(
@@ -107,6 +137,13 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_google_search_console_authorize_url_offers_the_account_chooser(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-search-console", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert params["access_type"] == "offline"
+            assert set(params["prompt"].split(" ")) == {"consent", "select_account"}
 
     def test_authorize_url_carries_initiating_team_id_in_state(self):
         with self.settings(**self.mock_settings):
@@ -212,8 +249,8 @@ class TestOauthIntegrationModel(BaseTest):
                     },
                 )
 
-            assert integration.team == self.team
-            assert integration.created_by == self.user
+            assert integration.team_id == self.team.id
+            assert integration.created_by_id == self.user.id
 
             assert integration.config == {
                 "instance_url": "https://fake.salesforce.com",
@@ -260,6 +297,7 @@ class TestOauthIntegrationModel(BaseTest):
         [
             (
                 "json_error_body",
+                "salesforce",
                 400,
                 {
                     "error": "invalid_grant",
@@ -272,15 +310,61 @@ class TestOauthIntegrationModel(BaseTest):
             ),
             (
                 "json_error_body_other_code",
+                "salesforce",
                 400,
-                {"error": "invalid_client", "error_description": "Client authentication failed."},
+                {"error": "invalid_request", "error_description": "Missing redirect_uri."},
                 None,
-                '{"error":"invalid_client","error_description":"Client authentication failed."}',
-                ["invalid_client", "Client authentication failed"],
+                '{"error":"invalid_request","error_description":"Missing redirect_uri."}',
+                ["invalid_request", "Missing redirect_uri"],
                 [],
             ),
             (
+                "client_credentials_rejected",
+                "salesforce",
+                401,
+                {"error": "invalid_client", "error_description": "Client authentication failed."},
+                None,
+                '{"error":"invalid_client","error_description":"Client authentication failed."}',
+                ["Contact support"],
+                ["invalid_client", "Start the connection again"],
+            ),
+            (
+                "meta_client_secret_rejected",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating client secret.",
+                        "type": "OAuthException",
+                        "code": 1,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Error validating client secret.","type":"OAuthException","code":1,"fbtrace_id":"fake-trace-id"}}',
+                ["Contact support"],
+                ["OAuthException", "fake-trace-id"],
+            ),
+            (
+                "meta_nested_error_object",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Invalid verification code format.",
+                        "type": "OAuthException",
+                        "code": 100,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Invalid verification code format.","type":"OAuthException","code":100,"fbtrace_id":"fake-trace-id"}}',
+                ["Invalid verification code format"],
+                ["OAuthException", "fake-trace-id", "Contact support"],
+            ),
+            (
                 "non_json_error_body",
+                "salesforce",
                 502,
                 None,
                 ValueError("not json"),
@@ -288,12 +372,36 @@ class TestOauthIntegrationModel(BaseTest):
                 ["salesforce"],
                 [],
             ),
+            (
+                "stripe_expired_code",
+                "stripe",
+                400,
+                {"error": "invalid_grant", "error_description": "Authorization code expired: ac_fake_code"},
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code expired: ac_fake_code"}',
+                ["Start the connection again"],
+                ["ac_fake_code", "Restricted API key"],
+            ),
+            (
+                "stripe_test_mode_code_with_live_key",
+                "stripe",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Passed in livemode API key but authorization code only supports returning test keys",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Passed in livemode API key but authorization code only supports returning test keys"}',
+                ["test mode", "Restricted API key"],
+                ["Start the connection again", "livemode API key"],
+            ),
         ]
     )
     @patch("posthog.models.integration.oauth.requests.post")
     def test_oauth_token_exchange_failure_raises_validation_error(
         self,
         _name,
+        kind,
         status_code,
         json_return,
         json_side_effect,
@@ -316,7 +424,7 @@ class TestOauthIntegrationModel(BaseTest):
 
             with pytest.raises(ValidationError) as e:
                 OauthIntegration.integration_from_oauth_response(
-                    "salesforce",
+                    kind,
                     self.team.id,
                     self.user,
                     {"code": "code", "state": "next=/projects/test"},
@@ -456,8 +564,8 @@ class TestOauthIntegrationModel(BaseTest):
                     },
                 )
 
-            assert integration.team == self.team
-            assert integration.created_by == self.user
+            assert integration.team_id == self.team.id
+            assert integration.created_by_id == self.user.id
             # Verify sub and email were extracted from JWT
             assert integration.config["sub"] == "linkedin_user_123"
             assert integration.config["email"] == "user@example.com"
@@ -490,6 +598,39 @@ class TestOauthIntegrationModel(BaseTest):
         with time_machine.travel(now + timedelta(seconds=1000), tick=False):
             # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_only_a_reconnect_moves_a_linear_connection_past_the_webhooks_date(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        # The token exchange pops fields from the body, so each request needs its own copy.
+        mock_post.return_value.json.side_effect = lambda: {
+            "access_token": "FAKES_ACCESS_TOKEN",
+            "refresh_token": "FAKE_REFRESH_TOKEN",
+            "expires_in": 3600,
+            "data": {"viewer": {"organization": {"id": "linear-org-1", "name": "Acme", "urlKey": "acme"}}},
+        }
+        params = {"code": "code", "state": "next=/projects/test"}
+
+        with self.settings(**self.mock_settings):
+            with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
+                connected = integration_model(
+                    OauthIntegration.integration_from_oauth_response("linear", self.team.id, self.user, params)
+                )
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T12:00:00Z", tick=False):
+                OauthIntegration(connected).refresh_access_token()
+            connected.refresh_from_db()
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T13:00:00Z", tick=False):
+                reconnected = OauthIntegration.integration_from_oauth_response(
+                    "linear", self.team.id, self.user, params
+                )
+
+        assert reconnected.id == connected.id
+        assert LinearIntegration(reconnected).authorized_before_webhooks() is False
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
@@ -734,6 +875,33 @@ class TestOauthIntegrationModel(BaseTest):
         assert mock_post.call_count == 2
         assert integration.errors == ""
         assert integration.sensitive_config["access_token"] == "fallback-token"
+
+    @parameterized.expand(
+        [
+            ("row_still_stores_the_held_token", False, True, "REFRESHED_ACCESS_TOKEN"),
+            ("another_worker_stored_a_newer_token", True, False, "NEWER_TOKEN"),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_access_token_spends_the_refresh_token_once(
+        self, _name, other_worker_refreshed, calls_provider, expected_token, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}
+        integration = self.create_integration(kind="hubspot", sensitive_config={"access_token": "HELD_TOKEN"})
+        held = Integration.objects.get(id=integration.id)
+        if other_worker_refreshed:
+            integration.sensitive_config = {**integration.sensitive_config, "access_token": "NEWER_TOKEN"}
+            integration.save()
+
+        oauth = OauthIntegration(held)
+        with self.settings(**self.mock_settings):
+            returned = oauth.refresh_access_token()
+
+        assert mock_post.called == calls_provider
+        for record in (returned, oauth.integration, held, Integration.objects.get(id=integration.id)):
+            assert record.access_token == expected_token
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
@@ -987,8 +1155,8 @@ class TestOauthIntegrationModel(BaseTest):
             }
             oauth_payload = {"code": "code", "state": "next=/projects/test"}
 
-            integration = OauthIntegration.integration_from_oauth_response(
-                "salesforce", self.team.id, self.user, oauth_payload
+            integration = integration_model(
+                OauthIntegration.integration_from_oauth_response("salesforce", self.team.id, self.user, oauth_payload)
             )
             integration.config.update(
                 {"refresh_failure_count": 5, "refresh_next_attempt_at": 1704117600, "refresh_terminal": True}
@@ -1256,27 +1424,139 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
+    @parameterized.expand(
+        [
+            ("lost_response", [requests.exceptions.ReadTimeout()], False),
+            ("server_error", [(500, {"error": {"type": "api_error"}})], False),
+            ("rate_limited", [(429, {"error": {"type": "rate_limit_error"}})], False),
+            ("concurrent_request", [(409, {"error": {"type": "idempotency_error"}})], False),
+            ("invalid_client", [(401, {"error": "invalid_client"})], False),
+            ("forbidden", [(403, {"error": {"type": "permission_error"}})], False),
+            ("invalid_grant", [(400, {"error": "invalid_grant"})], True),
+            (
+                "rejected",
+                [(400, {"error": "invalid_request", "error_description": "Authorization not supported for this app"})],
+                True,
+            ),
+            (
+                "rejected_twice",
+                [
+                    (
+                        400,
+                        {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                    ),
+                    (
+                        400,
+                        {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                    ),
+                ],
+                True,
+            ),
+        ]
+    )
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
-    def test_stripe_refresh_retry_after_lost_response_replays_the_same_request(self, mock_post, mock_reload):
-        rotated = MagicMock(status_code=200)
-        rotated.json.return_value = {"access_token": "REFRESHED", "refresh_token": "ROTATED"}
-        rotated_again = MagicMock(status_code=200)
-        rotated_again.json.return_value = {"access_token": "REFRESHED_AGAIN", "refresh_token": "ROTATED_AGAIN"}
-        mock_post.side_effect = [requests.exceptions.ReadTimeout(), rotated, rotated_again]
+    def test_stripe_refresh_retry_changes_the_idempotency_key_only_after_a_rejection(
+        self, _name, failures, key_changes, mock_post, mock_reload
+    ):
+        def response(status_code: int, body: dict) -> MagicMock:
+            res = MagicMock(status_code=status_code, text=json.dumps(body))
+            res.json.return_value = body
+            return res
+
+        mock_post.side_effect = [
+            *(failure if isinstance(failure, Exception) else response(*failure) for failure in failures),
+            response(200, {"access_token": "REFRESHED", "refresh_token": "ROTATED"}),
+            response(200, {"access_token": "REFRESHED_AGAIN", "refresh_token": "ROTATED_AGAIN"}),
+        ]
 
         integration = self.create_integration(kind="stripe")
 
         with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
             OauthIntegration(integration).refresh_access_token()
-            OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
+            for _ in range(len(failures) + 1):
+                OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
+
+        keys = [call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list]
+        *failed_keys, retried, next_rotation = keys
+        assert failed_keys[0] == hashlib.sha256(b"REFRESH").hexdigest()
+        if key_changes:
+            assert len({*failed_keys, retried}) == len(failures) + 1
+        else:
+            assert retried == failed_keys[0]
+        assert next_rotation not in [*failed_keys, retried]
+        assert all("REFRESH" not in key for key in keys)
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.sensitive_config["refresh_token"] == "ROTATED_AGAIN"
+        assert "stripe_refresh_key_round" not in stored.config
+
+    @parameterized.expand(
+        [
+            (
+                "replayed_server_error",
+                500,
+                {"error": {"type": "api_error"}},
+                {"Request-Id": "req_original", "Idempotent-Replayed": "true"},
+                "warning",
+                {"stripe_request_id": "req_original", "stripe_idempotent_replayed": True},
+            ),
+            (
+                "fresh_success",
+                200,
+                {"access_token": "REFRESHED", "refresh_token": "ROTATED"},
+                {"Request-Id": "req_fresh"},
+                "info",
+                {"stripe_request_id": "req_fresh", "stripe_idempotent_replayed": False},
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.logger")
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_logs_the_stripe_request_id_and_replay(
+        self, _name, status_code, body, headers, level, expected, mock_post, mock_reload, mock_logger
+    ):
+        res = requests.Response()
+        res.status_code = status_code
+        res._content = json.dumps(body).encode()
+        res.headers.update(headers)
+        mock_post.return_value = res
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert getattr(mock_logger, level).call_args.kwargs.items() >= expected.items()
+
+    @parameterized.expand(
+        [
+            ("invalid_client", 401, {"error": "invalid_client"}),
+            ("forbidden", 403, {"error": {"type": "permission_error"}}),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_recovers_a_replayed_success_after_an_authentication_failure(
+        self, _name, status_code, body, mock_post, mock_reload
+    ):
+        lost_key = hashlib.sha256(b"REFRESH").hexdigest()
+        # Stripe rolled the token and saved the success under the key, but the response was lost.
+        saved = MagicMock(status_code=200, text="{}")
+        saved.json.return_value = {"access_token": "REFRESHED", "refresh_token": "ROTATED"}
+        failure = MagicMock(status_code=status_code, text=json.dumps(body))
+        failure.json.return_value = body
+        mock_post.side_effect = [failure, saved]
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
             OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
 
-        lost, retried, next_rotation = (call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list)
-        assert lost == retried
-        assert next_rotation != retried
-        assert "REFRESH" not in lost
-        assert Integration.objects.get(id=integration.id).sensitive_config["refresh_token"] == "ROTATED_AGAIN"
+        keys = [call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list]
+        assert keys == [lost_key, lost_key]
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.sensitive_config["refresh_token"] == "ROTATED"
+        assert "stripe_refresh_key_round" not in stored.config
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_stripe_oauth_does_not_persist_is_sandbox(self, mock_post):

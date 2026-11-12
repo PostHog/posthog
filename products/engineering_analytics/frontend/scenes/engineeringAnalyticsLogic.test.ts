@@ -201,12 +201,10 @@ describe('engineeringAnalyticsLogic', () => {
         initKeaTests()
         ApiConfig.setCurrentProjectId(1)
         jest.clearAllMocks()
-        // Happy-path defaults; individual tests override before mounting where needed.
         mockCiCards.mockResolvedValue(CARDS)
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
         mockQuarantine.mockResolvedValue(QUARANTINE)
-        // Most tests are single- or no-source; the picker tests override with SOURCES.
         mockSources.mockResolvedValue([])
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
@@ -280,24 +278,21 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBe('stuck')
         expect(logic.values.stuckOnly).toBe(true)
         expect(logic.values.ciStatusFilter).toBe('all')
-        // The stuck lens is an active filter — a filtered-to-zero table must offer "Clear filters".
+        // The stuck lens is an active filter, so a filtered-to-zero table must offer "Clear filters".
         expect(logic.values.hasActiveFilters).toBe(true)
 
-        // Clicking the active card returns to the plain open view.
         logic.actions.applyCardFilter('stuck')
         expect(logic.values.activeCard).toBe('open')
         expect(logic.values.stuckOnly).toBe(false)
 
-        // Leaving the open backlog deactivates every card.
         logic.actions.applyCardFilter('failing')
         logic.actions.setStateFilter('merged')
         expect(logic.values.activeCard).toBeNull()
     })
 
     it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
-        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
-        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
-        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
+        // sceneLogic passes no tabId to scene logics. A tab-aware scene logic throws "must have a tabId
+        // prop" on mount, sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
         expect(() => extraUnmounts.push(engineeringAnalyticsSceneLogic().mount())).not.toThrow()
     })
 
@@ -372,8 +367,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('lists one option per (source, repo) pair and switches to the picked repo', async () => {
-        // The option value encodes (source, repo) so a multi-repo source's repos stay distinct;
-        // two distinct sources and one source syncing two repos produce the same option shape.
+        // The option value encodes (source, repo), so the repos of a multi-repo source stay distinct.
         mockSources.mockResolvedValue([
             { id: 'src-multi', repo: 'posthog/posthog', prefix: 'multi', synced: true },
             { id: 'src-multi', repo: 'posthog/posthog.com', prefix: 'multi', synced: true },
@@ -450,7 +444,7 @@ describe('engineeringAnalyticsLogic', () => {
             'loadPullRequestsSuccess',
             'loadWorkflowHealthSuccess',
         ])
-        // No source picked → omit source_id/repo so the backend resolves its default.
+        // With no source picked, source_id and repo are omitted so the backend resolves its default.
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: undefined })
 
         logic.actions.setSourceId('src-newer')
@@ -473,8 +467,8 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        // 'failing'/'passing' key off the latest settled run; a row with nothing completed
-        // (latestRunFailed null) must show only under 'all' — it is neither green nor red.
+        // 'failing' and 'passing' key off the latest settled run. A row with nothing completed
+        // (latestRunFailed null) is neither, so it must show only under 'all'.
         ['failing keeps only rows whose latest run failed', { status: 'failing' as const }, ['E2E']],
         ['passing keeps only settled green rows', { status: 'passing' as const }, ['CI']],
         ['unsettled rows show only under all', {}, ['CI', 'E2E', 'Nightly']],
@@ -686,8 +680,7 @@ describe('engineeringAnalyticsLogic', () => {
     )
 
     it.each([
-        // Stacked bar: total height is completed (volume), the red portion is failures, so the red
-        // fraction reads as the rate. Skipped/cancelled/action_required are completed but not failures.
+        // Skipped, cancelled and action_required runs are completed but not failures.
         [
             'a bad day stacks failures over completed',
             { completed: 25, successes: 22, failures: 3 },
@@ -765,7 +758,6 @@ describe('engineeringAnalyticsLogic', () => {
                 runAttempt: null,
             },
         ])
-        // The detail page triages: failures first, then still-running, then passes.
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
@@ -792,7 +784,6 @@ describe('engineeringAnalyticsLogic', () => {
             apiRun({ id: 2, head_sha: 'old', run_started_at: '2026-06-01T00:01:00Z' }),
             apiRun({ id: 3, head_sha: 'new', run_started_at: '2026-06-02T00:00:00Z' }),
         ])
-        // Newest push (latest start) first; runs map into WorkflowRun shape under their commit.
         expect(groups.map((g) => g.headSha)).toEqual(['new', 'old'])
         expect(groups[1].runs.map((r) => r.runId)).toEqual([1, 2])
     })
@@ -837,8 +828,7 @@ describe('engineeringAnalyticsLogic', () => {
                     nodeid: 'a.py::TestA::test_a',
                     file: 'a.py',
                     owner_team: 'team-replay',
-                    status: 'FLAKY',
-                    quarantine_setting: 'AUTO_QUARANTINE',
+                    status: 'flaky',
                     quarantined_at: '2026-05-19T08:00:00Z',
                     age_days: 44,
                     overdue: true,
@@ -849,8 +839,7 @@ describe('engineeringAnalyticsLogic', () => {
                     nodeid: 'b.test.tsx::renders',
                     file: 'b.test.tsx',
                     owner_team: 'unowned',
-                    status: 'FLAKY',
-                    quarantine_setting: 'AUTO_QUARANTINE',
+                    status: 'flaky',
                     quarantined_at: '2026-06-23T08:00:00Z',
                     age_days: 9,
                     overdue: false,
@@ -874,8 +863,7 @@ describe('engineeringAnalyticsLogic', () => {
             nodeid: 'a.py::TestA::test_a',
             file: 'a.py',
             ownerTeam: 'team-replay',
-            status: 'FLAKY',
-            quarantineSetting: 'AUTO_QUARANTINE',
+            status: 'flaky',
             quarantinedAt: '2026-05-19T08:00:00Z',
             ageDays: 44,
             overdue: true,

@@ -17,7 +17,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
@@ -28,6 +27,7 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummarizationResponse,
     SummaryBullet,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 TEST_TEXT_REPR_BUDGET = 4000
 
@@ -805,6 +805,7 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
             self.assertIn("message content for this event is no longer available", response.data["detail"])
+            self.assertEqual(response.data["code"], "content_expired")
             mock_summarize.assert_not_called()
         else:
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)

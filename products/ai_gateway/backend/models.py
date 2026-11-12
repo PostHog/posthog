@@ -23,6 +23,7 @@ class DevGatewayToken(TeamScopedRootMixin):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    spent_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["team", "user", "created_at"], name="ai_gw_devtoken_user_created")]

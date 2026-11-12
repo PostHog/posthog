@@ -1,9 +1,9 @@
 """Rank a window of past observations from the embeddings search already stored.
 
-The watch rank consumer ranks each new observation as its embedding lands. This fills in the observations from before
-that shipped, so a team can move to the embedding ranker without waiting a week for ranks to build
-up. It reads stored vectors from ClickHouse rather than embedding again. Feed groups and search themes
-come from the semantics backfill, which runs after this one.
+The watch rank consumer ranks each new observation as its embedding lands. This ranks the rest: observations whose
+results the consumer missed, and every observation again after the anchors change. It reads stored vectors from
+ClickHouse rather than embedding again. Feed groups and search themes come from the semantics backfill, which runs
+after this one.
 """
 
 import time
@@ -12,10 +12,8 @@ from collections import defaultdict
 from datetime import datetime
 from itertools import batched
 from typing import Any
-from uuid import UUID
 
-from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 
 import numpy as np
 import structlog
@@ -31,16 +29,20 @@ from posthog.exceptions import ClickHouseAtCapacity
 from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDINGS_TABLE,
     OBSERVATION_SCOPE_PREWHERE,
+    TEAM_EMBEDDINGS_PREWHERE,
     observation_scope_params,
+    team_embeddings_params,
 )
+from products.replay_vision.backend.models.replay_highlight_feed import HighlightWindow
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
     AnchorReading,
     WatchCategory,
     anchor_vectors,
     classify,
-    current_rank,
+    current_ranks,
     normalize,
     save_anchor_similarities,
 )
@@ -48,7 +50,8 @@ from products.replay_vision.backend.watch_rank import (
 logger = structlog.get_logger(__name__)
 
 _VECTOR_CHUNK = 500
-WATCH_RANK_BACKFILL_DAYS = 7
+# The longest highlight feed window, so a run covers everything the feed can show.
+WATCH_RANK_BACKFILL_DAYS = max(HighlightWindow.values)
 _QUERY_TIMEOUT_S = 60
 _CAPACITY_RETRY_BASE_S = 15
 _CAPACITY_RETRY_ATTEMPTS = 6
@@ -76,32 +79,51 @@ def _stored_vectors(
     team_id: int, scanner_id: str, observation_ids: list[str], since: datetime
 ) -> dict[str, np.ndarray]:
     """Each observation's stored unit vector, for one batch of a scanner's observations, waiting out a full cluster."""
+    return _waiting_out_capacity(
+        team_id,
+        f"{OBSERVATION_SCOPE_PREWHERE} AND timestamp >= %(since)s",
+        {**observation_scope_params(team_id, [scanner_id]), "since": since, "ids": observation_ids},
+    )
+
+
+def stored_vectors_between(
+    team_id: int, observation_ids: list[str], since: datetime, until: datetime | None
+) -> dict[str, np.ndarray]:
+    """Each observation's stored unit vector, across all of a team's scanners, from embeddings stored since `since`
+    and before `until` when given. One read covers a whole slice of a team's history, so ClickHouse scans each
+    stretch of time once."""
+    upper = "" if until is None else " AND timestamp < %(until)s"
+    return _waiting_out_capacity(
+        team_id,
+        f"{TEAM_EMBEDDINGS_PREWHERE} AND timestamp >= %(since)s{upper}",
+        {**team_embeddings_params(team_id), "since": since, "until": until, "ids": observation_ids},
+    )
+
+
+def _waiting_out_capacity(team_id: int, prewhere: str, params: dict[str, Any]) -> dict[str, np.ndarray]:
     for attempt in range(_CAPACITY_RETRY_ATTEMPTS - 1):
         try:
-            return _read_stored_vectors(team_id, scanner_id, observation_ids, since)
+            return _read_stored_vectors(team_id, prewhere, params)
         except ClickHouseAtCapacity:
             delay = _CAPACITY_RETRY_BASE_S * 2**attempt
             wait = random.uniform(delay, 2 * delay)
             logger.info("replay_vision.watch_rank_backfill.capacity_wait", team_id=team_id, attempt=attempt, wait=wait)
             time.sleep(wait)
-    return _read_stored_vectors(team_id, scanner_id, observation_ids, since)
+    return _read_stored_vectors(team_id, prewhere, params)
 
 
-def _read_stored_vectors(
-    team_id: int, scanner_id: str, observation_ids: list[str], since: datetime
-) -> dict[str, np.ndarray]:
+def _read_stored_vectors(team_id: int, prewhere: str, params: dict[str, Any]) -> dict[str, np.ndarray]:
     with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_backfill"):
-        # nosemgrep: clickhouse-fstring-param-audit - table name and scope are module constants
+        # nosemgrep: clickhouse-fstring-param-audit - table name and prewhere are built from module constants
         rows = sync_execute(
             f"""
             SELECT document_id, any(embedding)
             FROM {OBSERVATION_EMBEDDINGS_TABLE}
-            PREWHERE {OBSERVATION_SCOPE_PREWHERE}
-              AND timestamp >= %(since)s
+            PREWHERE {prewhere}
             WHERE document_id IN %(ids)s
             GROUP BY document_id
             """,
-            {**observation_scope_params(team_id, [scanner_id]), "since": since, "ids": observation_ids},
+            params,
             team_id=team_id,
             readonly=True,
             ch_user=ClickHouseUser.REPLAY_VISION,
@@ -119,7 +141,7 @@ def _rank_scanner(
     for row in rows:
         observation_id = str(row["id"])
         vector = vectors.get(observation_id)
-        if vector is None or current_rank(row) is not None:
+        if vector is None or row["ranked"]:
             continue
         written[observation_id] = classify(vector, anchors)
     return written
@@ -136,8 +158,9 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
         for row in ReplayObservation.objects.filter(
             team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=since
         )
+        .annotate(ranked=Exists(current_ranks(team_id).filter(observation_id=OuterRef("id"))))
         .order_by("created_at", "id")
-        .values("id", "scanner_id", "watch_rank")
+        .values("id", "scanner_id", "ranked")
     ]
     by_scanner: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -155,23 +178,15 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
                 save_anchor_similarities(
                     team_id, {observation_id: reading.similarities for observation_id, reading in written.items()}
                 )
-                # Only rows still without a current rank, locked until the write, so a rank the consumer writes meanwhile
-                # waits for this one and a rank it already wrote, with its group, stays.
-                with transaction.atomic():
-                    still_unranked = set(
-                        ReplayObservation.objects.select_for_update()
-                        .filter(team_id=team_id, id__in=list(written))
-                        .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
-                        .values_list("id", flat=True)
-                    )
-                    ReplayObservation.objects.bulk_update(
-                        [
-                            ReplayObservation(id=observation_id, watch_rank=reading.rank.to_json())
-                            for observation_id, reading in written.items()
-                            if UUID(observation_id) in still_unranked
-                        ],
-                        ["watch_rank"],
-                    )
+                # A rank the consumer wrote meanwhile, with its group, stays: an existing rank row is never replaced.
+                record_ranks(
+                    team_id,
+                    ANCHOR_VERSION,
+                    {
+                        observation_id: NewRank(contrast=reading.rank.contrast, category=reading.rank.category)
+                        for observation_id, reading in written.items()
+                    },
+                )
     without_embedding = len(rows) - embedded
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",

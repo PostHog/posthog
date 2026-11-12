@@ -144,42 +144,73 @@ describe('HogInvocationResultsService', () => {
             expect(decoded).not.toContain('abc123')
         })
 
+        const send = {
+            content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
+            tracking: { captureEngagement: false },
+        }
+        const messageData = { variables: { code: '482913' }, send }
+        const noMessageData = { variables: undefined, send: undefined }
+
         it.each([
-            ['an ordinary email', false, {}, { code: '482913' }],
-            ['a sensitive email', true, {}, undefined],
-            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            ['an ordinary email', false, {}, messageData],
+            ['a sensitive email', true, {}, noMessageData],
+            ['an ordinary push', false, {}, messageData, 'function_push'],
+            ['a sensitive push', true, {}, noMessageData, 'function_push'],
+            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, noMessageData],
             [
                 'a recovery stub of an unstamped transactional run',
                 undefined,
                 { event: { event: '$transactional_email' } },
-                undefined,
+                noMessageData,
             ],
-            ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
-        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, variables) => {
-            const hogFlow =
-                sensitive === undefined
-                    ? ({ id: 'flow-1' } as any)
-                    : new FixtureHogFlowBuilder()
-                          .withWorkflow({
-                              actions: {
-                                  email: {
-                                      type: 'function_email',
-                                      config: { template_id: 'template-email', sensitive, inputs: {} },
-                                  } as any,
-                              },
-                              edges: [],
-                          })
-                          .build()
-            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
-            Object.assign(invocation.state, state, { event: { ...invocation.state.event, ...(state as any).event } })
-            await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
+            ['a recovery stub of an ordinary run', undefined, {}, messageData],
+            ['an email its send marks sensitive', false, { send: { ...send, sensitive: true } }, noMessageData],
+        ])(
+            'keeps the message data in a workflow snapshot only for %s',
+            async (_name, sensitive, state, expected, stepType = 'function_email') => {
+                const hogFlow =
+                    sensitive === undefined
+                        ? ({ id: 'flow-1' } as any)
+                        : new FixtureHogFlowBuilder()
+                              .withWorkflow({
+                                  actions: {
+                                      message: {
+                                          type: stepType,
+                                          config: {
+                                              template_id:
+                                                  stepType === 'function_push'
+                                                      ? 'template-native-push'
+                                                      : 'template-email',
+                                              sensitive,
+                                              inputs: {},
+                                          },
+                                      } as any,
+                                  },
+                                  edges: [],
+                              })
+                              .build()
+                const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
+                // A step paused for a provider retry keeps the rendered message on its VM stack.
+                const vmState = { stack: [{ title: 'Your code is 482913' }] }
+                const person = { id: 'person-1', properties: { code: '482913' } }
+                Object.assign(invocation.state, state, {
+                    event: { ...invocation.state.event, ...(state as any).event },
+                    currentAction: {
+                        id: 'message',
+                        startedAtTimestamp: 0,
+                        hogFunctionState: { vmState, globals: { person } },
+                    },
+                })
+                await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
 
-            const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
-                string,
-                any
-            >
-            expect(globals.variables).toEqual(variables)
-        })
+                const globals = (await decodeInvocationGlobals(
+                    parseProducedRows(outputs)[0].invocation_globals
+                )) as Record<string, any>
+                expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
+                expect(globals.currentAction.hogFunctionState.vmState).toEqual(expected.variables && vmState)
+                expect(globals.currentAction.hogFunctionState.globals.person).toEqual(expected.variables && person)
+            }
+        )
 
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {
             const invocation = createExampleInvocation({}, {
@@ -280,13 +311,18 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].error_kind).toBe('')
         })
 
-        it('writes status=failed and classifies the error kind', async () => {
+        it.each([
+            ['Request timed out after 30s', 'timeout'],
+            ['JavaScript heap out of memory', 'oom'],
+            ['Container OOM killed', 'oom'],
+            ['this email waited 6 days for an email worker with room for its files', 'hog_error'],
+        ])('writes status=failed and classifies %j as %s', async (message, kind) => {
             const invocation = createExampleInvocation()
             service.queueInvocationResults([
                 {
                     invocation,
                     finished: true,
-                    error: new Error('Request timed out after 30s'),
+                    error: new Error(message),
                     logs: [],
                     metrics: [],
                     capturedPostHogEvents: [],
@@ -299,9 +335,9 @@ describe('HogInvocationResultsService', () => {
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
-            expect(rows[0].error_kind).toBe('timeout')
+            expect(rows[0].error_kind).toBe(kind)
             // Exact match: the message only, never the stack trace.
-            expect(rows[0].error_message).toBe('Request timed out after 30s')
+            expect(rows[0].error_message).toBe(message)
         })
 
         it('writes status=canceled on a finished result flagged canceled, with no error fields', async () => {

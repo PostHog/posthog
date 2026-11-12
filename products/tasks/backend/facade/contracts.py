@@ -76,6 +76,40 @@ class AgentTaskRunDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AgentStartupFailure:
+    provider: Literal["claude", "codex", "pi"]
+    phase: Literal["session_setup", "sdk_initialization", "setup_hooks"]
+    reason: (
+        Literal[
+            "credential_unavailable",
+            "credential_service_unavailable",
+            "org_pin_api_key_conflict",
+            "org_verify_failed",
+            "org_pin_mismatch",
+            "managed_settings_invalid",
+            "remote_settings_required_unavailable",
+            "gateway_signin_required",
+            "gateway_access_denied",
+            "proxy_invalid",
+            "temp_dir_unusable",
+            "cwd_unavailable",
+            "shell_tool_missing",
+            "session_held_by_background",
+            "worktree_resume_refused",
+            "worktree_unverified",
+            "cli_version_too_old",
+            "bypass_root",
+            "sandbox_required_unavailable",
+            "provider_not_allowed",
+            "org_config_required_unavailable",
+            "org_config_refused",
+        ]
+        | None
+    )
+    retryability: Literal["requires_action", "transient", "unknown"]
+
+
+@dataclass(frozen=True, kw_only=True)
 class SessionFile:
     """A text file a custom-prompt session puts in the sandbox before its first turn.
 
@@ -147,6 +181,10 @@ class TaskRunSpend:
     complete: bool
     is_terminal: bool
     stage: str
+    accounting_failed: bool
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
+    billing_exempt: bool = False
 
 
 @dataclass(frozen=True)
@@ -185,6 +223,7 @@ class TaskRunDTO:
     workflow_id: str = ""
     mode: str = "background"
     task_origin_product: str | None = None
+    task_created_at: datetime | None = None
     created_by_id: int | None = None
     created_by_distinct_id: str | None = None
     pr_url: str | None = None
@@ -300,6 +339,8 @@ class TaskDetailDTO:
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
     client_provenance: str | None = None
+    last_client: str | None = None
+    last_client_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -819,6 +860,7 @@ class TaskRunSandboxConnectionDTO:
 
 SPACE_SETUP_SCOPES = (
     "task:write",
+    "inbox:write",
     "canvas:write",
     "hog_flow:write",
     # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
@@ -1058,6 +1100,13 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1132,3 +1181,11 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True)
+class TaskRunLogLink:
+    """A short-lived download link for a run's log, or why there is none."""
+
+    url: str | None
+    unavailable_reason: str | None = None

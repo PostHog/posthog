@@ -199,6 +199,7 @@ impl SealDuty {
         let overdue = seal_overdue(migration, assignment_coordination::util::now_millis());
         let targets = self.targets(migration, overdue).await?;
         let topic = migration.from.topic.as_str();
+        let cluster = migration.from.cluster.as_ref().map(|c| c.name.as_str());
         let pending: Vec<u32> = targets
             .iter()
             .copied()
@@ -224,14 +225,16 @@ impl SealDuty {
                 let (partition, result) = joined.map_err(|e| format!("seal join: {e}"))?;
                 match result {
                     Ok(path) => {
-                        info!(partition, %topic, path, "sealed the old changelog partition");
+                        info!(partition, %topic, ?cluster, path, "sealed the old changelog partition");
                         sealed.insert((migration.id.clone(), partition));
                         // Acked as it lands; a failed write is retried by the next ack.
                         if let Err(e) = self.ack(migration, sealed, acked).await {
                             warn!(partition, error = %e, "seal ack failed; the next ack carries it");
                         }
                     }
-                    Err(e) => warn!(partition, %topic, error = %e, "seal failed; retrying"),
+                    Err(e) => {
+                        warn!(partition, %topic, ?cluster, error = %e, "seal failed; retrying")
+                    }
                 }
             }
         }

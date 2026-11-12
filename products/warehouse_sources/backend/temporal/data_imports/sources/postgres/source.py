@@ -1,4 +1,3 @@
-import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -10,7 +9,6 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable, detect
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.exceptions_capture import capture_exception
@@ -24,6 +22,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_mixin import CDCSourceMixin
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -40,7 +39,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
@@ -58,11 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
-    cdc_pg_connection,
-    drop_slot_and_publication,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresSetupNames
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
     CLIENT_DEADLINE_ERROR,
 )
@@ -71,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+    _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -94,8 +93,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.x
     xmin_cursor_from_legacy,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
-
-log = logging.getLogger(__name__)
 
 _HOST_IS_URL_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
@@ -410,6 +407,14 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
     "persists, check that the foreign server is running and reachable from your source database."
 )
 
+# Terminal twin of `_FOREIGN_SERVER_UNREACHABLE_ERROR` once the activity's own retry budget is spent
+# on a sustained outage. The schedule picks the sync back up on its own, so it must not read like
+# the sync needs re-enabling — mirrors `_SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE` below.
+_FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE = (
+    f"{_FOREIGN_SERVER_UNREACHABLE_ERROR} This kept happening on every retry. This sync is still "
+    "enabled and will run again on its next schedule."
+)
+
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
@@ -482,6 +487,16 @@ _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
     "running and healthy. This sync is still enabled and will run again on its next schedule."
 )
 
+# Twin of `_SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE` for a bare proxy/pooler "service temporarily
+# unavailable" refusal (see `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` in postgres.py), which names no
+# lifecycle state, so the message doesn't claim one either.
+_SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE = (
+    "Your database refused PostHog's connection, reporting that the service was temporarily "
+    "unavailable, and it was still refusing connections after every retry. Check your database and "
+    "any connection pooler or proxy in front of it for an ongoing outage, maintenance, or failover. "
+    "This sync is still enabled and will run again on its next schedule."
+)
+
 _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
     "Your database had no free connection slots for PostHog, and none freed up before the retries "
     "ran out. Raise the connection limit on the database or its pooler, or reduce how many other "
@@ -514,6 +529,22 @@ _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
     "mid-query, or someone or something on your database canceled it. Check your database and "
     "pooler logs around the time of the failure. This sync is still enabled and will run again on "
     "its next schedule."
+)
+
+# Twin of `_SPURIOUS_CANCEL_EXHAUSTED_MESSAGE` for a genuine statement_timeout hit by one of the
+# cheap, single-table catalog lookups `_get_table` runs during setup (the materialized-view/view
+# checks, the column metadata SELECT). Those normally finish in milliseconds, so a timeout here on
+# every retry points at something external rather than a doomed query: a connection pooler that ran
+# the setup's own `SET statement_timeout` and the next statement on different backends (see
+# client_deadline.py's module docstring), or a lock another session holds on the table.
+_METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog's own check of this table's metadata hit your database's statement timeout, and it "
+    "kept happening on every retry, even though that check normally finishes in milliseconds. This "
+    "usually means a connection pooler is routing PostHog's statements to different backend "
+    "connections, so the longer timeout PostHog sets never applies to the next one, or something "
+    "else is holding a long-running lock on this table. Check your pooler's session affinity and "
+    "your database for long-running transactions on this table. This sync is still enabled and "
+    "will run again on its next schedule."
 )
 
 _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
@@ -552,6 +583,7 @@ _POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE = (
 
 @SourceRegistry.register
 class PostgresSource(
+    CDCSourceMixin[PostgresSourceConfig],
     SQLSource[PostgresSourceConfig],
     ResumableSource[PostgresSourceConfig, KeysetResumeState],
     CursorSource[XminCursor],
@@ -729,6 +761,10 @@ class PostgresSource(
         return ExternalDataSourceType.POSTGRES
 
     @property
+    def credential_kind(self) -> str | None:
+        return "postgresql"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.POSTGRES,
@@ -828,6 +864,10 @@ class PostgresSource(
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
             "XminUnsupportedError": None,
+            "is already the name of another table of this source": (
+                "The history table for this table would have the same name as another table of this source. "
+                "Choose the consolidated table only for this table, or rename the other table on your database."
+            ),
             "xmin replication": None,
             "NoSuchTableError": None,
             "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
@@ -843,6 +883,18 @@ class PostgresSource(
                 '("tenant/user not found"). This usually means the database project is paused or '
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
+            ),
+            # The sync-time twins of the permanent "(EAUTHQUERY)" outcomes in `PostgresErrors`. The
+            # transient "(eauthquery)" reconnect in postgres.py also matches them, so without these
+            # keys a dropped user retries on every run. Supavisor then trips its "(ECIRCUITBREAKER)"
+            # credential-fetch block, and the raw text leads with that line but still lists this one.
+            "user not found in the database": (
+                "Your database doesn't have the user this source connects as. Update the user for this "
+                "source, then re-enable the sync."
+            ),
+            "unsupported or invalid secret format": (
+                "Your connection pooler can't check this user's password because of how your database "
+                "stores it. Reset the user's password in your database, then re-enable the sync."
             ),
             # Supabase's Supavisor pooler reports a permanent DNS failure resolving its upstream
             # backend as "FATAL: Failed to connect to database: {:error, :nxdomain}" — Erlang's
@@ -1482,6 +1534,35 @@ class PostgresSource(
             "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
             "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
             "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server failed to open a relation's underlying file at all, rather than failing to
+            # read a block from one already open — psycopg's `IoError` (SQLSTATE 58030), raised as
+            # `could not open file "base/<db>/<relfilenode>": <errno message>`. Match only the
+            # "Input/output error" (EIO) errno text, the signal for a failing disk or filesystem,
+            # the same family as the page-level errors above. Matching the bare "could not open
+            # file" prefix instead would also catch "Too many open files" (EMFILE/ENFILE), a
+            # file-descriptor exhaustion that clears once load on the source drops, so that case
+            # must stay retryable. The volatile file path is excluded from the match.
+            "Input/output error": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server's dynamic loader failed to `dlopen()` a native extension library it needs
+            # to evaluate a column or function — `UndefinedFile` (SQLSTATE 58P01), observed as
+            # PostGIS's library failing to load because the server is missing GEOS, one of its own
+            # OS-level dependencies: `could not load library "...": libgeos_c.so.1: cannot open
+            # shared object file: No such file or directory`. The missing library lives in the
+            # server's own package install, not anything in our query, so every retry dlopens the
+            # same absent file. `dlerror()` reports the same "cannot open shared object file:"
+            # prefix for any errno, including transient `EMFILE`/`ENFILE` ("Too many open files")
+            # when the server has exhausted file descriptors for an otherwise-installed library —
+            # the sibling trap the file-descriptor-exhaustion case above guards against. Match the
+            # specific "No such file or directory" (`ENOENT`) reason so that case stays retryable,
+            # and exclude the volatile library path, which embeds the server's build/version.
+            "cannot open shared object file: No such file or directory": (
+                "Your PostgreSQL server failed to load a native extension library it needs to read "
+                'this data ("could not load library ... cannot open shared object file"). This '
+                "usually means the extension (for example PostGIS) is missing one of its own "
+                "OS-level dependencies on the database server. Reinstall or repair the extension's "
+                "dependencies on your database server, or ask your database provider to, then "
+                "re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -1505,6 +1586,14 @@ class PostgresSource(
             # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Same mechanism as the integer/bigint keys above, but for a column whose declared type
+            # changed to boolean at the source after it was picked as the incremental field (e.g. an
+            # integer status column altered to `boolean`). `IncrementalFieldType` has no boolean
+            # variant, so this never happens for a freshly configured field — only when the source
+            # column's type drifted out from under an already-stored cursor. The stored watermark no
+            # longer parses against the column's new type, and every retry re-runs the identical
+            # failing query, so stop and ask the user to reset.
+            "invalid input syntax for type boolean": "PostHog tried to resume this table's incremental sync from a cursor value that your database can no longer parse as a boolean. This usually means the incremental field's column type changed at the source after this sync started. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
@@ -1658,6 +1747,20 @@ class PostgresSource(
                 "division in that column or view definition (for example with a CASE or NULLIF), or "
                 "remove it from the sync, then re-enable the sync."
             ),
+            # A view, computed column, or RLS policy in the customer's own schema calls a PL/pgSQL
+            # function that does `FOREACH var IN ARRAY <expr>`, where `<expr>` evaluates to NULL for
+            # at least one row (NullValueNotAllowed, SQLSTATE 22004) — Postgres's FOREACH never
+            # accepts a null array. We only ever run `SELECT ... FROM <relation>`; the function lives
+            # in the customer's own schema and runs on every row, so it fails identically on every
+            # retry. Match the stable error text and exclude the volatile CONTEXT line naming the
+            # function and line number.
+            "FOREACH expression must not be null": (
+                "A view, column, or policy you're syncing calls a function in your database that "
+                "loops over an array with FOREACH, and that array is null for at least one row "
+                '("FOREACH expression must not be null"). Guard the function against a null array '
+                "(for example with COALESCE(expr, '{}')), or remove the affected table or view from "
+                "the sync, then re-enable the sync."
+            ),
             # A view or computed column in the customer's own schema calls a PL/pgSQL function that
             # enforces its own access check and raises a custom RAISE EXCEPTION when it finds no
             # user context — commonly a Supabase helper keyed off auth.uid(), which Supabase's
@@ -1693,6 +1796,11 @@ class PostgresSource(
         # a primary/standby booting, replaying WAL after a crash, or a smart/fast shutdown refusing
         # new connections while the source is going down — all retried in-process by the
         # offset-chunking reconnect, same exhausted-budget fallback as above.
+        #
+        # `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` is a bare proxy/pooler "service temporarily
+        # unavailable" refusal at connect time — no lifecycle state, no capacity limit, just a brief
+        # outage on the layer in front of Postgres. Same self-recovering shape, same in-process retry
+        # via `_is_dropped_or_connect_timeout` / `_is_dropped_or_connection_limit`.
         #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
@@ -1746,12 +1854,35 @@ class PostgresSource(
         # never appears in CockroachDB's message. CockroachDB expects the whole transaction to be
         # retried on conflict, which is exactly what letting this propagate to Temporal's
         # whole-activity retry does, so it's the same self-recovering class as the other entries here.
+        #
+        # `_FOREIGN_SERVER_UNREACHABLE_ERROR` (see `ForeignServerUnreachableError`) is the same
+        # self-recovering shape again, for a postgres_fdw foreign table's own downstream server
+        # rather than the direct connection. Without it here, every occurrence of an otherwise
+        # transient foreign-server blip would still be logged at `exception` and flood error
+        # tracking, the exact failure mode this set exists to avoid.
+        #
+        # "canceling statement due to statement timeout" reaching here is a genuine server-side
+        # statement_timeout cancellation that nothing converted first — unlike the data-read path
+        # (`get_rows`'s offset chunking and server-cursor FETCH), which always converts this into a
+        # more specific exception (`_statement_timeout_as_non_retryable`, `_full_table_timeout_error`,
+        # `_keyset_page_timeout_error`) before it can propagate, and unlike the whole-schema catalog
+        # scan in `_schemas_from_conn`, which converts it to the non-retryable
+        # `_schema_discovery_timeout_error` because its cost scales with the schema. The one place
+        # that currently leaves this raw is `_get_table`'s own per-table catalog probes (the
+        # materialized-view/view checks, the column metadata SELECT) — each a cheap, single-table
+        # lookup that normally finishes in milliseconds, so a timeout there points at something
+        # external (a pooler that ran `_get_table`'s own `SET statement_timeout` and the next
+        # statement on different backends, or a lock another session holds), not a query doomed to
+        # repeat the same failure. A fresh connection on retry can land on a backend without that
+        # problem, so it's self-recovering like the other entries here.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
+            "canceling statement due to statement timeout",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
             "TransactionRetryWithProtoRefreshError",
@@ -1760,6 +1891,7 @@ class PostgresSource(
             _SSH_FORWARD_FAILED_ERROR,
             _CONNECT_TIMEOUT_ERROR,
             _POOLER_AUTH_CIRCUIT_BREAKER_ERROR,
+            _FOREIGN_SERVER_UNREACHABLE_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1776,16 +1908,19 @@ class PostgresSource(
             **dict.fromkeys(_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING: _SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE,
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
             "TransactionRetryWithProtoRefreshError": _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE,
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
+            "canceling statement due to statement timeout": _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
             _CONNECT_TIMEOUT_ERROR: _CONNECT_TIMEOUT_EXHAUSTED_MESSAGE,
             _POOLER_AUTH_CIRCUIT_BREAKER_ERROR: _POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE,
+            _FOREIGN_SERVER_UNREACHABLE_ERROR: _FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(
@@ -1796,39 +1931,6 @@ class PostgresSource(
     ) -> list[str]:
         """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
         return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
-
-    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
-        """Drop the Temporal schedule + PostHog-managed slot/publication.
-
-        Schedule lives on our side, slot lives on the customer's DB. No-op for
-        postgres sources without CDC enabled.
-        """
-        cdc_config = PostgresCDCConfig.from_source(source)
-        if not cdc_config.enabled:
-            return
-
-        # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
-        from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
-
-        # Schedule key = source id. NotFound is a no-op.
-        try:
-            delete_cdc_extraction_schedule(str(source.id))
-        except Exception:
-            log.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(source.id)})
-
-        if cdc_config.management_mode != "posthog":
-            return
-        if not cdc_config.slot_name or not cdc_config.publication_name:
-            return
-
-        try:
-            with cdc_pg_connection(source, connect_timeout=10) as conn:
-                drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
-        except Exception:
-            log.exception(
-                "Failed to drop CDC slot/publication on source DB (best-effort)",
-                extra={"source_id": str(source.id), "slot_name": cdc_config.slot_name},
-            )
 
     def get_schemas(
         self,
@@ -2010,17 +2112,19 @@ class PostgresSource(
             # None when index discovery failed for the whole listing — default to True so
             # a transient permission/query error never produces a misleading warning.
             indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+            incremental_fields: list[IncrementalField] = rank_incremental_fields(
+                [
+                    {
+                        "label": field_name,
+                        "type": field_type,
+                        "field": field_name,
+                        "field_type": field_type,
+                        "nullable": nullable,
+                        "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
+                    }
+                    for field_name, field_type, nullable in incremental_field_tuples
+                ]
+            )
             # `supports_incremental`/`supports_append` must reflect the real cursor fields only —
             # compute them before appending the synthetic xmin entry.
             supports_real_cursor = len(incremental_fields) > 0
@@ -2190,8 +2294,7 @@ class PostgresSource(
         config: PostgresSourceConfig,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
@@ -2207,6 +2310,7 @@ class PostgresSource(
             _connect_to_postgres,
         )
 
+        names = PostgresSetupNames.from_setup(setup)
         with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
@@ -2227,8 +2331,8 @@ class PostgresSource(
                     management_mode=management_mode,  # type: ignore[arg-type]
                     tables=tables,
                     schema=schema,
-                    slot_name=slot_name,
-                    publication_name=publication_name,
+                    slot_name=names.slot_name,
+                    publication_name=names.publication_name,
                 )
             finally:
                 conn.close()
@@ -2290,109 +2394,6 @@ class PostgresSource(
             inputs.logger.debug(f"probe_new_data: falling back to a full sync: {e}", exc_info=e)
             return None
 
-    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse:
-        """A `SourceResponse` reading this streaming, seeded schema's S3 change buffer."""
-        from asgiref.sync import async_to_sync
-
-        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
-            retire_orphaned_companions,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-            CDCSourceManager,
-            buffer_expired_unread,
-            build_output_lanes,
-            clear_listing,
-            completed_listing_proof,
-            has_batches_in_flight,
-            served_lanes,
-        )
-
-        if not served_lanes(schema):
-            raise ValueError(
-                f"CDC schema {schema.name} has cdc_table_mode {schema.cdc_table_mode!r}, which no buffer lane "
-                "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
-            )
-
-        def no_op_tick(*, reset_handed_over: bool = False) -> SourceResponse:
-            # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
-            # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
-            # the workflow completes the job on this response — so the stamp comes off, or a batch
-            # of that attempt failing later would leave a Completed job proving a listing nothing
-            # drained.
-            clear_listing(inputs.job_id, inputs.team_id)
-            first_lane = served_lanes(schema)[0]
-            return SourceResponse(
-                name=first_lane.resource_name,
-                items=lambda: iter(()),
-                primary_keys=schema.primary_key_columns,
-                cdc_write_mode=first_lane.write_mode,
-                # A change stream carries no seekable key, and `supports_resume` defaults to True.
-                supports_resume=False,
-                reset_handed_over=reset_handed_over,
-            )
-
-        job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-
-        # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
-        # replays over it. Merging the buffer into a wiped table instead would leave only the rows
-        # changed since. A reset that reaches a streaming table anyway goes to capture, which puts the
-        # table back into snapshot mode. Refusing it would fail every run of the table until a manual reset.
-        # This run must not delete the table itself: capture waits for queued batches to land first.
-        if inputs.reset_pipeline:
-            inputs.logger.warning("cdc_buffered_reset_handed_to_capture", schema_name=schema.name)
-            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
-            return no_op_tick(reset_handed_over=True)
-
-        if has_batches_in_flight(schema):
-            # Reading now would stage rows alongside a delivery that is still landing: a previous
-            # attempt of this job holds staged batches that are still claimable, which the append
-            # lane would then write twice.
-            inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
-            return no_op_tick()
-
-        if job is None:
-            raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
-
-        proof = async_to_sync(completed_listing_proof)(schema)
-        # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
-        # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
-        # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
-        # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
-        # without the longer read.
-        if proof is None and async_to_sync(buffer_expired_unread)(schema):
-            inputs.logger.warning(
-                "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
-            )
-            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
-            return no_op_tick()
-
-        # Nothing of any earlier run is executing now, so a companion still Running belongs to a
-        # run that died without its `finally` and nothing else will ever close it.
-        retired = retire_orphaned_companions(schema)
-        if retired:
-            inputs.logger.warning("cdc_orphaned_companion_jobs_retired", schema_name=schema.name, job_ids=retired)
-
-        # Every table this schema's changes feed, written from one read of the buffer. Each lane
-        # carries where its own table stops, because a failed run can leave one ahead of the other.
-        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
-        manager = CDCSourceManager(
-            inputs,
-            inputs.logger,
-            deletion_floor=deletion_floor,
-            proof=proof,
-        )
-        return SourceResponse(
-            name=lanes[0].name,
-            items=manager.get_items,
-            primary_keys=schema.primary_key_columns,
-            cdc_write_mode=lanes[0].cdc_write_mode,
-            lanes=lanes,
-            # A change stream reads a buffer, not a keyed table, so there is no key to seek past.
-            supports_resume=False,
-        )
-
     def source_for_pipeline(  # type: ignore[override]
         self,
         config: PostgresSourceConfig,
@@ -2444,6 +2445,11 @@ class PostgresSource(
         # own reset whenever it can resume.
         if table_rebuild_pending:
             resumable_source_manager.clear_state()
+
+        if schema.is_cdc:
+            self._record_cdc_snapshot_position(
+                schema, inputs, rebuild=table_rebuild_pending, resuming=resumable_source_manager.can_resume()
+            )
 
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for

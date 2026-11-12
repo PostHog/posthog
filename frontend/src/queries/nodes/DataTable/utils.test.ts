@@ -9,6 +9,7 @@ import {
     orderByForSelectKey,
     removeAsAlias,
     removeExpressionComment,
+    sortingForOrderBy,
 } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
@@ -236,6 +237,27 @@ describe('DataTable utils', () => {
             ['direct match — bare timestamp', 'timestamp', ['timestamp', 'event'], 'timestamp'],
         ])('%s', (_label, key, select, expected) => {
             expect(orderByForSelectKey(key, select)).toBe(expected)
+        })
+    })
+
+    describe('sortingForOrderBy', () => {
+        const columns = ['person_display_name -- Person', 'Absolute Time', 'timestamp']
+        const select = ['person_display_name -- Person', 'toDate(timestamp) as "Absolute Time"', 'timestamp']
+
+        it.each<[string, string[] | undefined, ReturnType<typeof sortingForOrderBy>]>([
+            ['no orderBy', undefined, null],
+            ['ascending', ['timestamp'], { columnKey: 'timestamp', order: 1 }],
+            ['descending with a space', ['timestamp DESC'], { columnKey: 'timestamp', order: -1 }],
+            ['descending with a newline', ['timestamp\n DESC'], { columnKey: 'timestamp', order: -1 }],
+            [
+                'comment column',
+                ['person_display_name -- Person\n DESC'],
+                { columnKey: 'person_display_name -- Person', order: -1 },
+            ],
+            ['aliased column', ['toDate(timestamp)'], { columnKey: 'Absolute Time', order: 1 }],
+            ['expression outside the columns', ['event'], null],
+        ])('%s', (_, orderBy, expected) => {
+            expect(sortingForOrderBy(orderBy, columns, select)).toEqual(expected)
         })
     })
 })

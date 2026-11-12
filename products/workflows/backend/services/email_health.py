@@ -12,7 +12,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
@@ -66,7 +66,7 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     keystroke while these two aggregations do not depend on the search.
     """
     # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
-    cache_key = f"workflows_email_sending_allowance_v2_{team_id}"
+    cache_key = f"workflows_email_sending_allowance_v3_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -76,10 +76,8 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     allowance = EmailSendingAllowance(
         tier=resolved.tier,
         max_tier=max_email_sending_tier(),
-        emails_per_hour=resolved.limits.per_hour,
         emails_per_day=resolved.limits.per_day,
         max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
     )
@@ -215,9 +213,10 @@ def verified_email_domains(*, team_id: int) -> list[str]:
     return list(
         dict.fromkeys(
             domain
-            for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
-            .order_by("id")
-            .values_list("config__domain", flat=True)
+            for domain in (
+                (row.config or {}).get("domain")
+                for row in IntegrationManager.email.credentials.list(team_id, where={"verified": True})
+            )
             if domain
         )
     )
@@ -226,10 +225,9 @@ def verified_email_domains(*, team_id: int) -> list[str]:
 def email_domain_sharers(*, team_id: int, domains: Collection[str]) -> dict[str, set[int]]:
     """For each domain, the other projects that also send from it."""
     sharers: dict[str, set[int]] = {domain: set() for domain in domains}
-    for domain, sharer_id in (
-        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=list(domains))
-        .exclude(team_id=team_id)
-        .values_list("config__domain", "team_id")
-    ):
-        sharers[domain].add(sharer_id)
+    rows = IntegrationManager.email.any.list_across_teams(
+        CrossTeamFilter(where={"verified": True}, where_in={"domain": tuple(domains)}, exclude_team_ids=(team_id,))
+    )
+    for row in rows:
+        sharers[row.config["domain"]].add(row.team_id)
     return sharers

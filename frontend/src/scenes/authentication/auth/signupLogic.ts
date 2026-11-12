@@ -7,10 +7,13 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
+import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
@@ -18,7 +21,6 @@ import {
     clearPendingVerificationEmail,
     setPendingVerificationEmail,
 } from 'scenes/authentication/shared/verificationCode'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
@@ -44,6 +46,7 @@ export interface SignupPanelOnboardingForm {
     role_at_organization: string
     referral_source: string
     referral_source_ai_prompt: string
+    referral_source_influencer: string
 }
 
 export interface PendingInvite {
@@ -295,6 +298,19 @@ export function maintenanceSignupRedirectUrl(
     return `https://${CLOUD_HOSTNAMES[region.toUpperCase() as keyof typeof CLOUD_HOSTNAMES]}${urls.signup()}?${params}`
 }
 
+function getRetryAfterSeconds(error: unknown): number | null {
+    const header = error instanceof ApiError ? error.headers?.get('Retry-After') : null
+    const seconds = header ? Number(header) : NaN
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+}
+
+function throttledSignupMessage(retryAfterSeconds: number | null, googleAvailable: boolean): string {
+    const retryAfter =
+        retryAfterSeconds !== null ? dayjs.duration(retryAfterSeconds, 'seconds').humanize(true) : 'later'
+    const googleSuggestion = googleAvailable ? ', or sign up with Google instead' : ''
+    return `Too many signup attempts from your network. Try again ${retryAfter}${googleSuggestion}.`
+}
+
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'auth', 'signupLogic']),
     connect(() => ({
@@ -468,6 +484,7 @@ export const signupLogic = kea<signupLogicType>([
                 // The partner that started the OAuth connection is where this person heard about PostHog
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
+                referral_source_influencer: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name?.trim() ? 'Please enter your name' : undefined,
@@ -485,13 +502,16 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
+                    // An answer typed into a follow-up that a later referral source edit hid again must not be sent
+                    const followUp = getReferralFollowUp(payload.referral_source ?? '')
                     const signupData: Record<string, any> = {
                         email: values.signupEmail,
                         ...splitFullName(payload.name),
                         organization_name: payload.organization_name?.trim() || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
-                        referral_source_ai_prompt: payload.referral_source_ai_prompt,
+                        referral_source_ai_prompt: followUp === 'ai' ? payload.referral_source_ai_prompt : '',
+                        referral_source_influencer: followUp === 'influencer' ? payload.referral_source_influencer : '',
                         next_url: nextUrl ?? undefined,
                     }
 
@@ -555,6 +575,10 @@ export const signupLogic = kea<signupLogicType>([
                     // never scored can reach the server and be refused there. Send the user back to the
                     // password step.
                     if (error.attr === 'password') {
+                        // The session lost the passkey, so a submit without a password would fail the same way
+                        if (values.passkeyRegistered) {
+                            actions.setPasskeyRegistered(false)
+                        }
                         actions.setSignupPanelAuthManualErrors({
                             password: String(error.detail || 'Please choose a stronger password'),
                         })
@@ -574,10 +598,16 @@ export const signupLogic = kea<signupLogicType>([
                     }
 
                     if (error.code === 'throttled') {
+                        const retryAfterSeconds = getRetryAfterSeconds(e)
+                        posthog.capture('signup throttled', {
+                            retry_after_seconds: retryAfterSeconds,
+                            with_passkey: values.passkeyRegistered,
+                        })
+                        const googleAvailable = !!values.preflight?.available_social_auth_providers?.['google-oauth2']
                         actions.setSignupPanelOnboardingManualErrors({
                             generic: {
                                 code: error.code,
-                                detail: 'Too many signup attempts. Please try again later.',
+                                detail: throttledSignupMessage(retryAfterSeconds, googleAvailable),
                             },
                         })
                     } else {
@@ -604,7 +634,9 @@ export const signupLogic = kea<signupLogicType>([
     listeners(({ actions, values }) => ({
         precheckSignupEmail: async ({ email }, breakpoint) => {
             actions.setPasskeyError(null)
-            actions.setSignupPanelAuthManualErrors({})
+            // Reset rather than `setSignupPanelAuthManualErrors({})`: kea-forms turns error display on with
+            // any manual errors call, so the empty password field would open with a red error
+            actions.resetSignupPanelAuth()
             let precheckResponse: SignupEmailPrecheckResponse
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.

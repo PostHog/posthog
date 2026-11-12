@@ -48,8 +48,7 @@ def clear_caches():
 @pytest.fixture
 def organization():
     org = Organization.objects.create(name="test-resolve-reviewers-org")
-    yield org
-    org.delete()
+    return org
 
 
 @pytest.fixture
@@ -137,7 +136,11 @@ def test_uuid_reviewer_does_not_fall_back_to_a_reassigned_login(organization, te
     assert enriched[0]["user"]["id"] == original.id
 
 
-def test_enriches_reviewer_sources_and_explanations():
+@pytest.mark.parametrize(
+    "user_authored, unsourced_label",
+    [(False, "Agent suggestion"), (True, "Added by teammate")],
+)
+def test_enriches_reviewer_sources_and_explanations(user_authored, unsourced_label):
     shared_reason = "The checkout parser belongs to the checkout platform team's service."
     enriched = enrich_reviewer_dicts_with_org_members(
         1,
@@ -176,10 +179,23 @@ def test_enriches_reviewer_sources_and_explanations():
                 "relevant_commits": [],
                 "reason": "Added as a reviewer by Morgan Lee",
             },
+            {
+                "github_login": "fallback-owner",
+                "relevant_commits": [],
+                "reason": "Nobody owns this area yet, so it went to the project's default owner.",
+                "source_skill": "signals-scout-checkout-reliability",
+                "is_default_owner": True,
+            },
+            {
+                "github_login": "named-reviewer",
+                "relevant_commits": [],
+                "reason": "Owns the checkout handler.",
+            },
         ],
         login_to_user={},
         uuid_to_user={},
         scout_display_names={},
+        user_authored=user_authored,
     )
 
     assert enriched[0]["source_label"] == "Code history"
@@ -190,6 +206,10 @@ def test_enriches_reviewer_sources_and_explanations():
     assert enriched[3]["source_label"] == "Added by teammate"
     assert enriched[3]["explanation"] is None
     assert enriched[4]["explanation"] is None
+    assert enriched[5]["source_label"] == "Default owner"
+    assert enriched[5]["explanation"] == "Nobody owns this area yet, so it went to the project's default owner."
+    assert enriched[6]["source_label"] == unsourced_label
+    assert enriched[6]["explanation"] == "Owns the checkout handler."
 
 
 @pytest.mark.django_db

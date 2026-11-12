@@ -1,22 +1,24 @@
+import {
+    isActorsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
+} from '~/queries/schema/node-guards'
 import { MarketingAnalyticsDrillDownLevel, Node } from '~/queries/schema/schema-general'
 import {
     isAccountsQuery,
     isAccountsTableQuery,
-    isActorsQuery,
     isEndpointsUsageTableQuery,
     isEventsQuery,
     isGroupsQuery,
-    isHogQLQuery,
     isMarketingAnalyticsTableQuery,
-    isPersonsNode,
     isSessionAttributionExplorerQuery,
     isSessionsQuery,
     isTracesQuery,
     isWebBotsTableQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
-    isWebOverviewQuery,
-    isWebStatsTableQuery,
 } from '~/queries/utils'
 
 export enum QueryFeature {

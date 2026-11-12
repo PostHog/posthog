@@ -45,6 +45,7 @@ from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
 from posthog.settings.web_bot_auth import *
+from posthog.settings.mobile_app_links import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.managed_migrations import *
 from posthog.settings.nextgensquash import *
@@ -142,7 +143,8 @@ PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE"
 PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
 
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
-# enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
+# enforcement falls back to the per-project `events-data-retention` cohort flag, and deletion past the default period
+# also needs the `events-data-retention-deletion` flag. When set, forces both on/off everywhere.
 EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
     "EVENTS_DATA_RETENTION_ENFORCED", optional=True, type_cast=str_to_bool
 )
@@ -157,6 +159,9 @@ CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
+
+# Set only when the application ClickHouse profile supports AS MATERIALIZED and enables its analyzer.
+HOGQL_MATERIALIZED_CTE_SUPPORTED: bool = get_from_env("HOGQL_MATERIALIZED_CTE_SUPPORTED", False, type_cast=str_to_bool)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 

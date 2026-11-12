@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import { IconCheckCircle, IconDocument, IconEllipsis, IconHide } from '@posthog/icons'
 import { Badge, Button, Heading, IconStack, IconStackItem, Text, cn } from '@posthog/quill'
 
@@ -13,7 +14,6 @@ import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
 import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayMarkedText } from './TodayMarkedText'

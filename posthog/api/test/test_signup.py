@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
@@ -22,7 +23,11 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
-from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PendingOAuthConnection,
+    PendingOAuthFlow,
+)
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -128,7 +133,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
-    def test_api_sign_up_with_ai_referral_source(self, mock_capture):
+    def test_api_sign_up_with_referral_source_follow_up_answers(self, mock_capture):
         response = self.client.post(
             "/api/signup/",
             {
@@ -139,6 +144,7 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
                 "referral_source": "ChatGPT recommended it",
                 "referral_source_ai_prompt": "What is the best product analytics tool?",
+                "referral_source_influencer": "The Hedgehog Dev channel",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -148,8 +154,10 @@ class TestSignupAPI(APIBaseTest):
         event_props = signup_calls[0].kwargs["properties"]
         self.assertEqual(event_props["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["referral_source_influencer"], "The Hedgehog Dev channel")
         self.assertEqual(event_props["$set"]["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["$set"]["referral_source_influencer"], "The Hedgehog Dev channel")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
@@ -308,26 +316,57 @@ class TestSignupAPI(APIBaseTest):
         existing_user.refresh_from_db()
         self.assertEqual(existing_user.first_name, "Hoggy")
 
+    @parameterized.expand(
+        [
+            (
+                "plus_addressed",
+                "john+alias@posthog.com",
+                "Email addresses with a '+' aren't supported. Please use your primary email address.",
+                "plus_addressing_not_allowed",
+            ),
+            (
+                "lookalike_dot",
+                "john@ph\u3002posthog.com",
+                "Enter an email address using standard dots and no hidden characters.",
+                "lookalike_characters_not_allowed",
+            ),
+            (
+                "zero_width_space",
+                "john@posthog\u200b.com",
+                "Enter an email address using standard dots and no hidden characters.",
+                "lookalike_characters_not_allowed",
+            ),
+        ]
+    )
     @pytest.mark.skip_on_multitenancy
-    def test_signup_disallowed_with_plus_addressed_email(self):
+    def test_signup_disallowed_with_unsupported_email(self, _name, email, message, code):
         response = self.client.post(
             "/api/signup/",
             {
                 "first_name": "John",
-                "email": "john+alias@posthog.com",
+                "email": email,
                 "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            self.validation_error_response(
-                "Email addresses with a '+' aren't supported. Please use your primary email address.",
-                code="plus_addressing_not_allowed",
-                attr="email",
-            ),
+            self.validation_error_response(message, code=code, attr="email"),
         )
         self.assertEqual(User.objects.count(), 0)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_allowed_with_internationalized_domain(self):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "john@ex\u00e4mple.com",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(User.objects.get().email, "john@ex\u00e4mple.com")
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_stripped_alias_collision(self):
@@ -394,6 +433,32 @@ class TestSignupAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.filter(email="social+alias@posthog.com").exists())
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_social_signup_passes_referral_fields_through(self, mock_capture):
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social.referral@posthog.com"
+        session["user_name"] = "Social User"
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Org",
+                "referral_source": "a TikTok influencer",
+                "referral_source_influencer": "The Hedgehog Dev channel",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        self.assertEqual(len(signup_calls), 1)
+        event_props = signup_calls[0].kwargs["properties"]
+        self.assertEqual(event_props["referral_source"], "a TikTok influencer")
+        self.assertEqual(event_props["referral_source_influencer"], "The Hedgehog Dev channel")
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_normalizes_email_to_lowercase(self):
@@ -764,14 +829,9 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 16)
+        self.assertEqual(dashboard.tiles.count(), 17)
         self.assertEqual(dashboard.name, "Your starter dashboard")
-        self.assertEqual(
-            dashboard.description,
-            "How people use your app at a glance: traffic, retention, where visitors come from, and "
-            "whether they take action. Built from automatically captured events, so it works on day one. "
-            "Swap in your own events to make it yours.",
-        )
+        self.assertEqual(dashboard.description, "An overview of how people use your app.")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -1532,6 +1592,20 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_sso_invite_for_another_email_redirects_to_login(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        org = Organization.objects.create(name="Test org")
+        invite = OrganizationInvite.objects.create(organization=org, target_email="invited@example.com")
+
+        response = self._complete_sso_with_invite_id(mock_request, str(invite.id), "someone-else@example.com")
+
+        self.assertRedirects(response, "/login?error_code=invite_email_mismatch")
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+        self.assertFalse(User.objects.filter(email="someone-else@example.com").exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_first_time_sso_login_clears_password_and_passkeys_on_unverified_account(
         self, mock_sso_providers, mock_request
     ):
@@ -1648,10 +1722,11 @@ class TestSignupAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_signup", "plain", True, True),
-            ("social_signup", "social", True, True),
-            ("invite_signup", "invite", True, False),
-            ("delegated_invite_signup", "delegated_invite", False, False),
+            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True),
+            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True),
+            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True),
+            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False),
+            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False),
         ]
     )
     @patch("posthoganalytics.group_identify")
@@ -1660,14 +1735,15 @@ class TestSignupAPI(APIBaseTest):
         self,
         _name: str,
         signup_path: str,
-        expect_onboarding_skip: bool,
+        flow: PendingOAuthFlow,
+        expected_skip_reason: str | None,
         expect_project_marked: bool,
         mock_capture,
         mock_group_identify,
     ):
         email = "oauth-signup@posthog.com"
         self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
-            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
+            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client", flow=flow
         ).to_cookie_value()
 
         invite_organization: Optional[Organization] = None
@@ -1709,9 +1785,9 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
 
         user = User.objects.get(email=email)
-        if expect_onboarding_skip:
+        if expected_skip_reason is not None:
             self.assertIsNotNone(user.onboarding_skipped_at)
-            self.assertEqual(user.onboarding_skipped_reason, "connector")
+            self.assertEqual(user.onboarding_skipped_reason, expected_skip_reason)
             expected_organization = invite_organization or user.organization
             assert expected_organization is not None
             self.assertEqual(user.onboarding_skipped_organization_id, expected_organization.id)
@@ -1741,12 +1817,13 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
-        """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
-
-        # Clear any existing rate limit cache
         cache.clear()
+
+        for i in range(3):
+            failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+            self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
 
         for i in range(6):
             response = self.client.post(
@@ -1766,8 +1843,40 @@ class TestSignupAPI(APIBaseTest):
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
                 self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th signup should be rate limited"
                 )
+                self.assertIn("Retry-After", response.headers)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_signup_rate_limits_failed_attempts_by_ip(self, mock_get_ip):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        cache.clear()
+
+        def signup(i: int):
+            return self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": f"User{i}",
+                    "email": f"user{i}@example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": f"Org{i}",
+                },
+            )
+
+        with time_machine.travel(datetime(2026, 1, 1, 12, 0, 0), tick=False) as traveller:
+            for i in range(10):
+                failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+                self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+            self.assertEqual(signup(0).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            traveller.shift(timedelta(hours=2))
+
+            for i in range(5):
+                self.assertEqual(signup(i).status_code, status.HTTP_201_CREATED, f"Signup {i + 1} should succeed")
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{i}@example.com").delete()
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_rate_limit_different_ips(self):
@@ -2968,13 +3077,14 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
-    def test_cant_claim_invalid_invite(self):
+    @parameterized.expand([("unknown_uuid", str(uuid.uuid4())), ("malformed", "not-a-uuid")])
+    def test_cant_claim_invalid_invite(self, _name, invite_id):
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
         response = self.client.post(
-            f"/api/signup/{uuid.uuid4()}/",
+            f"/api/signup/{invite_id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

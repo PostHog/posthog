@@ -22,7 +22,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.facade.api import sync_external_data_job_workflow
@@ -55,12 +54,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
-    source_feature_flag_missing,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
+    CsvColumnType,
     csv_column_types_from_columns,
+    json_column_types_from_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
@@ -139,10 +137,6 @@ def file_upload_source() -> FileUploadSource:
     return FileUploadSource()
 
 
-def file_upload_sources_enabled(team: Team) -> bool:
-    return not source_feature_flag_missing(file_upload_source(), team)
-
-
 def upload_job_inputs(upload: UploadedFile, schema_name: str) -> dict[str, str]:
     return {
         "upload_id": upload.location.upload_id,
@@ -155,6 +149,14 @@ def upload_job_inputs(upload: UploadedFile, schema_name: str) -> dict[str, str]:
 def pending_upload_job_inputs(file_format: UploadedFileFormat, schema_name: str) -> dict[str, str]:
     """Inputs of a source that reads no file yet. A sync of it fails until an upload replaces them."""
     return {"upload_id": "", "filename": "", "file_format": file_format, "schema_name": schema_name}
+
+
+def _stored_column_types(read: str, read_settings: UploadReadSettings) -> tuple[CsvColumnType, ...]:
+    if read == "csv":
+        return csv_column_types_from_columns(read_settings.columns)
+    if read == "jsonl":
+        return json_column_types_from_columns(read_settings.columns)
+    return ()
 
 
 def upload_schema_metadata(
@@ -176,7 +178,7 @@ def upload_schema_metadata(
         csv=CsvOptions(
             has_header=True,
             allow_double_quotes=read_settings.allow_double_quotes is not False,
-            column_types=csv_column_types_from_columns(read_settings.columns) if read == "csv" else (),
+            column_types=_stored_column_types(read, read_settings),
         ),
         pattern=None,
         source_format=read,

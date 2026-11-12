@@ -73,24 +73,16 @@ def _make_ticket(
 
 class TestMasterFlagEnabled:
     @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    def test_evaluates_flag_with_team_uuid_and_groups(self, mock_feature_enabled):
+    def test_evaluates_flag_keyed_on_organization(self, mock_feature_enabled):
         team = MagicMock()
-        team.id = 2
-        team.uuid = TEST_TEAM_UUID
         team.organization_id = TEST_ORG_UUID
 
         assert _is_master_flag_enabled(team) is True
         mock_feature_enabled.assert_called_once_with(
-            "product-support-ai-suggestion",
-            str(TEST_TEAM_UUID),
-            groups={
-                "organization": str(TEST_ORG_UUID),
-                "project": "2",
-            },
-            group_properties={
-                "organization": {"id": str(TEST_ORG_UUID)},
-                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
-            },
+            "product-support-ai-suggestion-orgs",
+            str(TEST_ORG_UUID),
+            groups={"organization": str(TEST_ORG_UUID)},
+            group_properties={"organization": {"id": str(TEST_ORG_UUID)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -143,13 +135,13 @@ class TestCollectEligible:
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
         mock_has_ready.return_value = has_ready
 
-        # One query per team: .filter().values_list("item_id", author_type, created_at) rows.
+        # One query per team: .filter().values_list("item_id", author_type, is_private, created_at) rows.
         now = timezone.now()
-        rows: list[tuple[str, str, object]] = []
+        rows: list[tuple[str, str, bool, object]] = [(ticket_id, "customer", False, now - timedelta(minutes=10))]
         if has_ai:
-            rows.append((ticket_id, "AI", now))
+            rows.append((ticket_id, "AI", True, now))
         if has_team_reply:
-            rows.append((ticket_id, "support", now))
+            rows.append((ticket_id, "support", False, now))
         mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
         result = _collect_eligible()
@@ -176,6 +168,25 @@ class TestCollectEligible:
         assert len(result) == 1
         assert result[0].team_id == team.id
         assert result[0].ticket_id == ticket_id
+
+    @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
+    @patch(f"{COORD_MODULE}.Comment")
+    @patch(f"{COORD_MODULE}.Ticket")
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_master_flag_evaluated_once_per_org(
+        self,
+        mock_master_flag,
+        mock_ticket_model,
+        mock_comment_model,
+        mock_has_ready,
+    ):
+        tickets = [_make_ticket(team_id=team_id)[0] for team_id in (1, 1, 2)]
+        mock_ticket_model.objects.filter.return_value.select_related.return_value = tickets
+        mock_comment_model.objects.filter.return_value.values_list.return_value = []
+
+        result = _collect_eligible()
+        assert len(result) == 3
+        mock_master_flag.assert_called_once()
 
     @parameterized.expand(
         [
@@ -222,7 +233,11 @@ class TestCollectEligible:
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
         # AI note exists → engaged → skipped.
-        mock_comment_model.objects.filter.return_value.values_list.return_value = [(ticket_id, "AI", timezone.now())]
+        now = timezone.now()
+        mock_comment_model.objects.filter.return_value.values_list.return_value = [
+            (ticket_id, "customer", False, now - timedelta(minutes=10)),
+            (ticket_id, "AI", True, now),
+        ]
 
         result = _collect_eligible()
         assert result == []
@@ -258,9 +273,9 @@ class TestCollectEligible:
         ticket, ticket_id, team = _make_ticket(created_minutes_ago=created_min_ago)
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
-        rows: list[tuple[str, str, object]] = []
+        rows: list[tuple[str, str, bool, object]] = []
         if last_msg_min_ago is not None:
-            rows.append((ticket_id, "customer", timezone.now() - timedelta(minutes=last_msg_min_ago)))
+            rows.append((ticket_id, "customer", False, timezone.now() - timedelta(minutes=last_msg_min_ago)))
         mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
         result = _collect_eligible()
@@ -406,7 +421,16 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return team, ticket
 
-    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int, automated_update_key: str | None = None):
+    def _comment(
+        self,
+        team,
+        ticket,
+        *,
+        author_type: str,
+        minutes_ago: int,
+        automated_update_key: str | None = None,
+        is_private: bool = False,
+    ):
         from posthog.models.comment import Comment
 
         created = timezone.now() - timedelta(minutes=minutes_ago)
@@ -417,7 +441,7 @@ class TestCollectEligibleAwaitingClarification:
             content=author_type,
             item_context={
                 "author_type": author_type,
-                "is_private": False,
+                "is_private": is_private,
                 "persist_as": "clarification",
                 **({"automated_update_key": automated_update_key} if automated_update_key else {}),
             },
@@ -428,6 +452,10 @@ class TestCollectEligibleAwaitingClarification:
         TicketModel.objects.filter(id=ticket.id).update(last_message_at=max(ticket.last_message_at or created, created))
         ticket.refresh_from_db()
         return comment
+
+    def _comments(self, team, ticket, comments: list[tuple[str, int] | tuple[str, int, bool]]) -> None:
+        for author_type, minutes_ago, *private in comments:
+            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago, is_private=private == [True])
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
@@ -471,6 +499,13 @@ class TestCollectEligibleAwaitingClarification:
                 False,
                 None,
             ),
+            (
+                "private_workflow_note_after_question",
+                True,
+                [("customer", 10), ("AI", 5), ("workflow", 4, True), ("customer", 3)],
+                True,
+                1,
+            ),
         ]
     )
     @pytest.mark.django_db
@@ -485,8 +520,7 @@ class TestCollectEligibleAwaitingClarification:
         mock_master_flag,
     ):
         team, ticket = self._team_and_ticket(awaiting=awaiting)
-        for author_type, minutes_ago in comments:
-            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
+        self._comments(team, ticket, comments)
 
         result = _collect_eligible()
         if expected_eligible:
@@ -494,6 +528,42 @@ class TestCollectEligibleAwaitingClarification:
             assert result[0].clarification_round == expected_round
         else:
             assert result == []
+
+    @parameterized.expand(
+        [
+            ("opener_without_customer_reply", [("human", 4)], False, None),
+            ("settled_customer_reply_after_opener", [("human", 4), ("customer", 3)], True, None),
+            ("customer_reply_still_settling", [("human", 4), ("customer", 0)], False, None),
+            (
+                "team_replied_after_customer",
+                [("human", 4), ("customer", 3), ("human", 2)],
+                False,
+                "skipped_team_replied",
+            ),
+            ("ai_note_after_customer", [("human", 4), ("customer", 3), ("AI", 2)], False, None),
+            ("inbound_team_reply", [("customer", 4), ("human", 3)], False, "skipped_team_replied"),
+            ("private_workflow_note", [("customer", 4), ("workflow", 3, True)], True, None),
+            ("private_support_note", [("customer", 4), ("support", 3, True)], True, None),
+            ("private_ai_note", [("customer", 4), ("AI", 3, True)], False, None),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_first_draft_eligibility_by_comment_order(
+        self,
+        _name,
+        comments,
+        expected_eligible,
+        expected_result,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        self._comments(team, ticket, comments)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+        ticket.refresh_from_db()
+        assert ticket.ai_triage.get("result") == expected_result
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
@@ -514,7 +584,6 @@ class TestCollectEligibleAwaitingClarification:
 
     @parameterized.expand(
         [
-            ("team_started_ticket", {}, True, None, "human", "skipped_team_replied"),
             ("ai_note_only", {}, True, None, "AI", None),
             (
                 "channel_excluded",

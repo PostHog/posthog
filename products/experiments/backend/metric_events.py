@@ -28,8 +28,10 @@ from posthog.schema import (
     ExperimentExposureNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeNode,
     HogQLQueryModifiers,
 )
 
@@ -46,6 +48,7 @@ from posthog.models.user import User
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, scheduled_metric_definitions
+from products.experiments.backend.metric_utils import format_quantile_level
 from products.experiments.backend.models.experiment import Experiment
 
 logger = logging.getLogger(__name__)
@@ -173,7 +176,9 @@ class MetricScanResult:
     dropped_metric_uuids: set[str]
 
 
-def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode) -> str:
+def node_signature(
+    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
     return node.model_dump_json(exclude_none=True)
@@ -181,8 +186,13 @@ def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode | Experi
 
 def _metric_sources(
     metric: ExperimentMetric,
-) -> list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode]]:
-    if isinstance(metric, ExperimentMeanMetric):
+) -> list[
+    tuple[
+        MetricSourceRole,
+        MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+    ]
+]:
+    if isinstance(metric, ExperimentMeanMetric | ExperimentQuantileMetric):
         return [(MetricSourceRole.SOURCE, metric.source)]
     if isinstance(metric, ExperimentFunnelMetric):
         return [(MetricSourceRole.STEP, step) for step in metric.series]
@@ -197,15 +207,20 @@ def _metric_sources(
     # the start's: a duplicate chip implying a return the scan can't distinguish from the entry. A
     # distinct completion event (or the same event narrowed by different properties) is a separate
     # signal worth showing, whichever window it opens in.
-    sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode]] = [
-        (MetricSourceRole.RETENTION_START, metric.start_event)
-    ]
+    sources: list[
+        tuple[
+            MetricSourceRole,
+            MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+        ]
+    ] = [(MetricSourceRole.RETENTION_START, metric.start_event)]
     if node_signature(metric.completion_event) != node_signature(metric.start_event):
         sources.append((MetricSourceRole.RETENTION_COMPLETION, metric.completion_event))
     return sources
 
 
-def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode) -> str | None:
+def _source_title(
+    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+) -> str | None:
     """Display name for one metric source node, mirroring the frontend `getDefaultName`."""
     if isinstance(node, EventsNode):
         return node.name or node.event
@@ -213,6 +228,8 @@ def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode | Experim
         return node.name or f"Action {node.id}"
     if isinstance(node, ExperimentDataWarehouseNode):
         return node.table_name
+    if isinstance(node, ExperimentWarehouseNativeNode):
+        return node.custom_name or "Warehouse-native query"
     if isinstance(node, ExperimentExposureNode):
         return "Exposure"
 
@@ -231,6 +248,9 @@ def _default_metric_title(metric: ExperimentMetric) -> str:
         )
     if isinstance(metric, ExperimentRetentionMetric):
         return f"{_source_title(metric.start_event) or 'Start event'} / {_source_title(metric.completion_event) or 'Completion event'}"
+    if isinstance(metric, ExperimentQuantileMetric):
+        measured = metric.source.math_property or _source_title(metric.source) or "Untitled metric"
+        return f"{format_quantile_level(metric.quantile)} of {measured}"
 
 
 def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:

@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
+from itertools import cycle
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -144,7 +145,7 @@ SOURCE_EVENTS = [
     # Twelve hours before now is always after the start of yesterday, even when UTC midnight passes
     # between seeding and the run. A row from exactly one day ago would move into the window then.
     flag_called("half_a_day_ago", TEAM_ONE, timedelta(hours=12)),
-    flag_called("past_retention", TEAM_ONE, timedelta(days=91)),
+    flag_called("past_retention", TEAM_ONE, timedelta(days=93)),
 ]
 
 # The job stops unless each Kafka partition in flag_evaluations delivered a row within the
@@ -581,7 +582,7 @@ def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
     assert totals == ShardBackfillTotals(days=1, rows=5)
 
 
-# The earliest day the TTL keeps is 2025-12-11 on 2026-03-10, and 2025-12-12 on 2026-03-11.
+# The earliest day the TTL keeps is 2025-12-09 on 2026-03-10, and 2025-12-10 on 2026-03-11.
 @pytest.mark.parametrize(
     "start, step, step_day, effect",
     [
@@ -595,21 +596,21 @@ def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
         pytest.param(
             datetime(2026, 3, 10, 23, tzinfo=UTC),
             "wait_for_parts_to_merge",
-            date(2025, 12, 11),
+            date(2025, 12, 9),
             "pass_midnight",
             id="midnight_passes_during_the_waits_before_the_copy",
         ),
         pytest.param(
             datetime(2026, 3, 11, 1, tzinfo=UTC),
             "wait_for_parts_to_merge",
-            date(2025, 12, 11),
+            date(2025, 12, 9),
             "fail",
             id="day_expired_before_its_waits",
         ),
     ],
 )
 def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, step_day: date, effect: str) -> None:
-    days = [date(2026, 3, 9), date(2025, 12, 12), date(2025, 12, 11)]
+    days = [date(2026, 3, 9), date(2025, 12, 10), date(2025, 12, 9)]
 
     with time_machine.travel(start, tick=False) as traveller:
 
@@ -679,11 +680,11 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
 
 def test_consumer_cutoff_sits_the_lag_limit_and_the_delivery_timeout_before_the_check() -> None:
     cluster = MagicMock()
-    cluster.map_any_host_in_shards_by_role.return_value.result.return_value = {1: (2, 30)}
+    cluster.on_host.return_value.result.return_value = (2, 30)
     backfill = shard_backfill(FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600), cluster=cluster)
 
     with time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False):
-        created_before = backfill.consumer_cutoff()
+        created_before = backfill.consumer_cutoff(MagicMock())
 
     assert created_before == datetime(2026, 3, 10, 11, 45, tzinfo=UTC)
 
@@ -798,12 +799,44 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     assert (sleep.call_count, copy_day.called) == (sleeps, failure is None)
 
 
+def test_backfill_runs_each_days_cutoff_and_copy_on_one_host() -> None:
+    replica_1, replica_2 = MagicMock(name="replica-1"), MagicMock(name="replica-2")
+    cluster = MagicMock()
+    cluster.any_host_in_shard_by_roles.side_effect = cycle([replica_1, replica_2])
+    cluster.map_hosts_in_shard_by_role.return_value.result.return_value = {replica_1: ABOVE_MOVE_LINE}
+    queries_by_host: list[tuple[MagicMock, str]] = []
+
+    def run_on_host(host: MagicMock, fn: Callable[[MagicMock], Any]) -> MagicMock:
+        future = MagicMock()
+        future.result.return_value = fn(host)
+        return future
+
+    def fake_sync_execute(query: str, args: Mapping[str, Any] | None = None, **kwargs: Any) -> list[tuple]:
+        kind = "copy" if args else "parts" if "system.parts" in query else "cutoff"
+        queries_by_host.append((kwargs["sync_client"], kind))
+        results: dict[str, list[tuple]] = {"copy": [(5,)], "cutoff": [(2, 30)], "parts": [(0,)]}
+        return results[kind]
+
+    cluster.on_host.side_effect = run_on_host
+    backfill = shard_backfill(
+        FlagEvaluationsBackfillConfig(dry_run=True, team_id_chunks=2, min_free_bytes=1000), cluster=cluster
+    )
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+
+    with patch("posthog.dags.flag_evaluations_backfill.sync_execute", side_effect=fake_sync_execute):
+        totals = backfill.run([yesterday, yesterday - timedelta(days=1)])
+
+    assert totals == ShardBackfillTotals(days=2, rows=20)
+    assert [kind for _, kind in queries_by_host] == ["parts", "cutoff", "copy", "copy"] * 2
+    assert [len({host for host, _ in queries_by_host[start : start + 4]}) for start in (0, 4)] == [1, 1]
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
         pytest.param({"end_date": "2026-03-10"}, id="end_date_after_yesterday"),
         pytest.param({"start_date": "2026-03-01", "end_date": "2026-03-01"}, id="empty_window"),
-        pytest.param({"start_date": "2025-12-10"}, id="start_date_already_expired"),
+        pytest.param({"start_date": "2025-12-08"}, id="start_date_already_expired"),
     ],
 )
 def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:
@@ -817,7 +850,7 @@ def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any
         pytest.param(
             {"start_date": "2026-03-06", "end_date": "2026-03-09"}, date(2026, 3, 8), date(2026, 3, 6), 3, id="explicit"
         ),
-        pytest.param({}, date(2026, 3, 8), date(2025, 12, 11), 88, id="default"),
+        pytest.param({}, date(2026, 3, 8), date(2025, 12, 9), 90, id="default"),
     ],
 )
 def test_resolve_backfill_days_lists_each_day_newest_first(

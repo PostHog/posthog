@@ -11,19 +11,24 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
-from collections.abc import Collection, Mapping
-from datetime import datetime
+from collections.abc import Collection, Mapping, Sequence
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.contracts import (
+    AgentInsightRead,
+    ChartExplanation,
+    ChartExplanationAuthor,
+    InsightActionReference,
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
@@ -32,6 +37,7 @@ from products.product_analytics.backend.facade.contracts import (
     ViewableInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
@@ -86,6 +92,47 @@ def create_insight_variable(
     return _to_variable_definition(variable)
 
 
+def _to_chart_explanation(explanation: InsightExplanation) -> ChartExplanation:
+    author = explanation.created_by
+    return ChartExplanation(
+        id=explanation.id,
+        insight_id=explanation.insight_id,
+        data=explanation.data,
+        created_by=ChartExplanationAuthor(
+            id=author.id, first_name=author.first_name, last_name=author.last_name, email=author.email
+        )
+        if author is not None
+        else None,
+        created_at=explanation.created_at,
+    )
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> ChartExplanation:
+    """Save a new chart explanation of the insight. Pass the insight's own team."""
+    return _to_chart_explanation(
+        logic.create_insight_explanation(team_id=team_id, insight_id=insight_id, user_id=user_id, data=data)
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> ChartExplanation | None:
+    """Replace the data of an explanation this person saved of this insight, so its link shows the fix.
+    None when they saved no explanation with this id."""
+    explanation = logic.update_insight_explanation(
+        team_id=team_id, insight_id=insight_id, explanation_id=explanation_id, user_id=user_id, data=data
+    )
+    return _to_chart_explanation(explanation) if explanation is not None else None
+
+
+def get_insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> ChartExplanation | None:
+    """The saved chart explanation with this id, only when it belongs to this insight."""
+    explanation = logic.insight_explanation(team_id=team_id, insight_id=insight_id, explanation_id=explanation_id)
+    return _to_chart_explanation(explanation) if explanation is not None else None
+
+
 def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     """Hold the insight definition stable while saving a dependent evaluation.
 
@@ -93,6 +140,19 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     does not exist in this team. The lock remains until the caller's transaction ends.
     """
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
+
+
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    """Store metadata a backfill computed from ``query_at_read``, without holding a lock while it computed.
+
+    Writes only while the insight still lacks current metadata and its query is still ``query_at_read``,
+    so a save that landed after the backfill read the insight wins. Returns whether the write happened.
+    """
+    return logic.store_backfilled_query_metadata(
+        insight_id=insight_id, query_at_read=query_at_read, query_metadata=query_metadata
+    )
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
@@ -115,6 +175,28 @@ def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insigh
     )
 
 
+def record_agent_insight_read(*, team: Team, user_id: int, insight_id: int) -> None:
+    try:
+        logic.record_agent_insight_read(team=team, user_id=user_id, insight_id=insight_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id, "insight_id": insight_id})
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[AgentInsightRead]:
+    return [
+        AgentInsightRead(short_id=short_id, read_days=tuple(read_days))
+        for short_id, read_days in logic.insight_reads_by_agents(
+            team_id=team_id, user_id=user_id, since=since, min_days=min_days, limit=limit
+        )
+    ]
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    logic.delete_agent_insight_reads_for_teams(team_ids)
+
+
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:
     """Annotate an insight queryset with ``last_viewed_at``, the most recent view by anyone."""
     return logic.with_last_viewed_at(insights)
@@ -126,6 +208,19 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     Each one carries the viewer's own ``last_viewed_at`` rather than the team-wide latest.
     """
     return logic.recently_viewed_insights(team_id=team_id, user_id=user_id, limit=limit)
+
+
+def insight_short_ids_built_by(*, team: Team, user_id: int, since: datetime, limit: int) -> list[str]:
+    """Short ids of saved insights in the project that the user created or last edited since `since`, newest first."""
+    return list(
+        Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
+        .filter(
+            Q(created_by_id=user_id, created_at__gte=since)
+            | Q(last_modified_by_id=user_id, last_modified_at__gte=since)
+        )
+        .order_by("-last_modified_at")
+        .values_list("short_id", flat=True)[:limit]
+    )
 
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
@@ -179,6 +274,16 @@ def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], sinc
     Shared and embedded views have no viewer, so they are not counted. Insights nobody viewed are left out.
     """
     return logic.viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
+
+
+def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
+    """Up to `limit` live saved insights of the team whose query or filters reference the action."""
+    return logic.insights_referencing_action(team_id=team_id, action_id=action_id, limit=limit)
+
+
+def count_insights_referencing_actions(*, team_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    """For each action, how many live saved insights of the team reference it. An action without one is absent."""
+    return logic.count_insights_referencing_actions(team_id=team_id, action_ids=action_ids)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
@@ -255,6 +360,17 @@ def viewable_insights(*, team: Team, user: User, insight_ids: Collection[int]) -
     ]
 
 
+def viewable_saved_queries(*, team: Team, user: User, short_ids: Collection[str]) -> dict[str, dict[str, Any]]:
+    """The stored queries of this team's live insights among ``short_ids`` that the user may view, by short ID."""
+    if not short_ids:
+        return {}
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team.id, short_id__in=short_ids, deleted=False), resource="insight"
+    )
+    return {short_id: query for short_id, query in insights.values_list("short_id", "query") if query}
+
+
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
@@ -280,6 +396,48 @@ def save_saved_insight_query(
     return None
 
 
+def viewable_insight_definitions(
+    *, team: Team, user: User, short_ids: Collection[str]
+) -> dict[str, SavedInsightDefinition]:
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = list(Insight.objects.filter(team__project_id=team.project_id, short_id__in=short_ids, deleted=False))
+    denied = set(
+        access_control.denied_object_ids(
+            "insight", ((str(insight.pk), insight.team_id, insight.created_by_id) for insight in insights), "viewer"
+        )
+    )
+    return {
+        insight.short_id: SavedInsightDefinition(
+            id=insight.pk,
+            short_id=insight.short_id,
+            name=insight.name or insight.derived_name,
+            query=insight.query or {},
+        )
+        for insight in insights
+        if str(insight.pk) not in denied
+    }
+
+
+def viewable_insights_are_trends(*, team: Team, user: User, short_ids: Collection[str]) -> dict[str, bool]:
+    """Whether each insight the person can view is a trends insight, by short ID. Other insights are left out."""
+    return {
+        short_id: (definition.query.get("source") or {}).get("kind") == "TrendsQuery"
+        for short_id, definition in viewable_insight_definitions(team=team, user=user, short_ids=short_ids).items()
+    }
+
+
+def insight_query_complete(*, team: Team, query_id: str) -> bool:
+    from products.product_analytics.backend import insight_series
+
+    return insight_series.query_complete(team=team, query_id=query_id)
+
+
+def insight_series_supported(*, query: dict[str, Any], dashboard: InsightDashboardContext | None = None) -> bool:
+    from products.product_analytics.backend import insight_series
+
+    return insight_series.supports_series(query=query, dashboard=dashboard)
+
+
 def get_insight_series(
     *,
     team: Team,
@@ -287,12 +445,16 @@ def get_insight_series(
     short_id: str,
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
+    wait_until: float | None = None,
+    raise_on_pending: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
         return None
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    if not access_control.check_access_level_for_object(insight, "viewer"):
+    if access_control.denied_object_ids(
+        "insight", [(str(insight.pk), insight.team_id, insight.created_by_id)], "viewer"
+    ):
         return None
     from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
         insight_series,
@@ -306,4 +468,6 @@ def get_insight_series(
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,
+        wait_until=wait_until,
+        raise_on_pending=raise_on_pending,
     )

@@ -24,6 +24,7 @@ export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
+export type TicketsLoadState = 'unknown' | 'loaded' | 'failed'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 /** Legacy single-value shape, still present in old saved views and persisted filter state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
@@ -241,6 +242,8 @@ export interface ChatMessage {
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
     fromZendesk?: boolean
+    /** Synced from a GitHub issue. Its content is GitHub-flavored Markdown, where HTML is markup. */
+    fromGithub?: boolean
     hasFullEmailContent?: boolean
     citations?: string[]
     confidence?: number

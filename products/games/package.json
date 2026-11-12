@@ -6,7 +6,7 @@
         "kea-router": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/react": "^14.3.1"
+        "@testing-library/react": "^16.3.3"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",

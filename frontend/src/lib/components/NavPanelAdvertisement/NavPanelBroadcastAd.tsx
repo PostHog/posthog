@@ -1,24 +1,26 @@
 import { BindLogic, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { BroadcastPayload, AdvertisementCard, NAV_PANEL_CARD_TYPE } from './navPanelAdShared'
+import { captureBroadcastEvent } from './navPanelAdEvents'
+import { AdvertisementCard, BroadcastPayload, NavPanelPlacement, broadcastDismissKey } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 
-export function NavPanelBroadcastAd({ broadcast }: { broadcast: BroadcastPayload }): JSX.Element | null {
-    const logicProps = { dismissKey: `broadcast-${broadcast.broadcast}` }
-    const logic = navPanelAdvertisementLogic(logicProps)
-    const { hidden } = useValues(logic)
+export function NavPanelBroadcastAd({
+    broadcast,
+    placement,
+}: {
+    broadcast: BroadcastPayload
+    placement: NavPanelPlacement
+}): JSX.Element | null {
+    const logicProps = { dismissKey: broadcastDismissKey(broadcast) }
+    const { hidden } = useValues(navPanelAdvertisementLogic(logicProps))
+    const { broadcast: slug, productKey } = broadcast
 
     useEffect(() => {
         if (!hidden) {
-            posthog.capture('nav panel broadcast shown', {
-                broadcast: broadcast.broadcast,
-                card_type: NAV_PANEL_CARD_TYPE.BROADCAST,
-                product_key: broadcast.productKey,
-            })
+            captureBroadcastEvent('shown', { broadcast: slug, productKey }, placement)
         }
-    }, [broadcast.broadcast, broadcast.productKey, hidden])
+    }, [slug, productKey, hidden, placement])
 
     if (hidden) {
         return null
@@ -31,13 +33,7 @@ export function NavPanelBroadcastAd({ broadcast }: { broadcast: BroadcastPayload
                 emojiLabel={broadcast.emojiLabel}
                 title={broadcast.title}
                 text={broadcast.text}
-                onClose={() => {
-                    posthog.capture('nav panel broadcast dismissed', {
-                        broadcast: broadcast.broadcast,
-                        card_type: NAV_PANEL_CARD_TYPE.BROADCAST,
-                        product_key: broadcast.productKey,
-                    })
-                }}
+                onClose={() => captureBroadcastEvent('dismissed', broadcast, placement)}
             />
         </BindLogic>
     )

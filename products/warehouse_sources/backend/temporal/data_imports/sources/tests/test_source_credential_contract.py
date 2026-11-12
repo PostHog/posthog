@@ -27,7 +27,6 @@ import requests
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     get_nonsensitive_and_sensitive_field_names,
 )
@@ -219,7 +218,6 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "Dbt": "scope",
         "Deel": "scope",
         "Develocity": "scope",
-        "DevinAI": "scope",
         "Discourse": "scope",
         "Drata": "scope",
         "Dynatrace": "scope",
@@ -301,6 +299,7 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "Pinecone": "scope",
         "Pipedrive": "scope",
         "Pipeliner": "scope",
+        "PlanningCenter": "scope",
         "Productboard": "scope",
         "Productive": "scope",
         "PromptingCompany": "scope",
@@ -431,6 +430,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Lightfield",
     "Logrocket",
     "Monday",
+    "Moneybird",
     "NewRelic",
     "Nuget",
     "Octolens",

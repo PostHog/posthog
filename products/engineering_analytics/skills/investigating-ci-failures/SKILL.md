@@ -1,160 +1,98 @@
 ---
 name: investigating-ci-failures
-description: >
-  Investigates a specific CI failure to a verdict: whose fault, which commit, who wrote it, and
-  whether it's fixed. Use for "who broke master", "why did this test fail in CI", "is this failure
-  my PR's fault or everyone's", "is this test flaky or actually broken", "when did this failure
-  start". Works from the engineering_analytics warehouse views (engineering_analytics_ci_failures,
-  engineering_analytics_ci_job_history) plus the CI failure logs. Not for aggregate CI health, cost,
-  or merge bottlenecks (use diagnosing-ci-and-merge-bottlenecks) and not for building saved insights
-  (use turning-engineering-analytics-into-insights).
+description: 'Investigates one CI failure to a verdict: whose fault it is, which commit caused it, who wrote that commit, and whether a fix has landed. Use for "who broke master", "why did this test fail in CI", "is this failure my PR or everyone", "is this test flaky or broken", "when did this failure start", "what is broken in CI right now", and "why did the merge queue kick my PR". Works from the engineering-analytics-broken-tests tool, the CI failure log tools, and two warehouse views: engineering_analytics_ci_failures and engineering_analytics_ci_job_history. Not for aggregate CI health, cost, or merge bottlenecks (use diagnosing-ci-and-merge-bottlenecks), and not for saved insights (use turning-engineering-analytics-into-insights).'
 ---
 
 # Investigating CI failures
 
-The job: take one failing test or one red run and get to a verdict a developer can act on —
-_yours / trunk-borne / flaky_, and when trunk-borne: the culprit SHA, its author, the PR, and
-whether a fix already landed. Everything below is derivation over data that already exists; you
-never need to re-run CI to answer.
+Take one failing test or one red run to a verdict: the PR's own bug, a default-branch break, or a flaky test.
+For a default-branch break, also name the culprit commit, its author, its PR, and the fix if one landed.
+You never need to re-run CI to answer.
 
-Two warehouse views are the substrate (both non-materialized — always current, query them freely):
+## Choosing a starting point
 
-- **`engineering_analytics_ci_failures`** — one row per pytest `FAILED <nodeid>` line from CI logs,
-  pre-fingerprinted (`fingerprint` = test id + digit/hex-normalized error). Group by `fingerprint`
-  to get first/last seen, occurrence count, and branch spread.
-- **`engineering_analytics_ci_job_history`** — one row per job attempt with `conclusion` AND commit
-  attribution: `head_sha`, `commit_author_name`, `commit_message`, `commit_pr_number` (the merged PR
-  that produced the commit, the only PR attribution a master push run has). This is where greens
-  live; the logs are failure-only, so every "when did it turn red / green again" question must come
-  from here, never from the logs.
+| Question                                        | Use                                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| What is broken across CI right now?             | `engineering-analytics-broken-tests`                                   |
+| Why did my PR's CI fail?                        | `engineering-analytics-ci-failure-logs` with the PR number             |
+| Why did this run fail?                          | `engineering-analytics-run-failure-logs` with `run_id` and `ci_engine` |
+| Who broke master? When did this failure start?  | The two views, with the steps below                                    |
+| Is this test flaky?                             | The failure's shape, then `engineering-analytics-flaky-tests`          |
+| Is this setup or infrastructure failure common? | Job conclusions, query 7                                               |
 
-Copy-ready SQL for every step is in [references/investigation-queries.md](./references/investigation-queries.md).
+Query the two views with the `execute-sql` tool:
 
-## Start wide: what's broken right now
+- `engineering_analytics_ci_failures` has one row per pytest `FAILED <nodeid>` line from the CI logs. `fingerprint` joins the test id to a normalized error, so it groups one failure across runs.
+- `engineering_analytics_ci_job_history` has one row per job attempt, with its `conclusion` and commit attribution: `head_sha`, `commit_author_name`, `commit_message`, and `commit_pr_number`.
 
-For "what CI failures should I care about right now" (before you have a specific test in hand), the
-`engineering-analytics-broken-tests` MCP tool does the shape classification below across _all_ live
-failures at once: it groups the last 2 days of failures by fingerprint and labels each
-`breaking_master` / `blocking_merge_queue` / `novel_burst` / `potentially_resolved` / `flaky` /
-`pr_only`, most urgent first, plus `breaking_master_jobs` (default-branch jobs whose latest run is
-red). Use it as the triage entry point, then drop into the per-failure workflow below to reach a
-culprit. It is the automated counterpart to fingerprinting by hand; the manual queries stay the way
-to pin a specific failure to a boundary and author.
+The logs hold failures only.
+Passing jobs exist only in the job history, so every question about when a job turned red or green must use it.
 
-`blocking_merge_queue` is the one shape the manual table below does not cover, because it looks like
-a single-branch failure and is not. The merge queue runs the full suite on a gate branch
-(`trunk-merge/pr-<n>/…`) carrying master, the PR, and every PR queued ahead of it with overlapping
-impacted targets (in practice most of the queue), so a failure there is on a commit that already
-passed the PR's own CI: a conflict with what landed or queued in between, or a queue-mate's own
-break, not that PR's bug by default. Read it as "this stopped a merge", list what the gate branch
-ran (query 8), and diff it against trunk rather than reading the PR alone.
+Every numbered query is in [references/investigation-queries.md](./references/investigation-queries.md).
 
-## The four failure shapes
+## Triage with the broken-tests tool
 
-Fingerprint the failure first (query 1 in the references), then read its shape — the classification
-falls out of three columns:
+`engineering-analytics-broken-tests` groups the last 2 days of failures by fingerprint and returns the most urgent first.
+Each row's `state` is one of `breaking_master`, `blocking_merge_queue`, `novel_burst`, `potentially_resolved`, `flaky`, or `pr_only`.
+The tool's description defines each state.
+`breaking_master_jobs` lists the default-branch jobs whose latest run is red.
+Pass a row's `latest_run_id` and `latest_ci_engine` to `engineering-analytics-run-failure-logs` to read the failing lines.
+The list stops at 200 rows, so pass `test` or `branch` to ask about one test or one PR.
 
-| Shape                                   | Reading                         | Next step                                            |
-| --------------------------------------- | ------------------------------- | ---------------------------------------------------- |
-| 1 branch, any window                    | That PR's own problem           | Read its failure lines; done                         |
-| 1 `trunk-merge/pr-<n>/…` gate branch    | Queue-mate, or landed since     | Query 8, then diff the gate branch against trunk     |
-| Many branches, dense burst, hits master | Trunk break (master is/was red) | Boundary query → culprit (below)                     |
-| Many branches, sporadic over days/weeks | Flaky                           | Corroborate with `engineering-analytics-flaky-tests` |
+## Reading a failure's shape
 
-Why cross-branch means trunk: PR CI runs the PR **merged with master**, so one bad master commit
-fails every concurrently-running PR. A failure appearing on many unrelated branches in a tight
-window is the signature of a master-merge break, not of those PRs' code. Tell the asker explicitly
-when their PR is not at fault — that is usually the single most valuable sentence in the answer.
+Fingerprint the failure with query 1, then read the branch count, the time window, and the master hits.
 
-## Trunk break → culprit
+| Shape                                             | Reading                                         | Next step                                             |
+| ------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------- |
+| One PR branch                                     | That PR's own problem                           | Read its failure lines.                               |
+| One `trunk-merge/pr-<n>/...` gate branch          | A conflict with trunk or with a PR queued ahead | Run query 8, then compare the gate branch with trunk. |
+| Many branches in a tight window, with master hits | A default-branch break                          | Run query 2 to find the culprit.                      |
+| Many branches, scattered over days or weeks       | Flaky                                           | Confirm with `engineering-analytics-flaky-tests`.     |
 
-Run the boundary query (query 2): master-only job history for the failing job, ordered by
-`created_at`. The pattern reads directly:
+PR CI tests the PR merged with the default branch.
+One bad commit there fails every PR that runs at the same time.
+When the failure is not the asker's fault, say so in the first sentence.
 
-```text
-... success success | failure failure ... failure | success ...
-                    ^ first red = the culprit row  ^ first green = the fix row
-```
+A merge-queue gate branch carries trunk, the PR, and the PRs queued ahead of it.
+The PR already passed its own CI, so a failure there is not that PR's bug by default.
 
-The culprit row carries everything: `head_sha`, `commit_author_name`, `commit_message` (which names
-what changed), `commit_pr_number`. The first-green row identifies the fix the same way. Confidence
-check before naming anyone: does the culprit commit plausibly touch the failing area (its message /
-PR diff vs the failing test's module)? A boundary landing on an unrelated commit means sharding or
-timing noise — widen the window and check the adjacent commit before asserting.
+## Finding the culprit of a default-branch break
 
-Then verify the failure window in `ci_failures` matches (first_seen just after the culprit merged,
-last_seen shortly after the fix as the PR queue drained). Mismatch = you're looking at two
-different problems sharing a test.
+Query 2 lists the failing job's history on the default branch in time order.
+The first `failure` after a `success` is the culprit row.
+The first `success` after the red streak is the fix row.
+Each row carries the SHA, the author, the commit message, and `commit_pr_number`.
 
-## Flaky → corroborate, don't guess
+Check two things before you name a commit:
 
-**Read the sibling attempts before you say "flaky".** One run cannot separate a flake from a
-deterministic failure, and `ci_job_history` already carries every attempt's `conclusion` for the
-branch. If every run on a branch is red, there is no flake to find, and offering a re-run wastes a
-run: a retry changes none of the inputs.
+- The commit's message or diff should plausibly touch the failing test's area. If it does not, widen the window and check the adjacent commits.
+- The fingerprint's `first_seen` should fall just after the culprit merged. A mismatch means two different problems share one test.
 
-Sporadic shape alone is suggestive, not proof. The `engineering-analytics-flaky-tests` MCP tool reads per-test CI spans
-(rerun-pass signal — a test that failed then passed on retry in the same job) and is the stronger
-signal where it has coverage. Counts only, never rates: passing runs below the emitter's duration
-threshold aren't recorded, so there is no honest denominator.
+A revert appears as a new commit whose `commit_pr_number` is the reverting PR.
 
-## Caveats you must carry into every answer
+## Checking for a flake
 
-- **The logs are failure-only.** No green baseline exists in `ci_failures`; absence of a
-  fingerprint is weak evidence (the job may simply not have run). Greens come from
-  `ci_job_history` only.
-- **Fingerprints are pytest-only (v1).** Jest / playwright / cargo failures appear in the raw
-  failure logs but are not in `ci_failures`. For those, fall back to the raw failure logs via the
-  `engineering-analytics-ci-failure-logs` (PR-scoped) / `engineering-analytics-run-failure-logs`
-  (run-scoped) MCP tools.
-  Carry `ci_engine` with `run_id`, or `latest_ci_engine` with `latest_run_id`, when fetching a run.
-  A null engine means unknown historical provenance; do not join it to a known engine by integer ID.
-- **A job that failed before its tests ran is invisible to every test-level surface.** No `FAILED`
-  line means no fingerprint, no span, nothing for the flaky-tests tool to read — the failure is real
-  but the test-level answer is silence, not "fine". Setup, docker, and runner failures are only
-  visible as job conclusions (query 7), which is also the one surface here that yields an honest
-  rate, since it records greens.
-- **Check `runs-on` before blaming a cache.** Jobs on `depot-*` runners resolve `actions/cache`
-  against Depot Cache, which the GitHub Actions cache API cannot see, so an empty result there is
-  not evidence of eviction. Read the job's own `Cache not found for input keys:` line for the keys
-  actually requested. Both steps stay green either way: `actions/cache/restore` succeeds on a miss,
-  and a failed `actions/cache/save` is only a warning, so a green producer job may have stored
-  nothing.
-- **Freshness differs per source.** Logs stream in near-real-time; the warehouse jobs/runs tables
-  arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
-  the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
-  against a stale warehouse names the wrong commit.
-- **A run's `conclusion` can be stale** until the `workflow_run` webhook settles it (SPEC §7) —
-  treat a very recent "failure-free" tail with suspicion.
-- **Retries:** `run_attempt > 1` rows are the same job re-run. A failure that clears on attempt 2
-  is flake signal; one that fails through attempt 5+ is deterministic.
-- **Reverts:** a revert shows up as a _new_ first-green (or first-red) commit whose
-  `commit_pr_number` is the reverting PR — attribution follows the revert, not the original.
-- **Time-bound every logs query.** The failure-log stream is large; unbounded scans hit the read
-  cap. 14 days covers almost every investigation.
-- **Pair the warehouse twin too.** A `ci_job_history` query windowed on `created_at` alone forces a
-  full jobs scan — the parsed timestamp is a computed column the parquet scan can't prune on. Add a
-  coarse `created_at_raw >= '<YYYY-MM-DD>'` string floor (a day below the window) alongside the
-  precise `created_at` bound so the scan skips; `created_at` stays the exact filter.
+Read the other attempts before you say "flaky".
+`run_attempt > 1` rows are re-runs of the same job on the same commit.
+A failure that clears on a later attempt suggests a flake, and query 6 tracks the fingerprint across attempts.
+A branch where every run is red has a deterministic failure, and a re-run changes none of its inputs.
 
-## Choosing a surface
+`engineering-analytics-flaky-tests` marks a test `confirmed_flake` only when one commit both failed and passed it.
+Its counts are absolute and never rates, because CI does not emit fast passing runs.
 
-| Question                               | Use                                                                        |
-| -------------------------------------- | -------------------------------------------------------------------------- |
-| "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)        |
-| Same, but from a terminal              | `hogli ci:insights` — these endpoints, scoped to the checkout's repo       |
-| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)      |
-| "Who broke master / when did X start?" | The two views, workflow above                                              |
-| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                            |
-| "Is this setup/infra failure common?"  | Job conclusions, query 7 (no test rows exist for it)                       |
-| "What's failing on master right now?"  | `breaking_master` rows + `breaking_master_jobs` from the broken-tests tool |
-| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                            |
-| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                    |
+## Caveats
 
-## Output expectations
+- Fingerprints cover pytest only. For Jest, Playwright, or Cargo failures, read the raw lines with the two failure-log tools.
+- A job that failed before its tests ran writes no `FAILED` line. No test-level tool sees it. Only job conclusions show it, through query 7.
+- The logs arrive within minutes, but the job history arrives by webhook sync and can lag. During a live incident, run query 5 before you trust a boundary.
+- Keep `ci_engine` with every `run_id`. A null engine means unknown provenance, so do not join it to a known engine by integer id.
+- Put a time bound on every query. Logs retention is short.
+- For the job history, add a string floor such as `created_at_raw >= '<YYYY-MM-DD>'`, one day below the window. The parsed `created_at` filter alone forces a full scan.
+- On `depot-*` runners, `actions/cache` reads Depot Cache, which the GitHub cache API cannot see. Read the job's `Cache not found for input keys:` line before you blame a cache eviction.
 
-Lead with the verdict and the exoneration/blame in plain words ("not your PR — master was broken
-between 08:01 and 09:58 UTC by #68727; fixed by #68855"), then the evidence: the boundary rows, the
-fingerprint window, occurrence/branch counts. Name the author factually (they authored the culprit
-commit), never accusatorially — the commit message and PR link let the reader judge the change, and
-half the time the "culprit" was a reasonable change with an unmocked test dependency.
+## Reporting
+
+Lead with the verdict in plain words, including whether the asker's PR is at fault.
+Then give the evidence: the boundary rows, the fingerprint window, and the occurrence and branch counts.
+Name the author as a fact, not as blame, and link the commit and the PR.

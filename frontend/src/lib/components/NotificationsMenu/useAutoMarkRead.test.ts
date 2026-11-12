@@ -92,4 +92,17 @@ describe('useAutoMarkRead', () => {
         act(() => jest.advanceTimersByTime(AUTO_MARK_READ_DWELL_MS * 2))
         expect(onDwell).not.toHaveBeenCalled()
     })
+
+    it('fires again once per new resetKey while the item stays mounted', () => {
+        const onDwell = jest.fn()
+        let resetKey = 'load-1'
+        const { rerender } = renderHook(() => useAutoMarkRead(true, onDwell, AUTO_MARK_READ_DWELL_MS, resetKey))
+        act(() => jest.advanceTimersByTime(AUTO_MARK_READ_DWELL_MS * 2))
+        expect(onDwell).toHaveBeenCalledTimes(1)
+
+        resetKey = 'load-2'
+        rerender()
+        act(() => jest.advanceTimersByTime(AUTO_MARK_READ_DWELL_MS * 2))
+        expect(onDwell).toHaveBeenCalledTimes(2)
+    })
 })

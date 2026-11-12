@@ -1,6 +1,9 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, featureFlagLogicValues } from 'lib/logic/featureFlagLogic'
 import { teamLogic, teamLogicActions } from 'scenes/teamLogic'
 import {
@@ -19,16 +22,35 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
+import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
+
 import {
+    CampaignChannelTypes,
+    RECOMMENDED_SEARCH_PLATFORMS,
     SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
     SearchMetrics,
+    SearchNoticeKind,
     SearchPlatform,
+    campaignChannelTypesQuery,
     selectedSearchSources,
     searchPerformanceSource,
     searchPerformanceSourceNotice,
+    searchSourceName,
+    searchTermTablesToEnable,
 } from './searchPerformance'
+
+export interface SearchSourceNotice {
+    sourceId: string
+    sourceType: string
+    name: string
+    message: string
+    kind: SearchNoticeKind
+    /** Disabled tables the notice offers to enable. Enabling one starts a billed sync of its full history. */
+    enableSchemaIds: string[]
+    enableButtonLabel: string
+}
 
 export interface searchPerformanceLogicValues extends Pick<
     marketingAnalyticsLogicValues,
@@ -60,10 +82,14 @@ export interface searchPerformanceLogicValues extends Pick<
     querySearch: string
     sourcesError: boolean
     sources: ExternalDataSource[]
-    sourceNotices: { sourceId: string; message: string }[]
-    detailSourceNotices: { sourceId: string; message: string }[]
+    campaignChannelTypes: CampaignChannelTypes | null
+    campaignChannelTypesLoading: boolean
+    enablingSourceIds: string[]
+    sourceNotices: SearchSourceNotice[]
+    detailSourceNotices: SearchSourceNotice[]
     detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
+    hasReadySourceInAnyBreakdown: boolean
     query: MarketingAnalyticsSearchQuery
 }
 
@@ -71,7 +97,7 @@ export interface searchPerformanceLogicActions
     extends
         Pick<
             marketingAnalyticsLogicActions,
-            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
+            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter'
         >,
         Pick<teamLogicActions, 'updateCurrentTeamSuccess'> {
     setWrapText: (wrapText: boolean) => { wrapText: boolean }
@@ -82,9 +108,19 @@ export interface searchPerformanceLogicActions
     selectRow: (row: MarketingAnalyticsSearchRow | null) => { row: MarketingAnalyticsSearchRow | null }
     setSearch: (search: string) => { search: string }
     setQuerySearch: (search: string) => { search: string }
+    loadCampaignChannelTypes: () => void
+    loadCampaignChannelTypesSuccess: (
+        campaignChannelTypes: CampaignChannelTypes | null,
+        payload?: any
+    ) => { campaignChannelTypes: CampaignChannelTypes | null; payload?: any }
+    loadCampaignChannelTypesFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
+    enableSearchTermTables: (sourceId: string, schemaIds: string[]) => { sourceId: string; schemaIds: string[] }
+    enableSearchTermTablesFinished: (sourceId: string) => { sourceId: string }
 }
 
 export type searchPerformanceLogicType = MakeLogicType<searchPerformanceLogicValues, searchPerformanceLogicActions>
+
+const SEARCH_BREAKDOWNS: SearchBreakdown[] = ['keyword', 'search_term', 'page']
 
 export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     path(['products', 'marketingAnalytics', 'searchPerformanceLogic']),
@@ -105,7 +141,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         ],
         actions: [
             marketingAnalyticsLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter', 'setDates'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter'],
             teamLogic,
             ['updateCurrentTeamSuccess'],
         ],
@@ -119,8 +155,46 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         selectRow: (row: MarketingAnalyticsSearchRow | null) => ({ row }),
         setSearch: (search: string) => ({ search }),
         setQuerySearch: (search: string) => ({ search }),
+        enableSearchTermTables: (sourceId: string, schemaIds: string[]) => ({ sourceId, schemaIds }),
+        enableSearchTermTablesFinished: (sourceId: string) => ({ sourceId }),
     }),
+    loaders(({ values }) => ({
+        campaignChannelTypes: [
+            null as CampaignChannelTypes | null,
+            {
+                loadCampaignChannelTypes: async (_, breakpoint) => {
+                    const entries = await Promise.all(
+                        values.allSearchSources.map(async (source): Promise<[string, string[]] | null> => {
+                            const query = campaignChannelTypesQuery(source)
+                            if (!query) {
+                                return null
+                            }
+                            try {
+                                const response = await api.queryHogQL<[string[]][]>(query, {
+                                    productKey: 'marketing_analytics',
+                                    name: 'marketing_search_campaign_channel_types',
+                                })
+                                return [source.id, response.results[0]?.[0] ?? []]
+                            } catch {
+                                // An unknown campaign mix asks for no tables rather than guessing.
+                                return null
+                            }
+                        })
+                    )
+                    breakpoint()
+                    return Object.fromEntries(entries.filter((entry): entry is [string, string[]] => !!entry))
+                },
+            },
+        ],
+    })),
     reducers({
+        enablingSourceIds: [
+            [] as string[],
+            {
+                enableSearchTermTables: (state, { sourceId }) => [...state, sourceId],
+                enableSearchTermTablesFinished: (state, { sourceId }) => state.filter((id) => id !== sourceId),
+            },
+        ],
         wrapText: [false, { setWrapText: (_, { wrapText }) => wrapText }],
         breakdown: ['keyword' as SearchBreakdown, { setBreakdown: (_, { breakdown }) => breakdown }],
         channel: ['all' as SearchChannel, { setChannel: (_, { channel }) => channel }],
@@ -144,22 +218,14 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         missingSources: [
             (s) => [s.allSearchSources],
             (sources: ExternalDataSource[]): SearchPlatform[] =>
-                (['GoogleAds', 'GoogleSearchConsole'] as SearchPlatform[]).filter(
-                    (type) => !sources.some((source) => source.source_type === type)
-                ),
+                RECOMMENDED_SEARCH_PLATFORMS.filter((type) => !sources.some((source) => source.source_type === type)),
         ],
         hasActiveFilters: [
-            (s) => [s.querySearch, s.channel, s.integrationFilter, s.dateFilter, s.allSearchSources],
-            (search, channel, filter, dates, sources: ExternalDataSource[]): boolean => {
+            (s) => [s.querySearch, s.channel, s.integrationFilter, s.allSearchSources],
+            (search, channel, filter, sources: ExternalDataSource[]): boolean => {
                 const ids = filter.integrationSourceIds ?? []
                 const allSourcesSelected = sources.length > 0 && sources.every((source) => ids.includes(source.id))
-                return (
-                    !!search.trim() ||
-                    channel !== 'all' ||
-                    (ids.length > 0 && !allSourcesSelected) ||
-                    dates.dateFrom !== '-7d' ||
-                    !!dates.dateTo
-                )
+                return !!search.trim() || channel !== 'all' || (ids.length > 0 && !allSourcesSelected)
             },
         ],
         hasSearchConsole: [
@@ -177,11 +243,32 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 ),
         ],
         sourceNotices: [
-            (s) => [s.sources, s.breakdown],
-            (sources: ExternalDataSource[], breakdown): { sourceId: string; message: string }[] =>
+            (s) => [s.sources, s.breakdown, s.campaignChannelTypes],
+            (
+                sources: ExternalDataSource[],
+                breakdown,
+                campaignChannelTypes: CampaignChannelTypes | null
+            ): SearchSourceNotice[] =>
                 sources.flatMap((source) => {
-                    const message = searchPerformanceSourceNotice(source, breakdown)
-                    return message ? [{ sourceId: source.id, message }] : []
+                    const channelTypes = campaignChannelTypes?.[source.id]
+                    const notice = searchPerformanceSourceNotice(source, breakdown, false, channelTypes)
+                    if (!notice) {
+                        return []
+                    }
+                    const { schemaIds: enableSchemaIds, buttonLabel: enableButtonLabel } =
+                        breakdown === 'search_term' && channelTypes
+                            ? searchTermTablesToEnable(source, channelTypes)
+                            : { schemaIds: [], buttonLabel: '' }
+                    return [
+                        {
+                            sourceId: source.id,
+                            sourceType: source.source_type,
+                            name: searchSourceName(source),
+                            ...notice,
+                            enableSchemaIds,
+                            enableButtonLabel,
+                        },
+                    ]
                 }),
         ],
         readySources: [
@@ -191,6 +278,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     const querySource = searchPerformanceSource(source, breakdown)
                     return querySource ? [querySource] : []
                 }),
+        ],
+        hasReadySourceInAnyBreakdown: [
+            (s) => [s.sources],
+            (sources: ExternalDataSource[]): boolean =>
+                sources.some((source) =>
+                    SEARCH_BREAKDOWNS.some((breakdown) => !!searchPerformanceSource(source, breakdown))
+                ),
         ],
         hasPaidSources: [
             (s) => [s.readySources],
@@ -202,8 +296,9 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS],
         ],
         includeSearchConversionGoals: [
-            (s) => [s.searchConversionsEnabled, s.includeConversionGoals],
-            (enabled, includeConversionGoals): boolean => enabled && includeConversionGoals,
+            (s) => [s.searchConversionsEnabled, s.includeConversionGoals, s.conversion_goals],
+            (enabled, includeConversionGoals, conversionGoals: ConversionGoalFilter[]): boolean =>
+                enabled && includeConversionGoals && conversionGoals.length > 0,
         ],
         conversionsDisabledReason: [
             (s) => [
@@ -227,7 +322,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
                 }
                 return conversionGoals.length > 0
-                    ? 'Turn on "Include conversion goals" to see PostHog conversions for organic landing pages.'
+                    ? 'Turn on "Include conversion goals" in Options to see PostHog conversions for organic landing pages.'
                     : 'Configure a conversion goal in marketing analytics settings to see PostHog conversions for organic landing pages.'
             },
         ],
@@ -262,6 +357,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 includePostHogConversions:
                     metrics === 'conversions' &&
                     includeConversionGoals &&
+                    breakdown !== 'search_term' &&
                     (breakdown === 'page' || sources.some((source) => source.sourceType !== 'GoogleSearchConsole')),
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
@@ -277,10 +373,21 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         ],
         detailSourceNotices: [
             (s) => [s.detailSources],
-            (sources: ExternalDataSource[]): { sourceId: string; message: string }[] =>
+            (sources: ExternalDataSource[]): SearchSourceNotice[] =>
                 sources.flatMap((source) => {
-                    const message = searchPerformanceSourceNotice(source, 'keyword', true)
-                    return message ? [{ sourceId: source.id, message }] : []
+                    const notice = searchPerformanceSourceNotice(source, 'keyword', true)
+                    return notice
+                        ? [
+                              {
+                                  sourceId: source.id,
+                                  sourceType: source.source_type,
+                                  name: searchSourceName(source),
+                                  ...notice,
+                                  enableSchemaIds: [],
+                                  enableButtonLabel: '',
+                              },
+                          ]
+                        : []
                 }),
         ],
         detailQuery: [
@@ -312,7 +419,33 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             actions.setQuerySearch('')
             actions.setChannel('all')
             actions.setIntegrationFilter({ ...values.integrationFilter, integrationSourceIds: [] })
-            actions.setDates('-7d', null)
+        },
+        setBreakdown: ({ breakdown }) => {
+            if (breakdown === 'search_term') {
+                actions.loadCampaignChannelTypes()
+            }
+        },
+        loadSourcesSuccess: () => {
+            if (values.breakdown === 'search_term') {
+                actions.loadCampaignChannelTypes()
+            }
+        },
+        enableSearchTermTables: async ({ sourceId, schemaIds }) => {
+            try {
+                await externalDataSourcesBulkUpdateSchemasPartialUpdate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    sourceId,
+                    { schemas: schemaIds.map((id) => ({ id, should_sync: true, apply_sync_defaults: true })) }
+                )
+                lemonToast.success('Sync started. Search terms will appear when the first sync finishes.')
+                actions.loadSources()
+            } catch (error: any) {
+                lemonToast.error(
+                    `Could not enable the tables. ${error?.detail ?? 'Try again from the source settings.'}`
+                )
+            } finally {
+                actions.enableSearchTermTablesFinished(sourceId)
+            }
         },
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(300)

@@ -12,6 +12,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.apm.backend.logic.health.sources import SERVICES_LIMIT
+from products.apm.backend.tests.span_fixtures import SpanWriter
 
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
@@ -161,6 +162,28 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         data = self._list(date_from=date_from, date_to=date_to, environment="ranked")
         names = [r["service_name"] for r in data["results"]]
         self.assertIn("zzz-failing", names)
+
+    def test_a_consumer_only_service_counts_its_consumer_spans_as_requests(self) -> None:
+        # A queue worker's consumer spans have a remote parent, so they are neither server nor root spans.
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 4, 8, 0, 0), uuid_prefix="019e8774")
+        producer = writer.span("api", name="orders publish", kind=4, env="queues", trace=1)
+        for i in range(4):
+            writer.span(
+                "orders-worker",
+                name="orders process",
+                kind=5,
+                status_code=2 if i == 0 else 0,
+                env="queues",
+                trace=1,
+                parent=producer,
+            )
+        writer.insert()
+
+        data = self._list(date_from="2026-06-04T07:00:00Z", date_to="2026-06-04T09:00:00Z", environment="queues")
+        worker = next(r for r in data["results"] if r["service_name"] == "orders-worker")
+        self.assertEqual(worker["health"]["span_count"], 4)
+        self.assertEqual(worker["health"]["error_count"], 1)
+        self.assertEqual(sum(worker["sparkline"]), 4)
 
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):

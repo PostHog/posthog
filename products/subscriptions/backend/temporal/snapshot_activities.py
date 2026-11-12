@@ -16,7 +16,7 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
+from products.annotations.backend.facade.api import build_snapshot_annotations_block
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
@@ -25,6 +25,7 @@ from products.subscriptions.backend.temporal.llm_change_summary import generate_
 from products.subscriptions.backend.temporal.query_results_summary import condense_query_results
 from products.subscriptions.backend.temporal.results_summarizer import (
     build_results_summary,
+    last_period_is_incomplete,
     uses_generic_results_summary,
 )
 from products.subscriptions.backend.temporal.types import (
@@ -106,11 +107,8 @@ def _load_annotations_section(
 
     Returns an empty string if there is no usable date window or no annotations match.
     """
-    return build_annotations_block(
-        subscription.team,
-        resolve_snapshot_date_range(content_snapshots),
-        dashboard_id=subscription.dashboard_id,
-        insight_ids=insight_ids,
+    return build_snapshot_annotations_block(
+        subscription.team, content_snapshots, dashboard_id=subscription.dashboard_id, insight_ids=insight_ids
     )
 
 
@@ -139,7 +137,13 @@ def _build_states_from_content_snapshot(
 
         if query_results and result_payload:
             results_summary = build_results_summary(
-                query_kind, result_payload, columns=columns, value_format=value_format
+                query_kind,
+                result_payload,
+                columns=columns,
+                value_format=value_format,
+                last_period_incomplete=last_period_is_incomplete(
+                    query_kind, query_results, interval=insight_snap.get("interval")
+                ),
             )
             fallback_reason: str | None = None
         elif query_error:
@@ -314,6 +318,7 @@ def _capture_summary_generated_event(
                 distinct_id=distinct_id,
                 event="subscription_ai_summary_generated",
                 properties={
+                    "$update_person_last_seen_at": False,
                     "subscription_id": subscription.id,
                     "team_id": subscription.team_id,
                     "delivery_id": delivery_id,

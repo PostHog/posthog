@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend.chart_events import ChartEvents, chart_events
 
 SERIES = {"kind": "EventsNode", "event": "signed up"}
@@ -59,6 +59,9 @@ class TestChartEvents(BaseTest):
     def test_finds_the_events_the_chart_reads(self, _name: str, source: dict[str, Any]) -> None:
         assert chart_events(source, self.team, self.user) is not None
 
+    def test_does_not_support_a_funnel_with_one_step(self) -> None:
+        assert chart_events({"kind": "FunnelsQuery", "series": [SERIES]}, self.team, self.user) is None
+
 
 @time_machine.travel(NOW, tick=False)
 class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
@@ -79,14 +82,14 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
             )
         _create_event(team=self.team, event="other", distinct_id="person", timestamp=NOW - timedelta(days=1))
         flush_persons_and_events()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Signed up or paid for pro",
             steps_json=[{"event": "paid", "properties": PAID_PRO["properties"]}, {"event": "signed up"}],
         )
 
     def _chart_events(self, query: dict[str, Any]) -> ChartEvents:
-        query = json.loads(json.dumps(query).replace('"ACTION_ID"', str(self.action.pk)))
+        query = json.loads(json.dumps(query).replace('"ACTION_ID"', str(self.action.id)))
         events = chart_events({**query, "dateRange": LAST_WEEK}, self.team, self.user)
         assert events is not None
         return events
