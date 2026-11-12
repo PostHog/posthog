@@ -229,21 +229,39 @@ export class TransactionalSends {
         if (recalled.status === 'absent') {
             return null
         }
-        if (recalled.status === 'mismatch') {
-            return { outcome: 'idempotency_key_reused' }
-        }
         const stored = await this.deps.idempotencyKeys.queuedReplay(teamId, idempotencyKey)
+        const replayed = recalled.status === 'replayed'
         // The claim keeps none of these, so a record Valkey lost falls back to what the matching request asked for.
         const scheduledAt =
             stored?.scheduledAt ??
-            (requestedAt && requestedAt.getTime() > Date.now() ? requestedAt.toISOString() : null)
-        const sender = !stored && send ? senderOfCodeSend(teamId, send, await senderLookup) : undefined
+            (replayed && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt.toISOString() : null)
+        const sender = replayed && !stored && send ? senderOfCodeSend(teamId, send, await senderLookup) : undefined
+        const senderKind = stored ? stored.senderKind : sender?.kind === 'email_sandbox' ? sender.kind : undefined
+        if (!stored) {
+            // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a second run.
+            await this.deps.idempotencyKeys.markQueued(
+                teamId,
+                idempotencyKey,
+                claimedShape(recalled.claimedFingerprint),
+                recalled.runId,
+                randomUUID(),
+                undefined,
+                scheduledAt ?? undefined,
+                !replayed || scheduledAt
+                    ? new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS + CLOCK_SKEW_MARGIN_MS)
+                    : undefined,
+                senderKind
+            )
+        }
+        if (!replayed) {
+            return { outcome: 'idempotency_key_reused' }
+        }
         return {
             outcome: 'replayed',
             invocationId: recalled.runId,
             scheduledAt,
             replyFields: send?.attachments?.length ? { ...NO_ATTACHMENTS, ...stored?.replayFields } : NO_ATTACHMENTS,
-            senderKind: stored ? stored.senderKind : sender?.kind === 'email_sandbox' ? sender.kind : undefined,
+            senderKind,
         }
     }
 

@@ -12,7 +12,9 @@ export type Run = {
 
 export type Claim = { runId: string; fingerprint: string }
 
-export type Recalled = { status: 'absent' } | { status: 'replayed' | 'mismatch'; runId: string }
+export type Recalled =
+    | { status: 'absent' }
+    | { status: 'replayed' | 'mismatch'; runId: string; claimedFingerprint: string }
 
 // `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
 export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
@@ -37,7 +39,11 @@ export class RunIntake {
         if (claimed === null) {
             return { status: 'absent' }
         }
-        return { status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch', runId }
+        return {
+            status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch',
+            runId,
+            claimedFingerprint: claimed.fingerprint,
+        }
     }
 
     async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {

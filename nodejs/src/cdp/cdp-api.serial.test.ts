@@ -2970,6 +2970,15 @@ describe('CDP API', () => {
                     expect(retry.status).toEqual(202)
                     expect(retry.body).toEqual({ ...sent.body, replayed: true })
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    expect(
+                        await olderPod.reserve(
+                            team.id,
+                            keyed.idempotency_key as string,
+                            (await claimFingerprint(sent.body.invocation_id))!,
+                            randomUUID()
+                        )
+                    ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id, scheduledAt })
                 })
 
                 it.each([
@@ -3017,7 +3026,8 @@ describe('CDP API', () => {
                 })
 
                 it('rejects a reused key from the cyclotron database once Valkey has lost the send', async () => {
-                    await sendKeyed()
+                    const sent = await sendKeyed()
+                    const winner = (await claimFingerprint(sent.body.invocation_id))!
                     await forgetValkeyRecord(keyed.idempotency_key as string)
 
                     const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
@@ -3025,6 +3035,10 @@ describe('CDP API', () => {
                     expect(res.status).toEqual(422)
                     expect(res.body).toEqual({ error: 'idempotency_key_reused' })
                     expect(await jobsOfFlow()).toHaveLength(1)
+                    const olderPod = api['transactionalEmailIdempotencyKeys']
+                    expect(
+                        await olderPod.reserve(team.id, keyed.idempotency_key as string, winner, randomUUID())
+                    ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id })
                 })
 
                 it('records the queued send in Valkey when a reused key finds it only at the claim', async () => {
