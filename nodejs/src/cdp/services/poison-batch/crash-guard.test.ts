@@ -9,7 +9,9 @@ import { UUIDT } from '~/common/utils/utils'
 import {
     CrashGuard,
     CrashGuardSettings,
+    SetAside,
     batchAttemptsKey,
+    batchSetAsideKey,
     createCrashGuardSettings,
     createCrashGuardValkeyPool,
     parseCrashGuardMode,
@@ -33,14 +35,19 @@ describe('CrashGuard', () => {
 
     const crash = () => Promise.reject(new Error('worker crashed'))
     const succeed = () => Promise.resolve({ backgroundTask: Promise.resolve() })
+    const setAside: SetAside = () => Promise.resolve()
 
     let valkey: RedisV2
     let group: string
     let guard: CrashGuard
 
-    const shadow = (pool: RedisV2, maxAttempts = 3): CrashGuardSettings => ({
+    const settings = (
+        pool: RedisV2,
+        mode: CrashGuardSettings['mode'] = 'shadow',
+        maxAttempts = 3
+    ): CrashGuardSettings => ({
         valkey: pool,
-        mode: 'shadow',
+        mode,
         maxAttempts,
         keyTtlSeconds: 60 * 60,
     })
@@ -52,7 +59,13 @@ describe('CrashGuard', () => {
             ttl: await client.ttl(batchAttemptsKey(group, partition, start)),
         }))
 
-    const diverted = () => counter('cdp_batch_diverted_total', { group, mode: 'shadow' })
+    const diverted = (mode = 'shadow') => counter('cdp_batch_diverted_total', { group, mode })
+
+    const crashRepeatedly = async (batch: Message[], times = 3) => {
+        for (let i = 0; i < times; i++) {
+            await expect(guard.run(batch, crash)).rejects.toThrow('worker crashed')
+        }
+    }
 
     beforeAll(() => {
         valkey = createCrashGuardValkeyPool(defaultConfig)
@@ -60,29 +73,96 @@ describe('CrashGuard', () => {
 
     beforeEach(() => {
         group = `group-${new UUIDT().toString()}`
-        guard = new CrashGuard(shadow(valkey), group)
+        guard = new CrashGuard(settings(valkey), group, setAside)
     })
 
-    it('flags only the partition whose batch crashed the configured number of times', async () => {
-        guard = new CrashGuard(shadow(valkey, 2), group)
-        const batch = [...messages(0, 100, 5), ...messages(1, 40, 5)]
-        const otherBatch = messages(1, 45, 5)
+    const poisoned = messages(0, 100, 5)
+    const healthy = messages(1, 45, 5)
 
-        for (let i = 0; i < 2; i++) {
-            await expect(guard.run(batch, crash)).rejects.toThrow('worker crashed')
+    it.each([
+        ['shadow', [...poisoned, ...healthy], [], null],
+        ['enforce', healthy, [poisoned], '3'],
+    ] as const)(
+        'in %s mode runs or diverts the partition whose batch crashed the configured number of times',
+        async (mode, consumed, divertedBatches, storedAttempts) => {
+            const produce = jest.fn(setAside)
+            guard = new CrashGuard(settings(valkey, mode, 2), group, produce)
+            await crashRepeatedly([...poisoned, ...messages(1, 40, 5)], 2)
+            expect(await diverted(mode)).toEqual(0)
+
+            const consume = jest.fn(succeed)
+            await (
+                await guard.run([...poisoned, ...healthy], consume)
+            ).backgroundTask
+
+            expect(consume).toHaveBeenCalledWith(consumed)
+            expect(produce.mock.calls).toEqual(divertedBatches.map((batch) => [batch]))
+            expect(await diverted(mode)).toEqual(1)
+            expect((await storedKey(0, 100))!.attempts).toEqual(storedAttempts)
         }
-        expect(await diverted()).toEqual(0)
+    )
 
-        const consume = jest.fn(succeed)
+    // A crash in another partition or a rebalance replays the fetch from the same offset, and the replay can hold
+    // more messages than the fetch that was set aside.
+    it.each([
+        ['the same fetch', poisoned, [poisoned]],
+        ['a fetch that grew', [...poisoned, ...messages(0, 105, 5)], [poisoned, messages(0, 105, 5)]],
+    ])(
+        'when %s replays, sets aside only the offsets not set aside yet and consumes none of the flagged partition',
+        async (_, replay, divertedBatches) => {
+            const produce = jest.fn(setAside)
+            guard = new CrashGuard(settings(valkey, 'enforce', 2), group, produce)
+            await crashRepeatedly([...poisoned, ...messages(1, 40, 5)], 2)
+            const consume = jest.fn(succeed).mockImplementationOnce(crash)
+
+            await expect(guard.run([...poisoned, ...healthy], consume)).rejects.toThrow('worker crashed')
+            await (
+                await guard.run([...replay, ...healthy], consume)
+            ).backgroundTask
+
+            expect(produce.mock.calls).toEqual(divertedBatches.map((batch) => [batch]))
+            expect(consume.mock.calls).toEqual([[healthy], [healthy]])
+        }
+    )
+
+    it.each(['cdp-batch-set-aside-get', 'cdp-batch-set-aside-set'])(
+        'sets the flagged partition aside again on a replay when the %s pipeline fails',
+        async (failing) => {
+            const failingValkey: RedisV2 = {
+                ...valkey,
+                usePipeline: (options, callback) =>
+                    options.name === failing
+                        ? Promise.reject(new Error('valkey down'))
+                        : valkey.usePipeline(options, callback),
+            }
+            const produce = jest.fn(setAside)
+            guard = new CrashGuard(settings(failingValkey, 'enforce', 2), group, produce)
+            await crashRepeatedly([...poisoned, ...messages(1, 40, 5)], 2)
+            const consume = jest.fn(succeed).mockImplementationOnce(crash)
+
+            await expect(guard.run([...poisoned, ...healthy], consume)).rejects.toThrow('worker crashed')
+            await (
+                await guard.run([...poisoned, ...healthy], consume)
+            ).backgroundTask
+
+            expect(produce.mock.calls).toEqual([[poisoned], [poisoned]])
+            expect(consume.mock.calls).toEqual([[healthy], [healthy]])
+        }
+    )
+
+    it('keeps the set aside marker as long as the attempts key a replay refreshes', async () => {
+        guard = new CrashGuard({ ...settings(valkey, 'enforce', 2), keyTtlSeconds: 5 }, group, setAside)
+        await crashRepeatedly([...poisoned, ...messages(1, 40, 5)], 2)
+        const consume = jest.fn(succeed).mockImplementationOnce(crash)
+        await expect(guard.run([...poisoned, ...healthy], consume)).rejects.toThrow('worker crashed')
+        guard = new CrashGuard(settings(valkey, 'enforce', 2), group, setAside)
+
         await (
-            await guard.run(messages(0, 100, 5), consume)
-        ).backgroundTask
-        await (
-            await guard.run(otherBatch, succeed)
+            await guard.run([...poisoned, ...healthy], consume)
         ).backgroundTask
 
-        expect(consume).toHaveBeenCalled()
-        expect(await diverted()).toEqual(1)
+        const ttl = await valkey.useClient({ name: 'test' }, (client) => client.ttl(batchSetAsideKey(group, 0, 100)))
+        expect(ttl).toBeGreaterThan(5)
     })
 
     it('expires a key it never cleared, keeps the highest offset that crashed, and deletes the key once the batch succeeds', async () => {
@@ -121,14 +201,56 @@ describe('CrashGuard', () => {
         expect(await diverted()).toEqual(1)
     })
 
-    it('does not clear the mark when the background task fails', async () => {
-        const result = await guard.run(messages(0, 0, 5), () =>
-            Promise.resolve({ backgroundTask: Promise.reject(new Error('produce failed')) })
-        )
-        await expect(result.backgroundTask).rejects.toThrow('produce failed')
+    const failToPublish = () => Promise.resolve({ backgroundTask: Promise.reject(new Error('produce failed')) })
+    const failToSetAside = () => Promise.reject(new Error('produce failed'))
+    const unavailable = () => Object.assign(new Error('personhog unavailable'), { isRetriable: true })
+    const failOnDependency = () => Promise.reject(unavailable())
+    const failOnDependencyInBackground = () => Promise.resolve({ backgroundTask: Promise.reject(unavailable()) })
+    const failOnDependencyAfterCorruptingTheKey = async () => {
+        await valkey.useClient({ name: 'test' }, (client) => client.set(batchAttemptsKey(group, 0, 0), 'corrupt'))
+        throw unavailable()
+    }
 
-        expect((await storedKey(0, 0))!.attempts).toEqual('1')
-    })
+    it.each([
+        ['the background task', 'shadow', failToPublish, setAside, 'background', '4', 0],
+        ['the set aside', 'enforce', succeed, failToSetAside, 'run', '4', 0],
+        ['a dependency while consuming', 'shadow', failOnDependency, setAside, 'run', '3', 1],
+        [
+            'a dependency in the background task',
+            'enforce',
+            failOnDependencyInBackground,
+            setAside,
+            'background',
+            '3',
+            1,
+        ],
+        [
+            'a dependency, and Valkey refuses the take back,',
+            'shadow',
+            failOnDependencyAfterCorruptingTheKey,
+            setAside,
+            'run',
+            'corrupt',
+            0,
+        ],
+    ] as const)(
+        'when %s fails, takes the attempt back only for a dependency error',
+        async (_, mode, consume, produce, failsIn, stored, uncounted) => {
+            guard = new CrashGuard(settings(valkey, mode), group, produce)
+            await crashRepeatedly(messages(0, 0, 5))
+
+            // Consumer v1 commits a batch whose background task rejects, so a failed set aside must reject run itself.
+            const tracking = guard.run(messages(0, 0, 5), consume)
+            if (failsIn === 'run') {
+                await expect(tracking).rejects.toThrow()
+            } else {
+                await expect((await tracking).backgroundTask).rejects.toThrow()
+            }
+
+            expect((await storedKey(0, 0))!.attempts).toEqual(stored)
+            expect(await counter('cdp_batch_attempts_uncounted_total', { group })).toEqual(uncounted)
+        }
+    )
 
     it('processes the batch when Valkey is unreachable', async () => {
         // Nothing listens on port 1.
@@ -137,7 +259,7 @@ describe('CrashGuard', () => {
         const consume = jest.fn(succeed)
 
         await (
-            await new CrashGuard(shadow(unreachable), group).run(messages(0, 0, 5), consume)
+            await new CrashGuard(settings(unreachable), group, setAside).run(messages(0, 0, 5), consume)
         ).backgroundTask
 
         expect(consume).toHaveBeenCalled()
@@ -161,7 +283,7 @@ describe('CrashGuard', () => {
             ...defaultConfig,
             CDP_VALKEY_PORT: (proxy.address() as AddressInfo).port,
         })
-        const tracked = new CrashGuard(shadow(viaProxy), group)
+        const tracked = new CrashGuard(settings(viaProxy), group, setAside)
         await (
             await tracked.run(messages(0, 0, 5), succeed)
         ).backgroundTask
@@ -203,7 +325,7 @@ describe('CrashGuard', () => {
             ...defaultConfig,
             CDP_VALKEY_PORT: (proxy.address() as AddressInfo).port,
         })
-        const tracked = new CrashGuard(shadow(viaProxy), group)
+        const tracked = new CrashGuard(settings(viaProxy), group, setAside)
         const unavailable = () => counter('cdp_batch_attempts_marked_total', { group, outcome: 'unavailable' })
 
         try {
@@ -232,7 +354,8 @@ describe('CrashGuard', () => {
         ['off', null],
         ['shadow', 'shadow'],
         [' Shadow ', 'shadow'],
-    ])('builds no crash guard unless the mode %p asks for one', (mode, expected) => {
+        ['enforce', 'enforce'],
+    ] as const)('builds no crash guard unless the mode %p asks for one', (mode, expected) => {
         expect(createCrashGuardSettings({ ...defaultConfig, CDP_BATCH_QUARANTINE_MODE: mode })?.mode ?? null).toEqual(
             expected
         )

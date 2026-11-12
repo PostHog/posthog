@@ -58,6 +58,7 @@ import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invoc
 import { createCrashGuardSettings } from './cdp/services/poison-batch/crash-guard'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
+import { DEAD_LETTER_QUEUE } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -176,7 +177,11 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
-        const crashGuardSettings = capabilities.cdpCyclotronWorker ? createCrashGuardSettings(this.config) : null
+        // The dead letter worker would divert its own poisoned batches back onto the topic it reads.
+        const crashGuardSettings =
+            capabilities.cdpCyclotronWorker && this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND !== DEAD_LETTER_QUEUE
+                ? createCrashGuardSettings(this.config)
+                : null
         const kafkaQueue = new CyclotronJobQueueKafka(
             this.config.KAFKA_CLIENT_RACK,
             this.config,

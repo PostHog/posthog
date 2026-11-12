@@ -103,6 +103,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Counts crashed attempts of each Kafka cyclotron batch in CDP Valkey.
     //   "off"     - no counting.
     //   "shadow"  - a batch that crashed the worker MAX_ATTEMPTS times is logged and counted, then processed.
+    //   "enforce" - a batch that crashed the worker MAX_ATTEMPTS times goes unprocessed to cdp_cyclotron_hogdlq.
     CDP_BATCH_QUARANTINE_MODE: string
     // A batch that crashed the worker this many times is poisoned.
     CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: number

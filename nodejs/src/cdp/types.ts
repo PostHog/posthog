@@ -341,6 +341,8 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
+export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind
+
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
