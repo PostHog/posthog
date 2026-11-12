@@ -184,13 +184,16 @@ class TestSendGridImport(BaseTest):
             sensitive_config={},
             created_by_id=self.user.id,
         )
+        sender = self.state.account["verified_senders"][0]
+        sender.update(from_name="{{ person.properties.a }}", reply_to="{{person.properties.b}}@example.com")
         run = self._run(["suppression_groups", "designs", "single_sends"])
 
         templates = {row.name: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
         assert templates["Newsletter design"].key == "sendgrid-design-eeeeeeee-0000-4000-8000-000000000001"
         scheduled = templates["November news"]
         assert scheduled.content["email"]["from"]["email"] == "hello@example.com"
-        assert scheduled.content["email"]["replyTo"] == "support@example.com"
+        assert scheduled.content["email"]["from"]["name"] == '{{ "{{" }} person.properties.a }}'
+        assert scheduled.content["email"]["replyTo"] == '{{ "{{" }}person.properties.b}}@example.com'
         assert str(scheduled.message_category_id) == str(
             MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101").id
         )
