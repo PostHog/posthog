@@ -51607,7 +51607,9 @@ export namespace Schemas {
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
+      /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
       enabled?: boolean;
+      /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
       include_invoiceless_charges?: boolean;
     }
 
@@ -88125,6 +88127,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    export interface PatchedExternalDataSourceRevenueAnalyticsConfig {
+      /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+      enabled?: boolean;
+      /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+      include_invoiceless_charges?: boolean;
     }
 
     export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
