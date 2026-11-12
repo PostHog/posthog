@@ -1459,7 +1459,7 @@ describe('replayScannerLogic', () => {
             expect(editLogic.values.turningOffFreeOnly).toBe(false)
         })
 
-        it('turning a blocked scanner on takes the saved blocker and creator, not just the flag', async () => {
+        it('turning a blocked scanner on takes the saved blocker, creator and free-only, not just the flag', async () => {
             const newCreator = {
                 id: 99,
                 uuid: 'taker',
@@ -1471,16 +1471,26 @@ describe('replayScannerLogic', () => {
                 patch: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
                         200,
-                        { ...loadedScanner, enabled: true, disabled_reason: null, created_by: newCreator },
+                        {
+                            ...loadedScanner,
+                            enabled: true,
+                            disabled_reason: null,
+                            created_by: newCreator,
+                            free_only: false,
+                        },
                     ],
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ enabled: false, disabled_reason: 'creator_lost_access' })
+            editLogic.actions.setScannerValues({
+                enabled: false,
+                disabled_reason: 'creator_lost_access',
+                free_only: true,
+            })
             await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
                 'toggleEnabledSuccess',
             ])
-            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator }
+            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator, free_only: false }
             expect(editLogic.values.scanner).toMatchObject(runnable)
             expect(editLogic.values.originalScanner).toMatchObject(runnable)
         })

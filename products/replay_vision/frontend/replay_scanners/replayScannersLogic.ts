@@ -586,8 +586,12 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     return
                 }
                 actions.toggleScannerEnabledDone(id)
-                if (enabled && (saved.created_by?.id ?? null) !== (scanner.created_by?.id ?? null)) {
-                    // A take-over moved the scanner to the current user, which the creator column shows.
+                if (
+                    enabled &&
+                    ((saved.created_by?.id ?? null) !== (scanner.created_by?.id ?? null) ||
+                        saved.free_only !== scanner.free_only)
+                ) {
+                    // A take-over moves the creator, and a paid turn-on clears free-only; the rows show both.
                     actions.loadScanners()
                 }
             } catch (error: any) {

@@ -1492,7 +1492,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: (_, { scanner }) => scanner,
                 // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
                 scannerSaved: (_, { scanner }) => scanner,
-                toggleEnabledSuccess: (state, { saved }) => (state ? { ...state, ...enabledFields(saved) } : state),
+                toggleEnabledSuccess: (state, { saved }) =>
+                    state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
                 turnOffFreeOnlySuccess: (state, { saved }) =>
                     state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
                 // Self-driving changes the prompt the model gets, so the backend bumps the version with it.
@@ -2671,7 +2672,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         actions.toggleEnabledFailure()
                         return
                     }
-                    actions.setScannerValues(enabledFields(saved))
+                    actions.setScannerValues({ ...freeOnlyFields(saved), ...enabledFields(saved) })
                     actions.toggleEnabledSuccess(saved)
                     refreshVisionQuota()
                     lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
