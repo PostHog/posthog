@@ -1,9 +1,10 @@
 import { combineUrl, router } from 'kea-router'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
-import { modelsOverviewLogic } from 'products/data_modeling/frontend/modelsOverviewLogic'
+import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 import type { WarehouseSuggestionApi } from 'products/warehouse_suggestions/frontend/generated/api.schemas'
 import type {
     SuggestionPlacement,
@@ -22,8 +23,9 @@ const PLACEMENT_FOR_TAB: Partial<Record<DataCatalogTab, SuggestionPlacement>> = 
 
 function reloadCatalogRows(): void {
     databaseTableListLogic.findMounted()?.actions.loadDatabase({ force: true })
-    modelsOverviewLogic.findMounted()?.actions.loadNodes()
-    modelsOverviewLogic.findMounted()?.actions.loadDataWarehouseSavedQueries()
+    lineageDataLogic.findMounted()?.actions.loadNodes()
+    lineageDataLogic.findMounted()?.actions.loadEdges()
+    dataWarehouseViewsLogic.findMounted()?.actions.loadDataWarehouseSavedQueries()
     certificationsLogic.findMounted()?.actions.loadCertifications()
 }
 

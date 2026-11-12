@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +12,7 @@ import { CatalogToReviewList } from './CatalogToReviewList'
 
 function CatalogToReviewWithSuggestions(): JSX.Element {
     const { stripState, surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
+    const { reportReviewOpened } = useActions(warehouseSuggestionsLogic)
     const count = stripState === 'active' ? surfaceSuggestions.length : 0
 
     return (
@@ -22,6 +23,7 @@ function CatalogToReviewWithSuggestions(): JSX.Element {
                 title: pluralize(count, 'suggestion'),
                 description: suggestionCountsText(surfaceSuggestions),
                 href: urls.dataCatalog('suggestions'),
+                onReview: () => reportReviewOpened(),
             }}
         />
     )

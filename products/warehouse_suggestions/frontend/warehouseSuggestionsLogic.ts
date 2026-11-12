@@ -382,6 +382,9 @@ export interface warehouseSuggestionsLogicActions {
     reload: () => {
         value: true
     }
+    reportReviewOpened: () => {
+        value: true
+    }
     restoreSuggestion: (id: string) => {
         id: string
     }
@@ -507,6 +510,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             assignSuggestion: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
             suggestionUpdated: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
             openReview: true,
+            reportReviewOpened: true,
             closeReview: true,
             openMaterializeModal: (id: string) => ({ id }),
             closeMaterializeModal: true,
@@ -896,7 +900,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     }
                     actions.acceptSuggestion(suggestion.id, deprecateOptions(suggestion, values))
                 },
-                openReview: () => {
+                openReview: () => actions.reportReviewOpened(),
+                reportReviewOpened: () => {
                     capture('warehouse suggestion review opened', {
                         surface: props.surface,
                         suggestion_count: values.surfaceSuggestions.length,

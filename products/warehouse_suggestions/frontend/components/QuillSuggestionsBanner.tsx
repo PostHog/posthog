@@ -16,7 +16,7 @@ export interface QuillSuggestionsBannerProps {
 
 export function QuillSuggestionsBanner({ reviewTo }: QuillSuggestionsBannerProps): JSX.Element {
     const { surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
-    const { openReview } = useActions(warehouseSuggestionsLogic)
+    const { openReview, reportReviewOpened } = useActions(warehouseSuggestionsLogic)
 
     return (
         <Item variant="outline" size="sm" className="flex-wrap">
@@ -35,7 +35,7 @@ export function QuillSuggestionsBanner({ reviewTo }: QuillSuggestionsBannerProps
                 <Button
                     variant="primary"
                     render={reviewTo ? <LinkPrimitive to={reviewTo} /> : undefined}
-                    onClick={reviewTo ? undefined : () => openReview()}
+                    onClick={() => (reviewTo ? reportReviewOpened() : openReview())}
                     data-attr="warehouse-suggestions-review"
                 >
                     {`Review ${surfaceSuggestions.length}`}
