@@ -12177,10 +12177,10 @@ Diffed against: <https://docs.goteamup.com/llms.txt>
 - [x] `Membership categories (GET /api/v2/membership_categories)` — resolve category IDs in memberships for membership mix and revenue analysis (high) → `membership_categories` (full refresh)
 - [x] `Lead sources (GET /api/v2/crm/lead_sources)` — resolve lead_source IDs in customers to acquisition channels (high) → `lead_sources` (full refresh)
 - [x] `Payment subscriptions (GET /api/v2/payment_subscriptions)` — resolve payment_subscription IDs in customer memberships to recurring billing records (high) → `payment_subscriptions` (full refresh)
-- [ ] `Membership payment plans (GET /api/v2/membership_payment_plans)` — expand membership plan links into prices, billing intervals, and commitment terms (high)
-- [ ] `Customer membership holds (GET /api/v2/customer_membership_holds)` — resolve active_hold IDs and measure membership pauses and their causes (high)
-- [ ] `Discount codes (GET /api/v2/discount_codes)` — resolve discount_code IDs in customer memberships for promotion analysis (high)
-- [ ] `CRM status changes (GET /api/v2/crm/status_changes)` — measure lead progression, conversion time, and customer lifecycle changes (medium)
+- [x] `Membership payment plans (GET /api/v2/membership_payment_plans)` — expand membership plan links into prices, billing intervals, and commitment terms (high) → `membership_payment_plans` (full refresh)
+- [x] `Customer membership holds (GET /api/v2/customer_membership_holds)` — resolve active_hold IDs and measure membership pauses and their causes (high) → `customer_membership_holds` (full refresh)
+- [x] `Discount codes (GET /api/v2/discount_codes)` — resolve discount_code IDs in customer memberships for promotion analysis (high) → `discount_codes` (full refresh)
+- [x] `CRM status changes (GET /api/v2/crm/status_changes)` — measure lead progression, conversion time, and customer lifecycle changes (medium) → `crm_status_changes` (full refresh)
 - [ ] `Store orders and order items (GET /api/v2/store/orders; GET /api/v2/store/order_items)` — analyze merchandise sales, order values, and product demand alongside membership revenue (medium)
 - [ ] `Customer fields and values (GET /api/v2/customer_fields; GET /api/v2/customer_field_values)` — segment customers and membership outcomes using custom customer attributes (medium)
 
@@ -12435,7 +12435,7 @@ Today (3): `attractions`, `events`, `venues`
 
 Diffed against: <https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/>
 
-- [ ] `Classifications (GET /discovery/v2/classifications.json)` — resolve event and attraction classification IDs against the complete segment, genre, subgenre, and subtype hierarchy (high)
+- [x] `Classifications (GET /discovery/v2/classifications.json)` — resolve event and attraction classification IDs against the complete segment, genre, subgenre, and subtype hierarchy (high)
 
 Note: Parsed every documented Discovery v2 operation, including nested paths. The missing classification collection provides the complete taxonomy beyond classifications embedded in events and attractions. Event images already appear in event rows; suggestion results duplicate existing entities. Partner ticketing APIs require separate access and are outside this source's Discovery scope.
 
@@ -12526,15 +12526,15 @@ Note: No public OpenAPI JSON is served (docs.together.ai/openapi.json 404s); llm
 
 ## Torii — gaps
 
-Today (4): `Apps`, `Contracts`, `Transactions`, `Users`
+Today (8): `ActionExecutions`, `AppUsers`, `Apps`, `Contracts`, `FieldsMetadata`, `Roles`, `Transactions`, `Users`
 
 Diffed against: <https://developers.toriihq.com/sitemap.xml>
 
-- [ ] `apps/{idApp}/users` — app-to-user membership/license assignment rows; the join table that makes Apps and Users analytically useful (high)
-- [ ] `roles` — lookup table resolving the role ids carried on users and app owners (high)
-- [ ] `apps/metadata, users/metadata, contracts/metadata, transactions/metadata` — custom-field definitions that resolve the field ids present on rows we already sync (medium)
+- [x] `apps/{idApp}/users` — app-to-user membership/license assignment rows; the join table that makes Apps and Users analytically useful (high) → `AppUsers` (full refresh, fan-out over `Apps`)
+- [x] `roles` — lookup table resolving the role ids carried on users and app owners (high) → `Roles` (full refresh)
+- [x] `apps/metadata, users/metadata, contracts/metadata, transactions/metadata` — custom-field definitions that resolve the field ids present on rows we already sync (medium) → `FieldsMetadata` (full refresh, one table for all four entities)
 - [ ] `workflows` — automation definitions referenced by execution logs and access requests (medium)
-- [ ] `workflows/actionExecutions` — action execution log, the event stream for offboarding/provisioning automation (medium)
+- [x] `workflows/actionExecutions` — action execution log, the event stream for offboarding/provisioning automation (medium) → `ActionExecutions` (full refresh, no server-side time filter)
 - [ ] `audit` — admin audit log of changes to apps, contracts and users (medium)
 - [ ] `users/{idUser}/apps` — per-user app portfolio; complements the app-users join for user-centric queries (low)
 - [ ] `workflows/audit` — workflow change history (low)
@@ -12576,10 +12576,10 @@ Today (8): `actions`, `boards`, `cards`, `checklists`, `labels`, `lists`, `membe
 
 Diffed against: <https://developer.atlassian.com/cloud/trello/swagger.v3.json>
 
-- [ ] `boards/{id}/customFields + customFields/{id}/options` — custom field definitions and their option values; the lookup that decodes custom field ids on cards (high)
-- [ ] `cards/{id}/customFieldItems` — per-card custom field values, where most teams store story points, priority and sprint (high)
-- [ ] `checklists/{id}/checkItems` — the actual checklist items and their state; checklists alone are empty containers (high)
-- [ ] `boards/{id}/memberships` — board membership rows with member role and status, resolving members to boards (high)
+- [x] `boards/{id}/customFields + customFields/{id}/options` — custom field definitions and their option values; the lookup that decodes custom field ids on cards (high)
+- [x] `cards/{id}/customFieldItems` — per-card custom field values, where most teams store story points, priority and sprint (high)
+- [x] `checklists/{id}/checkItems` — the actual checklist items and their state; checklists alone are empty containers (high)
+- [x] `boards/{id}/memberships` — board membership rows with member role and status, resolving members to boards (high)
 - [ ] `organizations/{id}/memberships` — workspace membership and role per member (medium)
 - [ ] `cards/{id}/attachments` — attachment metadata linking cards to external artifacts (PRs, docs) (medium)
 - [ ] `enterprises/{id}/members` — enterprise-wide member roster with license status (medium)
