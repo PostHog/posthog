@@ -12445,10 +12445,10 @@ Today (10): `check_ins`, `discounts`, `event_series`, `events`, `issued_membersh
 
 Diffed against: <https://developers.tickettailor.com/sitemap.xml>
 
-- [ ] `GET /v1/vouchers/{id}/codes` — the individual codes issued under each synced voucher, with redemption state — the analytical grain vouchers alone lack (high)
-- [ ] `GET /v1/holds` — held/reserved seats per event, required to reconcile inventory against issued tickets (medium)
-- [ ] `GET /v1/stores` — lookup resolving the store a synced product belongs to, for per-store merch revenue (medium)
-- [ ] `GET /v1/event_series/{id}/waitlist` — waitlist signups, the demand signal for sold-out events (medium)
+- [x] `GET /v1/vouchers/{id}/codes` — the individual codes issued under each synced voucher, with redemption state — the analytical grain vouchers alone lack (high) → `voucher_codes` (full refresh, fan-out over `vouchers`)
+- [x] `GET /v1/holds` — held/reserved seats per event, required to reconcile inventory against issued tickets (medium) → `holds` (full refresh)
+- [x] `GET /v1/stores` — lookup resolving the store a synced product belongs to, for per-store merch revenue (medium) → `stores` (full refresh)
+- [x] `GET /v1/event_series/{id}/waitlist_signups` — waitlist signups, the demand signal for sold-out events (medium) → `waitlist_signups` (full refresh, fan-out over `event_series`)
 - [ ] `GET /v1/checkout_forms (+ /v1/checkout_forms/{id}/elements)` — lookup that decodes the custom checkout answers stored on orders and issued tickets (medium)
 - [ ] `GET /v1/event_series/{id}/overrides` — per-occurrence overrides on a recurring series, explaining why an occurrence differs from its series (low)
 
@@ -12456,14 +12456,14 @@ Note: The docs site is a Docusaurus shell that renders the OpenAPI client-side, 
 
 ## Tinyemail — gaps
 
-Today (4): `campaigns`, `contact_members`, `contacts`, `sender_details`
+Today (8): `campaign_domain_stats`, `campaigns`, `clean_history`, `contact_members`, `contacts`, `new_subscriber_engagement`, `sender_details`, `suppressions`
 
 Diffed against: <https://docs.tinyemail.com/sitemap.xml>
 
-- [ ] `GET /suppression (+ GET /suppression/{id})` — suppression lists and their members — the opt-out/bounce side of deliverability, entirely absent today (high)
-- [ ] `POST /campaign/domain-stats` — per-campaign delivered/opens/clicks/spam/unsubscribes broken down by recipient domain, the only campaign performance data in the API (high)
-- [ ] `POST /report/audience/new-subscriber-engagement` — new-subscriber engagement stats per audience; note the 7-day max window and 10-audience cap force windowed fan-out (medium)
-- [ ] `GET /audiences/{id}/clean-history` — list-hygiene history per audience, explains membership drops between syncs (low)
+- [x] `GET /suppression (+ GET /suppression/{id})` — suppression lists and their members — the opt-out/bounce side of deliverability, entirely absent today (high)
+- [x] `POST /campaign/domain-stats` — per-campaign delivered/opens/clicks/spam/unsubscribes broken down by recipient domain, the only campaign performance data in the API (high)
+- [x] `POST /report/audience/new-subscriber-engagement` — new-subscriber engagement stats per audience; note the 7-day max window and 10-audience cap force windowed fan-out (medium)
+- [x] `GET /audiences/{id}/clean-history` — list-hygiene history per audience, explains membership drops between syncs (low)
 
 Note: Docusaurus site; sitemap enumerated the full operation list and individual pages were fetched to confirm paths and response shapes. PostHog's `contacts` table is GET /contacts, which returns audience lists (id/name/numberOfMembers) — the same shape as GET /audiences — so audiences are effectively already covered. The Segment API has no list-all-segments endpoint (only PUT-body summary/filter calls keyed by a segment id), so segments are not syncable as a table. tinyEmail exposes no per-recipient event stream and no server-side updated-after filter on any endpoint.
 
@@ -12494,10 +12494,10 @@ Today (5): `collaborators`, `labels`, `projects`, `sections`, `tasks`
 
 Diffed against: <https://developer.todoist.com/openapi.json>
 
-- [ ] `GET /api/v1/tasks/completed/by_completion_date` — completed tasks with completion timestamps; /tasks returns active tasks only, so throughput and completion trends are unanswerable without it (high)
-- [ ] `GET /api/v1/activities` — the activity/event log (added, completed, updated, deleted per object) — the state-transition history for every synced object (high)
-- [ ] `GET /api/v1/comments` — comments on tasks and projects, the collaboration content attached to the tasks already synced (medium)
-- [ ] `GET /api/v1/tasks/completed/by_due_date` — completions bucketed by due date, the on-time vs late view that completion-date data cannot produce alone (medium)
+- [x] `GET /api/v1/tasks/completed/by_completion_date` — completed tasks with completion timestamps; /tasks returns active tasks only, so throughput and completion trends are unanswerable without it (high)
+- [x] `GET /api/v1/activities` — the activity/event log (added, completed, updated, deleted per object) — the state-transition history for every synced object (high)
+- [x] `GET /api/v1/comments` — comments on tasks and projects, the collaboration content attached to the tasks already synced (medium)
+- [x] `GET /api/v1/tasks/completed/by_due_date` — completions bucketed by due date, the on-time vs late view that completion-date data cannot produce alone (medium) — skipped: it returns the same task objects as by_completion_date, with `due` and `completed_at`, so `completed_tasks` already answers on-time vs late
 - [ ] `GET /api/v1/projects/archived` — archived projects, without which tasks and activity referencing them resolve to nothing (medium)
 - [ ] `GET /api/v1/workspaces/users` — workspace membership join table; collaborators are per-project only, so there is no org-level user roster (medium)
 - [ ] `GET /api/v1/workspaces` — lookup resolving the workspace_id carried on projects, folders and activity (medium)
