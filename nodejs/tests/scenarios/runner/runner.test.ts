@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { stringify } from 'yaml'
 
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
@@ -102,6 +103,17 @@ describe('runner', () => {
             /^the run stopped: .*127\.0\.0\.1:1\b/,
         ],
         [
+            'seeds through the database the profile builds from its connection settings',
+            () => undefined,
+            withSettings({
+                DATABASE_URL: '',
+                POSTHOG_DB_NAME: 'scenario',
+                POSTHOG_POSTGRES_HOST: '127.0.0.1',
+                POSTHOG_POSTGRES_PORT: '3',
+            }),
+            /^the run stopped: .*127\.0\.0\.1:3\b/,
+        ],
+        [
             'keeps the result when its evidence cannot be written',
             () => writeFileSync(stateDir, 'not a directory'),
             withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
@@ -114,6 +126,41 @@ describe('runner', () => {
 
         expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
     })
+
+    it.each<[string, boolean, AbortSignal, RegExp]>([
+        ['when a seed insert waits on a table lock', true, NEVER_ABORTED, /statement timeout/],
+        ['when the run was interrupted before seeding', false, AbortSignal.abort(), /aborted/],
+    ])(
+        'stops seeding without a fixture %s',
+        async (_story, lockOrganizations, signal, statusReason) => {
+            const schema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_seed_${process.pid}`, [
+                'posthog_organization',
+            ])
+            await schema.create()
+            const holder = new Client({ connectionString: schema.url })
+            await holder.connect()
+            try {
+                if (lockOrganizations) {
+                    await holder.query('BEGIN')
+                    await holder.query('LOCK TABLE posthog_organization IN ACCESS EXCLUSIVE MODE')
+                }
+
+                const result = await runner.run(withSettings({ DATABASE_URL: schema.url }), signal)
+
+                await holder.query('ROLLBACK')
+                const { rows } = await holder.query('SELECT id FROM posthog_organization')
+                expect(result).toMatchObject({
+                    status: 'invalid',
+                    statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                })
+                expect(rows).toEqual([])
+            } finally {
+                await holder.end()
+                await schema.drop()
+            }
+        },
+        20_000
+    )
 
     it('produces with the Kafka settings the card profile names', async () => {
         const profile = path.join(cacheHome, 'profile.yaml')
