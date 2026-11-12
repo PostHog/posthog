@@ -1,13 +1,20 @@
-import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '~/common/config/config'
+import { execFile } from 'child_process'
+import { join } from 'path'
+import { promisify } from 'util'
+
+import { getExternalRequestConfig } from '~/common/config'
+import {
+    buildIntegerMatcher,
+    buildStringMatcher,
+    getDefaultConfig,
+    overrideConfigWithEnv,
+    overrideWithEnv,
+} from '~/common/config/config'
 import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
+import { parseJSON } from '~/common/utils/json-parse'
 
 describe('config', () => {
-    afterEach(() => {
-        jest.restoreAllMocks()
-    })
-
     test('overrideWithEnv 1', () => {
         const defaultConfig = getDefaultConfig()
         const env = {
@@ -35,39 +42,76 @@ describe('config', () => {
         expect(config.TASK_TIMEOUT).toEqual(3008.12)
     })
 
-    test.each([
-        ['"3008"', 3008],
-        ["'3008'", 3008],
-        ['" 3008.12 "', 3008.12],
-        ['.5', 0.5],
-    ])('reads a number from the env value %s', (value, expected) => {
-        const config = overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value })
-
-        expect(config.TASK_TIMEOUT).toEqual(expected)
-    })
-
-    test('reads a quoted number into the config built at import', () => {
-        process.env.TASK_TIMEOUT = '"3008"'
+    function readExternalRequestTimeout(value: string): number {
+        process.env.EXTERNAL_REQUEST_TIMEOUT_MS = value
         try {
-            jest.isolateModules(() => {
-                expect(jest.requireActual('~/common/config/config').defaultConfig.TASK_TIMEOUT).toEqual(3008)
-            })
+            return getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS
         } finally {
-            delete process.env.TASK_TIMEOUT
+            delete process.env.EXTERNAL_REQUEST_TIMEOUT_MS
         }
-    })
+    }
 
-    test.each(['"3008', 'abc', '', 'Infinity'])('keeps the default and logs an error for the env value %p', (value) => {
-        const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+    describe.each([
+        [
+            'overrideWithEnv',
+            (value: string) => overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value }).TASK_TIMEOUT,
+            30,
+        ],
+        [
+            'overrideConfigWithEnv',
+            (value: string) => overrideConfigWithEnv({ TASK_TIMEOUT: 30 }, { TASK_TIMEOUT: value }).TASK_TIMEOUT,
+            30,
+        ],
+        ['getExternalRequestConfig', readExternalRequestTimeout, 3000],
+    ])('%s', (_reader, read, defaultValue) => {
+        test.each([
+            ['"3008"', 3008],
+            ["'3008'", 3008],
+            ['" 3008.12 "', 3008.12],
+            ['.5', 0.5],
+        ])('reads a number from the env value %s', (value, expected) => {
+            expect(read(value)).toEqual(expected)
+        })
 
-        const config = overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value })
-
-        expect(config.TASK_TIMEOUT).toEqual(getDefaultConfig().TASK_TIMEOUT)
-        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('TASK_TIMEOUT'), {
-            value,
-            default: getDefaultConfig().TASK_TIMEOUT,
+        test.each(['"3008', 'abc', '', 'Infinity'])('keeps the default for the env value %p', (value) => {
+            expect(read(value)).toEqual(defaultValue)
         })
     })
+
+    test('a service started with quoted and unparsable numbers reads the quoted one and logs the other', async () => {
+        const { stdout } = await promisify(execFile)(
+            join(__dirname, '../node_modules/.bin/tsx'),
+            [
+                '-e',
+                "import('~/common/config/config').then(({ defaultConfig: c }) => console.log(JSON.stringify({ CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: c.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS, TASK_TIMEOUT: c.TASK_TIMEOUT })))",
+            ],
+            {
+                cwd: join(__dirname, '..'),
+                env: {
+                    ...process.env,
+                    NODE_ENV: 'production',
+                    DEBUG: '',
+                    LOG_LEVEL: 'info',
+                    CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: '"1000"',
+                    TASK_TIMEOUT: 'abc',
+                },
+            }
+        )
+        const lines = stdout
+            .split('\n')
+            .filter((line) => line.startsWith('{'))
+            .map((line) => parseJSON(line))
+
+        expect(lines).toContainEqual({ CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 1000, TASK_TIMEOUT: 30 })
+        expect(lines).toContainEqual(
+            expect.objectContaining({
+                level: 'error',
+                msg: expect.stringContaining('TASK_TIMEOUT'),
+                value: 'abc',
+                default: 30,
+            })
+        )
+    }, 60_000)
 
     test.each([
         ['true', true],

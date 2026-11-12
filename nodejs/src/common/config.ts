@@ -1,4 +1,5 @@
 import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
 
 import type { BaseServerConfig } from '../servers/base-server'
 
@@ -284,16 +285,34 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
 >
 
+export function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
+    const value = parseFloat(raw.trim().replace(/^(["'])(.*)\1$/, '$2'))
+    if (Number.isFinite(value)) {
+        return value
+    }
+    logger.error(`Ignoring ${key}: its env value is not a number, keeping the default`, {
+        value: raw,
+        default: fallback,
+    })
+    return fallback
+}
+
+function numberFromEnv(key: keyof ExternalRequestConfig, fallback: number): number {
+    const raw = process.env[key]
+    return raw === undefined ? fallback : parseNumberFromEnv(key, raw, fallback)
+}
+
 export function getExternalRequestConfig(): ExternalRequestConfig {
     return {
-        EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
-        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: Number(
-            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS ?? DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
+        EXTERNAL_REQUEST_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_TIMEOUT_MS', 3000),
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: numberFromEnv(
+            'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS',
+            DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
         ),
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
-        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
-        EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
-        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS', 3000),
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS', 10000),
+        EXTERNAL_REQUEST_CONNECTIONS: numberFromEnv('EXTERNAL_REQUEST_CONNECTIONS', 500),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: numberFromEnv('EXTERNAL_REQUEST_H2_CONNECTIONS', 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
     }
 }

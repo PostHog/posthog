@@ -5,12 +5,11 @@ import {
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
 } from '~/cdp/outputs/producers'
-import { getDefaultCommonConfig } from '~/common/config'
+import { getDefaultCommonConfig, parseNumberFromEnv } from '~/common/config'
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '~/types'
 
 import { stringToBoolean } from '../utils/env-utils'
-import { logger } from '../utils/logger'
 import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from './database-url'
 
 // Re-export for backwards compatibility
@@ -31,18 +30,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
         ...getDefaultKafkaWarehouseProducerEnvConfig(),
     }
-}
-
-function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
-    const value = parseFloat(raw.trim().replace(/^(["'])(.*)\1$/, '$2'))
-    if (Number.isFinite(value)) {
-        return value
-    }
-    logger.error(`Ignoring ${key}: its env value is not a number, keeping the default`, {
-        value: raw,
-        default: fallback,
-    })
-    return fallback
 }
 
 export function overrideWithEnv(
