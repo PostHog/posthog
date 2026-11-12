@@ -35,19 +35,13 @@ const MAX_HELD_SUFFIX = 4000
 const RE_OPEN_TAG = /<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(\/>|>)/g
 const RE_CLOSE_TAG = /<\/([a-z][\w-]*)\s*>/g
 const RE_ATTR = /([a-z][\w-]*)\s*=\s*"([^"]*)"/g
-// A backtick fence cannot carry a backtick in its info string, so such a line opens no fence.
-const RE_FENCE_LINE = /^ {0,3}(`{3,}(?![^\n]*`)|~{3,})/
+const RE_FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
 const RE_BACKTICK_RUN = /`+/g
 const RE_LABEL_UNSAFE = /[[\]|]/g
 const RE_BARE_ID = /^[\w$.:-]{1,64}$/
 const RE_STANDALONE_LINK = /^\[([^[\]\n]*)\]\((?:<([^<>\n]*)>|(\S+?))(?:[ \t]+"([^"\n]*)")?\)[ \t]*$/
 const RE_SQL_EDITOR_PATH = /^(?:\/project\/\d+)?\/sql$/
 const RE_PARTIAL_OPEN_TAG = /^<(?:[a-z][\w-]*(?:\s[^>]*)?)?$/
-// Matches one of three things. A CommonMark autolink (`<https://example.com>`, `<me@example.com>`)
-// stays untouched. Group 1 is the backslash run before a `<` that starts raw HTML. Group 2 is a bare
-// URL that runs straight into such a tag, which markdown would turn into a link.
-const RE_RAW_HTML_START =
-    /<(?:[a-z][a-z0-9+.-]{1,31}:[^\s<>]*|[^\s<>@\\]+@[^\s<>]+)>|(\\*)<(?=[a-z/!?])|((?:https?:\/\/|www\.)[^\s<\\]*)(?=\\*<[a-z/!?])/gi
 
 // Only the five entities the desktop composer's XML serializer emits (`escapeXmlAttr`);
 // the full HTML entity table would rewrite SQL literals such as `'&copy;'`.
@@ -134,7 +128,10 @@ function scanCode(text: string): Span[] {
                 spans.push({ start: fenceStart, end: offset + line.length })
                 fenceChar = ''
             }
-        } else if (fence) {
+        } else if (fence && !(fence[1][0] === '`' && line.includes('`', fence[0].length))) {
+            // A backtick fence cannot carry a backtick in its info string, so such a line opens no fence.
+            // The check is here and not in RE_FENCE_LINE, because a lookahead after the backtick run
+            // makes the regex scan the rest of the line again for each shorter run.
             fenceChar = fence[1][0]
             fenceLength = fence[1].length
             fenceStart = offset
@@ -524,41 +521,4 @@ export function rewriteAgentObjectTags(
         rest = '\n\n' + rest.replace(/^\n+/, '')
     }
     return output + rest
-}
-
-/**
- * Replace every `<` that starts raw HTML with `&lt;`, so the markdown renderer shows
- * the tag as text. The renderer drops raw HTML nodes (`skipHtml`), which removes text
- * such as `<example>` that a person typed. Code spans and fenced blocks already
- * render literally, and autolinks are not HTML, so both stay untouched.
- *
- * The replacement is an entity and not a backslash, because a bare URL before the tag
- * (`https://example.com/x.js"></script>`) makes the autolink swallow the backslash and
- * leaves the `<` live. The entity would then show up literally in the link label, so
- * such a URL stops being a link: its `:` or first `.` becomes a character reference.
- * A backslash the person typed before the `<` is dropped, because the entity renders
- * the `<` that the backslash would have shown.
- */
-export function escapeRawHtmlTags(text: string): string {
-    if (!text.includes('<')) {
-        return text
-    }
-    const spans = scanCode(text)
-    return text.replace(
-        RE_RAW_HTML_START,
-        (match: string, backslashes: string | undefined, bareUrl: string | undefined, offset: number) => {
-            if (bareUrl !== undefined) {
-                const tagStart = text.indexOf('<', offset + bareUrl.length)
-                if (inSpan(offset, spans) || inSpan(tagStart, spans)) {
-                    return match
-                }
-                return /^www\./i.test(bareUrl) ? bareUrl.replace('.', '&#46;') : bareUrl.replace(':', '&#58;')
-            }
-            if (backslashes === undefined || inSpan(offset + backslashes.length, spans)) {
-                return match
-            }
-            const kept = backslashes.length % 2 === 1 ? backslashes.slice(1) : backslashes
-            return `${kept}&lt;`
-        }
-    )
 }

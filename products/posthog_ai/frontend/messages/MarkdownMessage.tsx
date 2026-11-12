@@ -1,7 +1,7 @@
 import { marked } from 'marked'
 import { memo, useMemo } from 'react'
 
-import { escapeRawHtmlTags, rewriteAgentObjectTags } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
+import { rewriteAgentObjectTags } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 import { LemonMarkdown, type LemonMarkdownComponents, type LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
@@ -17,10 +17,9 @@ function rewriteObjectTags(markdown: string, teamId: number | null, literalTags:
     // Agent object tags (`<insight id="…">label</insight>`) become links into the
     // current project, carrying the agent's label; stripping them instead posted
     // empty bullets wherever a reply cited an object.
-    const rewritten = rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '', {
+    return rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '', {
         streaming: !literalTags,
     })
-    return literalTags ? escapeRawHtmlTags(rewritten) : rewritten
 }
 
 /**
@@ -58,6 +57,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
                     key={`${id}-block_${index}`}
                     components={components}
                     renderCodeBlock={renderCodeBlock}
+                    literalHtml={literalTags}
                 >
                     {block}
                 </LemonMarkdown.Renderer>
