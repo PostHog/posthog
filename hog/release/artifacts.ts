@@ -6,7 +6,6 @@ export function releaseTag(version: string): string {
     return `hog/v${version}`
 }
 
-// Semver puts a prerelease after a hyphen, as in 0.1.0-alpha.3. Build metadata after `+` doesn't count.
 export function isPrerelease(version: string): boolean {
     return version.split('+')[0]!.includes('-')
 }

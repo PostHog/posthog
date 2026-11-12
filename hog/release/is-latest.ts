@@ -1,5 +1,4 @@
-// Prints whether this version may move stable, npm's latest tag and the formula, so a rerun of an
-// older release never moves them back.
+// Prints whether this version may move stable, so a rerun of an older release never moves it back.
 
 import { parseArgs } from 'node:util'
 

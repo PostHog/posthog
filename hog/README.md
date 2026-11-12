@@ -36,7 +36,7 @@ On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.o
 
 hog reads the latest release from `https://releases.posthog.com/hog/stable/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder.
 
-- A person at a terminal sees one line on stderr after the output when hog is a minor version or more behind, or when the latest release came out more than 30 days after this build. A few patch releases within a month show nothing, because every merge ships one.
+- A person at a terminal sees one line on stderr after the output when hog is a minor version or more behind, or when the latest release came out more than 30 days after this build. A few patch releases within a month show nothing.
 - Agents, pipes, `-o json`, CI, npx and runs from source never see that line.
 - `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
