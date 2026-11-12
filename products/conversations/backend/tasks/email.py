@@ -13,7 +13,7 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
-from posthog.comment.formatting import rich_content_to_html, rich_content_to_markdown
+from posthog.comment.formatting import rich_content_to_html, rich_content_to_markdown, unescape_markdown
 from posthog.models.comment import Comment as CommentModel
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -187,14 +187,16 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     if comment.rich_content:
         html_body = rich_content_to_html(comment.rich_content)
-        txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
+        markdown_body = rich_content_to_markdown(comment.rich_content, include_images=False)
     else:
-        txt_body = comment.content or ""
+        markdown_body = comment.content or ""
         # Deferred: the renderer pulls posthog.api onto the Django startup path.
         from posthog.helpers.email_formatting import render_markdown_email_html
 
         # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
-        html_body = render_markdown_email_html(txt_body)
+        html_body = render_markdown_email_html(markdown_body)
+    # No mail client renders the text/plain part as markdown, so an escape reaches the customer.
+    txt_body = unescape_markdown(markdown_body)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None

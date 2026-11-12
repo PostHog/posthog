@@ -313,12 +313,28 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
     },
 }
 
+// Emphasis, code spans, links and the escape character act anywhere in a line. A `!` only makes
+// an image when a link follows it.
+const INLINE_MARKDOWN = /[\\`*_[\]]|!(?=\[)/g
+// A heading, a bullet, a thematic break and a numbered marker act only at the start of a line.
+const LINE_START_MARKDOWN = /^([ \t]*)(#{1,6}(?=[ \t]|$)|[-+](?=[ \t]|$)|-{2,}(?=[ \t]*$)|\d{1,9}[.)](?=[ \t]|$))/gm
+
 /**
- * Escape special markdown characters in plain text to prevent unintended formatting.
- * Characters: \ ` * _ { } [ ] ( ) # + - . ! |
+ * Escape the markdown characters that would otherwise change how a reply renders.
+ *
+ * The set stays narrow because the stored markdown is also read as plain text, by the text/plain
+ * part of the reply email and by the widget's conversation list. Every backslash added here shows
+ * up for the customer on those surfaces, so a character is escaped only where markdown acts on it.
+ * This must match `_escape_markdown` in posthog/comment/formatting.py, which serializes the same
+ * content on the backend.
  */
 function escapeMarkdown(text: string): string {
-    return text.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1')
+    return text
+        .replace(INLINE_MARKDOWN, '\\$&')
+        .replace(LINE_START_MARKDOWN, (_match, indent: string, marker: string) =>
+            // A numbered marker takes the backslash on its delimiter, because `\1` is not an escape.
+            /^\d/.test(marker) ? `${indent}${marker.slice(0, -1)}\\${marker.slice(-1)}` : `${indent}\\${marker}`
+        )
 }
 
 /**

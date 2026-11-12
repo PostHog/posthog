@@ -21,9 +21,10 @@ export interface MacroContext {
 }
 
 const VARIABLE_PATTERN = /\{\{\s*([a-z0-9_.]+)\s*\}\}/gi
-// serializeToMarkdown escapes `{`, `}`, `.`, and `_`, so a typed variable would be stored as
-// \{\{customer\.first\_name\}\} and never match.
-const ESCAPED_MACRO_TOKEN = /\\\{\\\{\s*((?:[a-z0-9]|\\[._])+)\s*\\\}\\\}/gi
+// serializeToMarkdown escapes a typed variable, so it would never match VARIABLE_PATTERN. Stored
+// bodies hold both the fully escaped form, \{\{customer\.first\_name\}\}, and the form that escapes
+// only `_`, so every backslash here is optional.
+const ESCAPED_MACRO_TOKEN = /\\?\{\\?\{\s*((?:[a-z0-9]|\\?[._])+)\s*\\?\}\\?\}/gi
 const MARKDOWN_ESCAPED_CHAR = /\\([\\`*_{}[\]()#+\-.!|])/g
 // Private-use characters: markdown leaves them alone in text, and the body is cleared of them first.
 const VALUE_SLOT = /\uE000(\d+)\uE001/g
