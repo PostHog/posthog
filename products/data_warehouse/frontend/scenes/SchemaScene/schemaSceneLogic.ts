@@ -135,6 +135,21 @@ export interface schemaSceneLogicActions {
         schemaData: ExternalDataSchemaWithSource | null
         payload?: any
     }
+    loadSourceConfig: () => any
+    loadSourceConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceConfigSuccess: (
+        sourceConfig: SourceConfigResponseApi | null,
+        payload?: any
+    ) => {
+        sourceConfig: SourceConfigResponseApi | null
+        payload?: any
+    }
     refreshSchemas: () => {
         value: true
     }
@@ -158,21 +173,6 @@ export interface schemaSceneLogicActions {
     }
     setResyncingSchema: (resyncing: boolean) => {
         resyncing: boolean
-    }
-    loadSourceConfig: () => any
-    loadSourceConfigFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSourceConfigSuccess: (
-        sourceConfig: SourceConfigResponseApi | null,
-        payload?: any
-    ) => {
-        sourceConfig: SourceConfigResponseApi | null
-        payload?: any
     }
     updateSchema: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
