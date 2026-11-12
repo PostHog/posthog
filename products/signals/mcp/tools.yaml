@@ -623,8 +623,8 @@ tools:
 
             A report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome.
             `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began and
-            `monitoring_summary` says where it stands, for example whether the latest reading meets its target.
-            Rows outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as
+            `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows
+            outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as
             `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in
             inbox-report-checks-list.
         agent_note: >
