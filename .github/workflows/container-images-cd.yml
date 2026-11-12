@@ -429,6 +429,9 @@ jobs:
                       echo "::error::No content-hashed files found in the image's frontend/dist, so nothing can be published."
                       exit 1
                   fi
+                  # The build has thousands of small files, and each publish step has a short timeout.
+                  # More parallel requests than the AWS CLI default of 10 keep each upload well inside it.
+                  aws configure set default.s3.max_concurrent_requests 50
 
             # Sourcemaps never match the pattern (they end in .map), so a retained .map file stays private.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
