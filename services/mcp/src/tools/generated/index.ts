@@ -6,6 +6,7 @@ import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as aeo } from './aeo'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
+import { GENERATED_TOOLS as alerts_platform } from './alerts_platform'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
@@ -78,6 +79,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...aeo,
     ...ai_observability,
     ...alerts,
+    ...alerts_platform,
     ...annotations,
     ...autoresearch,
     ...batch_exports,
