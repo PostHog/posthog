@@ -73,6 +73,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
 from products.experiments.backend.health.context import load_health_context
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -4272,12 +4273,23 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
-        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
+        # `deleted` is nullable, so a restore is any write that leaves it not true. The flag API
+        # rejects a null before this point, but this service has callers of its own.
+        restoring = experiment.deleted and "deleted" in update_data and not update_data["deleted"]
+        if restoring:
+            assert_experiment_restorable(experiment)
+            # Every flag write in this method runs before the restore reaches the database, so
+            # the flag would still read as owned by nothing and the experiment approval policies
+            # would not match it. Ordering the writes the other way would put the flag change
+            # outside the approval gate it has to pass, so a restore carries nothing else.
+            if feature_flag_config or any(update_data.get(field) is not None for field in ("start_date", "holdout")):
+                raise ValidationError(
+                    "Cannot restore an experiment and change its feature flag in one step. "
+                    "Restore the experiment first, then make the other change."
+                )
+
+        if not experiment.deleted and update_data.get("deleted") is True:
+            assert_experiment_deletable(experiment)
 
         if experiment.is_rule_linked:
             self._validate_rule_linked_update(experiment, update_data, feature_flag_config)

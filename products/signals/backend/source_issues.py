@@ -10,18 +10,23 @@ one place that writes and reads that record:
   writeback for a report that is visible in the inbox.
 - `open_report_for_source_issue` is the exact match grouping tries before embedding similarity.
 - `source_issues_by_report` is what the writeback and the report serializer read.
+- `source_issue_author_reviewers` names the members who filed the issues, so the scout report tools
+  can route the report to them.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Collection, Sequence
 
 from django.db import transaction
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.artefact_schemas import SourceIssue
+from products.signals.backend.artefact_schemas import SourceIssue, SuggestedReviewerEntry
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -29,6 +34,12 @@ from products.signals.backend.models import (
     SignalReportGithubComment,
     SignalTeamConfig,
 )
+from products.signals.backend.pr_owner_assignments import github_identity_source
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+
+logger = logging.getLogger(__name__)
+
+AUTHOR_LOOKUP_EGRESS_SOURCE = "signals_reviewers"
 
 # A report in one of these states no longer takes new signals by exact issue match. A GitHub issue
 # that comes back after its report closed falls through to embedding matching, as it did before.
@@ -165,3 +176,77 @@ def open_report_for_source_issue(*, team_id: int, url: str) -> SignalReport | No
         .order_by("created_at")
         .first()
     )
+
+
+def _issue_author(
+    team_id: int, issue: SourceIssue, integrations: dict[str, GitHubIntegration | None]
+) -> tuple[str, int] | None:
+    """The author's lowercased login and immutable GitHub user id, or None for a bot or an unreadable issue."""
+    if issue.repository not in integrations:
+        integrations[issue.repository] = GitHubIntegration.first_for_team_repository(
+            team_id, issue.repository, source=AUTHOR_LOOKUP_EGRESS_SOURCE, priority=Priority.NORMAL
+        )
+    github = integrations[issue.repository]
+    if github is None:
+        return None
+    response = github.api_request(
+        "GET",
+        f"/repos/{issue.repository}/issues/{issue.number}",
+        endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+        retry_transient=False,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    user = payload.get("user") if isinstance(payload, dict) else None
+    if not isinstance(user, dict) or user.get("type") == "Bot":
+        return None
+    login = user.get("login")
+    github_id = user.get("id")
+    if not isinstance(login, str) or not login.strip() or login.lower().endswith("[bot]"):
+        return None
+    if not isinstance(github_id, int) or isinstance(github_id, bool):
+        return None
+    return login.strip().lower(), github_id
+
+
+def source_issue_author_reviewers(*, team_id: int, issues: Sequence[SourceIssue]) -> list[SuggestedReviewerEntry]:
+    """The organization members who filed these GitHub issues, as reviewer entries in issue order.
+
+    A member matches only when the GitHub account they linked has the author's user id as well as the
+    login. Anyone can file an issue in a public repository, and a login a member gave up can be
+    registered by someone else, so the login alone would route the report to the wrong person.
+
+    Best effort: an issue no team installation can read, a failed or shed GitHub call, a bot author,
+    and an author outside the team's organization each add no one, and none of them fails the
+    report write. Costs one GitHub call per issue, so call it before the report transaction opens.
+    """
+    integrations: dict[str, GitHubIntegration | None] = {}
+    authors: dict[str, tuple[int, SourceIssue]] = {}
+    for issue in issues:
+        try:
+            author = _issue_author(team_id, issue, integrations)
+        except Exception:
+            logger.warning(
+                "signals.source_issue_author_lookup_failed",
+                extra={"team_id": team_id, "repository": issue.repository, "number": issue.number},
+                exc_info=True,
+            )
+            continue
+        if author is not None:
+            login, github_id = author
+            authors.setdefault(login, (github_id, issue))
+    members = resolve_org_github_login_to_users(team_id, authors) if authors else {}
+    entries: list[SuggestedReviewerEntry] = []
+    for login, (github_id, issue) in authors.items():
+        member = members.get(login)
+        identity = github_identity_source(member, login) if member is not None else None
+        if member is None or identity is None or identity[1] != github_id:
+            continue
+        entries.append(
+            SuggestedReviewerEntry(
+                github_login=login,
+                user_uuid=str(member.uuid),
+                reason=f"Filed the source issue {issue.repository}#{issue.number}.",
+            )
+        )
+    return entries

@@ -71,6 +71,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'external_data_source:write',
     'feature_flag:read',
     'feature_flag:write',
+    'file_system:read',
+    'file_system:write',
     'group:read',
     'health_issue:read',
     'heatmap:read',

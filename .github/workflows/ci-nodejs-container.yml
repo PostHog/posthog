@@ -144,13 +144,13 @@ jobs:
                     exit 1
                   fi
 
-            # The builder fetches the build source itself (see the build context below).
-            # The runner needs only the local composite actions, and docker-meta reads the
+            # Outside pull requests the builder fetches the source itself (see the build context
+            # below), so the runner needs only the local composite actions. docker-meta reads the
             # HEAD commit metadata from the object database, which a sparse checkout keeps.
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/actions
+                  sparse-checkout: ${{ github.event_name != 'pull_request' && '.github/actions' || '' }}
                   sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
@@ -174,9 +174,10 @@ jobs:
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
-                  # The full SHA pins this run's revision without Git query support in the builder.
-                  # BuildKit fetches the commit history because a ref such as refs/pull/N/merge can move during a run.
-                  context: ${{ github.server_url }}/${{ github.repository }}.git#${{ github.sha }}
+                  # On a pull request github.sha is the merge commit, which only refs/pull/N/merge reaches.
+                  # BuildKit fetches branches and tags, not refs/pull/*, so it cannot find that commit, and
+                  # naming the ref instead could build a newer merge than this run's. Upload the checkout there.
+                  context: ${{ github.event_name == 'pull_request' && '.' || format('{0}/{1}.git#{2}', github.server_url, github.repository, github.sha) }}
                   # The action adds this token only when the context is its own default URL. A private repository needs it to clone.
                   secrets: |
                       GIT_AUTH_TOKEN=${{ github.token }}

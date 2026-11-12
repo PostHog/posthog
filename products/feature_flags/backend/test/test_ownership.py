@@ -42,6 +42,9 @@ class TestFlagOwnership(APIBaseTest):
     def _own_by_deleted_experiment(self, flag: FeatureFlag) -> None:
         create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
 
+    def _own_by_experiment_with_null_deleted(self, flag: FeatureFlag) -> None:
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=None)
+
     def _own_by_early_access(self, flag: FeatureFlag) -> None:
         EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
 
@@ -57,7 +60,8 @@ class TestFlagOwnership(APIBaseTest):
             ("product tour", "_own_by_product_tour", "product_tour"),
             ("archived product tour", "_own_by_archived_product_tour", "product_tour"),
             ("early access feature", "_own_by_early_access", "early_access_feature"),
-            ("deleted experiment", "_own_by_deleted_experiment", "experiment"),
+            ("deleted experiment", "_own_by_deleted_experiment", None),
+            ("experiment with null deleted", "_own_by_experiment_with_null_deleted", "experiment"),
             ("survey linked flag", "_reference_by_survey_linked_flag", None),
             ("nothing", None, None),
         ]
@@ -133,6 +137,18 @@ class TestSurveyFlagAdoptionGuard(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "already belongs to an experiment" in str(response.json())
+
+    def test_survey_can_adopt_a_flag_whose_experiment_was_deleted(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="released-flag", created_by=self.user)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "adopter", "type": "popover", "targeting_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
 
     def test_survey_cannot_adopt_a_flag_in_another_config_format(self) -> None:
         flag = FeatureFlag.objects.create(
