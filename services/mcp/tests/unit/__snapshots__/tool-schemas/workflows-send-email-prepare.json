@@ -16,7 +16,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "description": {
-                            "description": "Notes about which emails belong to the category. Recipients don't see it. Left out, an existing category keeps its description.",
+                            "description": "Notes about which emails belong to the category. Recipients don't see it.",
                             "type": "string"
                         },
                         "key": {
@@ -25,7 +25,7 @@
                             "type": "string"
                         },
                         "name": {
-                            "description": "The category's name, shown in the PostHog app.",
+                            "description": "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app.",
                             "maxLength": 128,
                             "type": "string"
                         },
@@ -42,7 +42,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, updates its name and description when they changed, and restores it when it was archived. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own."
+            "description": "Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own."
         },
         "distinct_id": {
             "anyOf": [
