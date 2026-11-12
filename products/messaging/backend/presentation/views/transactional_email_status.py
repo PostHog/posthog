@@ -166,7 +166,7 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
 class ScheduledEmailSerializer(serializers.Serializer):
     id = serializers.CharField(source="message_id", help_text="The `message_id` that the send returned.")
     to = serializers.CharField(help_text="The recipient's address.")
-    scheduled_at = serializers.DateTimeField(help_text="When the email goes out.")
+    scheduled_at = serializers.DateTimeField(help_text="When the email goes out, to the millisecond.")
     created_at = serializers.DateTimeField(help_text="When the send was made.")
 
 

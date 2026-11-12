@@ -108681,7 +108681,7 @@ export namespace Schemas {
       id: string;
       /** The recipient's address. */
       to: string;
-      /** When the email goes out. */
+      /** When the email goes out, to the millisecond. */
       scheduled_at: string;
       /** When the send was made. */
       created_at: string;
