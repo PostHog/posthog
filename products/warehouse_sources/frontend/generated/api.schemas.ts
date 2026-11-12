@@ -524,6 +524,11 @@ export interface ExternalDataSchemaApi {
     should_sync?: boolean
     /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
     live_query_enabled?: boolean
+    /**
+     * Why this table can't be made queryable live without syncing it, or null when it can.
+     * @nullable
+     */
+    readonly live_query_unavailable_reason: string | null
     /** @nullable */
     readonly last_synced_at: string | null
     /**
@@ -771,6 +776,11 @@ export interface PatchedExternalDataSchemaApi {
     should_sync?: boolean
     /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
     live_query_enabled?: boolean
+    /**
+     * Why this table can't be made queryable live without syncing it, or null when it can.
+     * @nullable
+     */
+    readonly live_query_unavailable_reason?: string | null
     /** @nullable */
     readonly last_synced_at?: string | null
     /**
