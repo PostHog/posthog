@@ -31,8 +31,8 @@ from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.presentation.views.message_templates import (
-    CODE_SEND_FIELDS,
+from products.messaging.backend.presentation.views.message_templates import CODE_SEND_FIELDS
+from products.messaging.backend.presentation.views.transactional_email_access import (
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
@@ -90,7 +90,7 @@ class CapturedEvents:
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
@@ -1997,7 +1997,7 @@ class TestTransactionalEmail(APIBaseTest):
 
 @pytest.mark.ee
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")

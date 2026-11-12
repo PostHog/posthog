@@ -16,13 +16,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
-from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.messaging.backend.facade.transactional_email import EmailSendStatus, EmailStatus, get_email_status
-from products.messaging.backend.presentation.views.message_templates import (
+from products.messaging.backend.presentation.views.transactional_email_access import (
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
     require_email_status_read,
     transactional_email_authorized_by,
+    transactional_email_read_throttles,
 )
 
 logger = structlog.get_logger(__name__)
@@ -56,27 +56,6 @@ class EmailStatusSerializer(serializers.Serializer):
     )
 
 
-# Reads have their own buckets, so polling for status can't use up the send budget.
-class TransactionalEmailReadBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_read_burst"
-    rate = "600/minute"
-
-
-class TransactionalEmailReadSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_read_sustained"
-    rate = "20000/hour"
-
-
-class TransactionalEmailReadTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "transactional_email_read_psak_team_burst"
-    rate = "600/minute"
-
-
-class TransactionalEmailReadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "transactional_email_read_psak_team_sustained"
-    rate = "20000/hour"
-
-
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
@@ -89,12 +68,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # default API throttles on its way to a 401.
         if not is_authenticated_via_project_secret_api_key(self.request):
             return super().get_throttles()
-        return [
-            TransactionalEmailReadBurstThrottle(),
-            TransactionalEmailReadSustainedThrottle(),
-            TransactionalEmailReadTeamBurstThrottle(),
-            TransactionalEmailReadTeamSustainedThrottle(),
-        ]
+        return transactional_email_read_throttles()
 
     @extend_schema(
         parameters=[MESSAGE_ID_PARAMETER],

@@ -34,7 +34,7 @@ RANK = {
 
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
     return_value=True,
 )
 class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):

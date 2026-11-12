@@ -26,11 +26,9 @@ from drf_spectacular.utils import (
 )
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -42,12 +40,7 @@ from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
-from posthog.permissions import (
-    is_authenticated_via_project_secret_api_key,
-    legacy_scope_object_used,
-    scopes_caller_lacks,
-)
-from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
+from posthog.permissions import is_authenticated_via_project_secret_api_key, scopes_caller_lacks
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -117,9 +110,16 @@ from products.messaging.backend.presentation.views.refusals import (
     email_body_too_large,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
+from products.messaging.backend.presentation.views.transactional_email_access import (
+    TRANSACTIONAL_EMAIL_SEND_SCOPE,
+    email_from_code_enabled,
+    require_email_from_code,
+    require_transactional_email_api,
+    transactional_email_authorized_by,
+    transactional_email_throttles,
+)
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
-from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
@@ -467,7 +467,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 )
 
 
-TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 FIRST_CODE_SEND_EVENT = "email first code send"
 
 
@@ -773,77 +772,6 @@ def unconfirmed_email_send() -> ExplainedRefusal:
     )
 
 
-class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_burst"
-    rate = "600/minute"
-
-
-class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_sustained"
-    rate = "20000/hour"
-
-
-class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    """Per-team aggregate across all of a project's secret API keys."""
-
-    scope = "transactional_email_psak_team_burst"
-    rate = "600/minute"
-
-
-class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "transactional_email_psak_team_sustained"
-    rate = "20000/hour"
-
-
-# LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
-TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
-TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
-
-
-def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
-    return legacy_scope_object_used(request, required_scope) or "transactional_email"
-
-
-def require_transactional_email_api(team: Any) -> None:
-    _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
-
-
-def require_email_from_code(team: Any) -> None:
-    _require_flag(team, EMAIL_FROM_CODE_FLAG)
-
-
-def require_email_status_read(team: Any) -> None:
-    if not (_flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG) or _flag_enabled(team, EMAIL_FROM_CODE_FLAG)):
-        raise NotFound()
-
-
-def _require_flag(team: Any, flag: str) -> None:
-    if not _flag_enabled(team, flag):
-        raise NotFound()
-
-
-def _flag_enabled(team: Any, flag: str) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            flag,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-    )
-
-
-def transactional_email_throttles() -> list[BaseThrottle]:
-    # Both send routes share these scopes, so a caller can't double its rate by using both.
-    return [
-        TransactionalEmailBurstThrottle(),
-        TransactionalEmailSustainedThrottle(),
-        TransactionalEmailTeamBurstThrottle(),
-        TransactionalEmailTeamSustainedThrottle(),
-    ]
-
-
 SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
     400: OpenApiResponse(
@@ -1055,7 +983,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         if key.created_by_id is None:
             return
         # A code send passed this flag before it went out, so only a send by template id checks it here.
-        if addressed_by != "template_key" and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
+        if addressed_by != "template_key" and not email_from_code_enabled(self.team):
             return
         transaction.on_commit(lambda: self._report_first_code_send(key, addressed_by))
 
