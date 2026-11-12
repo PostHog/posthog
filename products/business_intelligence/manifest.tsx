@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, ProductItemCategory } from '~/queries/schema/schema-general'
@@ -72,7 +71,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             iconType: 'business_intelligence',
             href: `${urls.businessIntelligenceNew()}#q=`,
-            flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
             sceneKeys: ['BusinessIntelligence', 'BusinessIntelligenceHome'],
         },
     ],
@@ -89,7 +87,6 @@ export const manifest: ProductManifest = {
             href: urls.businessIntelligence(),
             searchKeywords: ['bi', 'pivot table', 'chart builder'],
             tags: ['beta'],
-            flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
             sceneKey: 'BusinessIntelligence',
         },
     ],
