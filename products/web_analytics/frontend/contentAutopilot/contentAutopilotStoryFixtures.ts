@@ -1,4 +1,5 @@
 import type {
+    AEOBrandApi,
     AEOKeywordApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
@@ -264,7 +265,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     latest_checks: [
         {
             engine: 'claude-web-search',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 1,
             search_queries: [
@@ -275,7 +278,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'openai-web-search',
+            mode: 'web_search',
             cited: false,
+            mentioned: false,
             check_failed: false,
             target_best_position: null,
             search_queries: ['best open source product analytics for startups 2026'],
@@ -283,9 +288,21 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'exa-answer',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 3,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'claude-no-search',
+            mode: 'no_search',
+            cited: false,
+            mentioned: true,
+            check_failed: false,
+            target_best_position: null,
             search_queries: [],
             checked_at: '2026-09-29T09:00:00Z',
         },
@@ -301,7 +318,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: ['funnel analysis without SQL breakdown by country'],
@@ -309,7 +328,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'openai-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: true,
                 target_best_position: null,
                 search_queries: [],
@@ -317,7 +338,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'gemini-google-search',
+                mode: 'web_search',
                 cited: true,
+                mentioned: true,
                 check_failed: false,
                 target_best_position: 2,
                 search_queries: [],
@@ -344,7 +367,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'exa-answer',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -363,7 +388,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -403,6 +430,7 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     id: '00000000-0000-4000-8000-000000000401',
     run_id: '00000000-0000-4000-8000-000000000501',
     engine: 'claude-web-search',
+    mode: 'web_search',
     model: 'example-model-large',
     created_at: '2026-09-29T09:00:00Z',
     cited: true,
@@ -423,9 +451,24 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     answer_text:
         'For a small startup, a few open source product analytics tools stand out.\n\n' +
         '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
-        '2. A self-hosted option if you need to keep data on your own servers.\n\n' +
+        '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
+        '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
         'Pick the one that matches how much infrastructure you want to run.',
 }
+
+export const EXAMPLE_COMPETITOR_BRANDS: AEOBrandApi[] = [
+    {
+        id: '0193a6f1-0000-0000-0000-000000000001',
+        name: 'Rival Analytics',
+        domain: 'rival.example.org',
+        kind: 'competitor',
+        status: 'confirmed',
+        source: 'manual',
+        aliases: ['Rival'],
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: null,
+    },
+]
 
 export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
     EXAMPLE_CHECK,
@@ -568,6 +611,28 @@ const setCounts = (
     }
 }
 
+// 30 answers per engine per day, with rates that drift around each engine's level so the lines read apart.
+const OVERVIEW_ENGINE_LEVELS: [engine: string, cited: number, mentioned: number][] = [
+    ['claude-web-search', 0.5, 0.7],
+    ['exa-answer', 0.2, 0.4],
+    ['openai-web-search', 0.46, 0.66],
+]
+
+const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ length: 30 }, (_, index) =>
+    OVERVIEW_ENGINE_LEVELS.map(([engine, cited, mentioned], engineIndex) => {
+        const drift = Math.sin(index / 4 + engineIndex) * 0.06
+        return {
+            date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+            engine,
+            checks: 30,
+            failed: 0,
+            cited: Math.round((cited + drift) * 30),
+            mentioned: Math.round((mentioned + drift) * 30),
+            avg_position: Math.round((2.3 + engineIndex * 0.4 - drift * 5) * 10) / 10,
+        }
+    })
+).flat()
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -583,17 +648,18 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     engines: [
         {
             engine: 'claude-web-search',
-            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }),
+            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }, 2.1),
         },
         {
             engine: 'exa-answer',
-            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }),
+            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }, 3.4),
         },
         {
             engine: 'openai-web-search',
-            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }),
+            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }, 2.2),
         },
     ],
+    daily: EXAMPLE_PROMPT_SET_DAILY,
     topics: [
         {
             topic: '',

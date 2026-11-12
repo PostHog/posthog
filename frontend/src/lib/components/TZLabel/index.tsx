@@ -4,13 +4,14 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconClock, IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
+import { IconCopy, IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 
+import { QuillHoverCard } from 'lib/components/QuillHoverCard/QuillHoverCard'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -19,9 +20,8 @@ import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
-
-const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
-const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
+import { QuillTZLabelCard } from './QuillTZLabelCard'
+import { getTimezoneRows } from './timezoneRows'
 
 // One shared 1s ticker for every mounted TZLabel: a table can render hundreds of them, and an
 // interval per instance means hundreds of timer wake-ups per second for text that changes about
@@ -71,31 +71,12 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 }: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
     time: dayjs.Dayjs
 }): JSX.Element {
-    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
-
-    const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
-        void copyToClipboard(dateTime.format(DATE_OUTPUT_FORMAT), label)
-    }
-
-    const copyUnixTimestamp = (unixTimestamp: number, label: string): void => {
-        void copyToClipboard(unixTimestamp.toString(), label)
-    }
-
-    const safeTimezone = (tz: string): dayjs.Dayjs => {
-        try {
-            return time.tz(tz)
-        } catch {
-            return time
-        }
-    }
 
     useOnMountEffect(() => {
         reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
     })
-
-    const displayedTime = displayTimezone ? safeTimezone(displayTimezone) : null
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
@@ -108,55 +89,20 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 />
             </div>
             <div className="flex flex-col gap-1 p-2">
-                {displayedTime && (
-                    <TZLabelPopoverRow
-                        icon={<IconClock />}
-                        label="Displayed"
-                        caption={shortTimeZone(displayTimezone!, time.toDate()) ?? displayTimezone!}
-                        value={displayedTime.format(DATE_OUTPUT_FORMAT)}
-                        onClick={() => copyDateTime(displayedTime, 'displayed timezone date')}
-                    />
+                {getTimezoneRows(time, { showSeconds, displayTimezone, projectTimezone: currentTeam?.timezone }).map(
+                    (row) => (
+                        <TZLabelPopoverRow
+                            key={row.key}
+                            icon={row.icon}
+                            label={row.label}
+                            caption={row.caption}
+                            value={row.value}
+                            muted={row.muted}
+                            monospace={row.monospace}
+                            onClick={() => void copyToClipboard(row.value, row.copyDescription)}
+                        />
+                    )
                 )}
-
-                <TZLabelPopoverRow
-                    icon={<IconLaptop />}
-                    muted={displayTimezone !== undefined}
-                    label="Your device"
-                    caption={shortTimeZone(undefined, time.toDate())!}
-                    value={time.format(DATE_OUTPUT_FORMAT)}
-                    onClick={() => copyDateTime(time, 'your device date')}
-                />
-
-                {currentTeam && (
-                    <TZLabelPopoverRow
-                        muted
-                        icon={<IconHome />}
-                        label="Project"
-                        caption={shortTimeZone(currentTeam.timezone, time.toDate())!}
-                        value={time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
-                        onClick={() => copyDateTime(time.tz(currentTeam.timezone), 'project timezone date')}
-                    />
-                )}
-
-                {currentTeam?.timezone !== 'UTC' && (
-                    <TZLabelPopoverRow
-                        muted
-                        icon={<IconWeb />}
-                        label="UTC"
-                        caption="UTC"
-                        value={time.tz('UTC').format(DATE_OUTPUT_FORMAT)}
-                        onClick={() => copyDateTime(time.tz('UTC'), 'UTC date')}
-                    />
-                )}
-
-                <TZLabelPopoverRow
-                    muted
-                    monospace
-                    icon={<IconLinux />}
-                    label="UNIX"
-                    value={time.unix().toString()}
-                    onClick={() => copyUnixTimestamp(time.unix(), 'UNIX timestamp')}
-                />
             </div>
         </div>
     )
@@ -238,6 +184,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     const [formattedContent, setFormattedContent] = useState(format)
 
     const { isVisible: isPageVisible } = usePageVisibility()
+    const isQuill = useFeatureFlag('TODAY_RAIL_NAV')
 
     // NOTE: The guarded setState makes sure we don't needlessly re-render the component every second.
     useEffect(() => {
@@ -267,6 +214,25 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             {formattedContent}
         </span>
     )
+
+    if (showPopover && isQuill) {
+        return (
+            <QuillHoverCard
+                arrow
+                className="w-auto max-w-sm gap-0 p-0"
+                content={
+                    <QuillTZLabelCard
+                        time={parsedTime}
+                        showSeconds={showSeconds}
+                        title={title}
+                        displayTimezone={displayTimezone}
+                    />
+                }
+            >
+                {innerContent}
+            </QuillHoverCard>
+        )
+    }
 
     if (showPopover) {
         return (

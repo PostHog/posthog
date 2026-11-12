@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import { LogsAlertEventHistoryContent } from 'products/logs/frontend/components/LogsAlerting/LogsAlertEventHistory'
 import { LogsAlertForm } from 'products/logs/frontend/components/LogsAlerting/LogsAlertForm'
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
@@ -23,7 +24,6 @@ import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAl
 import { LogsAlertRegroupConfirmModal } from 'products/logs/frontend/components/LogsAlerting/LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
-import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
 import { hasAnyFilter } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import {
@@ -71,7 +71,11 @@ export function LogsAlertDetailScene(): JSX.Element {
                     <div className="flex flex-col gap-4 p-4">
                         {alert && <AlertStatusBand />}
                         {alert && (
-                            <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-8 w-full" showAxis />
+                            <PlatformAlertStateTimeline
+                                timeline={alert.state_timeline}
+                                className="h-8 w-full"
+                                showAxis
+                            />
                         )}
                         <LemonTabs
                             activeKey={activeTab}
