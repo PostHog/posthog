@@ -7,242 +7,29 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
-from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult, CodeBasedVerifier
+from posthog.helpers.two_factor_session import NO_EMAIL_HTTP_SERVICE, CodeBasedVerifier
 
 
 @pytest.mark.disable_mock_code_based_verifier
-class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
+@patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
+@patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+class TestCodeBasedVerifierEmailTransport(SimpleTestCase):
     def setUp(self):
         self.mock_user = MagicMock()
         self.mock_user.pk = 123
         self.mock_user.email = "test@example.com"
         self.mock_user.distinct_id = uuid4()
-        self.mock_user.organization = MagicMock()
-        self.mock_user.organization.id = uuid4()
 
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    def test_suppressed_user_skips_code_based_verification(
-        self, mock_check_suppression, mock_feature_enabled, mock_http_available, mock_email_available, mock_dev_mode
-    ):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = True
-        mock_feature_enabled.return_value = False
-        mock_check_suppression.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
-        )
-
-        verifier = CodeBasedVerifier()
-        result = verifier.should_send_code_based_verification(self.mock_user)
-
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.SUPPRESSED)
-
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    def test_non_suppressed_user_proceeds_with_code_based_verification(
-        self, mock_check_suppression, mock_feature_enabled, mock_http_available, mock_email_available, mock_dev_mode
-    ):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = True
-        mock_feature_enabled.return_value = False
-        mock_check_suppression.return_value = ESPSuppressionResult(is_suppressed=False, from_cache=False, reason=None)
-
-        verifier = CodeBasedVerifier()
-        result = verifier.should_send_code_based_verification(self.mock_user)
-
-        self.assertTrue(result.should_send)
-        self.assertFalse(result.suppression_bypassed)
-
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
-    def test_analytics_event_captured_on_suppression_bypass(
-        self,
-        mock_capture,
-        mock_check_suppression,
-        mock_feature_enabled,
-        mock_http_available,
-        mock_email_available,
-        mock_dev_mode,
-    ):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = True
-        mock_feature_enabled.return_value = False
-        mock_check_suppression.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
-        )
-
-        verifier = CodeBasedVerifier()
-        verifier.should_send_code_based_verification(self.mock_user)
-
-        mock_capture.assert_called_once()
-        call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "code_based_verification_bypassed_due_to_suppression")
-        self.assertEqual(call_kwargs["distinct_id"], str(self.mock_user.distinct_id))
-
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
-    def test_analytics_event_includes_correct_properties(
-        self,
-        mock_capture,
-        mock_check_suppression,
-        mock_feature_enabled,
-        mock_http_available,
-        mock_email_available,
-        mock_dev_mode,
-    ):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = True
-        mock_feature_enabled.return_value = False
-        mock_check_suppression.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=True, reason=ESPSuppressionReason.SUPPRESSED
-        )
-
-        verifier = CodeBasedVerifier()
-        verifier.should_send_code_based_verification(self.mock_user)
-
-        call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.SUPPRESSED)
-        self.assertTrue(call_kwargs["properties"]["cached"])
-
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
-    def test_api_failure_fallback_bypasses_mfa_and_captures_event(
-        self,
-        mock_capture,
-        mock_check_suppression,
-        mock_feature_enabled,
-        mock_http_available,
-        mock_email_available,
-        mock_dev_mode,
-    ):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = True
-        mock_feature_enabled.return_value = False
-        mock_check_suppression.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.API_FAILURE_FALLBACK
-        )
-
-        verifier = CodeBasedVerifier()
-        result = verifier.should_send_code_based_verification(self.mock_user)
-
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
-
-        call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.API_FAILURE_FALLBACK)
-        self.assertFalse(call_kwargs["properties"]["cached"])
-
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    def test_returns_code_based_verification_check_result(
-        self, mock_check_suppression, mock_feature_enabled, mock_http_available, mock_email_available, mock_dev_mode
-    ):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = True
-        mock_feature_enabled.return_value = False
-        mock_check_suppression.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
-        )
-
-        verifier = CodeBasedVerifier()
-        result = verifier.should_send_code_based_verification(self.mock_user)
-
-        self.assertIsInstance(result, CodeBasedVerificationCheckResult)
-        self.assertFalse(result.should_send)
-
-    @parameterized.expand([(ESPSuppressionReason.SUPPRESSED,), (ESPSuppressionReason.API_FAILURE_FALLBACK,)])
-    @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_flag_definitions", return_value=[{}])
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    def test_flag_on_sends_code_whatever_the_suppression_result(self, reason, mock_check_suppression, *_mocks):
-        mock_check_suppression.return_value = ESPSuppressionResult(is_suppressed=True, from_cache=False, reason=reason)
+    def test_sends_the_code_when_http_email_is_available(self, *_mocks):
+        self.assertTrue(CodeBasedVerifier().should_send_code_based_verification(self.mock_user))
 
-        result = CodeBasedVerifier().should_send_code_based_verification(self.mock_user)
-
-        self.assertTrue(result.should_send)
-        self.assertFalse(result.suppression_bypassed)
-
-    @parameterized.expand(
-        [
-            ("missing_definitions", None, {"return_value": True}),
-            ("error", [{}], {"side_effect": RuntimeError}),
-        ]
-    )
-    @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=False)
     @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_flag_definitions")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression")
-    def test_unreadable_flag_keeps_the_suppression_check(
-        self, _name, definitions, flag_behavior, mock_check_suppression, mock_feature_enabled, mock_definitions, *_mocks
-    ):
-        mock_definitions.return_value = definitions
-        mock_feature_enabled.configure_mock(**flag_behavior)
-        mock_check_suppression.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
-        )
-
-        result = CodeBasedVerifier().should_send_code_based_verification(self.mock_user)
-
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-
-    @patch("posthog.helpers.two_factor_session.is_dev_mode")
-    @patch("posthog.helpers.two_factor_session.is_email_available")
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available")
-    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
-    def test_no_http_service_bypasses_mfa(self, mock_capture, mock_http_available, mock_email_available, mock_dev_mode):
-        mock_dev_mode.return_value = False
-        mock_email_available.return_value = True
-        mock_http_available.return_value = False
-
-        verifier = CodeBasedVerifier()
-        result = verifier.should_send_code_based_verification(self.mock_user)
-
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
-
-        mock_capture.assert_called_once()
-        call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "code_based_verification_bypassed_due_to_suppression")
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
+    def test_no_http_service_bypasses_mfa(self, mock_capture, *_mocks):
+        self.assertFalse(CodeBasedVerifier().should_send_code_based_verification(self.mock_user))
+        self.assertEqual(mock_capture.call_args.kwargs["event"], "code_based_verification_bypassed_due_to_suppression")
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["reason"], NO_EMAIL_HTTP_SERVICE)
 
     @parameterized.expand(
         [
@@ -251,7 +38,6 @@ class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
             ("self_hosted", False, True),
         ]
     )
-    @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=False)
     @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
     @patch("posthog.helpers.two_factor_session.capture_exception")

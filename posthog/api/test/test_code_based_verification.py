@@ -13,7 +13,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
-from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 from posthog.models.instance_setting import override_instance_config
 
@@ -21,15 +20,10 @@ VERIFY_URL = "/api/login/code-based-verification/"
 RESEND_URL = "/api/login/code-based-verification/resend/"
 
 
-def mock_esp_not_suppressed(*args, **kwargs):
-    return ESPSuppressionResult(is_suppressed=False, from_cache=False)
-
-
 @contextmanager
 def enable_code_sending():
-    """Force the code path on (bypass the dev/ESP/email-availability short-circuits) and capture the sent code."""
+    """Force the code path on (bypass the dev/email-availability short-circuits) and capture the sent code."""
     with (
-        patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed),
         patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
         patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
         patch("posthog.tasks.email.send_code_based_verification") as mock_send,
@@ -42,7 +36,6 @@ def workflows_refuses_the_recipient() -> Iterator[None]:
     refusal = MagicMock(status_code=422, text="error")
     refusal.json.return_value = {"type": "invalid_request", "code": "recipient_suppressed"}
     with (
-        patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed),
         patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
         patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
         override_instance_config("EMAIL_HOST", "localhost"),
