@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 45 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -505,6 +505,23 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = () => zod.o
 })
 
 /**
+ * Live CDC health for an existing source: slot/publication existence and WAL lag.
+ *
+ * Reads from the source DB via the engine adapter. Returns ``{"enabled": false}``
+ * when CDC is off, or the stored config plus live ``slot_exists`` /
+ * ``publication_exists`` / ``lag_bytes`` when on. 400s if the source DB is
+ * unreachable so the UI can show a degraded/unreachable state.
+ */
+export const ExternalDataSourcesCdcStatusRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesCreateWebhookCreateParams = () => zod.object({
@@ -563,6 +580,86 @@ export const ExternalDataSourcesDestinationsPartialUpdateBody = () => zod.object
         .describe(
             'Destinations to sync to. On a table, null clears the override so the table follows its source again.'
         ),
+})
+
+/**
+ * Disable CDC on an existing source.
+ *
+ * Cancels any running CDC extraction workflow, deletes the extraction schedule,
+ * delegates engine-side teardown to the source's adapter (drops slot/publication
+ * for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
+ * ``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
+ * ``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
+ * strategy before they resume.
+ */
+export const ExternalDataSourcesDisableCdcCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Enable CDC on an existing source.
+ *
+ * Provisions engine-side CDC resources via the source's adapter, writes the CDC
+ * config into ``source.job_inputs``, and ensures the CDC extraction schedule
+ * exists. Re-runs prereq checks server-side so we never trust a stale
+ * client-side check.
+ *
+ * Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
+ * plus engine-specific identifier hints (e.g. ``cdc_slot_name``,
+ * ``cdc_publication_name`` for Postgres). Universal tuning fields:
+ * ``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
+ * (optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
+ */
+export const ExternalDataSourcesEnableCdcCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataSourcesEnableCdcCreateBodyCdcManagementModeDefault = `posthog`
+
+export const ExternalDataSourcesEnableCdcCreateBody = () => zod.object({
+    cdc_management_mode: zod
+        .enum(['posthog', 'self_managed'])
+        .describe('\* `posthog` - PostHog\n\* `self_managed` - Self managed')
+        .default(externalDataSourcesEnableCdcCreateBodyCdcManagementModeDefault)
+        .describe(
+            "Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.\n\n\* `posthog` - PostHog\n\* `self_managed` - Self managed"
+        ),
+    cdc_slot_name: zod
+        .string()
+        .optional()
+        .describe('Name of the replication slot to use. Defaults to a name derived from the source id.'),
+    cdc_publication_name: zod
+        .string()
+        .optional()
+        .describe(
+            "Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode."
+        ),
+    cdc_auto_drop_slot: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true."
+        ),
+    cdc_lag_warning_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which a warning shows. Must be lower than the critical threshold.'),
+    cdc_lag_critical_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.'),
 })
 
 /**
@@ -700,6 +797,62 @@ export const ExternalDataSourcesRepairCdcCreateParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Resume a CDC source whose extraction schedule was paused by a non-retryable
+ * failure that left the replication slot intact (bad credentials, SSL/host errors).
+ *
+ * Once the user has fixed the root cause, this re-probes the source DB — confirming
+ * the connection now succeeds and the slot/publication still exist — then unpauses the
+ * extraction schedule so streaming resumes from where it left off. No re-snapshot, so
+ * it's the cheap counterpart to Repair CDC. If the slot/publication are actually gone
+ * (``cdc_broken``, or a live probe showing them missing), resume is refused — only
+ * Repair CDC can recreate them, at the cost of a full re-sync.
+ */
+export const ExternalDataSourcesResumeCdcCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Update CDC tuning fields without enabling/disabling.
+ *
+ * Lets users edit ``cdc_auto_drop_slot``, ``cdc_lag_warning_threshold_mb``, and
+ * ``cdc_lag_critical_threshold_mb`` independently. These fields are universal
+ * across engines. Engine-specific identifiers (slot name, management mode, …)
+ * are immutable post-enable — switching them requires disable + enable.
+ */
+export const ExternalDataSourcesUpdateCdcSettingsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSourcesUpdateCdcSettingsCreateBody = () => zod.object({
+    cdc_auto_drop_slot: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode."
+        ),
+    cdc_lag_warning_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which a warning shows. Must be lower than the critical threshold.'),
+    cdc_lag_critical_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.'),
 })
 
 /**

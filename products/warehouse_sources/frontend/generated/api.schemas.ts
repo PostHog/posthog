@@ -1335,12 +1335,12 @@ export interface ExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
- * * `posthog` - posthog
- * * `self_managed` - self_managed
+ * * `posthog` - PostHog
+ * * `self_managed` - Self managed
  */
-export type ManagementModeEnumApi = (typeof ManagementModeEnumApi)[keyof typeof ManagementModeEnumApi]
+export type CdcManagementModeEnumApi = (typeof CdcManagementModeEnumApi)[keyof typeof CdcManagementModeEnumApi]
 
-export const ManagementModeEnumApi = {
+export const CdcManagementModeEnumApi = {
     Posthog: 'posthog',
     SelfManaged: 'self_managed',
 } as const
@@ -1350,9 +1350,9 @@ export interface CdcStatusApi {
     enabled: boolean
     /** Who owns the slot and publication: PostHog or the customer.
      *
-     * * `posthog` - posthog
-     * * `self_managed` - self_managed */
-    management_mode?: ManagementModeEnumApi
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    management_mode?: CdcManagementModeEnumApi
     /** Replication slot PostHog consumes from. Empty when unset. */
     slot_name?: string
     /** Publication PostHog reads changes from. Empty when unset. */
@@ -1413,6 +1413,37 @@ export interface SourceDestinationsApi {
     destination_ids: string[]
 }
 
+export interface CdcDisableResponseApi {
+    /** Whether CDC is now disabled on the source. */
+    success: boolean
+    /** True when CDC was already off, so nothing changed. */
+    already_disabled?: boolean
+}
+
+export interface CdcEnableRequestApi {
+    /** Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.
+     *
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    cdc_management_mode?: CdcManagementModeEnumApi
+    /** Name of the replication slot to use. Defaults to a name derived from the source id. */
+    cdc_slot_name?: string
+    /** Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode. */
+    cdc_publication_name?: string
+    /** Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
 export interface CdcEnableResponseApi {
     /** Whether CDC was enabled on the source. */
     success: boolean
@@ -1471,6 +1502,33 @@ export interface ExternalDataJobSerializersApi {
     readonly billable: boolean | null
     /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
     readonly destination_ids: readonly string[]
+}
+
+export interface CdcResumeResponseApi {
+    /** Whether the extraction schedule was unpaused. */
+    success: boolean
+}
+
+export interface CdcUpdateSettingsRequestApi {
+    /** Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
+export interface CdcUpdateSettingsResponseApi {
+    /** Whether the request was accepted. */
+    success: boolean
+    /** True when the request held no setting to change, so nothing was written. */
+    unchanged?: boolean
 }
 
 /**
@@ -2946,10 +3004,6 @@ export type ExternalDataSourcesJobsListParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
-}
-
-export type ExternalDataSourcesResumeCdcCreate200 = {
-    success?: boolean
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {
