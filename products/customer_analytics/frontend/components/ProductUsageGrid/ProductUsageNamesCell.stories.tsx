@@ -22,15 +22,18 @@ const meta: Meta<typeof ProductUsageNamesCell> = {
         columnKey: '2026-10-05',
         interval: 'week',
         expanded: false,
-        firstUse: [
-            {
-                row: 'example-account',
-                series: 'analytics',
-                personId: 'person-0',
-                label: 'ana@example.com',
-                date: '2026-10-07',
-            },
-        ],
+        firstUse: new Map([
+            [
+                'person-0',
+                {
+                    row: 'example-account',
+                    series: 'analytics',
+                    personId: 'person-0',
+                    label: 'ana@example.com',
+                    date: '2026-10-07',
+                },
+            ],
+        ]),
         onToggle: () => undefined,
     },
     parameters: { testOptions: { snapshotBrowsers: [] } },

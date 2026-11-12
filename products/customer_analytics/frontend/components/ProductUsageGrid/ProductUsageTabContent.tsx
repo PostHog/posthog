@@ -11,8 +11,19 @@ import { ProductUsageOverview } from './ProductUsageOverview'
 import { ProductUsageQueryEditor } from './ProductUsageQueryEditor'
 
 export function ProductUsageTabContent(): JSX.Element {
-    const { source, editorOpen, result, loading, error, saveError, detailsError, details, canUseProducts, controls } =
-        useValues(productUsageGridLogic)
+    const {
+        source,
+        editorOpen,
+        result,
+        loading,
+        error,
+        saveError,
+        detailsError,
+        detailsLoading,
+        details,
+        canUseProducts,
+        controls,
+    } = useValues(productUsageGridLogic)
     const { openEditor, refresh, clearSource, loadDetails, setControls } = useActions(productUsageGridLogic)
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="product-activity-tab">
@@ -130,7 +141,7 @@ export function ProductUsageTabContent(): JSX.Element {
                 <LemonBanner
                     type="warning"
                     action={
-                        <LemonButton onClick={loadDetails} size="small">
+                        <LemonButton onClick={loadDetails} size="small" loading={detailsLoading}>
                             Retry
                         </LemonButton>
                     }

@@ -546,7 +546,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         finishPeople: () => actions.restoreExpanded(),
         restoreExpanded: () => {
             const matrix = values.result?.matrix
-            if (!matrix || values.controls.zoom !== 'users') {
+            if (!matrix || matrix.emptyReason || values.controls.zoom !== 'users') {
                 return
             }
             const visibleRows = matrix.rows.slice((values.userPage - 1) * 5, values.userPage * 5)
@@ -753,7 +753,11 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         loadDetails: async () => {
             cache.disposables.dispose('details')
             const result = values.result
-            if (!result?.matrix?.rows.length || (!values.controls.firstUse && values.controls.zoom !== 'users')) {
+            if (
+                !result?.matrix?.rows.length ||
+                result.matrix.emptyReason ||
+                (!values.controls.firstUse && values.controls.zoom !== 'users')
+            ) {
                 actions.clearDetails()
                 return
             }
@@ -762,6 +766,9 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
             const rows = result.matrix.rows
             const page = Math.min(values.userPage, Math.max(1, Math.ceil(rows.length / 5)))
             const accountRows = values.controls.zoom === 'users' ? rows.slice((page - 1) * 5, page * 5) : rows
+            const previousPeople =
+                cache.detailsResult === result && cache.detailsPage === page ? values.details.people : null
+            let firstUseFailed = false
             actions.startDetails()
             try {
                 const details = await loadProductActivityDetails(request, {
@@ -772,9 +779,18 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                     peopleLimit: 3,
                     includePeople: values.controls.zoom === 'users',
                     includeFirstUse: values.controls.firstUse,
+                    previousPeople,
+                    onFirstUseError: () => {
+                        firstUseFailed = true
+                    },
                 })
                 if (!request.signal.aborted && cache.queryId === queryId) {
+                    cache.detailsResult = result
+                    cache.detailsPage = page
                     actions.finishDetails(details)
+                    if (firstUseFailed) {
+                        actions.failDetails('Could not load first-use history. Try again.')
+                    }
                 }
             } catch (error) {
                 if (!request.signal.aborted && cache.queryId === queryId) {

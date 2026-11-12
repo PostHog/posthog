@@ -304,6 +304,57 @@ describe('productUsageGridLogic', () => {
         save.mockRestore()
         logic.unmount()
     })
+    it('retains people previews when optional history fails and retries history independently', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.finishLoad({
+            accounts,
+            matrix: BOOK_ACTIVITY_MATRIX_MOCK,
+            hogql: null,
+            source: { kind: 'product_usage' },
+        })
+        const people = {
+            rows: BOOK_ACTIVITY_MATRIX_MOCK.rows.slice(0, 5),
+            columns: BOOK_ACTIVITY_MATRIX_MOCK.columns,
+            people: [
+                {
+                    row: BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key,
+                    column: BOOK_ACTIVITY_MATRIX_MOCK.columns[0].key,
+                    series: 'pa',
+                    personId: 'example-person',
+                    label: 'person@example.com',
+                    rank: 1,
+                    engagedSeconds: 120,
+                    actionCount: 1,
+                    actions: [],
+                    topPaths: [],
+                },
+            ],
+            truncated: false,
+        }
+        query.mockImplementation((node) =>
+            node.kind === NodeKind.BookActivityPeopleQuery
+                ? Promise.resolve({ results: people })
+                : Promise.reject(new Error('history unavailable'))
+        )
+        await expectLogic(logic, () =>
+            logic.actions.setControls({ zoom: 'users', firstUse: true })
+        ).toFinishAllListeners()
+        expect(logic.values.details.people).toEqual(people)
+        expect(logic.values.details.firsts).toBeNull()
+        expect(logic.values.detailsError).toBe('Could not load first-use history. Try again.')
+        expect(logic.values.detailsLoading).toBe(false)
+        const firsts = { accounts: [], people: [], truncated: false }
+        query.mockImplementation((node) =>
+            node.kind === NodeKind.BookActivityFirstsQuery
+                ? Promise.resolve({ results: firsts })
+                : Promise.reject(new Error('people should remain available'))
+        )
+        await expectLogic(logic, () => logic.actions.loadDetails()).toFinishAllListeners()
+        expect(logic.values.details).toEqual({ people, firsts })
+        expect(logic.values.detailsError).toBeNull()
+        logic.unmount()
+    })
     it('clears pending people state when leaving Users or clearing the source', async () => {
         const logic = productUsageGridLogic()
         logic.mount()

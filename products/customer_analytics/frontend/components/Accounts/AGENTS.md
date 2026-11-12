@@ -34,7 +34,7 @@ Product usage tiles use `AccountProductUsage` and `AccountProductUsageTable`: Pr
 
 The `AccountDotMatrixTile` uses the shared renderer in `lib/components/DotMatrix/`.
 Activity requests share the DataNode query queue. Disposing a queued tile prevents its query from starting.
-Product usage preserves setup-specific empty messages and loaded user details when optional first-use history fails. History failures have a separate retry.
+Account tiles and the book grid share setup-specific empty messages from `../ProductActivity/productUsagePresentation.ts`. Product usage preserves loaded user details when optional first-use history fails. History failures have a separate retry.
 Custom HogQL matrices cap columns times series at 512 glyph slots per row. Chronological columns keep the most recent periods, and the bound notice explains omitted columns.
 Account tile queries use metadata-only query telemetry for every source, including custom HogQL. Query contents and translated SQL stay out of analytics events.
 Its Storybook fixtures live beside the renderer stories.

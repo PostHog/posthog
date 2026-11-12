@@ -9,7 +9,11 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { accountViewsLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountViewsLogic'
 import { getBookActivityMatrixProps } from '../Accounts/bookActivityMatrix'
 import { getHogQLActivityMatrix, getHogQLLimitNotice } from '../ProductActivity/hogqlActivityMatrix'
-import { getProductUsageCountLabel, getProductUsageCountScale } from '../ProductActivity/productUsagePresentation'
+import {
+    getActivityMatrixEmptyMessage,
+    getProductUsageCountLabel,
+    getProductUsageCountScale,
+} from '../ProductActivity/productUsagePresentation'
 import { ProductUsageAccountCell } from './ProductUsageAccountCell'
 import { ProductUsageCellTooltip } from './ProductUsageCellTooltip'
 import { indexProductUsageBreadth, indexProductUsageCounts, productUsageCellKey } from './productUsageData'
@@ -109,6 +113,10 @@ export function ProductUsageGrid(): JSX.Element | null {
         )
     }
     const matrix = result.matrix
+    const emptyMessage = getActivityMatrixEmptyMessage(matrix.emptyReason)
+    if (emptyMessage) {
+        return <LemonBanner type="info">{emptyMessage}</LemonBanner>
+    }
     const props = matrixProps!
     return (
         <div ref={container} className="border rounded p-3 flex flex-col gap-3" data-attr="product-activity-grid">
