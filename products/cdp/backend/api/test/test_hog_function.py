@@ -1550,6 +1550,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("mapping_rename", "mapping", {"name": "Renamed"}, status.HTTP_200_OK),
             ("unnormalized_rename", "unnormalized", {"name": "Renamed"}, status.HTTP_200_OK),
             ("rename_that_copies_liquid_templating", "liquid_schema", {"name": "Renamed"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "site_destination_made_public",
+                "site_destination",
+                {"inputs_schema": [SENDER_SCHEMA[0], {**SENDER_SCHEMA[1], "secret": False}]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
             ("mapping_code_change", "mapping", {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
             (
                 "mapping_secret_removed_with_a_code_change",
@@ -1580,6 +1586,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 inputs_schema=[*SENDER_SCHEMA, {"key": "note", "type": "string", "label": "Note", "required": False}],
                 inputs={"url": {"value": SENDER_URL}, "note": None},
             )
+        elif stored_in == "site_destination":
+            HogFunction.objects.filter(id=function.id).update(type="site_destination")
         elif stored_in == "liquid_schema":
             HogFunction.objects.filter(id=function.id).update(
                 inputs_schema=[{**SENDER_SCHEMA[0], "templating": "liquid"}, SENDER_SCHEMA[1]],

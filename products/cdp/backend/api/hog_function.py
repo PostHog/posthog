@@ -1008,8 +1008,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
 
-        if hog_type not in TYPES_WITH_JAVASCRIPT_SOURCE:
-            self._require_secret_reentry(attrs, team)
+        self._require_secret_reentry(attrs, team)
 
         return attrs
 
