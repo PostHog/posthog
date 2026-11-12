@@ -31,8 +31,10 @@ import type {
     StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
+    StamphogRoutingOwnerCountApi,
     StamphogRoutingRunDetailApi,
     StamphogRoutingRunsListParams,
+    StamphogRoutingRunsOwnersListParams,
     StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
 } from './api.schemas'
@@ -483,6 +485,39 @@ export const stamphogRoutingRunsRetrieve = async (
     options?: RequestInit
 ): Promise<StamphogRoutingRunDetailApi> => {
     return apiMutator<StamphogRoutingRunDetailApi>(getStamphogRoutingRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getStamphogRoutingRunsOwnersListUrl = (
+    projectId: string,
+    params?: StamphogRoutingRunsOwnersListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/stamphog/routing_runs/owners/?${stringifiedParams}`
+        : `/api/projects/${projectId}/stamphog/routing_runs/owners/`
+}
+
+/**
+ * List the owners that routing runs decided about, with how many distinct pull requests each one touched, most first. Defaults to the last 90 days of runs.
+ */
+export const stamphogRoutingRunsOwnersList = async (
+    projectId: string,
+    params?: StamphogRoutingRunsOwnersListParams,
+    options?: RequestInit
+): Promise<StamphogRoutingOwnerCountApi[]> => {
+    return apiMutator<StamphogRoutingOwnerCountApi[]>(getStamphogRoutingRunsOwnersListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

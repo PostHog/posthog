@@ -1544,6 +1544,140 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             "Only renames an import.",
         )
 
+    @parameterized.expand(
+        [
+            ("no_review", [], None, None, False),
+            (
+                "one_team_summary_has_no_clause",
+                [{"change_summary": "Caches flag definitions per request."}],
+                "Caches flag definitions per request.",
+                None,
+                False,
+            ),
+            (
+                "clause_per_team",
+                [{"change_summary": "Splits the config. @PostHog/team-alpha: moves the loader."}],
+                "Splits the config.",
+                "moves the loader.",
+                False,
+            ),
+            (
+                "newest_completed_summary_wins",
+                [
+                    {"change_summary": "Older summary.", "created_at": -2},
+                    {"change_summary": "Newer summary.", "created_at": -1},
+                    {"change_summary": "", "created_at": 0},
+                    {"change_summary": "Failed run.", "status": ReviewRunStatus.FAILED, "created_at": 0},
+                ],
+                "Newer summary.",
+                None,
+                False,
+            ),
+            ("approved_at_the_routed_head", [{"verdict": "approved"}], None, None, True),
+            ("approved_at_another_head", [{"verdict": "approved", "head_sha": "head-older"}], None, None, False),
+            (
+                "dismissed_approval",
+                [{"verdict": "approved", "approval_dismissed_at": 0}],
+                None,
+                None,
+                False,
+            ),
+            (
+                "approval_retained_at_the_routed_head",
+                [{"verdict": "approved", "head_sha": "head-older", "output": {"retained_head_shas": ["head-1"]}}],
+                None,
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_a_run_carries_the_review_summary_and_approval(
+        self,
+        _name: str,
+        review_runs: list[dict[str, Any]],
+        expected_summary: str | None,
+        expected_alpha_clause: str | None,
+        expected_approved: bool,
+    ) -> None:
+        now = timezone.now()
+        pull_request = self.run_one.pull_request
+        for fields in review_runs:
+            times: dict[str, datetime] = {
+                key: now + timedelta(days=fields[key])
+                for key in ("created_at", "approval_dismissed_at")
+                if key in fields
+            }
+            values: dict[str, Any] = {"head_sha": "head-1", "status": ReviewRunStatus.COMPLETED, **fields, **times}
+            run = ReviewRun.objects.unscoped().create(team_id=self.team.id, pull_request=pull_request, **values)
+            # created_at is auto_now_add, so the create ignores it.
+            if "created_at" in times:
+                ReviewRun.objects.unscoped().filter(id=run.id).update(created_at=times["created_at"])
+
+        response = self.client.get(self.url, {"pr_number": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        run = response.json()["results"][0]
+        assert run["pull_request"]["summary"] == expected_summary
+        assert run["pull_request"]["approved_by_stamphog"] is expected_approved
+        owners = {owner["owner"]: owner["summary"] for owner in run["owners"]}
+        assert owners == {"team-alpha": expected_alpha_clause, "team-beta": None}
+
+    def test_the_list_shows_each_owners_largest_files(self) -> None:
+        files = [{**self._FILE, "path": f"products/alpha/{lines}.py", "additions": lines} for lines in (5, 40, 1, 12)]
+        RoutingRunOwner.objects.unscoped().filter(run=self.run_one, owner="team-alpha").update(files=files)
+
+        listed = self.client.get(self.url, {"pr_number": 1}).json()["results"][0]
+        one = self.client.get(f"{self.url}{self.run_one.id}/").json()
+
+        alpha = next(owner for owner in listed["owners"] if owner["owner"] == "team-alpha")
+        assert [file["path"] for file in alpha["top_files"]] == [
+            "products/alpha/40.py",
+            "products/alpha/12.py",
+            "products/alpha/5.py",
+        ]
+        assert "files" not in alpha
+        # The single-run read keeps every file.
+        assert len(next(owner for owner in one["owners"] if owner["owner"] == "team-alpha")["files"]) == 4
+
+    @parameterized.expand(
+        [
+            ("default_window", {}, [("team-alpha", 2), ("team-beta", 1), ("team-gamma", 1)]),
+            ("custom_window", {"created_after": timedelta(days=-1)}, [("team-alpha", 1), ("team-gamma", 1)]),
+        ]
+    )
+    def test_owners_count_distinct_pull_requests(
+        self, _name: str, query: dict[str, Any], expected: list[tuple[str, int]]
+    ) -> None:
+        now = timezone.now()
+        # A second run of #1 asks team-alpha again, which must not count #1 twice.
+        self._log_run(
+            self.run_one.pull_request,
+            [{"owner": "team-alpha", "kind": "team", "outcome": "requested", "reason": "model_kept"}],
+        )
+        repo_config = self.run_one.pull_request.repo_config
+        old = self._make_run(
+            self.team.id,
+            repo_config,
+            4,
+            [{"owner": "team-alpha", "kind": "team", "outcome": "cut", "reason": "model_cut"}],
+        )
+        self._make_run(
+            self.team.id,
+            repo_config,
+            5,
+            [{"owner": "team-alpha", "kind": "team", "outcome": "cut", "reason": "model_cut"}],
+        )
+        runs = RoutingRun.objects.unscoped()
+        runs.filter(id=old.id).update(created_at=now - timedelta(days=120))
+        runs.filter(team_id=self.team.id, pull_request__pr_number=1).update(created_at=now - timedelta(days=2))
+
+        params = {key: (now + value).isoformat() for key, value in query.items()}
+        response = self.client.get(f"{self.url}owners/", params)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(row["owner"], row["pr_count"]) for row in response.json()] == expected
+        assert {row["kind"] for row in response.json()} == {"team"}
+
     def test_runs_created_at_the_same_time_page_without_gaps(self) -> None:
         RoutingRun.objects.unscoped().filter(team_id=self.team.id).update(created_at=timezone.now())
 

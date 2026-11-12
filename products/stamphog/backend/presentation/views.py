@@ -5,6 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, cast
 from urllib.parse import quote
@@ -12,6 +13,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -57,6 +59,7 @@ from .serializers import (
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    RoutingOwnerCountSerializer,
     RoutingRunDetailSerializer,
     RoutingRunSerializer,
     StamphogAddRepositorySerializer,
@@ -66,6 +69,7 @@ from .serializers import (
     StamphogOwnersFileSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
+    StamphogRoutingOwnersQuerySerializer,
     StamphogRoutingRunsQuerySerializer,
     StamphogSyncInstallationRequestSerializer,
     StamphogSyncInstallationResponseSerializer,
@@ -88,6 +92,9 @@ REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # team's review request on fork pull requests, so it decides who gets asked too.
 # The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
 MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels", "review_on_clean_external_review")
+
+# How far back the owner list looks when the caller names no window.
+ROUTING_OWNERS_WINDOW = timedelta(days=90)
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -786,6 +793,22 @@ class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         runs = facade_api.list_routing_runs(self.canonical_team_id, **query.validated_data)
         page = self.paginate_queryset(runs)
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+    @extend_schema(
+        description=(
+            "List the owners that routing runs decided about, with how many distinct pull requests each one "
+            "touched, most first. Defaults to the last 90 days of runs."
+        ),
+        parameters=[StamphogRoutingOwnersQuerySerializer],
+        responses={200: RoutingOwnerCountSerializer(many=True)},
+    )
+    @action(detail=False, methods=["GET"], url_path="owners", pagination_class=None, required_scopes=["stamphog:read"])
+    def owners(self, request: Request, **kwargs) -> Response:
+        query = StamphogRoutingOwnersQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        created_after = query.validated_data.get("created_after") or timezone.now() - ROUTING_OWNERS_WINDOW
+        owners = facade_api.list_routing_owners(self.canonical_team_id, created_after=created_after)
+        return Response(RoutingOwnerCountSerializer(owners, many=True).data)
 
     @extend_schema(
         description="One reviewer routing run, with every changed file each owner owns.",

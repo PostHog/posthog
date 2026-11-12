@@ -14,13 +14,26 @@ from typing import Any, TypeVar, overload
 from uuid import UUID
 
 from django.db import IntegrityError, router, transaction
-from django.db.models import BooleanField, ExpressionWrapper, F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import (
+    BooleanField,
+    Count,
+    Exists,
+    ExpressionWrapper,
+    F,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+)
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone
 
 import structlog
 
+from ..logic.change_summary import ReviewedSummary, split_clauses
 from ..logic.installations import reset_unverified_review_policy
+from ..logic.merge_approval import approved_at_head, retained_at_head
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
 from ..logic.routing.claims import is_stale_claim
@@ -711,7 +724,26 @@ _ROUTING_PULL_REQUEST_COLUMNS = (
 )
 
 
-def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contracts.RoutingRunOwnerDTO:
+# How many of an owner's files the run list shows. The single-run read returns all of them.
+ROUTING_TOP_FILES = 3
+
+
+def _routing_file_to_dto(file: dict[str, Any]) -> contracts.RoutingFileDTO:
+    return contracts.RoutingFileDTO(
+        path=file["path"],
+        previous_path=file["previous_path"],
+        status=file["status"],
+        additions=file["additions"],
+        deletions=file["deletions"],
+        # Runs recorded before the field have no entry.
+        owners_source=file.get("owners_source"),
+    )
+
+
+def _routing_owner_to_dto(
+    row: RoutingRunOwner, *, with_files: bool, reviewed: ReviewedSummary
+) -> contracts.RoutingRunOwnerDTO:
+    largest_first = sorted(row.files, key=lambda file: file["additions"] + file["deletions"], reverse=True)
     return contracts.RoutingRunOwnerDTO(
         owner=row.owner,
         kind=OwnerKind(row.kind),
@@ -719,26 +751,20 @@ def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contract
         reason=RoutingOwnerReason(row.reason),
         model_reason=row.model_reason,
         pins=[contracts.RoutingPinDTO(reason=PinReason(pin["reason"]), path=pin["path"]) for pin in row.pins],
-        files=[
-            contracts.RoutingFileDTO(
-                path=file["path"],
-                previous_path=file["previous_path"],
-                status=file["status"],
-                additions=file["additions"],
-                deletions=file["deletions"],
-                # Runs recorded before the field have no entry.
-                owners_source=file.get("owners_source"),
-            )
-            for file in (row.files if with_files else [])
-        ],
+        files=[_routing_file_to_dto(file) for file in row.files] if with_files else [],
+        top_files=[_routing_file_to_dto(file) for file in largest_first[:ROUTING_TOP_FILES]],
         lines=row.lines,
         file_count=row.file_count,
+        # Clauses are keyed by team slug, which is how owners.yaml spells a team owner.
+        summary=reviewed.clauses.get(row.owner.casefold()),
     )
 
 
 def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contracts.RoutingRunDTO:
     # The stored size is 0 until the merge, which would read as an empty pull request.
     merged = row.pull_request.merged_at is not None
+    # Annotated by _routing_runs.
+    reviewed = split_clauses(row.change_summary or "")  # type: ignore[attr-defined]
     return contracts.RoutingRunDTO(
         id=row.id,
         team_id=row.team_id,
@@ -752,6 +778,8 @@ def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contrac
             additions=row.pull_request.additions if merged else None,
             deletions=row.pull_request.deletions if merged else None,
             changed_files=row.pull_request.changed_files if merged else None,
+            summary=reviewed.whole_change or None,
+            approved_by_stamphog=row.approved_by_stamphog,  # type: ignore[attr-defined]
         ),
         head_sha=row.head_sha,
         mode=RoutingMode(row.mode),
@@ -763,16 +791,26 @@ def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contrac
         files_truncated=row.files_truncated,
         additions_resolved=row.additions_resolved,
         owners_sha=row.owners_sha,
-        owners=[_routing_owner_to_dto(owner, with_files=with_files) for owner in row.owners.all()],
+        owners=[_routing_owner_to_dto(owner, with_files=with_files, reviewed=reviewed) for owner in row.owners.all()],
         created_at=row.created_at,
     )
 
 
 def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
+    # The list loads every owner's files too, for the largest few, in the same one prefetch.
     owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).order_by("owner")
-    if not with_files:
-        # A large pull request gives every owner a long file list, which only the single-run read returns.
-        owners = owners.defer("files")
+    review_runs = ReviewRun.objects.for_team(team_id, canonical=True).filter(
+        pull_request_id=OuterRef("pull_request_id")
+    )
+    # Head-independent on purpose: a summary from an earlier head still says what the change does,
+    # and the merged head is not stored to match it against.
+    change_summary = (
+        review_runs.filter(status=ReviewRunStatus.COMPLETED)
+        .exclude(change_summary="")
+        .order_by("-created_at")
+        .values("change_summary")[:1]
+    )
+    approval = review_runs.filter(approved_at_head(OuterRef("head_sha")) | retained_at_head(OuterRef("head_sha")))
     return (
         RoutingRun.objects.for_team(team_id, canonical=True)
         .select_related("pull_request__repo_config")
@@ -782,6 +820,7 @@ def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
             *(f"pull_request__{column}" for column in _ROUTING_PULL_REQUEST_COLUMNS),
             "pull_request__repo_config__repository",
         )
+        .annotate(change_summary=Subquery(change_summary), approved_by_stamphog=Exists(approval))
         .prefetch_related(Prefetch("owners", queryset=owners))
     )
 
@@ -874,6 +913,25 @@ def get_routing_run(team_id: int, routing_run_id: str) -> contracts.RoutingRunDT
     """One routing run with the changed files each owner owns. `team_id` must be canonical."""
     row = _routing_runs(team_id, with_files=True).filter(id=routing_run_id).first()
     return _routing_run_to_dto(row, with_files=True) if row is not None else None
+
+
+def list_routing_owners(team_id: int, *, created_after: datetime) -> list[contracts.RoutingOwnerCountDTO]:
+    """Every owner a routing run decided about since `created_after`, most pull requests first.
+
+    `pr_count` counts distinct pull requests, so a pull request routed several times counts once.
+    `team_id` must be canonical.
+    """
+    rows = (
+        RoutingRunOwner.objects.for_team(team_id, canonical=True)
+        .filter(run__created_at__gte=created_after)
+        .values("owner", "kind")
+        .annotate(pr_count=Count("run__pull_request_id", distinct=True))
+        .order_by("-pr_count", "owner")
+    )
+    return [
+        contracts.RoutingOwnerCountDTO(owner=row["owner"], kind=OwnerKind(row["kind"]), pr_count=row["pr_count"])
+        for row in rows
+    ]
 
 
 # --- Digest runs ---

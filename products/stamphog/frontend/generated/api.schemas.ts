@@ -753,6 +753,13 @@ export interface StamphogRoutingPullRequestApi {
      * @nullable
      */
     changed_files?: number | null
+    /**
+     * The stamphog reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
+     * @nullable
+     */
+    summary?: string | null
+    /** Whether a standing stamphog approval (posted at the head, or kept there because the diff did not change) covers the head this routing run decided on. That is the head routing last decided on with latest_per_pr, which is usually but not always the merged head. */
+    approved_by_stamphog?: boolean
 }
 
 /**
@@ -848,6 +855,27 @@ export const OwnerKindEnumApi = {
     Person: 'person',
 } as const
 
+export interface StamphogRoutingFileApi {
+    /** The changed path. */
+    path: string
+    /**
+     * The path before a rename. Null for any other change.
+     * @nullable
+     */
+    previous_path?: string | null
+    /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+    status?: string
+    /** Added lines. */
+    additions?: number
+    /** Deleted lines. */
+    deletions?: number
+    /**
+     * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
+     * @nullable
+     */
+    owners_source?: string | null
+}
+
 export interface StamphogRoutingRunOwnerApi {
     /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
      *
@@ -876,6 +904,8 @@ export interface StamphogRoutingRunOwnerApi {
      * * `team` - Team
      * * `person` - Person */
     readonly kind: OwnerKindEnumApi
+    /** Up to 3 of the files this owner owns, the most changed lines first. Get one run for all of them. */
+    readonly top_files: readonly StamphogRoutingFileApi[]
     /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
     owner: string
     /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
@@ -884,6 +914,11 @@ export interface StamphogRoutingRunOwnerApi {
     lines?: number
     /** Changed files this owner owns. */
     file_count?: number
+    /**
+     * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+     * @nullable
+     */
+    summary?: string | null
 }
 
 export interface StamphogRoutingRunApi {
@@ -947,27 +982,6 @@ export interface PaginatedStamphogRoutingRunListApi {
     results: StamphogRoutingRunApi[]
 }
 
-export interface StamphogRoutingFileApi {
-    /** The changed path. */
-    path: string
-    /**
-     * The path before a rename. Null for any other change.
-     * @nullable
-     */
-    previous_path?: string | null
-    /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
-    status?: string
-    /** Added lines. */
-    additions?: number
-    /** Deleted lines. */
-    deletions?: number
-    /**
-     * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
-     * @nullable
-     */
-    owners_source?: string | null
-}
-
 export interface StamphogRoutingRunOwnerDetailApi {
     /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
      *
@@ -996,6 +1010,8 @@ export interface StamphogRoutingRunOwnerDetailApi {
      * * `team` - Team
      * * `person` - Person */
     readonly kind: OwnerKindEnumApi
+    /** Up to 3 of the files this owner owns, the most changed lines first. Get one run for all of them. */
+    readonly top_files: readonly StamphogRoutingFileApi[]
     /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
     readonly files: readonly StamphogRoutingFileApi[]
     /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
@@ -1006,6 +1022,11 @@ export interface StamphogRoutingRunOwnerDetailApi {
     lines?: number
     /** Changed files this owner owns. */
     file_count?: number
+    /**
+     * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+     * @nullable
+     */
+    summary?: string | null
 }
 
 export interface StamphogRoutingRunDetailApi {
@@ -1058,6 +1079,18 @@ export interface StamphogRoutingRunDetailApi {
      * @nullable
      */
     created_at?: string | null
+}
+
+export interface StamphogRoutingOwnerCountApi {
+    /** Whether the owner is a GitHub team or a person.
+     *
+     * * `team` - Team
+     * * `person` - Person */
+    readonly kind: OwnerKindEnumApi
+    /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a login such as '@octocat'. */
+    owner: string
+    /** Distinct pull requests whose routing runs decided about this owner in the window. */
+    pr_count: number
 }
 
 export type StamphogDigestRunsListParams = {
@@ -1279,3 +1312,10 @@ export const StamphogRoutingRunsListReason = {
     ModelCut: 'model_cut',
     StamphogApproved: 'stamphog_approved',
 } as const
+
+export type StamphogRoutingRunsOwnersListParams = {
+    /**
+     * Count only runs created at or after this time (ISO 8601). Defaults to 90 days ago.
+     */
+    created_after?: string
+}

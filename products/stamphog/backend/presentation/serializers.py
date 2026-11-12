@@ -1104,6 +1104,20 @@ class RoutingPullRequestSerializer(DataclassSerializer):
             "additions": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Added lines")},
             "deletions": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Deleted lines")},
             "changed_files": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Changed files")},
+            "summary": {
+                "allow_null": True,
+                "help_text": (
+                    "The stamphog reviewer's one sentence about the whole change, from the newest completed review "
+                    "of the pull request that wrote one, at any head. Null when no review wrote one."
+                ),
+            },
+            "approved_by_stamphog": {
+                "help_text": (
+                    "Whether a standing stamphog approval (posted at the head, or kept there because the diff did "
+                    "not change) covers the head this routing run decided on. That is the head routing last "
+                    "decided on with latest_per_pr, which is usually but not always the merged head."
+                )
+            },
         }
 
 
@@ -1170,6 +1184,12 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
     )
 
+    top_files = RoutingFileSerializer(
+        many=True,
+        read_only=True,
+        help_text="Up to 3 of the files this owner owns, the most changed lines first. Get one run for all of them.",
+    )
+
     class Meta:
         dataclass = contracts.RoutingRunOwnerDTO
         exclude = ["files"]
@@ -1188,6 +1208,13 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
             },
             "lines": {"help_text": "Changed lines in the files this owner owns."},
             "file_count": {"help_text": "Changed files this owner owns."},
+            "summary": {
+                "allow_null": True,
+                "help_text": (
+                    "The stamphog reviewer's clause about this owner's part of the change. Set only when the "
+                    "reviewer wrote one clause per owning team, which it does when several teams own changed files."
+                ),
+            },
         }
 
 
@@ -1273,6 +1300,33 @@ class RoutingRunSerializer(DataclassSerializer):
                 "help_text": "The default-branch commit whose owners.yaml files decided the owners. Blank when unknown."
             },
             "created_at": {"help_text": "When the run made its requests."},
+        }
+
+
+class StamphogRoutingOwnersQuerySerializer(serializers.Serializer):
+    """Query parameters for listing the owners routing runs decided about."""
+
+    created_after = serializers.DateTimeField(
+        required=False,
+        help_text="Count only runs created at or after this time (ISO 8601). Defaults to 90 days ago.",
+    )
+
+
+@extend_schema_serializer(component_name="StamphogRoutingOwnerCount")
+class RoutingOwnerCountSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingOwnerCountDTO
+        extra_kwargs = {
+            "owner": {
+                "help_text": "The owner as owners.yaml spells it: a team slug such as 'team-devex', or a login such as '@octocat'."
+            },
+            "pr_count": {
+                "help_text": "Distinct pull requests whose routing runs decided about this owner in the window."
+            },
         }
 
 
