@@ -47,6 +47,11 @@ class TemplateNotSendable(TransactionalEmailError):
     code = "template_not_sendable"
 
 
+class SensitiveTemplate(TransactionalEmailError):
+    code = "sensitive_template"
+    attr = "sensitive"
+
+
 class MarketingTemplate(TransactionalEmailError):
     code = "marketing_template"
 
@@ -201,6 +206,13 @@ class InvalidRequest(TransactionalEmailError):
 
 
 @frozen
+class EmailTracking:
+    opens: bool = True
+    clicks: bool | None = None
+    engagement: bool = True
+
+
+@frozen
 class CodeEmail:
     key: str
     subject: str
@@ -208,7 +220,8 @@ class CodeEmail:
     text: str
     sender: str | None
     reply_to: tuple[str, ...]
-    capture_engagement: bool
+    tracking: EmailTracking
+    sensitive: bool | None = None
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
