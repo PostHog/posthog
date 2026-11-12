@@ -17,23 +17,10 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
 import { newWorkflowFolder, newWorkflowFolderParam } from './newWorkflowFolder'
-import { parseFacetQuery } from './WorkflowsListV2/FacetSearchBar/facetQuery'
-import { workflowFolderFacet } from './WorkflowsListV2/workflowListFacets'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
-function newWorkflowFolderParams(
-    searchParams: Record<string, unknown>,
-    projectBrowser: boolean
-): Record<string, string> {
-    if (!projectBrowser) {
-        return {}
-    }
-    return newWorkflowFolderParam(
-        newWorkflowFolder() ??
-            parseFacetQuery(typeof searchParams.q === 'string' ? searchParams.q : '', [
-                workflowFolderFacet(null, false),
-            ]).find((filter) => filter.facet === 'in' && !filter.negated)?.value
-    )
+function newWorkflowFolderParams(listFolder: string | null, projectBrowser: boolean): Record<string, string> {
+    return projectBrowser ? newWorkflowFolderParam(newWorkflowFolder() ?? listFolder) : {}
 }
 
 /** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
@@ -60,6 +47,7 @@ export interface newWorkflowLogicValues {
     aiComposerAvailable: boolean
     aiFirstNewEnabled: boolean
     composerFolder: string | null
+    listFolder: string | null
     newWorkflowModalVisible: boolean
 }
 
@@ -76,6 +64,9 @@ export interface newWorkflowLogicActions {
     }
     openEditorFromAiComposer: () => {
         value: true
+    }
+    setListFolder: (folder: string | null) => {
+        folder: string | null
     }
     showNewWorkflowModal: () => {
         value: true
@@ -136,6 +127,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         openEditorFromAiComposer: true,
         createWorkflowFromTemplate: (template: HogFlowTemplate) => ({ template }),
         createEmptyWorkflow: true,
+        setListFolder: (folder: string | null) => ({ folder }),
     }),
     reducers({
         newWorkflowModalVisible: [
@@ -143,6 +135,12 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             {
                 showNewWorkflowModal: () => true,
                 hideNewWorkflowModal: () => false,
+            },
+        ],
+        listFolder: [
+            null as string | null,
+            {
+                setListFolder: (_, { folder }) => folder,
             },
         ],
     }),
@@ -189,7 +187,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             if (values.aiFirstNewEnabled) {
                 router.actions.push(urls.workflowNew(), {
                     ...newWorkflowFolderParams(
-                        values.searchParams,
+                        values.listFolder,
                         !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
                     ),
                     [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE,
@@ -203,7 +201,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         },
         createWorkflowFromTemplate: ({ template }) => {
             const folderParams = newWorkflowFolderParams(
-                values.searchParams,
+                values.listFolder,
                 !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
             )
             actions.hideNewWorkflowModal()
@@ -214,7 +212,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         },
         createEmptyWorkflow: () => {
             const folderParams = newWorkflowFolderParams(
-                values.searchParams,
+                values.listFolder,
                 !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
             )
             actions.hideNewWorkflowModal()

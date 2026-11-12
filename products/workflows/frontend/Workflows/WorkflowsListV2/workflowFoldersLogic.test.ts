@@ -20,6 +20,8 @@ import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { newWorkflowFolder } from '../newWorkflowFolder'
+import { newWorkflowLogic } from '../newWorkflowLogic'
 import { FOLDER_REQUEST_TIMEOUT_MS, folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -89,6 +91,26 @@ describe('workflowFoldersLogic', () => {
     })
 
     afterEach(() => logic.unmount())
+
+    it('creates a new workflow in the open folder, and stops once the list closes', async () => {
+        const newWorkflow = newWorkflowLogic()
+        newWorkflow.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openFolder('Billing/Cards')
+        await expectLogic(newWorkflow, () => newWorkflow.actions.createEmptyWorkflow()).toFinishAllListeners()
+        expect(newWorkflowFolder()).toBe('Billing/Cards')
+
+        logic.unmount()
+        router.actions.push(urls.workflows())
+        await expectLogic(newWorkflow, () => newWorkflow.actions.createEmptyWorkflow()).toFinishAllListeners()
+        expect(newWorkflowFolder()).toBeNull()
+        newWorkflow.unmount()
+        // A fresh list for `afterEach` to unmount.
+        initKeaTests()
+        logic = workflowFoldersLogic()
+        logic.mount()
+    })
 
     it('opens a project folder with counted subfolders and only its direct workflows', async () => {
         await expectLogic(logic).toFinishAllListeners()
