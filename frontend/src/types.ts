@@ -6212,6 +6212,7 @@ export enum ActivityScope {
     REVIEW_REPOSITORY = 'ReviewRepository',
     REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
     REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
+    RECOMMENDATION_RESOLUTION = 'RecommendationResolution',
 }
 
 export type CommentType = {

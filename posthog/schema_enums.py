@@ -2244,6 +2244,11 @@ class MarketingAnalyticsRecommendationLevel(StrEnum):
     SEARCH_TERM = "search_term"
 
 
+class MarketingAnalyticsRecommendationResolutionState(StrEnum):
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
+
+
 class MarketingAnalyticsRecommendationRule(StrEnum):
     BUDGET_CONSTRAINED = "budget_constrained"
     BRAND_LEAK = "brand_leak"

@@ -2751,6 +2751,150 @@ export interface UtmAuditResponseApi {
     all_utm_events: UtmEventApi[]
 }
 
+/**
+ * * `budget_constrained` - Budget Constrained
+ * * `brand_leak` - Brand Leak
+ * * `scale_campaign` - Scale Campaign
+ * * `review_campaign` - Review Campaign
+ * * `policy_limited` - Policy Limited
+ * * `brand_overlap` - Brand Overlap
+ * * `content_gap` - Content Gap
+ * * `keyword_gap` - Keyword Gap
+ * * `spend_without_conversions` - Spend Without Conversions
+ * * `striking_distance` - Striking Distance
+ * * `keyword_tracking` - Keyword Tracking
+ */
+export type RecommendationRuleEnumApi = (typeof RecommendationRuleEnumApi)[keyof typeof RecommendationRuleEnumApi]
+
+export const RecommendationRuleEnumApi = {
+    BudgetConstrained: 'budget_constrained',
+    BrandLeak: 'brand_leak',
+    ScaleCampaign: 'scale_campaign',
+    ReviewCampaign: 'review_campaign',
+    PolicyLimited: 'policy_limited',
+    BrandOverlap: 'brand_overlap',
+    ContentGap: 'content_gap',
+    KeywordGap: 'keyword_gap',
+    SpendWithoutConversions: 'spend_without_conversions',
+    StrikingDistance: 'striking_distance',
+    KeywordTracking: 'keyword_tracking',
+} as const
+
+/**
+ * * `google_ads` - Google Ads
+ */
+export type RecommendationSourceTypeEnumApi =
+    (typeof RecommendationSourceTypeEnumApi)[keyof typeof RecommendationSourceTypeEnumApi]
+
+export const RecommendationSourceTypeEnumApi = {
+    GoogleAds: 'google_ads',
+} as const
+
+export interface RecommendationIdentityApi {
+    /** The rule that produced the recommendation.
+     *
+     * * `budget_constrained` - Budget Constrained
+     * * `brand_leak` - Brand Leak
+     * * `scale_campaign` - Scale Campaign
+     * * `review_campaign` - Review Campaign
+     * * `policy_limited` - Policy Limited
+     * * `brand_overlap` - Brand Overlap
+     * * `content_gap` - Content Gap
+     * * `keyword_gap` - Keyword Gap
+     * * `spend_without_conversions` - Spend Without Conversions
+     * * `striking_distance` - Striking Distance
+     * * `keyword_tracking` - Keyword Tracking */
+    rule: RecommendationRuleEnumApi
+    /** The ad platform the ids belong to.
+     *
+     * * `google_ads` - Google Ads */
+    source_type: RecommendationSourceTypeEnumApi
+    /**
+     * The Google Ads account id. Empty when the recommendation is not tied to one account.
+     * @maxLength 64
+     */
+    customer_id: string
+    /**
+     * The Google Ads campaign id. Empty when the recommendation is not about one campaign.
+     * @maxLength 64
+     */
+    campaign_id: string
+    /**
+     * The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.
+     * @maxLength 10000
+     */
+    subject: string
+}
+
+/**
+ * * `dismissed` - Dismissed
+ * * `applied` - Applied
+ */
+export type RecommendationResolutionStateEnumApi =
+    (typeof RecommendationResolutionStateEnumApi)[keyof typeof RecommendationResolutionStateEnumApi]
+
+export const RecommendationResolutionStateEnumApi = {
+    Dismissed: 'dismissed',
+    Applied: 'applied',
+} as const
+
+export interface RecommendationResolverApi {
+    /** The user's id. */
+    id: number
+    /** The user's UUID. */
+    uuid: string
+    /**
+     * The user's distinct id.
+     * @nullable
+     */
+    distinct_id: string | null
+    /** The user's first name. */
+    first_name: string
+    /** The user's last name. */
+    last_name: string
+    /** The user's email address. */
+    email: string
+}
+
+export interface RecommendationResolutionApi {
+    /** The resolution id. Delete it to show the recommendation again. */
+    id: string
+    /** The identity of the resolved recommendation. */
+    identity: RecommendationIdentityApi
+    /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
+    key: string
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
+    /** The user who last resolved the recommendation. Null when that user was deleted. */
+    resolved_by: RecommendationResolverApi | null
+    /** When the recommendation was last resolved. */
+    resolved_at: string
+    /** When the recommendation was first resolved. */
+    created_at: string
+}
+
+export interface PaginatedRecommendationResolutionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RecommendationResolutionApi[]
+}
+
+export interface RecommendationResolutionRequestApi {
+    /** The recommendation's `identity` from the recommendations query, sent as is. */
+    identity: RecommendationIdentityApi
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
+}
+
 export type MarketingAnalyticsDataSourcesRetrieveParams = {
     /**
      * Optional. Restrict to one integration (e.g. 'GoogleAds').
@@ -2842,4 +2986,16 @@ export type MarketingAnalyticsUtmAuditRetrieveParams = {
      * @nullable
      */
     date_to?: string | null
+}
+
+export type MarketingAnalyticsRecommendationResolutionsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
