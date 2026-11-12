@@ -1770,6 +1770,7 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
 # DevEx owns this map: a product leaves it only through a DevEx-reviewed change.
 SKIP_WITHHELD: dict[str, str] = {
     "authorization": "core enforces every access decision this product returns, and the tests for them live in core",
+    "security": "core authentication refuses accounts on this product's decisions, and the tests for them live in core",
 }
 
 

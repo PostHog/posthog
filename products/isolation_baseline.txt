@@ -65,6 +65,7 @@ reminders
 replay
 replay_vision
 revenue_analytics
+security
 signals
 skills
 slack_app
