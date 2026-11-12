@@ -383,15 +383,25 @@ def _evaluate_formula(
 
     result: list[MetricSeries] = []
     for label_set in sorted(label_sets):
-        per_clause_points: dict[str, tuple[MetricPoint, ...]] = {
-            name: (grouped[name][label_set].points if name in grouped else broadcasts[name].points)
-            for name in series_by_clause
-        }
+        inputs = {name: grouped[name][label_set] if name in grouped else broadcasts[name] for name in series_by_clause}
+        per_clause_points = {name: series.points for name, series in inputs.items()}
         points = tuple(
             MetricPoint(time=time, value=_evaluate_formula_point(node, per_clause_points, index))
             for index, time in enumerate(grid)
         )
-        result.append(MetricSeries(labels=dict(label_set), points=points, metric_name=None, clause="formula"))
+        # The formula inherits any mixed-layout estimate it was computed from, so the response still warns about it.
+        layout_count = max(
+            (s.histogram_layout_count for s in inputs.values() if s.histogram_layout_count is not None), default=None
+        )
+        result.append(
+            MetricSeries(
+                labels=dict(label_set),
+                points=points,
+                metric_name=None,
+                clause="formula",
+                histogram_layout_count=layout_count,
+            )
+        )
     return result
 
 
