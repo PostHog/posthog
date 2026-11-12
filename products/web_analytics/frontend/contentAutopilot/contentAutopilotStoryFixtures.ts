@@ -1,4 +1,5 @@
 import type {
+    AEOBrandApi,
     AEOKeywordApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
@@ -450,9 +451,24 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     answer_text:
         'For a small startup, a few open source product analytics tools stand out.\n\n' +
         '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
-        '2. A self-hosted option if you need to keep data on your own servers.\n\n' +
+        '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
+        '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
         'Pick the one that matches how much infrastructure you want to run.',
 }
+
+export const EXAMPLE_COMPETITOR_BRANDS: AEOBrandApi[] = [
+    {
+        id: '0193a6f1-0000-0000-0000-000000000001',
+        name: 'Rival Analytics',
+        domain: 'rival.example.org',
+        kind: 'competitor',
+        status: 'confirmed',
+        source: 'manual',
+        aliases: ['Rival'],
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: null,
+    },
+]
 
 export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
     EXAMPLE_CHECK,
