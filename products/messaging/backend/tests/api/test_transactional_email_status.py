@@ -355,11 +355,48 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
     @parameterized.expand(
         [
-            ("writing_the_mark", "set", "waiting", [], "canceled"),
-            ("reading_the_mark", "get", None, [("canceled", 60, "")], None),
+            ("before_any_status_landed", True, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("before_its_cancel_status_landed", True, [("scheduled", 0, "")], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("once_its_cancel_status_landed", True, [("scheduled", 0, "")], [("canceled", 60, "")], status.HTTP_200_OK),
+            (
+                "after_it_went_out_unchanged",
+                False,
+                [("scheduled", 0, "")],
+                [("sent", 60, "")],
+                status.HTTP_404_NOT_FOUND,
+            ),
         ]
     )
-    def test_a_cancel_survives_a_cache_outage(self, mock_post, _flag, _name, call, job, status_rows, expected_job):
+    def test_a_retry_after_a_lost_cancel_answer(
+        self, mock_post, _flag, _name, applied, status_rows, later_rows, expected_status
+    ):
+        self._job("waiting")
+        self._status_rows(status_rows)
+        mock_post.side_effect = self._lose_the_answer(applied)
+        lost = self.client.post(f"{self._url(self.message_id)}cancel/")
+        self.cdp.jobs.pop((self.team.id, self.message_id), None)
+        self._status_rows(later_rows)
+
+        response = self._cancel(mock_post)
+
+        assert lost.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.status_code == expected_status, response.json()
+
+    def _lose_the_answer(self, applied: bool) -> Any:
+        def post(*args: Any, **kwargs: Any) -> requests.Response:
+            if applied:
+                self.cdp.post(*args, **kwargs)
+            raise requests.Timeout()
+
+        return post
+
+    @parameterized.expand(
+        [
+            ("writing_the_mark", "set", "waiting", []),
+            ("reading_the_mark", "get", None, [("canceled", 60, "")]),
+        ]
+    )
+    def test_a_cancel_survives_a_cache_outage(self, mock_post, _flag, _name, call, job, status_rows):
         self._job(job)
         self._status_rows(status_rows)
 
@@ -369,7 +406,7 @@ class TestManageScheduledEmails(EmailsApiTestBase):
             response = self._cancel(mock_post)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert self.cdp.jobs.get((self.team.id, self.message_id)) == expected_job
+        assert response.json() == {"id": self.message_id, "status": "canceled"}
 
     @parameterized.expand(
         [
@@ -511,12 +548,24 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    @parameterized.expand([("waiting", False, "waiting"), ("canceled_here_and_gone", True, None)])
-    def test_another_projects_email_is_not_found(self, mock_post, _flag, _name, canceled_here, expected_job):
+    def test_another_projects_email_is_not_found(self, mock_post, _flag):
         self._job("waiting")
-        if canceled_here:
-            self._cancel(mock_post)
-            del self.cdp.jobs[(self.team.id, self.message_id)]
+
+        responses = self._manage_from_another_project(mock_post)
+
+        assert [response.status_code for response in responses] == [404, 404]
+        assert self.cdp.jobs.get((self.team.id, self.message_id)) == "waiting"
+
+    def test_another_projects_repeat_cancel_after_ours_is_not_found(self, mock_post, _flag):
+        self._job("waiting")
+        self._cancel(mock_post)
+        del self.cdp.jobs[(self.team.id, self.message_id)]
+
+        responses = self._manage_from_another_project(mock_post)
+
+        assert [response.status_code for response in responses] == [404, 404]
+
+    def _manage_from_another_project(self, mock_post: MagicMock) -> list[Any]:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_client = self._psak_client(["transactional_email:write"], team=other_team)
         other_url = f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/"
@@ -526,9 +575,7 @@ class TestManageScheduledEmails(EmailsApiTestBase):
                 other_client.post(f"{other_url}cancel/"),
                 other_client.patch(other_url, {"scheduled_at": "2026-06-17T00:00:00Z"}, format="json"),
             ]
-
-        assert [response.status_code for response in responses] == [404, 404]
-        assert self.cdp.jobs.get((self.team.id, self.message_id)) == expected_job
+        return responses
 
     @parameterized.expand(
         [

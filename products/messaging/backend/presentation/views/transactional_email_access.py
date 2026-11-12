@@ -38,13 +38,17 @@ def require_email_status_read(team: Any) -> None:
         raise NotFound()
 
 
+class ScheduledSendsOff(serializers.ValidationError):
+    pass
+
+
 def require_scheduled_sends(
     team: Any,
     refusal: str = "Scheduled sends aren't on for this project, so PostHog didn't send the email. Leave out "
     "`scheduled_at` to send it now.",
 ) -> None:
     if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
-        raise serializers.ValidationError({"scheduled_at": refusal})
+        raise ScheduledSendsOff({"scheduled_at": refusal})
 
 
 LEAD_TIME_BUCKETS = (
