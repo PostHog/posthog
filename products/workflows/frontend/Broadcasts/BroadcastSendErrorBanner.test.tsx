@@ -93,7 +93,8 @@ describe('BroadcastSendErrorBanner', () => {
         return {
             bannerText: () => container.querySelector('[data-attr="broadcast-send-error"]')?.textContent ?? null,
             settled: async () => {
-                await waitFor(() => expect(served).toEqual(expect.arrayContaining(['totals', 'links'])))
+                const expected = sendRun.failed > 0 ? ['totals', 'links', 'log'] : ['totals', 'links']
+                await waitFor(() => expect(served).toEqual(expect.arrayContaining(expected)))
                 await expectLogic(broadcastPerformanceLogic(props)).toFinishAllListeners()
             },
         }
@@ -193,10 +194,10 @@ describe('BroadcastSendErrorBanner', () => {
     })
 
     it('lets the sender load the error again when its details failed to load', async () => {
-        const { bannerText } = renderBanner({ failed: 3, errorLogs: [null, BROKEN_TAG] })
+        const { bannerText, settled } = renderBanner({ failed: 3, errorLogs: [null, BROKEN_TAG] })
 
-        await waitFor(() => expect(served).toContain('log'))
-        await waitFor(() => expect(screen.queryAllByText('Try again')).toHaveLength(1))
+        await settled()
+
         expect(bannerText()).toBe(
             "3 people didn't get this email. Sending it hit an error, and its details didn't load. Try again"
         )
