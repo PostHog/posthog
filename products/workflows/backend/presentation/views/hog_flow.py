@@ -289,6 +289,7 @@ from products.workflows.backend.facade.schedules import (
 )
 from products.workflows.backend.facade.secrets import (
     SECRET_REENTRY_CODE,
+    WORKFLOW_RUN_FIELDS,
     TemplateCache,
     TypedSecrets,
     draft_workflow_content,
@@ -4077,7 +4078,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         event_config["filters"] = event_serializer.validated_data
 
         variables_supplied = bool(self.context.get("supplies_variables"))
-        if variables_supplied or any(field in data for field in DRAFT_CONTENT_FIELDS):
+        if variables_supplied or any(field in data for field in WORKFLOW_RUN_FIELDS):
             stored = cast(Optional[WorkflowEditState], self.instance) or self.context.get("instance")
             if stored is not None:
                 base = (
@@ -4086,7 +4087,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     else live_workflow_content(stored)
                 )
                 to_type_again = secrets_to_type_again(
-                    {**base, **{field: data[field] for field in DRAFT_CONTENT_FIELDS if field in data}},
+                    {**base, **{field: data[field] for field in WORKFLOW_RUN_FIELDS if field in data}},
                     stored,
                     getattr(self, "_typed_secrets", {}),
                     live_secrets_only=bool(self.context.get("live_secrets_only")),

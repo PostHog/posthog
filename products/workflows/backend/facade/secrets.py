@@ -3,6 +3,7 @@ folded back in for inline test runs, and typed again when a save or run changes 
 
 from products.cdp.backend.secret_reentry import SECRET_REENTRY_CODE
 from products.workflows.backend.services.hog_flow_secret_reentry import (
+    WORKFLOW_RUN_FIELDS,
     TypedSecrets,
     draft_workflow_content,
     drop_client_compiled_fields,
@@ -31,6 +32,7 @@ __all__ = [
     "SECRET_REENTRY_CODE",
     "TemplateCache",
     "TypedSecrets",
+    "WORKFLOW_RUN_FIELDS",
     "draft_workflow_content",
     "drop_client_compiled_fields",
     "live_workflow_content",

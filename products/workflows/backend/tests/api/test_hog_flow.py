@@ -8099,6 +8099,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
         content.clear()
         self._retarget_through_a_variable_default(content)
 
+    def _rename_workflow(self, content: dict) -> None:
+        content["name"] = "evil.example.com"
+
     def _add_delay_step_with_the_secret(self, content: dict) -> None:
         self._add_delay_step(content)
         self._step(content)["config"]["inputs"]["api_key"] = {"value": "SUPER-SECRET"}
@@ -8109,6 +8112,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("secret_typed_again", "_send_elsewhere_with_the_secret", True, status.HTTP_200_OK),
             ("unchanged", "_resend_unchanged", True, status.HTTP_200_OK),
             ("step_renamed", "_rename_step", True, status.HTTP_200_OK),
+            ("workflow_renamed", "_rename_workflow", True, status.HTTP_400_BAD_REQUEST),
             ("other_step_added", "_add_delay_step", True, status.HTTP_400_BAD_REQUEST),
             ("other_step_added_with_the_secret", "_add_delay_step_with_the_secret", True, status.HTTP_200_OK),
             ("variable_default_changed", "_retarget_through_a_variable_default", True, status.HTTP_400_BAD_REQUEST),

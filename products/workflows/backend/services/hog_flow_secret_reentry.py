@@ -36,6 +36,9 @@ from products.workflows.backend.services.hog_flow_secrets import (
 if TYPE_CHECKING:
     from posthog.models import Team
 
+# The content fields, plus the name: the worker gives a step's inputs the workflow name as `source.name`.
+WORKFLOW_RUN_FIELDS = (*DRAFT_CONTENT_FIELDS, "name")
+
 # Shown in the editor and in labels, and never read by the code a step runs.
 _PRESENTATION_STEP_FIELDS = frozenset({"name", "description", "created_at", "updated_at"})
 # Written by the server from the live workflow on every save, whatever the caller sends.
@@ -79,7 +82,7 @@ def _steps(actions: Any) -> dict[str, dict]:
 
 
 def live_workflow_content(stored: WorkflowEditState) -> dict[str, Any]:
-    return {field: getattr(stored, field) for field in DRAFT_CONTENT_FIELDS}
+    return {field: getattr(stored, field) for field in WORKFLOW_RUN_FIELDS}
 
 
 def draft_workflow_content(stored: WorkflowEditState) -> dict[str, Any]:
@@ -142,7 +145,7 @@ def _canonical_content(content: Mapping[str, Any], secret_keys_by_step: dict[str
     derives are left out, so a resent masked secret or a recompile does not count as a change."""
     # An empty value runs the same whatever its shape: the model's legacy defaults are `{}` or null where the API
     # writes `[]`, so an unchanged save must not count as a change.
-    authored = {field: content.get(field) or None for field in DRAFT_CONTENT_FIELDS}
+    authored = {field: content.get(field) or None for field in WORKFLOW_RUN_FIELDS}
     actions = authored["actions"] if isinstance(authored["actions"], list) else []
     authored["actions"] = [
         _authored_step(step, secret_keys_by_step.get(str(step.get("id")), set()) if isinstance(step, dict) else set())
