@@ -71,7 +71,7 @@ export interface evaluationReportDrawerLogicActions {
         payload?: any
     ) => {
         payload?: any
-        reportRuns: EvaluationReportRun[]
+        reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[]
     } // evaluationReportRunsLogic
     loadReportRuns: (reportId: string) => string // evaluationReportRunsLogic
     loadReportRunsSuccess: (
@@ -135,7 +135,7 @@ export interface evaluationReportDrawerLogicMeta {
         ) => boolean
         runLoadFailed: (
             openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
-            reportsLoadFailed: any,
+            reportsLoadFailed: boolean,
             reportRunsLoadFailed: boolean,
             olderReportRunsLoadFailed: boolean
         ) => boolean

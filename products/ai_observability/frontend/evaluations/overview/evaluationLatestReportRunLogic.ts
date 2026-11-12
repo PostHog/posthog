@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,6 +16,7 @@ export interface EvaluationLatestReportRunLogicProps {
 export interface evaluationLatestReportRunLogicValues {
     currentTeamId: number | null // teamLogic
     latestRun: EvaluationReportRun | null
+    latestRunLoadFailed: boolean
     latestRunLoading: boolean
 }
 
@@ -76,6 +77,16 @@ export const evaluationLatestReportRunLogic = kea<evaluationLatestReportRunLogic
             },
         ],
     })),
+    reducers({
+        latestRunLoadFailed: [
+            false,
+            {
+                loadLatestRun: () => false,
+                loadLatestRunSuccess: () => false,
+                loadLatestRunFailure: () => true,
+            },
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.loadLatestRun()
     }),

@@ -30,6 +30,7 @@ export interface evaluationReportRunsLogicValues {
     generateResultLoading: boolean
     hasOlderReportRuns: boolean
     isWritingReport: boolean
+    nextOlderOffset: number
     olderReportRunsLoadFailed: boolean
     reportHistoryReady: boolean
     reportRuns: EvaluationReportRun[]
@@ -71,10 +72,10 @@ export interface evaluationReportRunsLogicActions {
         errorObject?: any
     }
     loadNewestReportRunsSuccess: (
-        reportRuns: any[],
+        reportRuns: EvaluationReportRunApi[],
         payload?: string
     ) => {
-        reportRuns: any[]
+        reportRuns: EvaluationReportRunApi[]
         payload?: string
     }
     loadOlderReportRuns: () => any
@@ -86,10 +87,10 @@ export interface evaluationReportRunsLogicActions {
         errorObject?: any
     }
     loadOlderReportRunsSuccess: (
-        reportRuns: EvaluationReportRun[],
+        reportRuns: EvaluationReportRunApi[],
         payload?: any
     ) => {
-        reportRuns: EvaluationReportRun[]
+        reportRuns: EvaluationReportRunApi[]
         payload?: any
     }
     loadReportRuns: (reportId: string) => string
@@ -110,6 +111,9 @@ export interface evaluationReportRunsLogicActions {
     setHasOlderReportRuns: (hasOlderReportRuns: boolean) => {
         hasOlderReportRuns: boolean
     }
+    setNextOlderOffset: (offset: number) => {
+        offset: number
+    }
     startWaitingForNewReport: (since: string) => {
         since: string
     }
@@ -123,12 +127,12 @@ export interface evaluationReportRunsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         reportHistoryReady: (
-            reportsLoading: any,
-            reportRunsLoading: any,
-            reportRunsLoadFailed: any,
-            reportRuns: any
+            reportsLoading: boolean,
+            reportRunsLoading: boolean,
+            reportRunsLoadFailed: boolean,
+            reportRuns: EvaluationReportRunApi[]
         ) => boolean
-        isWritingReport: (generateResultLoading: any, waitingForNewReportSince: any) => boolean
+        isWritingReport: (generateResultLoading: boolean, waitingForNewReportSince: string | null) => boolean
     }
 }
 
@@ -155,10 +159,11 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
     })),
     actions({
         setHasOlderReportRuns: (hasOlderReportRuns: boolean) => ({ hasOlderReportRuns }),
+        setNextOlderOffset: (offset: number) => ({ offset }),
         startWaitingForNewReport: (since: string) => ({ since }),
         stopWaitingForNewReport: true,
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         reportRuns: [
             [] as EvaluationReportRun[],
             {
@@ -168,6 +173,7 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                         limit: REPORT_RUNS_PAGE_SIZE,
                     })
                     actions.setHasOlderReportRuns(!!response?.next)
+                    actions.setNextOlderOffset(response?.results?.length ?? 0)
                     return response?.results || []
                 },
                 loadOlderReportRuns: async () => {
@@ -175,28 +181,35 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                         return values.reportRuns
                     }
                     const teamId = requireCurrentTeamId(values.currentTeamId)
+                    const offset = values.nextOlderOffset
                     const response = await llmAnalyticsEvaluationReportsRunsList(
                         teamId.toString(),
                         values.activeReport.id,
-                        { limit: REPORT_RUNS_PAGE_SIZE, offset: values.reportRuns.length }
+                        { limit: REPORT_RUNS_PAGE_SIZE, offset }
                     )
-                    actions.setHasOlderReportRuns(!!response?.next)
+                    const results = response?.results ?? []
+                    // The offset moves by what the server returned, so a page of already-loaded runs still advances.
+                    actions.setNextOlderOffset(offset + results.length)
+                    actions.setHasOlderReportRuns(results.length > 0 && !!response?.next)
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
-                    return [...values.reportRuns, ...(response?.results ?? []).filter((run) => !loadedIds.has(run.id))]
+                    return [...values.reportRuns, ...results.filter((run) => !loadedIds.has(run.id))]
                 },
                 // Puts new reports in front and refreshes the ones it sees again, so polling keeps older pages.
                 loadNewestReportRuns: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
-                    const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId, {
-                        limit: NEW_REPORT_POLL_PAGE_SIZE,
-                    })
+                    const response = await llmAnalyticsEvaluationReportsRunsList(
+                        teamId.toString(),
+                        reportId,
+                        { limit: NEW_REPORT_POLL_PAGE_SIZE },
+                        { signal: cache.pollAbort?.signal }
+                    )
                     const fresh = response?.results ?? []
                     const freshById = new Map(fresh.map((run) => [run.id, run]))
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
-                    return [
-                        ...fresh.filter((run) => !loadedIds.has(run.id)),
-                        ...values.reportRuns.map((run) => freshById.get(run.id) ?? run),
-                    ]
+                    const added = fresh.filter((run) => !loadedIds.has(run.id))
+                    // New runs push the older ones down a page, so the next older page starts that much later.
+                    actions.setNextOlderOffset(values.nextOlderOffset + added.length)
+                    return [...added, ...values.reportRuns.map((run) => freshById.get(run.id) ?? run)]
                 },
             },
         ],
@@ -216,6 +229,12 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
             false,
             {
                 setHasOlderReportRuns: (_, { hasOlderReportRuns }) => hasOlderReportRuns,
+            },
+        ],
+        nextOlderOffset: [
+            0,
+            {
+                setNextOlderOffset: (_, { offset }) => offset,
             },
         ],
         reportRunsLoadFailed: [
@@ -283,7 +302,11 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
             // setup, so giving up can dispose this registration once it exists.
             cache.disposables.add(() => {
                 const check = (): void => {
-                    actions.loadNewestReportRuns(reportId)
+                    // One poll at a time, so a slow endpoint doesn't pile up requests.
+                    if (!values.reportRunsLoading) {
+                        cache.pollAbort = new AbortController()
+                        actions.loadNewestReportRuns(reportId)
+                    }
                     if (Date.now() > deadline) {
                         const arrived = values.reportRuns.some((run) => run.created_at > since)
                         actions.stopWaitingForNewReport()
@@ -299,6 +322,7 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                 return () => {
                     clearTimeout(first)
                     clearInterval(timer)
+                    cache.pollAbort?.abort()
                 }
             }, NEW_REPORT_POLL)
         },

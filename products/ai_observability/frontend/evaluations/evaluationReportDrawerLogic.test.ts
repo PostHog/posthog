@@ -242,6 +242,21 @@ describe('evaluationReportDrawerLogic', () => {
         expect(runsLogic.values.reportHistoryReady).toBe(true)
     })
 
+    it('keeps paging older after new reports arrive at the front', async () => {
+        await mountWithRuns()
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
+        runsPages['0'] = { results: [run('run-4', '2026-11-11T00:00:00Z'), ...FIRST_PAGE], next: 'more' }
+        runsPages['3'] = { results: SECOND_PAGE, next: null }
+        delete runsPages['2']
+
+        runsLogic.actions.loadNewestReportRuns(REPORT.id)
+        await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess'])
+        runsLogic.actions.loadOlderReportRuns()
+        await expectLogic(runsLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
+
+        expect(runsLogic.values.reportRuns.map((r) => r.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1'])
+    })
+
     it('steps older past the loaded page by loading the next one', async () => {
         const logic = await mountWithRuns()
         logic.actions.openRun('run-2', 'reports_tab')

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -15,7 +15,18 @@ export function EvaluationLatestReportCard({
     evaluationId: string
     reportUrl: (params: Record<string, string>) => string
 }): JSX.Element | null {
-    const { latestRun } = useValues(evaluationLatestReportRunLogic({ evaluationId }))
+    const { latestRun, latestRunLoadFailed } = useValues(evaluationLatestReportRunLogic({ evaluationId }))
+    const { loadLatestRun } = useActions(evaluationLatestReportRunLogic({ evaluationId }))
+    if (latestRunLoadFailed) {
+        return (
+            <section className="flex items-center gap-2 rounded border bg-surface-primary p-3 text-sm">
+                <span>Couldn't load the latest report.</span>
+                <LemonButton type="secondary" size="small" onClick={() => loadLatestRun()}>
+                    Try again
+                </LemonButton>
+            </section>
+        )
+    }
     if (!latestRun) {
         return null
     }
