@@ -362,7 +362,7 @@ Deputy,,,,,,deputy
 Descope,project_id management_key,,,,,descope
 Develocity,instance_url access_key,,,,,develocity
 DevinAI,api_key org_id,,,,,devin-ai
-Dialpad,,,,,,dialpad
+Dialpad,api_key,,,,,dialpad
 Didit,,,,,,didit
 DigitalOcean,api_key,,,,,digital-ocean
 DingConnect,api_key,,,,,ding-connect

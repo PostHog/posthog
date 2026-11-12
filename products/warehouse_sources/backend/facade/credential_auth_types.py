@@ -372,7 +372,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "descope": "credentials",
     "develocity": "credentials",
     "devin-ai": "credentials",
-    "dialpad": "credentials",
+    "dialpad": "token",
     "didit": "credentials",
     "digital-ocean": "token",
     "ding-connect": "token",
