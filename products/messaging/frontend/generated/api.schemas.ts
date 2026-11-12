@@ -154,12 +154,15 @@ export type SendEmailApiMessageData = { [key: string]: unknown }
 
 export interface EmailAttachmentApi {
     /**
+     * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
      * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
      * @maxLength 255
      */
     filename: string
-    /** The file's bytes as standard base64, without line breaks. */
-    content: string
     /**
      * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
      * @maxLength 78
@@ -207,7 +210,7 @@ export interface SendEmailApi {
     /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
     bcc?: string | string[] | null
     /**
-     * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+     * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
      * @maxItems 10
      * @nullable
      */
@@ -1086,6 +1089,86 @@ export interface SendTransactionalEmailApi {
     message_data?: SendTransactionalEmailApiMessageData
     /** Who the email is for, used to attribute engagement events. */
     identifiers?: TransactionalEmailIdentifiersApi
+}
+
+/**
+ * * `manual` - Manual
+ * * `detected` - Detected from GitHub
+ */
+export type CodeEmailSourceOriginEnumApi =
+    (typeof CodeEmailSourceOriginEnumApi)[keyof typeof CodeEmailSourceOriginEnumApi]
+
+export const CodeEmailSourceOriginEnumApi = {
+    Manual: 'manual',
+    Detected: 'detected',
+} as const
+
+export interface CodeEmailApi {
+    /** The code email's ID. */
+    id: string
+    /** The `template_key` your code sends under. Each key is one email. */
+    key: string
+    /** The hidden workflow that sends this key's emails. */
+    hog_flow_id: string
+    /** What the email is for. Empty when nobody added one. */
+    description: string
+    /** Tags for organizing transactional emails. */
+    tags: string[]
+    /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+    sensitive: boolean
+    /**
+     * A link to the file in your repository that sends this email. Null when unlinked.
+     * @nullable
+     */
+    source_url: string | null
+    /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+     *
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub */
+    readonly source_origin: CodeEmailSourceOriginEnumApi | null
+    /** When your code first sent under this key. */
+    created_at: string
+    /**
+     * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+     * @nullable
+     */
+    user_access_level: string | null
+}
+
+export interface PatchedCodeEmailUpdateApi {
+    /**
+     * What the email is for.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+    source_url?: string | null
+}
+
+export interface CodeEmailSourceCandidateApi {
+    /** The repository that holds the file, as `owner/name`. */
+    repository: string
+    /** The file's path in the repository. */
+    path: string
+    /** The line that holds the key: the first one next to an email send call, otherwise the first match. */
+    line: number
+    /** A link to that line on the repository's default branch. Send it as `source_url` to link the file. */
+    url: string
+    /** True when the key is within five lines of an email send call, so the file most likely sends it. */
+    call_site: boolean
+}
+
+export interface CodeEmailSourceCandidatesApi {
+    /** One entry per file in the project's connected GitHub repositories that holds the key exactly, files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the project has no GitHub integration. */
+    candidates: CodeEmailSourceCandidateApi[]
+    /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
+    complete: boolean
 }
 
 export interface TransactionalEmailLogEntryApi {
