@@ -40,6 +40,8 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
+const latestDueAtOf = (messageId: string): Date => new Date(uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS)
+
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
@@ -181,7 +183,6 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
-        const latestDueAt = new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
         const statusAt = new Date()
         const { shape } = files
         if (shape && 'refused' in shape) {
@@ -210,7 +211,7 @@ export class TransactionalSends {
                     })),
                     (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
                     files.deadline,
-                    latestDueAt
+                    latestDueAtOf(invocation.id)
                 )
                 if ('refused' in accepted) {
                     await releaseKey()
@@ -224,6 +225,14 @@ export class TransactionalSends {
             }
             stages.start('queue_insert')
             invocation.state.statusAt = statusAt.toISOString()
+            if (idempotencyKey) {
+                invocation.state.idempotencyKey = {
+                    hash: IdempotencyKeys.hash(idempotencyKey),
+                    fingerprint,
+                    replayFields: attachmentTotals,
+                    ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
+                }
+            }
             this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
             try {
                 await this.deps.queue.queueInvocations([invocation])
@@ -245,7 +254,7 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? latestDueAt : undefined
+                scheduledAt ? latestDueAtOf(invocation.id) : undefined
             )
         }
         stages.start('metrics_flush')
@@ -370,6 +379,7 @@ export class TransactionalSends {
 
 export type ScheduledTransactionalSendsDeps = {
     jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    idempotencyKeys: Pick<IdempotencyKeys, 'replayUntilDayAfter'>
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
@@ -379,7 +389,7 @@ export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'cl
 
 export type ScheduledSendRescheduleResult =
     | { outcome: 'rescheduled'; scheduledAt: string }
-    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' | 'idempotency_unavailable' }
 
 export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
@@ -408,7 +418,7 @@ export class ScheduledTransactionalSends {
             return { outcome: 'not_found' }
         }
         const now = new Date()
-        if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
+        if (requestedAt > now && requestedAt > latestDueAtOf(messageId)) {
             return { outcome: 'invalid_scheduled_at' }
         }
         const scheduledAt = requestedAt > now ? requestedAt : now
@@ -417,6 +427,10 @@ export class ScheduledTransactionalSends {
             return { outcome: result.outcome }
         }
         const job = v2JobToInvocation(result.job)
+        const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
+        const keyKept =
+            !idempotencyKey ||
+            (await this.deps.idempotencyKeys.replayUntilDayAfter(teamId, job.id, idempotencyKey, latestDueAtOf(job.id)))
         writeStatus(this.deps.emailStatus, {
             teamId,
             messageId,
@@ -426,6 +440,9 @@ export class ScheduledTransactionalSends {
             scheduledAt,
             statusAt: result.rescheduledAt,
         })
+        if (!keyKept) {
+            return { outcome: 'idempotency_unavailable' }
+        }
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
