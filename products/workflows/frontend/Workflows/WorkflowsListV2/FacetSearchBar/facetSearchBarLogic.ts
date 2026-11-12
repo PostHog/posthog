@@ -241,65 +241,128 @@ function filterNamedBy(draft: FacetDraft, { facets, value, countValuesIn }: Sugg
     return value.filters.some((existing) => resolvedFacetFilterKey(facets, existing) === key) ? null : filter
 }
 
-function buildSuggestions(
-    input: string,
-    draft: FacetDraft | null,
-    { facets, value, countValuesIn }: SuggestionSource
-): FacetSuggestion[] {
-    const chosen = new Set(value.filters.map((filter) => resolvedFacetFilterKey(facets, filter)))
+/** The facet's pinned values first, each with its count or 0, then the other values in count order. */
+function pinnedFirst(facet: FacetDefinition<unknown>, counts: FacetValueCount[]): FacetValueCount[] {
+    const pinnedValues = facet.pinnedValues ?? []
+    const isPinned = (v: string): boolean => pinnedValues.some((pinned) => pinned.toLowerCase() === v.toLowerCase())
+    const pinned = pinnedValues.map((pinnedValue): FacetValueCount => {
+        const resolved = (facet.resolveValue?.(pinnedValue) ?? pinnedValue).toLowerCase()
+        return {
+            value: pinnedValue,
+            count: counts.find(({ value: v }) => v.toLowerCase() === resolved)?.count ?? 0,
+        }
+    })
+    return [...pinned, ...counts.filter(({ value: v }) => !isPinned(v))]
+}
 
-    if (draft) {
-        const facet = findFacet(facets, draft.facetKey)!
-        const partial = draft.partial.toLowerCase()
-        const counts = countValuesIn({ filters: value.filters, text: draft.rest })(facet.key)
-        const pinnedValues = facet.pinnedValues ?? []
-        const isPinned = (v: string): boolean => pinnedValues.some((pinned) => pinned.toLowerCase() === v.toLowerCase())
-        const pinned = pinnedValues.map((pinnedValue): FacetValueCount => {
-            const resolved = (facet.resolveValue?.(pinnedValue) ?? pinnedValue).toLowerCase()
-            return {
-                value: pinnedValue,
-                count: counts.find(({ value: v }) => v.toLowerCase() === resolved)?.count ?? 0,
-            }
+function valueSuggestions(
+    draft: FacetDraft,
+    { facets, value, countValuesIn }: SuggestionSource,
+    chosen: Set<string>
+): FacetSuggestion[] {
+    const facet = findFacet(facets, draft.facetKey)!
+    const partial = draft.partial.toLowerCase()
+    const counts = countValuesIn({ filters: value.filters, text: draft.rest })(facet.key)
+    const rows: FacetSuggestion[] = []
+    let firstChosenLabel: string | null = null
+    for (const { value: v, count } of pinnedFirst(facet, counts)) {
+        if (rows.length === MAX_VALUE_SUGGESTIONS) {
+            break
+        }
+        const label = formatFacetValue(facet, v)
+        if (partial && !label.toLowerCase().includes(partial) && !v.toLowerCase().includes(partial)) {
+            continue
+        }
+        const filter = { facet: facet.key, value: v, negated: draft.negated }
+        if (chosen.has(resolvedFacetFilterKey(facets, filter))) {
+            firstChosenLabel ??= label
+            continue
+        }
+        rows.push({
+            id: `value-${facet.key}-${v}`,
+            kind: 'value',
+            label: `${draft.negated ? 'Not ' : ''}${label}`,
+            detail: draft.negated ? `Hides ${count}` : undefined,
+            count: draft.negated ? undefined : count,
+            filter,
+            rest: draft.rest,
         })
-        const rows: FacetSuggestion[] = []
-        let firstChosenLabel: string | null = null
-        for (const { value: v, count } of [...pinned, ...counts.filter(({ value: v }) => !isPinned(v))]) {
-            if (rows.length === MAX_VALUE_SUGGESTIONS) {
-                break
+    }
+    if (rows.length) {
+        return rows
+    }
+    const label =
+        counts.length === 0 && facet.emptyLabel
+            ? facet.emptyLabel
+            : firstChosenLabel !== null
+              ? `${firstChosenLabel} is already a filter`
+              : noValuesLabel(draft, value, !!facet.freeTextValues)
+    return [{ id: 'none', kind: 'none', label }]
+}
+
+function facetNameSuggestions(
+    facets: FacetDefinition<unknown>[],
+    rest: string,
+    bare: string,
+    negated: boolean
+): FacetSuggestion[] {
+    const prefix = negated ? '-' : ''
+    return facets
+        .filter((facet) => [...facetNames(facet), facet.label.toLowerCase()].some((name) => name.startsWith(bare)))
+        .map(
+            (facet): FacetSuggestion => ({
+                id: `facet-${facet.key}`,
+                kind: 'facet',
+                label: `${prefix}${facet.key}:`,
+                detail: facet.description,
+                nextInput: `${rest}${prefix}${facet.key}:`,
+            })
+        )
+}
+
+function crossFacetSuggestions(
+    rest: string,
+    bare: string,
+    negated: boolean,
+    { facets, value, countValuesIn }: SuggestionSource,
+    chosen: Set<string>
+): FacetSuggestion[] {
+    const matches: FacetSuggestion[] = []
+    const countValues = countValuesIn({ filters: value.filters, text: rest })
+    for (const facet of facets) {
+        for (const { value: v, count } of countValues(facet.key)) {
+            if (matches.length === MAX_CROSS_FACET_SUGGESTIONS) {
+                return matches
             }
             const label = formatFacetValue(facet, v)
-            if (partial && !label.toLowerCase().includes(partial) && !v.toLowerCase().includes(partial)) {
+            if (!label.toLowerCase().includes(bare) && !v.toLowerCase().includes(bare)) {
                 continue
             }
-            const filter = { facet: facet.key, value: v, negated: draft.negated }
+            const filter = { facet: facet.key, value: v, negated }
             if (chosen.has(resolvedFacetFilterKey(facets, filter))) {
-                firstChosenLabel ??= label
                 continue
             }
-            rows.push({
+            matches.push({
                 id: `value-${facet.key}-${v}`,
                 kind: 'value',
-                label: `${draft.negated ? 'Not ' : ''}${label}`,
-                detail: draft.negated ? `Hides ${count}` : undefined,
-                count: draft.negated ? undefined : count,
+                label: `${negated ? 'Not ' : ''}${facet.label}: ${label}`,
+                count,
                 filter,
-                rest: draft.rest,
+                rest,
             })
         }
-        if (rows.length) {
-            return rows
-        }
-        const label =
-            counts.length === 0 && facet.emptyLabel
-                ? facet.emptyLabel
-                : firstChosenLabel !== null
-                  ? `${firstChosenLabel} is already a filter`
-                  : noValuesLabel(draft, value, !!facet.freeTextValues)
-        return [{ id: 'none', kind: 'none', label }]
+    }
+    return matches
+}
+
+function buildSuggestions(input: string, draft: FacetDraft | null, source: SuggestionSource): FacetSuggestion[] {
+    const { facets, value } = source
+    const chosen = new Set(value.filters.map((filter) => resolvedFacetFilterKey(facets, filter)))
+    if (draft) {
+        return valueSuggestions(draft, source, chosen)
     }
 
     const { rest, token } = splitLastToken(input)
-
     if (!token) {
         return facets
             .filter((facet) => facet.showOnFocus)
@@ -316,54 +379,13 @@ function buildSuggestions(
 
     const negated = token.startsWith('-')
     const bare = (negated ? token.slice(1) : token).toLowerCase()
-    const result: FacetSuggestion[] = []
-    if (bare) {
-        for (const facet of facets) {
-            if ([...facetNames(facet), facet.label.toLowerCase()].some((name) => name.startsWith(bare))) {
-                result.push({
-                    id: `facet-${facet.key}`,
-                    kind: 'facet',
-                    label: `${negated ? '-' : ''}${facet.key}:`,
-                    detail: facet.description,
-                    nextInput: `${rest}${negated ? '-' : ''}${facet.key}:`,
-                })
-            }
-        }
-    }
-    result.push({ id: 'search', kind: 'search', label: `Search for "${input.trim()}"` })
-
-    if (bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
-        const matches: FacetSuggestion[] = []
-        const countValues = countValuesIn({ filters: value.filters, text: rest })
-        for (const facet of facets) {
-            if (matches.length === MAX_CROSS_FACET_SUGGESTIONS) {
-                break
-            }
-            for (const { value: v, count } of countValues(facet.key)) {
-                if (matches.length === MAX_CROSS_FACET_SUGGESTIONS) {
-                    break
-                }
-                const label = formatFacetValue(facet, v)
-                if (!label.toLowerCase().includes(bare) && !v.toLowerCase().includes(bare)) {
-                    continue
-                }
-                const filter = { facet: facet.key, value: v, negated }
-                if (chosen.has(resolvedFacetFilterKey(facets, filter))) {
-                    continue
-                }
-                matches.push({
-                    id: `value-${facet.key}-${v}`,
-                    kind: 'value',
-                    label: `${negated ? 'Not ' : ''}${facet.label}: ${label}`,
-                    count,
-                    filter,
-                    rest,
-                })
-            }
-        }
-        result.push(...matches)
-    }
-    return result
+    return [
+        ...(bare ? facetNameSuggestions(facets, rest, bare, negated) : []),
+        { id: 'search', kind: 'search', label: `Search for "${input.trim()}"` },
+        ...(bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH
+            ? crossFacetSuggestions(rest, bare, negated, source, chosen)
+            : []),
+    ]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.

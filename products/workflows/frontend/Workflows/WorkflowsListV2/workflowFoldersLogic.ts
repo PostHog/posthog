@@ -485,6 +485,55 @@ function forgetFiles(cache: Record<string, any>, gone: FileSystemEntry[]): void 
     }
 }
 
+/** Takes out of the file index each file whose folder is fully loaded and no longer lists it. Returns the gone folders. */
+function forgetUnlisted(
+    cache: Record<string, any>,
+    folders: Record<string, FileSystemEntry[]>,
+    present: Map<string, FileSystemEntry>,
+    folderStates: Record<string, string | undefined>
+): FileSystemEntry[] {
+    const index = fileIndex(cache)
+    const goneFolders: FileSystemEntry[] = []
+    for (const [id, entry] of index) {
+        const folder = parentPath(entry.path)
+        // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
+        if (!present.has(id) && folder in folders && folderStates[folder] === 'loaded') {
+            index.delete(id)
+            cache.changes = (cache.changes ?? 0) + 1
+            if (entry.type === 'folder') {
+                goneFolders.push(entry)
+            }
+        }
+    }
+    return goneFolders
+}
+
+/** Puts each file the tree holds into the file index. Returns the folders the tree reloaded at a new path, each with its old path. */
+function indexPresent(
+    cache: Record<string, any>,
+    folders: Record<string, FileSystemEntry[]>,
+    present: Map<string, FileSystemEntry>
+): [FileSystemEntry, string][] {
+    const index = fileIndex(cache)
+    const renamedFolders: [FileSystemEntry, string][] = []
+    for (const entry of present.values()) {
+        if (!isIndexed(entry) && entry.shortcut) {
+            continue
+        }
+        const oldPath = index.get(entry.id)?.path
+        // A file the tree loads new or at another path, such as a refreshed rename, is newer than a scan in flight.
+        if (isIndexed(entry) && oldPath !== entry.path) {
+            cache.changes = (cache.changes ?? 0) + 1
+            // A folder renamed elsewhere reloads at its new path while the tree still holds its contents at the old one.
+            if (entry.type === 'folder' && oldPath !== undefined && oldPath in folders) {
+                renamedFolders.push([entry, oldPath])
+            }
+        }
+        index.set(entry.id, entry)
+    }
+    return renamedFolders
+}
+
 /** Makes a full scan the truth for the files `owns` selects: cached copies that moved or went away elsewhere leave the shared tree, and `scanned` replaces them in the file index. */
 function applyFullScan(
     cache: Record<string, any>,
@@ -1447,35 +1496,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     })),
     subscriptions(({ actions, cache, values }) => ({
         folders: (folders: Record<string, FileSystemEntry[]>) => {
-            const index = fileIndex(cache)
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
-            const goneFolders: FileSystemEntry[] = []
-            for (const [id, entry] of index) {
-                const folder = parentPath(entry.path)
-                // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
-                if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
-                    index.delete(id)
-                    cache.changes = (cache.changes ?? 0) + 1
-                    if (entry.type === 'folder') {
-                        goneFolders.push(entry)
-                    }
-                }
-            }
-            const renamedFolders: [FileSystemEntry, string][] = []
-            for (const entry of present.values()) {
-                if (isIndexed(entry) || !entry.shortcut) {
-                    const oldPath = index.get(entry.id)?.path
-                    // A file the tree loads new or at another path, such as a refreshed rename, is newer than a scan in flight.
-                    if (isIndexed(entry) && oldPath !== entry.path) {
-                        cache.changes = (cache.changes ?? 0) + 1
-                        // A folder renamed elsewhere reloads at its new path while the tree still holds its contents at the old one.
-                        if (entry.type === 'folder' && oldPath !== undefined && oldPath in folders) {
-                            renamedFolders.push([entry, oldPath])
-                        }
-                    }
-                    index.set(entry.id, entry)
-                }
-            }
+            const goneFolders = forgetUnlisted(cache, folders, present, values.folderStates)
+            const renamedFolders = indexPresent(cache, folders, present)
             for (const [entry, oldPath] of renamedFolders) {
                 projectTreeDataLogic.actions.movedItem(entry, oldPath, entry.path)
             }

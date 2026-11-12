@@ -208,7 +208,15 @@ const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
 // A sensitive message carries reset links, login codes or private text, so its snapshot keeps no
 // variables either, and a rerun can't rebuild the send. A step paused mid-send (e.g. for a provider
 // retry) holds the rendered message on its VM stack, and the person and group properties it read, so those go too.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'vmState', 'person', 'groups', 'send'])
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+    'inputs',
+    'variables',
+    'vmState',
+    'person',
+    'groups',
+    'send',
+    'idempotencyKey',
+])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {

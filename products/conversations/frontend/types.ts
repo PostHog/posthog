@@ -180,6 +180,7 @@ export interface Ticket {
     github_repo?: string | null
     github_issue_number?: number | null
     zendesk_ticket_id?: number | null
+    intercom_conversation_id?: string | null
     organization_id?: string | null
     organization_id_source?: string | null
     person?: TicketPerson | null
@@ -239,9 +240,11 @@ export interface ChatMessage {
     /** Edit count from the comment row. 0 means never edited. */
     version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
-    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+    /** Imported from an external tool (Zendesk, Intercom). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
-    fromZendesk?: boolean
+    fromExternalImport?: boolean
+    /** Synced from a GitHub issue. Its content is GitHub-flavored Markdown, where HTML is markup. */
+    fromGithub?: boolean
     hasFullEmailContent?: boolean
     citations?: string[]
     confidence?: number

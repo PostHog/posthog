@@ -1,6 +1,12 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    incremental_field,
+)
 
 TINYEMAIL_BASE_URL = "https://api.tinyemail.com/v1"
 
@@ -9,6 +15,10 @@ TINYEMAIL_BASE_URL = "https://api.tinyemail.com/v1"
 # while contact member pages are 1-indexed.
 CAMPAIGNS_PAGE_SIZE = 20
 CONTACT_MEMBERS_PAGE_SIZE = 100
+
+# The new-subscriber engagement report rejects a from/to range longer than 7 days.
+NEW_SUBSCRIBER_ENGAGEMENT_WINDOW_DAYS = 7
+NEW_SUBSCRIBER_ENGAGEMENT_HISTORY_DAYS = 90
 
 
 @dataclass(frozen=False)
@@ -22,6 +32,7 @@ class TinyemailEndpointConfig:
     paginated: bool = False
     base_page: int = 0
     primary_key: str | list[str] = "id"
+    method: Literal["get", "post", "put"] = "get"
     fanout: DependentEndpointConfig | None = None
 
 
@@ -63,10 +74,57 @@ TINYEMAIL_ENDPOINTS: dict[str, TinyemailEndpointConfig] = {
         path="/sender-details",
         data_selector="senderDetailses",
     ),
+    "suppressions": TinyemailEndpointConfig(
+        name="suppressions",
+        path="/suppression",
+        data_selector="suppressions",
+    ),
+    "campaign_domain_stats": TinyemailEndpointConfig(
+        name="campaign_domain_stats",
+        # A POST that takes the campaign id in the JSON body, so it has its own iterator.
+        path="/campaign/domain-stats",
+        method="post",
+        data_selector="content",
+        paginated=True,
+        base_page=0,
+        page_size=CAMPAIGNS_PAGE_SIZE,
+        primary_key=["campaign_id", "domainName"],
+    ),
+    "new_subscriber_engagement": TinyemailEndpointConfig(
+        name="new_subscriber_engagement",
+        # A POST that takes the audience ids and a date range in the JSON body, so it has its own iterator.
+        path="/report/audience/new-subscriber-engagement",
+        method="post",
+        data_selector="$",
+        incremental_fields=[incremental_field("date", IncrementalFieldType.Date)],
+        primary_key=["audience_id", "date"],
+    ),
+    "clean_history": TinyemailEndpointConfig(
+        name="clean_history",
+        # Reading the history is a PUT. `PUT /audiences/clean-list/{id}` without the `/history`
+        # suffix starts a paid list clean, so this path must keep its suffix.
+        path="/audiences/clean-list/{audience_id}/history",
+        method="put",
+        data_selector="histories",
+        primary_key=["audience_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="contacts",
+            resolve_param="audience_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "audience_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(TINYEMAIL_ENDPOINTS)
 
-# tinyEmail exposes no server-side updated-after/since filter on any endpoint, so every
-# table is full refresh only.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in TINYEMAIL_ENDPOINTS}
+# tinyEmail exposes no server-side updated-after/since filter on any list endpoint. Only the
+# engagement report takes a date range, so it is the one incremental table.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in TINYEMAIL_ENDPOINTS.items()
+}
+
+# Opens and clicks keep arriving after a campaign is sent, so each incremental run reads the
+# last full window again.
+INCREMENTAL_LOOKBACK_SECONDS = {"new_subscriber_engagement": NEW_SUBSCRIBER_ENGAGEMENT_WINDOW_DAYS * 24 * 60 * 60}
