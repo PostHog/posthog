@@ -158,7 +158,7 @@ function AlertHeader(): JSX.Element {
     const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors, alertFormValidationErrors } =
         useValues(logsAlertFormLogic)
     const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
-    const { pendingDestinations: pendingNotifications } = useValues(platformAlertDestinationsLogic)
+    const { pendingDestinations } = useValues(platformAlertDestinationsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isEnabled = alert?.enabled ?? true
@@ -184,7 +184,7 @@ function AlertHeader(): JSX.Element {
                             alertFormChanged,
                             nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
                             maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
-                            hasPendingNotifications: pendingNotifications.length > 0,
+                            hasPendingNotifications: pendingDestinations.length > 0,
                         })}
                     />
                 ) : alert ? (
@@ -239,7 +239,7 @@ function AlertHeader(): JSX.Element {
                                 alertFormChanged,
                                 nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
                                 maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
-                                hasPendingNotifications: pendingNotifications.length > 0,
+                                hasPendingNotifications: pendingDestinations.length > 0,
                             })}
                             data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
                         >

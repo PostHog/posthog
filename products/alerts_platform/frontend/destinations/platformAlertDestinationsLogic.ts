@@ -178,6 +178,10 @@ export type platformAlertDestinationsLogicType = MakeLogicType<
     platformAlertDestinationsLogicMeta
 >
 
+function destinationsApi(props: PlatformAlertDestinationsLogicProps): AlertDestinationsApi {
+    return props.api ?? PLATFORM_DESTINATIONS_API
+}
+
 export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogicType>([
     path((key) => ['products', 'alerts_platform', 'frontend', 'destinations', 'platformAlertDestinationsLogic', key]),
     props({} as PlatformAlertDestinationsLogicProps),
@@ -216,10 +220,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                     if (!props.alertId) {
                         return []
                     }
-                    return await (props.api ?? PLATFORM_DESTINATIONS_API).list(
-                        String(values.currentTeamId),
-                        props.alertId
-                    )
+                    return await destinationsApi(props).list(String(values.currentTeamId), props.alertId)
                 },
             },
         ],
@@ -395,7 +396,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                     continue
                 }
                 try {
-                    await (props.api ?? PLATFORM_DESTINATIONS_API).create(projectId, alertId, destination)
+                    await destinationsApi(props).create(projectId, alertId, destination)
                     posthog.capture('alert destination added', {
                         source_kind: props.sourceKind,
                         destination_type: destination.type,
@@ -427,11 +428,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
             }
             actions.setDeletingDestinationId(destination.id, true)
             try {
-                await (props.api ?? PLATFORM_DESTINATIONS_API).remove(
-                    String(values.currentTeamId),
-                    props.alertId,
-                    destination
-                )
+                await destinationsApi(props).remove(String(values.currentTeamId), props.alertId, destination)
                 posthog.capture('alert destination removed', {
                     source_kind: props.sourceKind,
                     destination_type: destination.type,

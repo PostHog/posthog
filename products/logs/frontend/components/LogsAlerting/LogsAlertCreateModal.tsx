@@ -37,9 +37,7 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
         logsAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
-    const { pendingDestinations: pendingNotifications } = useValues(
-        platformAlertDestinationsLogic(logsAlertDestinationsLogicProps())
-    )
+    const { pendingDestinations } = useValues(platformAlertDestinationsLogic(logsAlertDestinationsLogicProps()))
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
     const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
     const filterError = hasLogFilter
@@ -49,7 +47,7 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
     const triggerCannotAdvanceReason = alertFormValidationErrors.maxInstances as string | undefined
     const steps = buildLogsAlertWizardSteps({
         alertForm,
-        pendingNotifications,
+        pendingDestinations,
         configurationCannotAdvanceReason,
         triggerCannotAdvanceReason,
         nameError,
@@ -81,7 +79,7 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
 
 function buildLogsAlertWizardSteps({
     alertForm,
-    pendingNotifications,
+    pendingDestinations,
     configurationCannotAdvanceReason,
     triggerCannotAdvanceReason,
     nameError,
@@ -89,7 +87,7 @@ function buildLogsAlertWizardSteps({
     canGroup,
 }: {
     alertForm: LogsAlertFormType
-    pendingNotifications: PlatformAlertCreateDestinationApi[]
+    pendingDestinations: PlatformAlertCreateDestinationApi[]
     configurationCannotAdvanceReason: string | undefined
     triggerCannotAdvanceReason: string | undefined
     nameError: string | undefined
@@ -138,11 +136,7 @@ function buildLogsAlertWizardSteps({
             title: 'Review',
             description: 'Confirm the alert before you create it.',
             content: (
-                <LogsAlertReview
-                    alertForm={alertForm}
-                    pendingNotifications={pendingNotifications}
-                    canGroup={canGroup}
-                />
+                <LogsAlertReview alertForm={alertForm} pendingDestinations={pendingDestinations} canGroup={canGroup} />
             ),
         },
     ]
@@ -150,24 +144,24 @@ function buildLogsAlertWizardSteps({
 
 function LogsAlertReview({
     alertForm,
-    pendingNotifications,
+    pendingDestinations,
     canGroup,
 }: {
     alertForm: LogsAlertFormType
-    pendingNotifications: PlatformAlertCreateDestinationApi[]
+    pendingDestinations: PlatformAlertCreateDestinationApi[]
     canGroup: boolean
 }): JSX.Element {
     const severity = alertForm.severityLevels.length ? alertForm.severityLevels.join(', ') : 'all severities'
     const services = alertForm.serviceNames.length ? alertForm.serviceNames.join(', ') : 'all services'
     const attributeCount = alertForm.filterGroup.values.length
-    const notificationSummary = pendingNotifications.length
-        ? `${pendingNotifications.length} notification destination${pendingNotifications.length === 1 ? '' : 's'}`
+    const notificationSummary = pendingDestinations.length
+        ? `${pendingDestinations.length} notification destination${pendingDestinations.length === 1 ? '' : 's'}`
         : 'No notification destinations'
 
     return (
         <WizardReview
             notice={
-                pendingNotifications.length === 0 ? (
+                pendingDestinations.length === 0 ? (
                     <LemonBanner type="warning">
                         This alert will run without notifications. Go back to Notify to add a destination.
                     </LemonBanner>

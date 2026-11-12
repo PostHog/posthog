@@ -3,20 +3,17 @@ import {
     DESTINATION_TYPE_OPTIONS,
 } from 'products/alerts_platform/frontend/destinations/platformAlertDestinations'
 import { PlatformAlertDestinationsLogicProps } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
-import { PlatformAlertDestinationTypeEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 import {
     logsAlertsDestinationsCreate,
     logsAlertsDestinationsDeleteCreate,
     logsAlertsRetrieve,
 } from 'products/logs/frontend/generated/api'
-import { LogsAlertCreateDestinationApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertCreateDestinationApi,
+    LogsAlertDestinationTypeEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
-const LOGS_DESTINATION_TYPES: string[] = [
-    PlatformAlertDestinationTypeEnumApi.Slack,
-    PlatformAlertDestinationTypeEnumApi.Teams,
-    PlatformAlertDestinationTypeEnumApi.Pagerduty,
-    PlatformAlertDestinationTypeEnumApi.Webhook,
-]
+const LOGS_DESTINATION_TYPES: string[] = Object.values(LogsAlertDestinationTypeEnumApi)
 
 export const LOGS_ALERT_DESTINATION_TYPE_OPTIONS = DESTINATION_TYPE_OPTIONS.filter((option) =>
     LOGS_DESTINATION_TYPES.includes(option.value)

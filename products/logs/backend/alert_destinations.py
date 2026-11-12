@@ -165,19 +165,20 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
 LOGS_ALERT_EVENT_IDS: tuple[str, ...] = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 # An incident manager's row hears firings and resolves, which delivery turns into its trigger and resolve.
-_ROW_EVENT_KINDS: dict[EventKind, AlertEventKind] = {
-    "firing": AlertEventKind.FIRING,
-    "resolved": AlertEventKind.RESOLVED,
-    "broken": AlertEventKind.BROKEN,
-    "errored": AlertEventKind.ERRORED,
-    "incident_opened": AlertEventKind.FIRING,
-    "incident_closed": AlertEventKind.RESOLVED,
+_INCIDENT_ROW_KINDS: dict[IncidentAction, AlertEventKind] = {
+    IncidentAction.TRIGGER: AlertEventKind.FIRING,
+    IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
 
 
 def row_event_kinds(kinds: Collection[EventKind]) -> tuple[AlertEventKind, ...]:
     """The kinds the `AlertDestination` row of a destination hears, given the kinds its HogFunctions hear."""
-    return tuple(dict.fromkeys(_ROW_EVENT_KINDS[kind] for kind in kinds))
+    return tuple(
+        dict.fromkeys(
+            _INCIDENT_ROW_KINDS[action] if (action := EVENT_KIND_CONFIG[kind].incident_action) else AlertEventKind(kind)
+            for kind in kinds
+        )
+    )
 
 
 _SEVERITY_SERVICE_CONTEXT = (
