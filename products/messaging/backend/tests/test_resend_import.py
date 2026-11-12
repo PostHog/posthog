@@ -326,6 +326,7 @@ class TestResendImport(BaseTest):
         email = welcome.content["email"]
         assert email["from"] == {"integrationId": sender.id, "email": "hello@example.com", "name": "Acme"}
         assert email["replyTo"] == "support@example.com"
+        assert email["design"]["body"]["rows"]
         assert welcome.transactional_hog_flow_id is None
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
         assert items["Welcome email"]["url"] == f"/workflows/library/templates/{welcome.id}"
@@ -333,25 +334,29 @@ class TestResendImport(BaseTest):
         imported_key = MessageTemplate.objects.filter(team_id=self.team.id, name__startswith="Přivítání").get().key
         assert imported_key is not None and imported_key.startswith("resend-")
 
-    def test_sender_name_and_reply_to_stay_literal(self) -> None:
-        IntegrationManager.email.credentials.create(
+    def test_sender_on_the_same_domain_sends_with_literal_name_and_reply_to(self) -> None:
+        sender = IntegrationManager.email.credentials.create(
             self.team.id,
-            external_id="hello@example.com",
-            config={"email": "hello@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
+            external_id="team@example.com",
+            config={"email": "team@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
             sensitive_config={},
             created_by_id=self.user.id,
         )
         welcome = {
             **FIXTURES["templates"][0],
+            "subject": "",
             "from": '"{{ person.properties.a }}" <hello@example.com>',
             "reply_to": ["{{person.properties.b}}@example.com"],
         }
         self.resend.data = {**self.resend.data, "templates": [welcome, *self.resend.data["templates"][1:]]}
 
-        self._run(["templates"])
+        run = self._run(["templates"])
 
         email = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email").content["email"]
+        assert (email["from"]["integrationId"], email["from"]["email"]) == (sender.id, "hello@example.com")
         assert email["from"]["name"] == '{{ "{{" }} person.properties.a }}'
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert any("no subject" in note for note in items["Welcome email"]["notes"])
         assert email["replyTo"] == '{{ "{{" }}person.properties.b}}@example.com'
 
     def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
@@ -363,6 +368,10 @@ class TestResendImport(BaseTest):
 
         assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome-email").exists()
         assert run.progress["templates"]["counts"]["already_present"] == 1
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert items["Welcome email"]["notes"] == [
+            "Your app already sends email under the key welcome-email, so this template wasn't imported."
+        ]
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
         run = self._run(["suppressions", "domains"])

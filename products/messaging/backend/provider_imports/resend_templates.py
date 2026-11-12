@@ -110,7 +110,9 @@ def _liquid_string(value: Any) -> str | None:
     if isinstance(value, float):
         # Liquid has no exponent notation, so 1e-06 would read as a variable name.
         return format(Decimal(repr(value)), "f") if math.isfinite(value) else None
-    text = str(value)
+    if not isinstance(value, str):
+        return None
+    text = value
     if any(braces in text for braces in ("{{", "}}", "{%", "%}")) or _UNSAFE_IN_LIQUID_STRING.search(text):
         return None
     if '"' not in text:
