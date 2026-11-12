@@ -78,6 +78,7 @@ class TestSlackBlocks(SimpleTestCase):
 
         assert "<!" not in body + context + project
         assert "*description:* &lt;!here&gt; down" in body
+        assert blocks[1]["text"]["verbatim"] is True
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
         assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
@@ -371,6 +372,8 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
         blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
         assert "2 more groups not tracked" in str(blocks)
         assert "*team:* payments" in str(blocks)
+        notice = next(block for block in blocks if "*team:* payments" in block.get("text", {}).get("text", ""))
+        assert notice["text"]["verbatim"] is True
         assert "*Value:*" not in str(blocks)
         # Above the buttons when there are buttons, so the notice is never read as one of them.
         assert blocks[-1]["type"] == ("section" if without_actions else "actions")

@@ -70,10 +70,18 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
     return "\n".join(clip_text(line, share) for line in lines)
 
 
+def _details_block(details: tuple[MessageDetail, ...]) -> dict[str, Any]:
+    block = section_block(_body(details))
+    # Escaping stops `<!here>`, but Slack also parses a bare `@here` into a broadcast unless the
+    # text is verbatim. A rule annotation can carry query results into this text.
+    block["text"]["verbatim"] = True
+    return block
+
+
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.title)]
     if message.all_details:
-        blocks.append(section_block(_body(message.all_details)))
+        blocks.append(_details_block(message.all_details))
     elements: list[str] = []
     if message.context:
         # Context names things a user chose, such as services, so it is escaped like a detail.
@@ -144,7 +152,7 @@ def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) 
     ]
     if not notices:
         return content
-    notice = section_block(_body(tuple(notices)))
+    notice = _details_block(tuple(notices))
     # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
     # alert as a complete one. It goes wherever the renderer left room, never nowhere.
     if not content.attachments:
