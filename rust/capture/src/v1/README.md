@@ -31,6 +31,7 @@ Body ([`analytics/types.rs`](analytics/types.rs) `Batch` and `Event`):
 ```json
 {
   "created_at": "2026-01-01T00:00:00Z",
+  "capture_internal": false,
   "historical_migration": false,
   "batch": [
     {
@@ -47,6 +48,7 @@ Body ([`analytics/types.rs`](analytics/types.rs) `Batch` and `Event`):
 ```
 
 - `event`, `uuid`, `distinct_id` and `timestamp` are JSON strings. `properties` and `options` are objects. `session_id` and `window_id` are strings, sent only when present. Capture ignores other fields.
+- `capture_internal` is an optional batch-level flag, read leniently like an option. PostHog's own senders set it to `true` for events they send on a customer's behalf ([`posthog/api/capture.py`](../../../../posthog/api/capture.py), [`push-capture.ts`](../../../../nodejs/src/messaging/push-subscriptions/push-capture.ts)). Capture then writes `127.0.0.1` as the event IP, because the request comes from a PostHog server, not the user, and partitions cookieless events by token and `127.0.0.1` (`partition_key` and `serialize` in [`analytics/types.rs`](analytics/types.rs)). It is not an option and is not relayed to Kafka. Legacy capture reads a `capture_internal` key in `properties` instead; capture v1 ignores that property.
 - Body size limits in code are defaults ([`../config.rs`](../config.rs)). Production limits are set per deployment in the Helm charts. `capture-ai` accepts larger events than the analytics deployments.
 
 ## Response

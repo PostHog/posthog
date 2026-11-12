@@ -15,6 +15,8 @@ The legacy entries move to v1 soon after that release. Update this list and the 
 
 To find the Django call sites, search for `capture_internal(`, `capture_batch_internal(` and `capture_ai_internal(`.
 
+The Django functions and `push-capture.ts` set the batch-level `capture_internal: true`. `InternalCaptureService` sets it as a `capture_internal` property, the legacy form; its v1 migration must move it to the batch. The batch import worker does not set it, so imported events keep the request IP.
+
 ## Still on legacy capture at the first v1 release
 
 | Sender                                                                  | Code                                                                                                                                                                                                                                                                                                                                                   | Sends to                        |
