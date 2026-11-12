@@ -204,51 +204,6 @@ describe('CDP dead-letter replay', () => {
         expect(replayConsumer.counts.replayed).toBe(1)
     })
 
-    it('rebuilds each function once when one event is parked twice', async () => {
-        // A record is written per event and per step, so an event that fails the filter for one
-        // function and the inputs for another is parked twice. Both records name the same event.
-        const brokenFilter = await insertHogFunction(hub.postgres, team.id, {
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_INPUTS_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.broken_filters,
-            type: 'destination',
-        })
-        const brokenInputs = await insertHogFunction(hub.postgres, team.id, {
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'destination',
-            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
-            inputs: BROKEN_INPUTS,
-        })
-
-        const sourceQueue = createMockJobQueue()
-        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
-
-        await parkEvent(2)
-
-        await repairInputs(brokenInputs)
-        await repairFilters(brokenFilter)
-
-        const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: replayQueue,
-            hogflowQueue: replayQueue,
-        })
-        await replayConsumer.start()
-
-        await waitForExpect(() => {
-            expect(replayConsumer!.counts.queued).toBe(2)
-        }, 30000)
-
-        // Both parked functions come back, each exactly once, through the live consumer. This only
-        // covers the union while CONSUMER_BATCH_SIZE is large enough to hand both records to one
-        // batch, which is why the case below passes them in directly.
-        const replayed = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
-        expect(replayed.map((invocation: any) => invocation.functionId).sort()).toEqual(
-            [brokenFilter.id, brokenInputs.id].sort()
-        )
-    })
-
     it('sends the delivery for real: parked, fixed, replayed, and the destination is called', async () => {
         // Everything else here stops once an invocation is queued. This one runs the invocation
         // through cyclotron as well, so the whole loop is covered: the event fails to build, the
