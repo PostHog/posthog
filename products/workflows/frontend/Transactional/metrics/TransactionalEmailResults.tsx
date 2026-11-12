@@ -5,15 +5,15 @@ import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
-import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
     const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
         useValues(transactionalEmailMetricsLogic)
-    const { setResultsQuery, loadResults, loadTemplates } = useActions(transactionalEmailMetricsLogic)
-    const { transactionalTemplates, templatesLoading } = useValues(messageTemplatesLogic)
+    const { setResultsQuery, loadResults, loadTransactionalTemplates } = useActions(transactionalEmailMetricsLogic)
+    const { transactionalTemplates, transactionalTemplatesLoading } = useValues(transactionalTemplatesLogic)
 
     const emailOptions = transactionalTemplates
         .filter((template) => template.transactional_hog_flow_id)
@@ -70,12 +70,12 @@ export function TransactionalEmailResults(): JSX.Element {
                     data-attr="transactional-email-results-revenue"
                 />
             </div>
-            {templatesFailed && !templatesLoading ? (
+            {templatesFailed && !transactionalTemplatesLoading ? (
                 <LemonBanner
                     type="error"
                     action={{
                         children: 'Try again',
-                        onClick: () => loadTemplates(),
+                        onClick: () => loadTransactionalTemplates(),
                         'data-attr': 'transactional-email-results-templates-retry',
                     }}
                 >

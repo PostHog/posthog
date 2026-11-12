@@ -4,10 +4,19 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { MessageTemplate } from '../TemplateLibrary/types'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 
-const template = (id: string, name: string, tags: string[], createdBy: number, transactional = true): MessageTemplate =>
+const SERVER_PAGE_SIZE = 2
+
+const template = (
+    id: string,
+    name: string,
+    tags: string[],
+    createdBy: number,
+    transactional = true
+): MessageTemplateApi =>
     ({
         id,
         name,
@@ -15,7 +24,17 @@ const template = (id: string, name: string, tags: string[], createdBy: number, t
         tags,
         created_by: { id: createdBy },
         transactional_hog_flow_id: transactional ? `flow-${id}` : null,
-    }) as unknown as MessageTemplate
+        content: { templating: 'liquid', email: { subject: name, html: `<p>${name}</p>` } },
+        draft_content: null,
+        has_draft: false,
+    }) as unknown as MessageTemplateApi
+
+const STORED_TEMPLATES = [
+    template('a', 'Password reset', ['auth'], 1),
+    template('b', 'Receipt', ['billing'], 2),
+    template('c', 'Sign-in code', ['auth'], 2),
+    template('d', 'Newsletter', ['auth'], 1, false),
+]
 
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
@@ -33,13 +52,16 @@ describe('transactionalEmailsLogic', () => {
                 },
             },
             get: {
-                '/api/projects/:team_id/messaging_templates/': {
-                    results: [
-                        template('a', 'Password reset', ['auth'], 1),
-                        template('b', 'Receipt', ['billing'], 2),
-                        template('c', 'Sign-in code', ['auth'], 2),
-                        template('d', 'Newsletter', ['auth'], 1, false),
-                    ],
+                '/api/projects/:team_id/messaging_templates/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const offset = Number(params.get('offset') ?? 0)
+                    const limit = Math.min(Number(params.get('limit') ?? SERVER_PAGE_SIZE), SERVER_PAGE_SIZE)
+                    const matching = STORED_TEMPLATES.filter(
+                        (t) => params.get('transactional') !== 'true' || t.transactional_hog_flow_id
+                    ).map(({ content, draft_content, ...basic }) =>
+                        params.get('basic') === 'true' ? basic : { ...basic, content, draft_content }
+                    )
+                    return [200, { count: matching.length, results: matching.slice(offset, offset + limit) }]
                 },
             },
         })
@@ -50,6 +72,14 @@ describe('transactionalEmailsLogic', () => {
     })
 
     afterEach(() => logic.unmount())
+
+    it('loads every page of transactional emails without their content', () => {
+        expect(logic.values.transactionalTemplates.map(({ name, content }) => ({ name, content }))).toEqual([
+            { name: 'Password reset', content: undefined },
+            { name: 'Receipt', content: undefined },
+            { name: 'Sign-in code', content: undefined },
+        ])
+    })
 
     it.each([
         ['a tag', `/transactional?tags=${encodeURIComponent('["auth"]')}`, ['Password reset', 'Sign-in code']],

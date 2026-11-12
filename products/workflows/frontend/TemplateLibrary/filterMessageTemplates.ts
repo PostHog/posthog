@@ -1,4 +1,9 @@
-import { MessageTemplate } from './types'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
+
+type FilterableTemplate = Pick<MessageTemplateApi, 'name' | 'description' | 'tags'> & {
+    created_by?: { id?: number } | null
+    transactional_hog_flow_id?: string | null
+}
 
 export interface MessageTemplateFilters {
     search?: string
@@ -7,10 +12,10 @@ export interface MessageTemplateFilters {
     transactionalOnly?: boolean
 }
 
-export function filterMessageTemplates(
-    templates: MessageTemplate[],
+export function filterMessageTemplates<T extends FilterableTemplate>(
+    templates: T[],
     { search, tags, createdBy, transactionalOnly }: MessageTemplateFilters
-): MessageTemplate[] {
+): T[] {
     let filtered = templates
     if (search) {
         const lowerSearch = search.toLowerCase()

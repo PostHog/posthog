@@ -105,8 +105,10 @@ const workflowsListEmailTemplates = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
+                basic: params.basic,
                 limit: params.limit,
                 offset: params.offset,
+                transactional: params.transactional,
             },
         })
         const filtered = {

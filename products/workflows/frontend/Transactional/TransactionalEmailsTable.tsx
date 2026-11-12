@@ -10,7 +10,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TagSelect } from 'lib/components/TagSelect'
 import { dayjs } from 'lib/dayjs'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -19,15 +19,16 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
-import { MessageTemplate } from '../TemplateLibrary/types'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 
 export function TransactionalEmailsTable(): JSX.Element {
     const {
         transactionalTemplates,
         filteredTransactionalTemplates,
-        templatesLoading,
+        transactionalTemplatesLoading,
         filters,
         isFiltered,
         savingTagsFor,
@@ -40,7 +41,7 @@ export function TransactionalEmailsTable(): JSX.Element {
         AccessControlLevel.Editor
     )
 
-    if (!templatesLoading && transactionalTemplates.length === 0) {
+    if (!transactionalTemplatesLoading && transactionalTemplates.length === 0) {
         return (
             <ProductIntroduction
                 thingName="transactional email"
@@ -86,9 +87,9 @@ export function TransactionalEmailsTable(): JSX.Element {
                     />
                 </div>
             </div>
-            <LemonTable<MessageTemplate>
+            <LemonTable<MessageTemplateApi>
                 dataSource={filteredTransactionalTemplates}
-                loading={templatesLoading}
+                loading={transactionalTemplatesLoading}
                 rowKey="id"
                 data-attr="transactional-emails-table"
                 columns={[
@@ -107,7 +108,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                                                 Sensitive
                                             </LemonTag>
                                         )}
-                                        {template.draft_content && (
+                                        {template.has_draft && (
                                             <LemonTag type="warning" size="small">
                                                 Unpublished changes
                                             </LemonTag>
@@ -177,8 +178,8 @@ export function TransactionalEmailsTable(): JSX.Element {
                                 </Link>
                             ) : null,
                     },
-                    createdByColumn() as LemonTableColumn<MessageTemplate, any>,
-                    { ...(updatedAtColumn() as LemonTableColumn<MessageTemplate, any>), width: 0 },
+                    createdByColumn() as LemonTableColumns<MessageTemplateApi>[number],
+                    { ...(updatedAtColumn() as LemonTableColumn<MessageTemplateApi, any>), width: 0 },
                 ]}
                 defaultSorting={{ columnKey: 'updated_at', order: -1 }}
                 emptyState={isFiltered ? 'No transactional emails match these filters' : 'No transactional emails'}

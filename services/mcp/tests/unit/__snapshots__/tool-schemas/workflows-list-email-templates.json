@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "basic": {
+            "default": false,
+            "description": "With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -8,6 +13,17 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "transactional": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates."
         }
     },
     "type": "object"

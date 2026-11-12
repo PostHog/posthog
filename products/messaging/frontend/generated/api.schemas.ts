@@ -948,6 +948,8 @@ export interface MessageTemplateApi {
     readonly transactional_hog_flow_id: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /** Whether the template has unpublished edits in `draft_content`. */
+    readonly has_draft: boolean
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -1000,6 +1002,8 @@ export interface PatchedMessageTemplateApi {
     readonly transactional_hog_flow_id?: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /** Whether the template has unpublished edits in `draft_content`. */
+    readonly has_draft?: boolean
 }
 
 /**
@@ -1425,6 +1429,10 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 
 export type MessagingTemplatesListParams = {
     /**
+     * With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.
+     */
+    basic?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1432,6 +1440,11 @@ export type MessagingTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
+     * @nullable
+     */
+    transactional?: boolean | null
 }
 
 export type TransactionalEmailLogListParams = {

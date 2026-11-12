@@ -12,8 +12,8 @@ import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
 import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG, emailReasonText } from './emailLogStatus'
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
 import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
@@ -45,7 +45,7 @@ const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained',
 export function TransactionalEmailLog(): JSX.Element {
     const { emails, pageLoading, pageFailed, filters, isFiltered, pagination } = useValues(transactionalEmailLogLogic)
     const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
-    const { transactionalTemplates } = useValues(messageTemplatesLogic)
+    const { transactionalTemplates } = useValues(transactionalTemplatesLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const emailOptions = transactionalTemplates
