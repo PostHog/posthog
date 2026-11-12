@@ -583,6 +583,13 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert text == "{% raw %}{{ person.properties.secret }}{% endraw %} 1"
 
+    def test_plain_text_keeps_a_literal_raw_filter_from_closing_its_raw_block(self) -> None:
+        html = "<p>{{#weird {% end | rawraw %}{% echo person.properties.secret %}{% raw %} }}</p>"
+
+        converted = convert_version({"html_content": html})
+
+        assert converted.text == f"{{% raw %}}{html[3:-4]}{{% endraw %}}"
+
     def test_many_unclosed_tags_convert_quickly(self) -> None:
         assert convert_version({"html_content": "{{" * 200_000, "generate_plain_content": False}).html
 

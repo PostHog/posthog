@@ -1003,6 +1003,7 @@ _HTML_LINE_BREAK = re.compile(r"<br\s*/?>|</(?:p|div|tr|li|h[1-6]|table|ul|ol)\s
 _HTML_TAG = re.compile(r"<[^<>]*>")
 _LIQUID_TAG = re.compile(r"\{\{(?:(?!\{\{).){0,2000}?\}\}|\{%(?:(?!\{%).){0,2000}?%\}", re.DOTALL)
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
+_RAW_OUTPUT_FILTER = re.compile(r"\s*\|\s*raw\s*\}\}\Z")
 
 
 def plain_text_from_html(html: str) -> str:
@@ -1035,8 +1036,9 @@ def plain_text_from_html(html: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     # Decoded entities and removed HTML tags can leave braces that read as Liquid, like `&#123;&#123; x &#125;&#125;`.
     text = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), text)
-    # Plain text has no escaping, so `| raw` has nothing to do in it.
-    return _LIQUID_SLOT.sub(lambda match: tags[int(match.group(1))].replace(" | raw", ""), text)
+    # Plain text has no escaping, so `| raw` has nothing to do in it. Only an output's last filter goes, so a tag kept
+    # literally can't turn into another one.
+    return _LIQUID_SLOT.sub(lambda match: _RAW_OUTPUT_FILTER.sub(" }}", tags[int(match.group(1))]), text)
 
 
 def convert_version(
