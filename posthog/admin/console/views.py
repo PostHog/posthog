@@ -266,9 +266,13 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                     request,
                     operation,
                     panel.owner,
-                    reverse(
-                        record_type.operation_url_name,
-                        kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                    _with_kept_query(
+                        reverse(
+                            record_type.operation_url_name,
+                            kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                        ),
+                        request,
+                        (SUPPORT_TICKET_PARAM,),
                     ),
                 )
                 for operation in _offered_operations(panel, obj)
@@ -281,14 +285,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": [
-                RecordLink(
-                    label=link.label,
-                    href=_with_kept_query(link.href, request, link.keep_query),
-                    title=link.title,
-                )
-                for link in record_type.links(obj)
-            ],
+            "record_links": record_type.links(obj),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -468,13 +465,17 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
 def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
     # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
     # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
+    # The one exception is an operation that opts in to a reason naming the support ticket it was opened from.
     if operation.form_class is None:
         return None
-    preselected = {
+    preselected: dict[str, object] = {
         name: request.GET[name]
         for name, field in operation.form_class.base_fields.items()
         if isinstance(field, forms.ChoiceField) and name in request.GET
     }
+    ticket = request.GET.get(SUPPORT_TICKET_PARAM, "").strip()
+    if operation.reason_from_ticket and ticket:
+        preselected["reason"] = f"For ticket {ticket}"
     if not preselected:
         return operation.form_initial
     return {**(operation.form_initial or {}), **preselected}

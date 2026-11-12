@@ -39,6 +39,8 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_password_reset, send_two_factor_reset_email
 
+from ee.admin.loginas_views import start_impersonation
+
 # Every relation is counted with its own capped query, so this bounds how much of a table the
 # preview reads. The exact figure past the cap doesn't change the operator's decision.
 DELETION_SUMMARY_COUNT_CAP = 100
@@ -90,8 +92,6 @@ class UserOverviewPanel(Panel):
             )
         if obj.is_staff:
             facts.append(Fact(label="Staff", value="Yes", tone=Tone.INFO))
-        if obj.allow_impersonation is False:
-            facts.append(Fact(label="Log in as user", value="Turned off by the user"))
         return facts
 
 
@@ -266,6 +266,71 @@ class UserSignInPanel(Panel):
             )
         )
         return operations
+
+
+class LogInAsUserForm(forms.Form):
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Goes into the audit log.",
+    )
+    # The checkbox posts nothing when cleared, so the handler passes the mode on instead of the raw POST value.
+    read_only = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Read-only mode (recommended)",
+        help_text="Blocks changes. You can switch to read and write later in the app, with a reason.",
+    )
+
+
+def log_in_as_user(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse:
+    assert isinstance(obj, User) and form is not None
+    # The same function the Django admin route `loginas-user-login` runs, so CAN_LOGIN_AS, the required reason, the
+    # session flags and the impersonation_started event apply here unchanged. django-loginas reads the reason from
+    # the POST body, where this form's `reason` field puts it.
+    return start_impersonation(request, str(obj.pk), read_only=form.cleaned_data["read_only"])
+
+
+class Impersonation:
+    @staticmethod
+    def refusal(user: User) -> str | None:
+        """Why staff cannot log in as this user. CAN_LOGIN_AS refuses the same cases when the form is posted."""
+        if user.is_staff:
+            return "Not possible for staff accounts"
+        if user.allow_impersonation is False:
+            return "Turned off by the user"
+        return None
+
+
+@console.register_panel
+class UserImpersonationPanel(Panel):
+    record = "user"
+    key = "log-in-as"
+    title = "Log in as user"
+    owner = DEV_EXPERIENCE
+    operation_keys = frozenset({"log-in"})
+    order = 40
+
+    def facts(self, obj: Model) -> list[Fact]:
+        assert isinstance(obj, User)
+        refusal = Impersonation.refusal(obj)
+        if refusal is None:
+            return []
+        return [Fact(label="Log in as user", value=refusal)]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        assert isinstance(obj, User)
+        if Impersonation.refusal(obj) is not None:
+            return []
+        return [
+            Operation(
+                key="log-in",
+                label="Log in as user",
+                handler=log_in_as_user,
+                form_class=LogInAsUserForm,
+                description="You see PostHog as this user until you log out or the session times out.",
+                reason_from_ticket=True,
+            )
+        ]
 
 
 @frozen

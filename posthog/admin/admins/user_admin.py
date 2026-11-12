@@ -1,7 +1,6 @@
 from typing import Any
 
 from django.contrib import admin
-from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import (
     ReadOnlyPasswordHashWidget as DjangoReadOnlyPasswordHashWidget,
@@ -10,7 +9,6 @@ from django.contrib.auth.forms import (
 from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX, identify_hasher
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.http import urlencode
@@ -20,26 +18,15 @@ from django.utils.translation import gettext_lazy as _
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.records import SUPPORT_TICKET_PARAM
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline
 from posthog.admin.inlines.personal_api_key_inline import PersonalAPIKeyInline
 from posthog.admin.inlines.scim_provisioned_user_inline import SCIMProvisionedUserInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
 from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
-from posthog.helpers.email_utils import EmailNormalizer
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
-
-# Support tools (Hogdesk) link to the user search as `?q=<email>&ticket=<ticket url>`, and
-# change_form.html prefills the "Log in as user" reason from it.
-TICKET_PARAM = "ticket"
-
-
-class UserChangeList(ChangeList):
-    # Django reads unknown query params as field lookups, and a `ticket` lookup on User redirects to `?e=1`.
-    def get_filters_params(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        lookup_params = super().get_filters_params(params)
-        lookup_params.pop(TICKET_PARAM, None)
-        return lookup_params
 
 
 class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
@@ -87,7 +74,6 @@ class UserAdmin(DjangoUserAdmin):
 
     form = UserChangeForm
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
-    change_form_template = "admin/posthog/user/change_form.html"
 
     inlines = [
         OrganizationMemberForUserInline,
@@ -114,6 +100,7 @@ class UserAdmin(DjangoUserAdmin):
                     "two_factor_status",
                     "passkeys_enabled_for_2fa",
                     "allow_impersonation",
+                    "log_in_as_moved",
                 )
             },
         ),
@@ -148,32 +135,28 @@ class UserAdmin(DjangoUserAdmin):
         "revoke_sessions_link",
         "two_factor_status",
         "allow_impersonation",
+        "log_in_as_moved",
         "last_login",
         "date_joined",
         "deletion_moved",
     ]
     ordering = ("email",)
 
-    def get_changelist(self, request: HttpRequest, **kwargs: Any) -> type[ChangeList]:
-        return UserChangeList
-
     def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
-        response = super().changelist_view(request, extra_context)
-        ticket = request.GET.get(TICKET_PARAM)
-        if ticket and isinstance(response, TemplateResponse):
-            changelist = (response.context_data or {}).get("cl")
-            if changelist is not None and changelist.result_count == 1:
-                user = changelist.result_list[0]
-                # Exact email only, not any single result: the search matches substrings, and a near
-                # miss has to stay on the list where the engineer can see it.
-                if EmailNormalizer.normalize(user.email) != EmailNormalizer.normalize(changelist.query.strip()):
-                    return response
-                # Save and Close return to `_changelist_filters`, so `ticket` in it would bounce them back here.
-                filters = request.GET.copy()
-                del filters[TICKET_PARAM]
-                query = urlencode({TICKET_PARAM: ticket, "_changelist_filters": filters.urlencode()})
-                return HttpResponseRedirect(f"{reverse('admin:posthog_user_change', args=[user.pk])}?{query}")
-        return response
+        # Support tools (Hogdesk) link here as `?q=<email>&ticket=<ticket url>`.
+        if SUPPORT_TICKET_PARAM not in request.GET:
+            return super().changelist_view(request, extra_context)
+        ticket = request.GET[SUPPORT_TICKET_PARAM]
+        # Exact email only: the list search matches substrings, and a near miss has to stay on the list where staff
+        # can see it.
+        user = EmailLookupHandler.get_user_by_email(request.GET.get("q", "").strip(), is_active=None)
+        if user is not None:
+            console_url = reverse("admin_console_user", kwargs={"pk": user.pk})
+            return HttpResponseRedirect(f"{console_url}?{urlencode({SUPPORT_TICKET_PARAM: ticket})}")
+        # Django reads an unknown query parameter as a field lookup, and a `ticket` lookup on User fails.
+        query = request.GET.copy()
+        del query[SUPPORT_TICKET_PARAM]
+        return HttpResponseRedirect(f"{request.path}?{query.urlencode()}" if query else request.path)
 
     @admin.display(description="Current Team")
     def current_team_link(self, user: User):
@@ -238,6 +221,12 @@ class UserAdmin(DjangoUserAdmin):
         # Deleting a user asks for a reason, checks what cascades with the account and logs the reason to every
         # organization of the user, so it runs as an operation in PostHog Admin. The old delete URL redirects there.
         return False
+
+    @admin.display(description="Log in as user")
+    def log_in_as_moved(self, user: User):
+        if not user.pk:
+            return "-"
+        return MovedToConsole.action("user", user, "log-in-as", "Logging in as the user")
 
     @admin.display(description="Delete user")
     def deletion_moved(self, user: User):
