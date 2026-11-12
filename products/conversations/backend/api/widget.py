@@ -54,6 +54,7 @@ from products.conversations.backend.cache import (
     get_cached_session_has_tickets,
     get_cached_tickets,
     get_identity_tickets_cache_namespace,
+    get_messages_cache_version,
     get_person_distinct_ids,
     invalidate_identity_tickets_cache,
     invalidate_tickets_cache,
@@ -680,9 +681,10 @@ class WidgetMessagesView(APIView):
 
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
-        use_cache = limit == 50  # Only cache the limit used by widget polling
-        if use_cache:
-            cached = get_cached_messages(team.id, ticket_id, after_str)
+        # Only cache the limit used by widget polling
+        cache_version = get_messages_cache_version(team.id, str(ticket.id)) if limit == 50 else None
+        if cache_version is not None:
+            cached = get_cached_messages(team.id, str(ticket.id), cache_version, after_str)
             if cached is not None:
                 return Response(cached)
 
@@ -745,8 +747,8 @@ class WidgetMessagesView(APIView):
         }
 
         # Cache the response
-        if use_cache:
-            set_cached_messages(team.id, ticket_id, response_data, after_str)
+        if cache_version is not None:
+            set_cached_messages(team.id, str(ticket.id), cache_version, response_data, after_str)
 
         return Response(response_data)
 

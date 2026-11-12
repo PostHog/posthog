@@ -438,6 +438,47 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(len(response.json()["messages"]), 2)
         self.assertEqual(response.json()["messages"][0]["content"], "First message")
 
+    @parameterized.expand([("first_load", False), ("poll", True)])
+    def test_get_messages_shows_a_new_message_in_place_of_the_cached_response(self, _name, use_after_cursor):
+        cache.clear()
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        first = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Customer question",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+        # The widget polls with limit=50, the only limit the endpoint caches.
+        query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+        if use_after_cursor:
+            query["after"] = first.created_at.isoformat()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+
+        cached_response = self.client.get(url, query, **self._get_headers())
+        self.assertEqual(cached_response.status_code, status.HTTP_200_OK)
+        expected_before = [] if use_after_cursor else ["Customer question"]
+        self.assertEqual([m["content"] for m in cached_response.json()["messages"]], expected_before)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content="Agent reply",
+                created_by=self.user,
+                item_context={"author_type": "team", "is_private": False},
+            )
+
+        response = self.client.get(url, query, **self._get_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([m["content"] for m in response.json()["messages"]], [*expected_before, "Agent reply"])
+
     def test_get_messages_shows_a_workflow_reply_as_staff(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,
