@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 import hashlib
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person import Person
-from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.persons_db import persons_db_connection
@@ -42,9 +43,9 @@ from products.data_catalog.evals.scenario_synthesizer import (
     POST_TAX_MULTIPLIER,
     PREVIEW_ADOPTION,
     SHARE_BLOCK_FROM_DAYS_AGO,
-    SHARE_BLOCK_TO_DAYS_AGO,
     SHARE_DAU_DAILY_SHARERS,
     SHARE_DAU_WINDOW_DAYS,
+    SHARE_EXPOSURE_TO_DAYS_AGO,
     SHARE_FLAG_BLOCKED_VARIANT,
     SHARE_FLAG_CONTROL_VARIANT,
     SLACK_PRETAX_TEXT,
@@ -54,7 +55,6 @@ from products.data_catalog.evals.scenario_synthesizer import (
     EventNeedle,
     FlagNeedle,
     TableNeedle,
-    build_account_health,
     build_flat_wau,
     build_mcp_tool_shipped,
     build_revenue_rep_outlier,
@@ -66,7 +66,13 @@ from products.data_catalog.evals.scenario_synthesizer import (
     crm_deals_table,
     initial_person_properties,
 )
-from products.data_catalog.evals.seeders import _FLOAT_COLUMN, _INTEGER_COLUMN, _STRING_COLUMN, _synced_table
+from products.data_catalog.evals.seeders import (
+    FLOAT_COLUMN,
+    STRING_COLUMN,
+    synced_table,
+    synced_table_names,
+    team_and_user,
+)
 from products.feature_flags.backend.facade.api import create_flag
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -74,7 +80,6 @@ if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 __all__ = [
-    "seed_churn_risk_sources",
     "seed_flat_wau",
     "seed_health_check_mix",
     "seed_mcp_tool_shipped",
@@ -93,24 +98,18 @@ __all__ = [
 _PREVIEW_ACTIVITY_EVENTS = ("$pageview", "logged_in", "uploaded_file", "downloaded_file", "shared_file_link")
 
 _CRM_COLUMN_TYPES = {
-    "deal_id": _STRING_COLUMN,
-    "rep_name": _STRING_COLUMN,
-    "rep_email": _STRING_COLUMN,
-    "account_name": _STRING_COLUMN,
-    "closed_on": _STRING_COLUMN,
-    "amount_usd": _FLOAT_COLUMN,
+    "deal_id": STRING_COLUMN,
+    "rep_name": STRING_COLUMN,
+    "rep_email": STRING_COLUMN,
+    "account_name": STRING_COLUMN,
+    "closed_on": STRING_COLUMN,
+    "amount_usd": FLOAT_COLUMN,
 }
-_SLACK_COLUMN_TYPES = dict.fromkeys(("channel", "ts", "user", "text"), _STRING_COLUMN)
-_HEALTH_COLUMN_TYPES = {"account_name": _STRING_COLUMN, "churn_health": _INTEGER_COLUMN, "as_of": _STRING_COLUMN}
+_SLACK_COLUMN_TYPES = dict.fromkeys(("channel", "ts", "user", "text"), STRING_COLUMN)
 _TABLE_DESCRIPTIONS = {
     "crm_deals": "CRM export of closed deals, one row per deal, amounts in USD.",
     "slack_messages": "Export of internal Slack messages from the team's public channels.",
-    "account_health": "Churn health score per account, from 0 (healthy) to 10 (likely to churn).",
 }
-
-
-def _team_and_user(context: CustomPromptSandboxContext) -> tuple[Team, User]:
-    return Team.objects.get(pk=context.team_id), User.objects.get(pk=context.user_id)
 
 
 def _person_uuid(team_id: int, distinct_id: str) -> uuid.UUID:
@@ -176,8 +175,6 @@ def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
                 "distinct_id": event.distinct_id,
                 "timestamp": _at(now, event.days_ago, event.minute_of_day),
                 "properties": dict(event.properties),
-                "person_id": _person_uuid(team.id, event.distinct_id),
-                "person_properties": person_properties[event.distinct_id],
             }
             for event in needle.events
         ],
@@ -198,7 +195,7 @@ def _resolved_rows(table: TableNeedle, now: datetime) -> tuple[tuple[Any, ...], 
 def _seed_table(
     team: Team, user: User, table: TableNeedle, column_types: dict[str, dict[str, Any]], description: str, now: datetime
 ) -> dict[str, Any]:
-    synced = _synced_table(
+    synced = synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.POSTGRES,
@@ -208,23 +205,38 @@ def _seed_table(
         rows=_resolved_rows(table, now),
         descriptions={"": description},
     )
-    return {"name": synced.name, "aliases": table_aliases(table), "rows": len(table.rows)}
+    return {"name": synced.name, "aliases": synced_table_names(table.table_name), "rows": len(table.rows)}
 
 
-def table_aliases(table: TableNeedle) -> list[str]:
-    """A synced table answers to its stored name and to the dotted name HogQL builds from the source."""
-    return [table.table_name, f"postgres.{table.schema_name}"]
+# HogQL returns 100 rows for a query without a LIMIT, and never more than this many.
+_MAX_SEED_ROWS = 50_000
+# Days count in UTC, because `_at` plants events on UTC days and `today()` uses the team's timezone.
+_UTC_DAYS_AGO = "dateDiff('day', toDate(toTimeZone(timestamp, 'UTC')), toDate(toTimeZone(now(), 'UTC')))"
+
+
+def _all_rows(response: Any, query_name: str) -> list[Any]:
+    """The query rows. A full page means rows were cut off, so the seed fails as an infrastructure error."""
+    rows = list(response.results or [])
+    if len(rows) >= _MAX_SEED_ROWS:
+        raise RuntimeError(
+            f"The {query_name} seed query hit the {_MAX_SEED_ROWS}-row cap, so the planted truth would be partial."
+        )
+    return rows
+
+
+def _person_mapping(team: Team, distinct_ids: Iterable[str]) -> dict[str, Person]:
+    """Resolve each distinct id once, because ``bulk_create_events`` otherwise looks the person up per event."""
+    return get_persons_mapped_by_distinct_id(team.id, sorted(set(distinct_ids)))
 
 
 def _plant_flat_wau(team: Team, user: User, now: datetime) -> dict[str, Any]:
     """Hold weekly active users level, so the only WAU change in a case is the one the case plants."""
     response = execute_hogql_query(
-        "SELECT person_id, groupUniqArray(dateDiff('day', toDate(timestamp), today())) FROM events "
-        "GROUP BY person_id LIMIT 50000",
+        f"SELECT person_id, groupUniqArray({_UTC_DAYS_AGO}) FROM events GROUP BY person_id LIMIT {_MAX_SEED_ROWS}",
         team=team,
         user=user,
     )
-    rows = response.results or []
+    rows = _all_rows(response, "flat WAU")
     if not rows:
         raise RuntimeError("The Hedgebox master data has no events to hold level.")
     daily_active: list[set[str]] = [set() for _ in range(max(max(days) for _, days in rows) + 1)]
@@ -259,7 +271,7 @@ def _plant_upload_double_count(team: Team, user: User, now: datetime) -> dict[st
         "SELECT distinct_id, timestamp, properties, person_id FROM events "
         "WHERE event = {event} AND timestamp >= now() - toIntervalDay({from_days}) "
         "AND timestamp < now() - toIntervalDay({to_days}) "
-        "ORDER BY timestamp LIMIT 50000",
+        f"ORDER BY timestamp LIMIT {_MAX_SEED_ROWS}",
         team=team,
         user=user,
         placeholders={
@@ -268,7 +280,7 @@ def _plant_upload_double_count(team: Team, user: User, now: datetime) -> dict[st
             "to_days": ast.Constant(value=spec.to_days_ago),
         },
     )
-    rows = response.results or []
+    rows = _all_rows(response, "upload doubling")
     if not rows:
         # Without uploads in the window there is nothing to double, and the agent would be graded on a
         # tracking bug the data does not show. Fail the seed so the case reads as an infrastructure error.
@@ -287,7 +299,7 @@ def _plant_upload_double_count(team: Team, user: User, now: datetime) -> dict[st
                 "person_id": person_id,
             }
         )
-    bulk_create_events(events)
+    bulk_create_events(events, person_mapping=_person_mapping(team, (event["distinct_id"] for event in events)))
     return {
         "event": spec.event,
         "duplicated": len(events),
@@ -323,23 +335,23 @@ def _plant_share_drop_flag(team: Team, user: User, now: datetime) -> dict[str, A
         "flag_key": needle.key,
         "blocked_variant": SHARE_FLAG_BLOCKED_VARIANT,
         "from_days_ago": SHARE_BLOCK_FROM_DAYS_AGO,
-        "to_days_ago": SHARE_BLOCK_TO_DAYS_AGO,
+        "exposure_to_days_ago": SHARE_EXPOSURE_TO_DAYS_AGO,
     }
 
 
 def seed_flat_wau(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     return {"flat_wau": _plant_flat_wau(team, user, timezone.now())}
 
 
 def seed_wau_spike_with_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     now = timezone.now()
     return {"flat_wau": _plant_flat_wau(team, user, now), "wau_spike": _plant_wau_spike(team, user, now)}
 
 
 def seed_wau_bot_spike(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     now = timezone.now()
     flat = _plant_flat_wau(team, user, now)
     needle = build_wau_bot_spike()
@@ -351,25 +363,26 @@ def seed_wau_bot_spike(context: CustomPromptSandboxContext) -> dict[str, Any]:
 
 
 def seed_upload_double_count(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     return {"upload_double_count": _plant_upload_double_count(team, user, timezone.now())}
 
 
 def seed_share_dau(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, _ = _team_and_user(context)
+    team, _ = team_and_user(context)
     events = _plant_needle(team, build_share_dau(), timezone.now())
     return {"share_dau": {"daily_sharers": SHARE_DAU_DAILY_SHARERS, "days": SHARE_DAU_WINDOW_DAYS, "events": events}}
 
 
 def seed_share_drop_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     return {"share_drop_flag": _plant_share_drop_flag(team, user, timezone.now())}
 
 
 def seed_health_check_mix(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     now = timezone.now()
     return {
+        "flat_wau": _plant_flat_wau(team, user, now),
         "wau_spike": _plant_wau_spike(team, user, now),
         "upload_double_count": _plant_upload_double_count(team, user, now),
         "share_drop_flag": _plant_share_drop_flag(team, user, now),
@@ -377,7 +390,7 @@ def seed_health_check_mix(context: CustomPromptSandboxContext) -> dict[str, Any]
 
 
 def seed_revenue_rep_outlier(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     outlier = build_revenue_rep_outlier()
     table = _seed_table(
         team, user, crm_deals_table(outlier), _CRM_COLUMN_TYPES, _TABLE_DESCRIPTIONS["crm_deals"], timezone.now()
@@ -398,13 +411,14 @@ def _adoption_threshold(distinct_id: str) -> float:
 
 
 def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     spec = PREVIEW_ADOPTION
     now = timezone.now()
     response = execute_hogql_query(
-        "SELECT distinct_id, any(person_id), dateDiff('day', toDate(timestamp), today()) AS days_ago FROM events "
-        "WHERE event IN {events} AND timestamp >= now() - toIntervalDay({days}) "
-        "GROUP BY distinct_id, days_ago ORDER BY days_ago, distinct_id LIMIT 50000",
+        f"SELECT distinct_id, any(person_id), {_UTC_DAYS_AGO} AS days_ago FROM events "
+        # The timestamp bound only prunes the scan, so the time of day cannot change the result.
+        f"WHERE event IN {{events}} AND timestamp >= now() - toIntervalDay({{days}} + 2) AND {_UTC_DAYS_AGO} <= {{days}} "
+        f"GROUP BY distinct_id, days_ago ORDER BY days_ago, distinct_id LIMIT {_MAX_SEED_ROWS}",
         team=team,
         user=user,
         placeholders={
@@ -413,7 +427,7 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
         },
     )
     active_by_day: dict[int, list[tuple[str, Any]]] = {}
-    for distinct_id, person_id, days_ago in response.results or []:
+    for distinct_id, person_id, days_ago in _all_rows(response, "preview adoption"):
         if 1 <= days_ago <= spec.first_seen_days_ago:
             active_by_day.setdefault(int(days_ago), []).append((distinct_id, person_id))
     if spec.first_seen_days_ago not in active_by_day:
@@ -436,7 +450,7 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
                     "person_id": person_id,
                 }
             )
-    bulk_create_events(events)
+    bulk_create_events(events, person_mapping=_person_mapping(team, (event["distinct_id"] for event in events)))
     return {
         "preview_adoption": {
             "event": spec.event,
@@ -449,7 +463,7 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
 
 
 def seed_mcp_tool_shipped(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, _ = _team_and_user(context)
+    team, _ = team_and_user(context)
     needle = build_mcp_tool_shipped()
     events = _plant_needle(team, needle, timezone.now())
     return {
@@ -463,7 +477,7 @@ def seed_mcp_tool_shipped(context: CustomPromptSandboxContext) -> dict[str, Any]
 
 
 def seed_slack_pretax_note(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     slack = build_slack_export()
     table = _seed_table(
         team, user, slack.table, _SLACK_COLUMN_TYPES, _TABLE_DESCRIPTIONS["slack_messages"], timezone.now()
@@ -471,26 +485,8 @@ def seed_slack_pretax_note(context: CustomPromptSandboxContext) -> dict[str, Any
     return {"slack_messages": table, "pretax_note": SLACK_PRETAX_TEXT, "post_tax_multiplier": POST_TAX_MULTIPLIER}
 
 
-def seed_churn_risk_sources(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    """Both sources the churn-risk markdown metric reads. The metric itself is the metric-kinds suite's to seed."""
-    team, user = _team_and_user(context)
-    now = timezone.now()
-    slack = build_slack_export()
-    health = build_account_health()
-    return {
-        "slack_messages": _seed_table(
-            team, user, slack.table, _SLACK_COLUMN_TYPES, _TABLE_DESCRIPTIONS["slack_messages"], now
-        ),
-        "account_health": _seed_table(
-            team, user, health.table, _HEALTH_COLUMN_TYPES, _TABLE_DESCRIPTIONS["account_health"], now
-        ),
-        "unhappy_accounts": list(slack.unhappy_accounts),
-        "at_risk_accounts": list(health.at_risk_accounts),
-    }
-
-
 def seed_org_grain_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     metric = upsert_metric(
         team=team,
         user=user,
