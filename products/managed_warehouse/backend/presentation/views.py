@@ -32,6 +32,7 @@ from products.managed_warehouse.backend.facade.access import (
     enable_customer_warehouse_access,
     is_internal_warehouse,
 )
+from products.managed_warehouse.backend.facade.contracts import ControlPlaneStorage
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
 
@@ -1333,6 +1334,14 @@ def cp_bucket_for(organization_id: UUID | str) -> str | None:
     return body.get("bucket") or None
 
 
+def _storage_from_status(body: dict) -> ControlPlaneStorage | None:
+    if not body.get("bucket"):
+        return None
+    prefix = str(body.get("bucket_prefix") or "").strip("/")
+    root = f"s3://{body['bucket']}/"
+    return ControlPlaneStorage(bucket=str(body["bucket"]), data_path=f"{root}{prefix}/" if prefix else root)
+
+
 def cp_data_path_for(organization_id: UUID | str) -> str | None:
     """S3 URI of the org's DuckLake data path, as `s3://<bucket>/` or `s3://<bucket>/<prefix>/`.
 
@@ -1340,11 +1349,21 @@ def cp_data_path_for(organization_id: UUID | str) -> str | None:
     relative to this root, so files must land under it. None when the control plane names no bucket.
     """
     body = _cp_status_body(organization_id)
-    if body is None or not body.get("bucket"):
+    storage = _storage_from_status(body) if body is not None else None
+    return storage.data_path if storage is not None else None
+
+
+def cp_storage_for(organization_id: UUID | str) -> ControlPlaneStorage | None:
+    """The org's bucket and data path from one control-plane status, with the same org-id check as `cp_bucket_for`.
+
+    A caller that checks the data path against the bucket must read both from one status, because a second request
+    that fails would hide the prefix. Also reconciles the stored `DuckgresServer` row, as `cp_bucket_for` does.
+    """
+    body = _cp_status_body(organization_id)
+    if body is None:
         return None
-    prefix = str(body.get("bucket_prefix") or "").strip("/")
-    root = f"s3://{body['bucket']}/"
-    return f"{root}{prefix}/" if prefix else root
+    _reconcile_bucket_from_status(organization_id, body)
+    return _storage_from_status(body)
 
 
 def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:

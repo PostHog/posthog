@@ -94,6 +94,7 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    ControlPlaneStorage,
     CPUnavailableError,
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
@@ -150,8 +151,10 @@ class TestResolveDucklingTarget:
     ):
         # The control plane is the authoritative owner of the bucket name.
         with patch(
-            "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-            return_value="posthog-duckling-org-1-mw-prod-us",
+            "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+            return_value=ControlPlaneStorage(
+                bucket="posthog-duckling-org-1-mw-prod-us", data_path="s3://posthog-duckling-org-1-mw-prod-us/"
+            ),
         ) as mock_cp:
             target = _resolve_duckling_target(7)
 
@@ -176,47 +179,40 @@ class TestResolveDucklingTarget:
                 return_value=server,
             ),
             patch(
-                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-                return_value="posthog-duckling-org-1-mw-prod-us",
+                "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+                return_value=ControlPlaneStorage(
+                    bucket="posthog-duckling-org-1-mw-prod-us", data_path="s3://posthog-duckling-org-1-mw-prod-us/"
+                ),
             ),
         ):
             target = _resolve_duckling_target(7)
 
         assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
 
+    @parameterized.expand(
+        [
+            ("per_org_ducklake_bucket", "posthog-duckling-org-1-mw-prod-us", True),
+            # A shared bucket holds the warehouse under a prefix that only the control plane names, so exporting to
+            # its root would put the files outside the warehouse.
+            ("shared_bucket", "shared-warehouses", False),
+            ("no_stored_server", None, False),
+        ]
+    )
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
-    def test_falls_back_to_stored_server_when_control_plane_unavailable(
-        self, _mock_org: MagicMock, _mock_tables: MagicMock
+    def test_falls_back_to_a_stored_per_org_bucket_when_the_control_plane_cannot_answer(
+        self, _name, stored_bucket: str | None, falls_back: bool, _mock_org: MagicMock, _mock_tables: MagicMock
     ):
-        # CP can't answer → use the known-good stored row rather than failing the run.
-        server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", region="us-east-1")
+        server = MagicMock(bucket=stored_bucket, region="us-east-1") if stored_bucket else None
         with (
-            patch(
-                "posthog.dags.events_backfill_to_duckling.get_stored_bucket_config",
-                return_value=server,
-            ),
-            patch(
-                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-                return_value=None,
-            ),
+            patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=server),
+            patch("posthog.dags.events_backfill_to_duckling.get_control_plane_storage", return_value=None),
         ):
-            target = _resolve_duckling_target(7)
-
-        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
-
-    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
-    @patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=None)
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
-    def test_raises_when_nothing_can_name_the_bucket(
-        self, _mock_org: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
-    ):
-        with patch(
-            "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-            return_value=None,
-        ):
-            with pytest.raises(ValueError, match="No S3 bucket resolvable"):
-                _resolve_duckling_target(7)
+            if falls_back:
+                assert _resolve_duckling_target(7).bucket == stored_bucket
+            else:
+                with pytest.raises(ValueError, match="No S3 bucket resolvable"):
+                    _resolve_duckling_target(7)
 
     @patch("posthog.dags.events_backfill_to_duckling.get_org_id_for_team", return_value="org-1")
     def test_resolves_a_hoglake_target_from_the_data_path_without_the_ducklake_table_names(self, _mock_org: MagicMock):
@@ -227,7 +223,7 @@ class TestResolveDucklingTarget:
                 return_value="s3://shared-warehouses/warehouses/org-1/",
             ),
             patch("posthog.dags.events_backfill_to_duckling._resolve_table_names") as mock_tables,
-            patch("products.managed_warehouse.backend.facade.api.get_control_plane_bucket") as mock_bucket,
+            patch("posthog.dags.events_backfill_to_duckling.get_control_plane_storage") as mock_bucket,
         ):
             target = _resolve_duckling_target(7)
 
@@ -253,14 +249,10 @@ class TestResolveDucklingTarget:
     def test_refuses_a_ducklake_warehouse_that_keeps_its_data_under_a_prefix(
         self, _mock_org: MagicMock, _mock_tables: MagicMock
     ):
-        with (
-            patch(
-                "posthog.dags.events_backfill_to_duckling.get_control_plane_data_path",
-                return_value="s3://shared-warehouses/warehouses/org-1/",
-            ),
-            patch(
-                "products.managed_warehouse.backend.facade.api.get_control_plane_bucket",
-                return_value="shared-warehouses",
+        with patch(
+            "posthog.dags.events_backfill_to_duckling.get_control_plane_storage",
+            return_value=ControlPlaneStorage(
+                bucket="shared-warehouses", data_path="s3://shared-warehouses/warehouses/org-1/"
             ),
         ):
             with pytest.raises(ValueError, match="cannot export to a prefix"):
@@ -285,7 +277,7 @@ class TestResolveDucklingTarget:
                 side_effect=CPUnavailableError("control plane down"),
             ),
             patch("posthog.dags.events_backfill_to_duckling.get_stored_bucket_config", return_value=server),
-            patch("products.managed_warehouse.backend.facade.api.get_control_plane_bucket", return_value=None),
+            patch("posthog.dags.events_backfill_to_duckling.get_control_plane_storage", return_value=None),
         ):
             if spared:
                 assert _resolve_duckling_target(7).bucket == stored_bucket

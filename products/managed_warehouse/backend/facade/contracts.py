@@ -204,6 +204,15 @@ class DuckgresStoredBucketConfig:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ControlPlaneStorage:
+    """The bucket and data path of a managed warehouse, both from one control-plane status."""
+
+    bucket: str
+    # `s3://<bucket>/`, or `s3://<bucket>/<prefix>/` for a warehouse under a prefix of a shared bucket.
+    data_path: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class DuckgresStoredServerConfig:
     """The persisted managed-warehouse configuration available outside the product."""
 

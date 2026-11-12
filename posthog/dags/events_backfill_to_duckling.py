@@ -96,6 +96,7 @@ from products.managed_warehouse.backend.facade.api import (
     DUCKGRES_BUCKET_REGION,
     get_catalog_connection_config,
     get_control_plane_data_path,
+    get_control_plane_storage,
     get_org_id_for_team,
     get_stored_bucket_config,
     resolve_team_earliest_event_date,
@@ -283,18 +284,16 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
       1. The control plane — the single owner of the duckling bucket name. It is consulted
          BEFORE the stored DuckgresServer row on purpose: a row provisioned before the
          naming fix carries a stale, locally-derived bucket that names an object store
-         that doesn't exist, and that stale value must not win. cp_bucket_for() also
+         that doesn't exist, and that stale value must not win. cp_storage_for() also
          reconciles the row so it converges for next time.
       2. The stored DuckgresServer.bucket, only as a fallback when the control plane is
-         unreachable/unconfigured — so a transient CP outage doesn't fail a run whose
-         bucket is already known-good.
+         unreachable/unconfigured, and only for a per-org posthog-duckling-* bucket, the one
+         kind that keeps the warehouse at the bucket root.
 
     The bucket name is never re-derived locally — that derivation drifted from the
     Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
     can name it rather than export to a guessed bucket.
     """
-    from products.managed_warehouse.backend.facade.api import get_control_plane_bucket  # noqa: PLC0415
-
     org_id = get_org_id_for_team(team_id)
     try:
         backend = get_trino_backend(org_id)
@@ -313,35 +312,36 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         return _resolve_hoglake_target(team_id, org_id)
     events_table, persons_table = _resolve_table_names(team_id)
 
-    # Control plane first — authoritative, and rejects an org_id-mismatched status body.
-    cp_bucket = get_control_plane_bucket(org_id)
-    if cp_bucket:
+    # Control plane first: authoritative, and it refuses a status body for another organization. The bucket and the
+    # data path come from one status, so a failed second request cannot hide a prefix.
+    storage = get_control_plane_storage(org_id)
+    if storage is not None:
         # ClickHouse can neither list nor reach the objects under a prefix of a shared bucket, and the DuckLake export
         # paths ignore the prefix, so the files would land outside the warehouse.
-        data_path = get_control_plane_data_path(org_id)
-        if data_path is not None and data_path != f"s3://{cp_bucket}/":
+        if storage.data_path != f"s3://{storage.bucket}/":
             raise ValueError(
-                f"The DuckLake warehouse of org {org_id} keeps its data under {data_path}, a prefix of a shared "
-                "bucket. The backfill cannot export to a prefix."
+                f"The DuckLake warehouse of org {org_id} keeps its data under {storage.data_path}, a prefix of a "
+                "shared bucket. The backfill cannot export to a prefix."
             )
         logger.info(
             "duckling_bucket_resolved_from_control_plane",
             team_id=team_id,
             organization_id=org_id,
-            bucket=cp_bucket,
+            bucket=storage.bucket,
         )
         return DucklingTarget(
             team_id=team_id,
             organization_id=org_id,
-            bucket=cp_bucket,
+            bucket=storage.bucket,
             bucket_region=DUCKGRES_BUCKET_REGION,
             events_table=events_table,
             persons_table=persons_table,
         )
 
-    # CP couldn't answer — fall back to the stored row if it knows a bucket.
+    # The control plane could not answer. Only a per-org DuckLake bucket keeps the warehouse at its root, so only such a
+    # stored bucket is safe without the control plane naming the data path.
     stored_bucket = get_stored_bucket_config(org_id)
-    if stored_bucket is not None:
+    if stored_bucket is not None and (stored_bucket.bucket or "").startswith(DUCKLAKE_BUCKET_PREFIX):
         bucket, bucket_region = stored_bucket.bucket, stored_bucket.region or DUCKGRES_BUCKET_REGION
         logger.warning(
             "duckling_bucket_from_stored_server_control_plane_unavailable",
@@ -359,8 +359,8 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         )
 
     raise ValueError(
-        f"No S3 bucket resolvable for org {org_id}: the control plane warehouse status named "
-        f"none, and no stored DuckgresServer bucket to fall back to."
+        f"No S3 bucket resolvable for org {org_id}: the control plane warehouse status named none, and no stored "
+        f"per-org DuckLake bucket ({DUCKLAKE_BUCKET_PREFIX}*) to fall back to."
     )
 
 
