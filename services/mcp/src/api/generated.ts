@@ -128982,7 +128982,12 @@ export namespace Schemas {
 
     export type MembersProjectAccessRetrieveParams = {
     /**
-     * Narrow the list to one organization membership id.
+     * Narrow the list to the member with this email address (case-insensitive). Combined with `member_id`, both must match.
+     * @minLength 1
+     */
+    email?: string;
+    /**
+     * Narrow the list to one organization membership id. Combined with `email`, both must match.
      */
     member_id?: string;
     };
