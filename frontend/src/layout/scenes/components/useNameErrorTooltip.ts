@@ -12,7 +12,6 @@ export interface NameErrorTooltip {
     }
 }
 
-/** Opens the error tooltip on hover and while the field has focus, and lets Escape close it. */
 export function useNameErrorTooltip(error: string | undefined, fieldOpen: boolean): NameErrorTooltip {
     const [open, setOpen] = useState(false)
     const errorId = useId()

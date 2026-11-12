@@ -9,7 +9,6 @@ export interface SceneNameEditingOptions {
     renameDebounceMs?: number
     saveOnBlur?: boolean
     isGeneratingMetadata?: boolean
-    /** Opens a closed field, so the error shows on the field itself. */
     error?: string
 }
 
