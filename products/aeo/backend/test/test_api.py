@@ -391,7 +391,18 @@ class TestAEOPromptAPI(APIBaseTest):
             assert latest["claude-web-search"]["search_queries"] == []
         assert listed["never checked?"]["latest_checks"] == []
 
-    def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(self) -> None:
+    @parameterized.expand(
+        [
+            ("defaults", {}, ["cited long ago?", "edited again?", "never cited?"]),
+            # claude-web-search cites "cited?", but exa-answer never does.
+            ("one_engine", {"engine": "exa-answer"}, ["cited long ago?", "cited?", "edited again?", "never cited?"]),
+            # The window reaches the citation of 40 days ago.
+            ("longer_window", {"days": 60}, ["edited again?", "never cited?"]),
+        ]
+    )
+    def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(
+        self, _name: str, query: dict[str, object], expected: list[str]
+    ) -> None:
         texts = ["cited?", "never cited?", "only failed?", "cited long ago?", "never checked?"]
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": t} for t in texts]}, format="json")
         ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
@@ -409,14 +420,10 @@ class TestAEOPromptAPI(APIBaseTest):
         self.client.patch(f"{self.url}{edited_id}/", {"prompt": "edited again?"}, format="json")
         self._record_check(edited_id, "exa-answer", minutes_ago=10, cited=False)
 
-        response = self.client.get(self.url, {"needs_improvement": "true"}).json()
+        response = self.client.get(self.url, {"needs_improvement": "true", **query}).json()
 
-        assert sorted(row["prompt"] for row in response["results"]) == [
-            "cited long ago?",
-            "edited again?",
-            "never cited?",
-        ]
-        assert response["count"] == 3
+        assert sorted(row["prompt"] for row in response["results"]) == expected
+        assert response["count"] == len(expected)
 
     @parameterized.expand(
         [
@@ -1165,6 +1172,12 @@ class TestAEOPromptAPI(APIBaseTest):
 
         current, previous = overview["current"], overview["previous"]
         assert overview["branded"] == rankings["branded"] == branded
+        assert (overview["engine"], overview["topic"], rankings["engine"], rankings["topic"]) == (
+            None,
+            None,
+            None,
+            None,
+        )
         assert (
             current["checks"],
             current["failed"],
@@ -1180,11 +1193,63 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [row["query"] for row in overview["top_searches"]] == expected_searches
         assert (rankings["answers"], sorted(row["url"] for row in rankings["top_pages"])) == expected_rankings
 
-    def test_overview_rejects_an_unknown_branded_value(self) -> None:
-        assert self.client.get(f"{self.url}overview/?branded=yes").status_code == status.HTTP_400_BAD_REQUEST
+    @parameterized.expand(
+        [
+            ("every_check", {}, (3, 3), ["claude-web-search", "exa-answer"], ["", "Pricing", "Replay"], 2),
+            ("one_engine", {"engine": "exa-answer"}, (1, 3), ["exa-answer"], ["", "Pricing", "Replay"], 1),
+            ("one_topic", {"topic": "Pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
+            ("no_topic", {"topic": ""}, (1, 1), ["exa-answer"], [""], 1),
+            ("unknown_engine", {"engine": "nope"}, (0, 3), [], ["", "Pricing", "Replay"], 0),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_overview_and_rankings_narrow_to_one_engine_or_topic(
+        self,
+        _name: str,
+        query: dict[str, str],
+        expected_counts: tuple[int, int],
+        expected_engines: list[str],
+        expected_topics: list[str],
+        expected_cited_pages: int,
+    ) -> None:
+        ids = self._import_prompts(
+            [
+                {"prompt": "pricing?", "topic": "Pricing"},
+                {"prompt": "replay?", "topic": "Replay"},
+                {"prompt": "anything?"},
+            ]
+        )
+        ours = "https://example.com/pricing"
+        self._record_check(ids["pricing?"], "claude-web-search", minutes_ago=10, cited=True, cited_urls=[ours])
+        self._record_check(ids["replay?"], "claude-web-search", minutes_ago=10)
+        self._record_check(ids["anything?"], "exa-answer", minutes_ago=10, cited=True, cited_urls=[ours])
+        create_own_brand(self.team, "example.com")
 
-    def test_overview_rejects_a_window_outside_the_bounds(self) -> None:
-        assert self.client.get(f"{self.url}overview/?days=0").status_code == status.HTTP_400_BAD_REQUEST
+        overview = self.client.get(f"{self.url}overview/", query).json()
+        rankings = self.client.get(f"{self.url}rankings/", query).json()
+
+        assert (overview["current"]["checks"], overview["prompts_tracked"]) == expected_counts
+        assert [row["engine"] for row in overview["engines"]] == expected_engines
+        assert [row["topic"] for row in overview["topics"]] == expected_topics
+        assert sum(row["answers"] for row in overview["top_domains"]) == expected_cited_pages
+        assert rankings["answers"] == expected_counts[0]
+        assert sum(row["answers"] for row in rankings["top_pages"]) == expected_cited_pages
+        assert (overview["engine"], overview["topic"]) == (query.get("engine"), query.get("topic"))
+        assert (rankings["engine"], rankings["topic"]) == (query.get("engine"), query.get("topic"))
+
+    @parameterized.expand(
+        [
+            ("unknown_branded", "overview", "branded=yes"),
+            ("window_below_bounds", "overview", "days=0"),
+            ("window_above_bounds", "rankings", "days=91"),
+            ("engine_too_long", "overview", f"engine={'e' * 65}"),
+            ("topic_too_long", "rankings", f"topic={'t' * 201}"),
+            ("needs_improvement_window_above_bounds", "", "needs_improvement=true&days=91"),
+        ]
+    )
+    def test_set_reads_reject_invalid_filters(self, _name: str, endpoint: str, query: str) -> None:
+        path = f"{self.url}{endpoint}/" if endpoint else self.url
+        assert self.client.get(f"{path}?{query}").status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand([("above_range", 140), ("not_a_number", "NaN"), ("infinite", "Infinity")])
     def test_bulk_import_rejects_invalid_visibility(self, _name: str, visibility: object) -> None:
@@ -1497,6 +1562,7 @@ class TestAEOKeywordAPI(APIBaseTest):
         position: int | None = None,
         check_failed: bool = False,
         days_ago: int = 0,
+        topic: str = "",
     ) -> None:
         with team_scope(self.team.pk):
             prompt = self._prompts.get(prompt_text)
@@ -1515,6 +1581,7 @@ class TestAEOKeywordAPI(APIBaseTest):
                 prompt_text=prompt_text,
                 prompt_source=prompt.prompt_source,
                 prompt_hash=prompt.prompt_hash,
+                prompt_topic=topic,
                 engine=engine,
                 model=engine,
                 cited=cited,
@@ -1719,6 +1786,54 @@ class TestAEOKeywordAPI(APIBaseTest):
             {"engine": "openai-web-search", "answers": 1},
         ]
         assert self_hosted["example_searches"] == ["self hosted analytics 2026", "self hosted analytics"]
+
+    @parameterized.expand(
+        [
+            ("every_answer", {}, 3, 3, ["claude-web-search", "exa-answer", "openai-web-search"]),
+            ("one_engine", {"engine": "exa-answer"}, 1, 1, ["exa-answer"]),
+            ("one_topic", {"topic": "Pricing"}, 2, 2, ["claude-web-search", "openai-web-search"]),
+            ("no_topic", {"topic": ""}, 1, 1, ["exa-answer"]),
+            ("branded", {"branded": "branded"}, 1, 1, ["claude-web-search"]),
+            ("non_branded", {"branded": "non_branded"}, 2, 2, ["exa-answer", "openai-web-search"]),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_report_and_modifiers_count_only_the_answers_in_scope(
+        self,
+        _name: str,
+        query: dict[str, str],
+        expected_answers: int,
+        expected_pricing_answers: int,
+        expected_engines: list[str],
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.client.post(self.url, {"keywords": ["pricing"]}, format="json")
+        create_own_brand(self.team, "example.com")
+        self._record("example costs?", engine="claude-web-search", searches=["example pricing"], topic="Pricing")
+        self._record("tool costs?", searches=["tool pricing"], topic="Pricing")
+        self._record("anything?", engine="exa-answer", searches=["anything pricing"])
+        # An unfiltered report first, so a filtered one served from its cache entry fails.
+        self.client.get(f"{self.url}report/")
+
+        report = self.client.get(f"{self.url}report/", query).json()
+        modifiers = self.client.get(f"{self.url}modifiers/", query).json()
+
+        pricing = next(row for row in report["keywords"] if row["keyword"] == "pricing")
+        assert (report["answers"], pricing["searched_checks"]) == (expected_answers, expected_pricing_answers)
+        assert modifiers["answers"] == expected_answers
+        pricing_modifier = next(row for row in modifiers["modifiers"] if row["term"] == "pricing")
+        assert sorted(row["engine"] for row in pricing_modifier["engines"]) == expected_engines
+
+    @parameterized.expand(
+        [
+            ("window_above_bounds", "report", "days=91"),
+            ("unknown_branded", "modifiers", "branded=yes"),
+            ("engine_too_long", "report", f"engine={'e' * 65}"),
+        ]
+    )
+    def test_report_endpoints_reject_invalid_filters(self, _name: str, endpoint: str, query: str) -> None:
+        assert self.client.get(f"{self.url}{endpoint}/?{query}").status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand([("report",), ("modifiers",)])
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
