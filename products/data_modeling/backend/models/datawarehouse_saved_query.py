@@ -47,9 +47,8 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError
+from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
-from products.data_modeling.backend.models.view_engine import ViewEngine
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
