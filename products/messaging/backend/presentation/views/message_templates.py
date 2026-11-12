@@ -457,11 +457,10 @@ SEND_CATEGORY_TYPE_HELP = (
     "`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient "
     "must get, which skips opt-outs."
 )
-SEND_CATEGORY_NAME_HELP = "The category's name, shown in the PostHog app."
-SEND_CATEGORY_DESCRIPTION_HELP = (
-    "Notes about which emails belong to the category. Recipients don't see it. Left out, an existing category keeps "
-    "its description."
+SEND_CATEGORY_NAME_HELP = (
+    "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app."
 )
+SEND_CATEGORY_DESCRIPTION_HELP = "Notes about which emails belong to the category. Recipients don't see it."
 
 
 class SendCategoryDefinitionSerializer(serializers.Serializer):
@@ -537,9 +536,9 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Message category of the email. Leave it out or send `transactional` for a transactional email with "
         "no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional "
-        "`description`. The send creates the category when the project has none with that key, updates its name and "
-        "description when they changed, and restores it when it was archived. An existing category must have the "
-        "same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
+        "`description`. The send creates the category when the project has none with that key, and restores it when "
+        "it was archived. It never changes an existing category's name or description. An existing category must "
+        "have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
         "unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is "
         "`{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces "
         "the placeholder with the recipient's unsubscribe link. A send with "
@@ -1006,18 +1005,14 @@ class TransactionalEmailSendMixin:
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
                 category=self._enabled_category(data.get("category")),
-                marketing_enabled=self._marketing_enabled(),
             ),
             addressed={"template_id": str(template.id)},
         )
 
     def _enabled_category(self, category: Any) -> Any:
-        if isinstance(category, SendCategoryDefinition) and not self._marketing_enabled():
+        if isinstance(category, SendCategoryDefinition) and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
             raise CategoriesNotEnabled()
         return category
-
-    def _marketing_enabled(self) -> bool:
-        return _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
 
     def _queue_send(
         self,
@@ -1031,7 +1026,7 @@ class TransactionalEmailSendMixin:
         outcome: dict[str, Any] = {"outcome": "error"}
         try:
             queued = send(idempotency_key)
-            outcome.update(outcome="replayed" if queued.replayed else "queued", category_type=queued.category_type)
+            outcome["outcome"] = "replayed" if queued.replayed else "queued"
         except FieldNotAccepted as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise field_not_accepted_refusal(e.field) from None
@@ -1075,15 +1070,8 @@ class TransactionalEmailSendMixin:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
-
-    def _require_category_editor(self) -> None:
-        if is_authenticated_via_project_secret_api_key(self.request):
-            return
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied(
-                "You need editor access to workflows to send with a category object, because the send can create or "
-                "change the category."
+                "You need editor access to workflows to send under a new key or with a `category` object."
             )
 
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
@@ -1269,9 +1257,7 @@ class MessageTemplatesViewSet(
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
-                    check_transactional_update(
-                        template.id, self.team_id, fields, marketing_enabled=self._marketing_enabled()
-                    )
+                    check_transactional_update(template.id, self.team_id, fields)
                 except TransactionalEmailError as e:
                     raise TransactionalEmailRejected(e) from None
             updated = update_template(self.team_id, template.id, fields)
@@ -1285,9 +1271,7 @@ class MessageTemplatesViewSet(
     def _sync_transactional_workflow(self, template_id: Any) -> None:
         # Raising rolls back the template save, so the template and its workflow never disagree.
         try:
-            sync_transactional_workflow(
-                self.team_id, template_id, user_id=self._actor_id(), marketing_enabled=self._marketing_enabled()
-            )
+            sync_transactional_workflow(self.team_id, template_id, user_id=self._actor_id())
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
 
@@ -1351,16 +1335,6 @@ class MessageTemplatesViewSet(
                 self._with_creators([template])[0], data={"content": content}, partial=True
             )
             serializer.is_valid(raise_exception=True)
-            if hog_flow_id and self._marketing_enabled():
-                try:
-                    check_transactional_update(
-                        template.id,
-                        self.team_id,
-                        {"content": serializer.validated_data["content"]},
-                        marketing_enabled=True,
-                    )
-                except TransactionalEmailError as e:
-                    raise TransactionalEmailRejected(e) from None
             return serializer.validated_data["content"]
 
         with transaction.atomic():
@@ -1384,10 +1358,7 @@ class MessageTemplatesViewSet(
         description=(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
-            "A template with no category or a transactional one sends transactional email, which skips opt-outs. A "
-            "template in a marketing category sends marketing email in that category: it skips recipients who opted "
-            "out, and its body must hold `{{ unsubscribe_url }}`. API sends don't count toward frequency caps. "
-            "Send an `Idempotency-Key` header to retry "
+            "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
             "safely without sending the email twice. Needs the `transactional_email:write` scope. A key with "
             "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
         ),
@@ -1413,10 +1384,7 @@ class MessageTemplatesViewSet(
         description=(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
-            "Sends of a template with no category or a transactional one ignore marketing opt-outs. A template in a "
-            "marketing category is refused unless the project can send marketing email over the API. Its body must "
-            "then hold `{{ unsubscribe_url }}`, and its sends skip recipients who opted out. Calling it again on a "
-            "transactional template changes "
+            "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
             "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
             "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
             "the response leaves out `content` and `draft_content`."
@@ -1438,7 +1406,6 @@ class MessageTemplatesViewSet(
                 template.id,
                 user_id=self._actor_id(),
                 from_integration_id=request.validated_data.get("from_integration_id"),
-                marketing_enabled=self._marketing_enabled(),
             )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
@@ -1498,10 +1465,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "Send one transactional email to one recipient. Name a template made transactional in `template_id`, "
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
-            "history group under the key. Transactional emails skip opt-outs, and API sends don't count toward "
-            "frequency caps. A template sends in its own category, also when a `template_key` names it. A code send "
-            "can define "
-            "its message `category` by key, and PostHog creates or updates that category. In a marketing category it "
+            "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define "
+            "its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it "
             "goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` "
             "in its body, and can't have `cc` or `bcc`. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
@@ -1534,7 +1499,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 require_workflow_create=self._require_workflow_create,
             )
             if isinstance(data.get("category"), SendCategoryDefinition):
-                self._require_category_editor()
+                self._require_workflow_create()
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1543,7 +1508,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 to=data["to"],
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
-                marketing_enabled=self._marketing_enabled(),
+                categories_enabled=_flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG),
             ),
             addressed={"addressed_by": "template_key"},
             unavailable=UnconfirmedEmailSend,
