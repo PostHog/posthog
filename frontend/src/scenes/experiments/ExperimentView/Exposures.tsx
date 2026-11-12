@@ -15,7 +15,7 @@ import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import {
@@ -27,10 +27,9 @@ import {
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
-import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
-import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
+import { filterLowMultipleVariant, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
-import { buildExposureSeries } from './exposuresTransforms'
+import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
 
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
@@ -112,24 +111,6 @@ function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
             <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
-}
-
-function getExposureCriteriaLabel(
-    exposureCriteria: ExperimentExposureCriteria | undefined,
-    defaultEvent: string
-): string {
-    const activationConfig = getActivationConfig(exposureCriteria)
-    if (activationConfig) {
-        return `Default (${defaultEvent}) + activation (${getExposureConfigDisplayName(activationConfig)})`
-    }
-
-    const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
-        return `Default (${defaultEvent})`
-    }
-
-    const displayName = getExposureConfigDisplayName(exposureConfig)
-    return `Custom (${displayName})`
 }
 
 export function Exposures(): JSX.Element {

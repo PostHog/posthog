@@ -1,308 +1,224 @@
-import { useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { CellContext, ColumnDef } from '@tanstack/react-table'
+import { useActions, useValues } from 'kea'
+import { createContext, memo, useContext, useEffect, useMemo } from 'react'
 
-import { Badge, Dot, Text, cn } from '@posthog/quill'
+import { IconChevronRight } from '@posthog/icons'
+import { DataTable, Text, cn } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { releaseLogic } from './releaseLogic'
-import { ReleaseEvent, ReleaseSpan, STAGE_TONE } from './releaseUtils'
+import { RolloutStep } from './releaseRollout'
+import { ReleaseRolloutChart } from './ReleaseRolloutChart'
+import { ReleaseStageDot } from './ReleaseStageDot'
+import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
+import { ReleaseTrackGrid } from './ReleaseTrackGrid'
+import { ReleaseTrackLabel } from './ReleaseTrackLabel'
+import { ReleaseTrackLane } from './ReleaseTrackLane'
+import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
+import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, buildTrack, mergeOverlapping } from './releaseTracks'
+import { ReleaseTrackSpan } from './ReleaseTrackSpan'
+import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
+import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
 
-const DAY = 30
-const BEFORE = 17
-const AFTER = 60
-const NAME = 280
-const ROW = 48
-const HEADER = 56
-const OVERSCAN = 6
+const NAME = 300
+const SUMMARY = 60
+const SUMMARY_OPEN = 36
+const ACTIVITY_ROWS = 40
+const PAGE_SIZE = 50
 
-const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; badge?: 'info' | 'warning' | 'default' }> =
-    {
-        flag: { top: 23, height: 2 },
-        early_access: { top: 38, height: 4, badge: 'warning' },
-        experiment: { top: 12, height: 24, badge: 'info' },
-        experiment_done: { top: 12, height: 24, badge: 'default' },
-    }
-
-function markersByDay(
-    events: ReleaseEvent[],
-    start: dayjs.Dayjs,
-    total: number
-): { day: string; events: ReleaseEvent[] }[] {
-    const end = start.add(total, 'day')
-    const days = new Map<string, ReleaseEvent[]>()
-    for (const event of events) {
-        if (!event.upcoming) {
-            continue
-        }
-        const date = dayjs(event.date)
-        if (date.isBefore(start) || !date.isBefore(end)) {
-            continue
-        }
-        const day = date.format('YYYY-MM-DD')
-        const dayEvents = days.get(day)
-        if (dayEvents) {
-            dayEvents.push(event)
-        } else {
-            days.set(day, [event])
-        }
-    }
-    return [...days].map(([day, dayEvents]) => ({ day, events: dayEvents }))
+function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Element {
+    const { row, lanes } = track
+    return (
+        <div className="flex flex-col" style={{ width: NAME - 12 }}>
+            <div className="flex items-center gap-2" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
+                <IconChevronRight
+                    className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
+                />
+                <ReleaseStageDot stage={row.stage} />
+                <span className={cn('flex min-w-0 flex-1', open ? 'items-baseline gap-1.5' : 'flex-col')}>
+                    <LinkPrimitive
+                        to={urls.release(row.id)}
+                        data-attr="release-timeline-release"
+                        className="truncate text-xs font-semibold text-foreground hover:underline"
+                    >
+                        {row.name}
+                    </LinkPrimitive>
+                    <Text size="xs" variant="muted" className="truncate">
+                        {row.status}
+                    </Text>
+                </span>
+            </div>
+            {open &&
+                lanes.map((lane) => (
+                    <ReleaseTrackLabel key={lane.key} lane={lane} className="border-t border-border/60 pl-5 pr-3" />
+                ))}
+            {open && !lanes.length && (
+                <div className="flex items-center border-t border-border/60 pl-5 pr-3" style={{ height: LANE }}>
+                    <Text size="xs" variant="muted">
+                        Nothing linked yet
+                    </Text>
+                </div>
+            )}
+        </div>
+    )
 }
 
-interface PlacedSpan extends ReleaseSpan {
-    left: number
-    width: number
+function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JSX.Element {
+    const scale = CALENDAR_SCALE()
+    const { row, steps, lanes } = track
+    const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
+    const hasExperiment = summarySpans.some((span) => span.kind.startsWith('experiment'))
+    return (
+        <div className="relative" style={{ width: scale.days * scale.day }}>
+            <ReleaseTrackGrid scale={scale} />
+            <div className="relative" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
+                {steps.length > 0 && !open && (
+                    <ReleaseRolloutChart
+                        color={STAGE_COLOR[row.stage]}
+                        steps={steps}
+                        start={scale.start}
+                        days={scale.days}
+                        dayWidth={scale.day}
+                        height={38}
+                        labelRoom={13}
+                        note={
+                            row.flags.length > 1
+                                ? `+${row.flags.length - 1} ${row.flags.length === 2 ? 'flag' : 'flags'}`
+                                : undefined
+                        }
+                        className="!absolute left-0"
+                        style={{ top: 20 }}
+                    />
+                )}
+                {summarySpans.map((span) =>
+                    span.kind === 'early_access' && hasExperiment ? (
+                        <ReleaseTrackSpan key={span.key} span={span} scale={scale} top={18} height={6} thin />
+                    ) : (
+                        <ReleaseTrackSpan
+                            key={span.key}
+                            span={span}
+                            scale={scale}
+                            top={SPAN_LOOK[span.kind].top}
+                            height={SPAN_LOOK[span.kind].height}
+                        />
+                    )
+                )}
+                {!open && (
+                    <ReleaseTrackMarkers
+                        events={row.events.filter(
+                            (event) => !(steps.length && event.kind === 'schedule' && event.flagId === row.flags[0]?.id)
+                        )}
+                        scale={scale}
+                        top={3}
+                    />
+                )}
+            </div>
+            {open &&
+                lanes.map((lane) => (
+                    <ReleaseTrackLane key={lane.key} lane={lane} color={STAGE_COLOR[row.stage]} scale={scale} />
+                ))}
+            {open && !lanes.length && <div className="border-t border-border/60" style={{ height: LANE }} />}
+        </div>
+    )
 }
 
-const GROUP_LABEL: Partial<Record<ReleaseSpan['kind'], (count: number) => string>> = {
-    experiment: (count) => `${count} experiments`,
-    experiment_done: (count) => `${count} experiments complete`,
+const laneSteps = (track: Track): (RolloutStep[] | undefined)[] =>
+    track.lanes.map((lane) => (lane.kind === 'flag' ? lane.steps : undefined))
+
+const TrackLanes = memo(
+    TrackLanesContent,
+    (previous, next) =>
+        previous.open === next.open &&
+        previous.track.row === next.track.row &&
+        previous.track.steps === next.track.steps &&
+        laneSteps(previous.track).every((steps, index) => steps === laneSteps(next.track)[index])
+)
+
+interface CalendarState {
+    expanded: Record<string, true>
+    stepsByFlag: Map<number, RolloutStep[]>
 }
 
-function mergeOverlapping(spans: ReleaseSpan[]): ReleaseSpan[] {
-    const sorted = [...spans].sort((a, b) => a.kind.localeCompare(b.kind) || a.from.localeCompare(b.from))
-    const groups: ReleaseSpan[][] = []
-    for (const span of sorted) {
-        const group = groups[groups.length - 1]
-        const groupEnd = group?.reduce((latest, item) => (item.to > latest ? item.to : latest), '')
-        if (group && group[0].kind === span.kind && span.from <= groupEnd) {
-            group.push(span)
-        } else {
-            groups.push([span])
-        }
-    }
-    const order = new Map(spans.map((span, index) => [span.key, index]))
-    groups.sort((a, b) => (order.get(a[0].key) ?? 0) - (order.get(b[0].key) ?? 0))
-    return groups.map((group) => {
-        if (group.length === 1) {
-            return group[0]
-        }
-        const first = group[0]
-        return {
-            key: `${first.key}-group`,
-            kind: first.kind,
-            from: first.from,
-            to: group.reduce((latest, item) => (item.to > latest ? item.to : latest), first.to),
-            label: GROUP_LABEL[first.kind]?.(group.length) ?? first.label,
-            href: first.href,
-        }
-    })
+const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsByFlag: new Map() })
+
+function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
+    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
+    return <TrackHeader track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
 }
 
-function placeSpans(spans: ReleaseSpan[], start: dayjs.Dayjs, total: number): PlacedSpan[] {
-    const end = start.add(total, 'day')
-    const x = (date: string): number => Math.max(0, Math.min(total, dayjs(date).diff(start, 'day'))) * DAY
-    const visible = spans.filter((span) => !dayjs(span.to).isBefore(start) && !dayjs(span.from).isAfter(end))
-    const placed: PlacedSpan[] = []
-    for (const span of mergeOverlapping(visible)) {
-        const left = x(span.from)
-        const width = Math.max(x(span.to) + DAY / 2 - left, span.kind === 'flag' ? 0 : DAY)
-        if (width > 0) {
-            placed.push({ ...span, left, width })
-        }
-    }
-    return placed
+function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
+    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
+    return <TrackLanes track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
 }
+
+function TimelineHeader(): JSX.Element {
+    return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} />
+}
+
+const COLUMNS: ColumnDef<ReleaseRow>[] = [
+    { id: 'release', header: 'Release', size: NAME, enableSorting: false, meta: { sticky: 'left' }, cell: ReleaseCell },
+    { id: 'timeline', header: TimelineHeader, enableSorting: false, cell: TimelineCell },
+]
 
 export function ReleaseTimeline(): JSX.Element {
-    const { filteredRows, dataLoading, search, stageFilter, decisionOnly } = useValues(releaseLogic)
-    const today = dayjs().startOf('day')
-    const start = today.subtract(BEFORE, 'day')
-    const windowStart = start.format('YYYY-MM-DD')
-    const placed = useMemo(
-        () =>
-            new Map(
-                filteredRows.map((row) => [
-                    row.id,
-                    {
-                        spans: placeSpans(row.spans, dayjs(windowStart), BEFORE + AFTER),
-                        markers: markersByDay(row.events, dayjs(windowStart), BEFORE + AFTER),
-                    },
-                ])
-            ),
-        [filteredRows, windowStart]
-    )
-    const total = BEFORE + AFTER
-    const days = Array.from({ length: total }, (_, index) => start.add(index, 'day'))
-    const x = (date: string): number => Math.max(0, Math.min(total, dayjs(date).diff(start, 'day'))) * DAY
-    const months = days.filter((day, index) => index === 0 || day.date() === 1)
-    const scrollRef = useRef<HTMLDivElement>(null)
-    const [scrollTop, setScrollTop] = useState(0)
-    const [viewHeight, setViewHeight] = useState(0)
+    const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
+    const { expanded } = useValues(releaseCalendarLogic)
+    const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
 
     useEffect(() => {
-        const element = scrollRef.current
-        if (!element) {
-            return
+        const ids = [
+            ...new Set(filteredRows.slice(0, ACTIVITY_ROWS).flatMap((row) => (row.flags[0] ? [row.flags[0].id] : []))),
+        ]
+        if (ids.length) {
+            loadFlagActivity(ids)
         }
-        setViewHeight(element.clientHeight)
-        const observer = new ResizeObserver(() => setViewHeight(element.clientHeight))
-        observer.observe(element)
-        return () => observer.disconnect()
-    }, [])
+    }, [filteredRows, loadFlagActivity])
 
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = 0
+        const ids = filteredRows.filter((row) => expanded[row.id]).flatMap((row) => row.flags.map((flag) => flag.id))
+        if (ids.length) {
+            loadFlagActivity(ids)
         }
-        setScrollTop(0)
-    }, [search, stageFilter, decisionOnly])
+    }, [expanded, filteredRows, loadFlagActivity])
 
-    const first = Math.min(filteredRows.length, Math.max(0, Math.floor((scrollTop - HEADER) / ROW) - OVERSCAN))
-    const last = Math.min(filteredRows.length, Math.ceil((scrollTop + viewHeight) / ROW) + OVERSCAN)
+    const stepsByFlag = useRolloutStepsByFlag(CALENDAR_DAYS_AFTER)
+
+    useRefreshChangedFlagHistory(flags)
+
+    const state = useMemo(() => ({ expanded, stepsByFlag }), [expanded, stepsByFlag])
 
     return (
         <div
-            ref={scrollRef}
-            className="overflow-auto rounded-lg border border-border bg-background"
-            style={{ maxHeight: 'calc(100vh - 230px)' }}
-            onScroll={(event) => {
-                setScrollTop(event.currentTarget.scrollTop)
-                setViewHeight(event.currentTarget.clientHeight)
-            }}
+            className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >
-            <div className="relative" style={{ width: NAME + total * DAY }}>
-                <div className="pointer-events-none absolute inset-y-0" style={{ left: NAME, width: total * DAY }}>
-                    {days.map((day, index) =>
-                        day.day() === 0 || day.day() === 6 ? (
-                            <div
-                                key={index}
-                                className="absolute inset-y-0 bg-fill-hover"
-                                style={{ left: index * DAY, width: DAY }}
-                            />
-                        ) : null
-                    )}
-                    <div className="absolute inset-y-0 w-px bg-primary" style={{ left: BEFORE * DAY + DAY / 2 }} />
-                </div>
-                <div className="sticky top-0 z-20 flex h-14 border-b border-border bg-background">
-                    <div
-                        className="sticky left-0 z-30 flex shrink-0 items-end border-r border-border bg-background px-3 pb-2 text-xs font-semibold text-muted-foreground"
-                        style={{ width: NAME }}
-                    >
-                        Release
-                    </div>
-                    <div className="relative" style={{ width: total * DAY }}>
-                        {months.map((month) => (
-                            <div
-                                key={month.format('YYYY-MM-DD')}
-                                className="absolute top-1.5 pl-2 text-xs font-semibold"
-                                style={{ left: month.diff(start, 'day') * DAY }}
-                            >
-                                {month.format('MMMM YYYY')}
-                            </div>
-                        ))}
-                        {days.map((day, index) => (
-                            <div
-                                key={index}
-                                className="absolute bottom-1.5 flex justify-center text-xs text-muted-foreground"
-                                style={{ left: index * DAY, width: DAY }}
-                            >
-                                {day.isSame(today, 'day') ? (
-                                    <span className="rounded-full bg-primary px-1.5 font-semibold text-primary-foreground">
-                                        {day.date()}
-                                    </span>
-                                ) : (
-                                    <span className={day.day() === 1 ? 'font-semibold text-foreground' : ''}>
-                                        {day.date()}
-                                    </span>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                {first > 0 && <div style={{ height: first * ROW }} />}
-                {filteredRows.slice(first, last).map((row) => (
-                    <div
-                        key={row.id}
-                        className="group flex border-b border-border last:border-b-0"
-                        style={{ height: ROW }}
-                        data-attr="release-timeline-row"
-                    >
-                        <div className="sticky left-0 z-10 flex shrink-0" style={{ width: NAME }}>
-                            <LinkPrimitive
-                                to={urls.release(row.id)}
-                                data-attr="release-timeline-release"
-                                className="flex w-full items-center gap-2 border-r border-border bg-background px-3 text-foreground group-hover:bg-fill-hover"
-                            >
-                                <Dot variant={STAGE_TONE[row.stage]} />
-                                <span className="flex min-w-0 flex-1 flex-col">
-                                    <Text size="xs" weight="semibold" className="truncate">
-                                        {row.name}
-                                    </Text>
-                                    <Text size="xs" variant="muted" className="truncate">
-                                        {row.status}
-                                    </Text>
-                                </span>
-                            </LinkPrimitive>
-                        </div>
-                        <div className="relative" style={{ width: total * DAY }}>
-                            {(placed.get(row.id)?.spans ?? []).map((span) => {
-                                const look = SPAN_LOOK[span.kind]
-                                return (
-                                    <div
-                                        key={span.key}
-                                        className="absolute flex"
-                                        style={{
-                                            left: span.left,
-                                            width: span.width,
-                                            top: look.top,
-                                            height: look.height,
-                                        }}
-                                    >
-                                        <LinkPrimitive
-                                            to={span.href}
-                                            title={span.label}
-                                            className={cn(
-                                                'flex h-full w-full',
-                                                !look.badge && 'rounded-full bg-border'
-                                            )}
-                                        >
-                                            {look.badge && (
-                                                <Badge
-                                                    variant={look.badge}
-                                                    className={cn(
-                                                        'h-full w-full justify-start overflow-hidden',
-                                                        !span.label && 'p-0'
-                                                    )}
-                                                >
-                                                    {span.label ? <span className="truncate">{span.label}</span> : null}
-                                                </Badge>
-                                            )}
-                                        </LinkPrimitive>
-                                    </div>
-                                )
-                            })}
-                            {(placed.get(row.id)?.markers ?? []).map(({ day, events }) => (
-                                <div
-                                    key={day}
-                                    title={events
-                                        .map(
-                                            (event) =>
-                                                `${dayjs(event.date).format('D MMM')}: ${event.title} (${event.detail})`
-                                        )
-                                        .join('\n')}
-                                    className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
-                                    style={{ left: x(events[0].date) + DAY / 2 - 5, top: 16 }}
-                                    data-attr="release-timeline-marker"
-                                >
-                                    <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
-                                    {events.length === 1 ? events[0].title : `${events.length} changes`}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                ))}
-                {last < filteredRows.length && <div style={{ height: (filteredRows.length - last) * ROW }} />}
-                {!filteredRows.length && (
-                    <div className="sticky left-0 p-8 text-xs text-muted-foreground">
-                        {dataLoading ? 'Loading releases…' : 'No release matches these filters.'}
-                    </div>
-                )}
-            </div>
+            <CalendarStateContext.Provider value={state}>
+                <DataTable
+                    key={filteredRows.length > PAGE_SIZE ? 'paged' : 'single'}
+                    columns={COLUMNS}
+                    data={filteredRows}
+                    size="sm"
+                    stickyHeader
+                    className="max-h-[75vh]"
+                    pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                    getRowId={(row) => row.id}
+                    onRowClick={(row) => toggleExpanded(row.id)}
+                    rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
+                    empty={
+                        <Text size="xs" variant="muted">
+                            {dataLoading
+                                ? 'Loading releases…'
+                                : releases.length
+                                  ? 'No release matches these filters.'
+                                  : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
+                        </Text>
+                    }
+                />
+            </CalendarStateContext.Provider>
         </div>
     )
 }

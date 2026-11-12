@@ -813,6 +813,7 @@ describe('KafkaConsumerV2', () => {
 
         expect(captureException).toHaveBeenCalledWith(failure)
         expect((consumer as any).fatalError).toBe(failure)
+        expect(consumer.hasFailed()).toBe(true)
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 
@@ -847,6 +848,55 @@ describe('KafkaConsumerV2', () => {
         expect(partition0Stores).toEqual([])
         expect(onOffsetsStored).not.toHaveBeenCalled()
     })
+
+    it.each([undefined, null, 0, '', false])(
+        'backgroundTask rejection with %p: stores no offsets and stops the loop with an Error',
+        async (reason) => {
+            ;(consumer as any).maxBackgroundTasks = 4
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await startConsuming(eachBatch)
+            const loopOutcome = ((consumer as any).loopDone as Promise<void>).then(
+                () => 'stopped cleanly',
+                (error: unknown) => error
+            )
+
+            const failing = triggerablePromise<void>()
+            await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], failing.promise)
+            await dispatchBatch(eachBatch, [createMessage({ offset: 2, partition: 0 })], Promise.resolve())
+            failing.reject(reason)
+            await delay(10)
+            releaseConsume()
+            await delay(10)
+
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+            await expect(Promise.race([loopOutcome, delay(50).then(() => 'still consuming')])).resolves.toBeInstanceOf(
+                Error
+            )
+        }
+    )
+
+    it.each([new Error('background task failed'), undefined, 0])(
+        'autoOffsetStore=false: refuses a manual offsetsStore after a backgroundTask rejects with %p',
+        async (reason) => {
+            consumer = new KafkaConsumerV2({
+                groupId: 'test-group-manual',
+                topic: 'test-topic',
+                autoOffsetStore: false,
+            })
+            mockRdKafka = jest.mocked((consumer as any).rdKafkaConsumer)
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await startConsuming(eachBatch)
+            ;((consumer as any).loopDone as Promise<void>).catch(() => {})
+
+            const failing = triggerablePromise<void>()
+            await dispatchBatch(eachBatch, [createMessage({ offset: 9, partition: 0 })], failing.promise)
+            failing.reject(reason)
+            await delay(10)
+
+            expect(() => consumer.offsetsStore([{ topic: 'test-topic', partition: 0, offset: 10 }])).toThrow()
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+        }
+    )
 
     it('fails unfinished background work at the configured timeout without advancing offsets', async () => {
         jest.useFakeTimers()

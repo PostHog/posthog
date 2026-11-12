@@ -69,7 +69,7 @@ class TestDashboardDeleteTile(APIBaseTest):
             ("insight", _create_insight_tile_for_removal, {"tile_type": "insight", "insight_type": "trends"}),
         ]
     )
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_delete_tile_fires_tile_removed_event(
         self, _name, create_tile, expected_properties, mock_report_user_action
     ) -> None:

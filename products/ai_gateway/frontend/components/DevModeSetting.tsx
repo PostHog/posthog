@@ -68,7 +68,7 @@ export function DevModeSetting(): JSX.Element {
                         usageLoading && !usage
                             ? 'Loading'
                             : !canMint
-                              ? `You've reached your $${usage?.daily_cap_usd} limit for the last 24 hours`
+                              ? `A new token needs $${usage?.token_cap_min_usd} of your $${usage?.daily_cap_usd} limit left.${liveTokenCount > 0 ? " Revoke a live token to get back what it hasn't spent." : ''}`
                               : undefined
                     }
                     data-attr="ai-gateway-dev-mode-mint"
@@ -136,6 +136,15 @@ export function DevModeSetting(): JSX.Element {
                             ) : (
                                 <span className="text-secondary">Unknown</span>
                             ),
+                    },
+                    {
+                        title: 'Spent',
+                        key: 'spent_usd',
+                        tooltip: 'What a revoked token spent. This is what it counts against your limit.',
+                        render: (_, token) =>
+                            token.spent_usd != null ? (
+                                <span translate="no">${Number(token.spent_usd).toFixed(4)}</span>
+                            ) : null,
                     },
                     {
                         key: 'actions',

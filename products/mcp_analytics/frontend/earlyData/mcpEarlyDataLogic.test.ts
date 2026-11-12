@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -6,6 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -123,6 +126,16 @@ describe('mcpEarlyDataLogic', () => {
             { filter_test_accounts: true },
             { filterTestAccounts: true, properties: [] },
         ],
+        [
+            "the team's test-account default",
+            () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    test_account_filters_default_checked: true,
+                }),
+            { filter_test_accounts: true },
+            { filterTestAccounts: true, properties: [] },
+        ],
     ])('refetches activity with %s', async (_label, change, expectedParams, expectedQuery) => {
         await expectLogic(logic).toFinishAllListeners()
         overviewMock.mockClear()
@@ -132,6 +145,21 @@ describe('mcpEarlyDataLogic', () => {
         expect(overviewMock).toHaveBeenCalledTimes(1)
         expect(overviewMock.mock.calls[0][1]).toMatchObject(expectedParams)
         expect(logic.values.activityQuery.source).toMatchObject(expectedQuery)
+    })
+
+    it.each([
+        ['no URL params', {}],
+        ['shared filters', { filter_test_accounts: true, properties: [TOOL_FILTER] }],
+    ])('fetches activity once when mounting with %s', async (_label, searchParams) => {
+        logic.unmount()
+        overviewMock.mockClear()
+        router.actions.push(urls.mcpAnalyticsActivity(), searchParams)
+
+        logic = mcpEarlyDataLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(overviewMock).toHaveBeenCalledTimes(1)
     })
 
     it.each([

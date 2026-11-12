@@ -1,4 +1,5 @@
 import type { ScoreDefinitionApi, ScoreDefinitionConfigApi } from '../generated/api.schemas'
+import { defaultCompositeExpression, updateScorerDraft } from './compositeFormulaDefaults'
 import { buildConfigFromDraft, createDraft, validateDraft } from './scoreDefinitionModalUtils'
 
 const definition: ScoreDefinitionApi = {
@@ -11,6 +12,10 @@ const definition: ScoreDefinitionApi = {
     config: {},
     archived: false,
     current_version: 1,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: 'version-example',
     team: 1,
     created_by: null,
@@ -20,6 +25,52 @@ const definition: ScoreDefinitionApi = {
 }
 
 describe('scorer form configuration', () => {
+    it('keeps manual increments out of composite configurations', () => {
+        const draft = { ...createDraft('create'), kind: 'numeric' as const, numericStep: '0.5' }
+        expect(buildConfigFromDraft(draft)).toMatchObject({ step: 0.5 })
+        expect(buildConfigFromDraft({ ...draft, calculation: 'composite' })).not.toHaveProperty('step')
+    })
+
+    it.each<{ kind: ScoreDefinitionApi['kind']; config: ScoreDefinitionConfigApi; expected: string }>([
+        { kind: 'boolean', config: { true_is_failure: true }, expected: '(not quality)' },
+        {
+            kind: 'categorical',
+            config: {
+                options: [
+                    { key: 'good', label: 'Good' },
+                    { key: 'bad', label: 'Bad' },
+                ],
+                passing_rule: { categories: ['good'] },
+            },
+            expected: '(("good" in quality) and not ("bad" in quality))',
+        },
+    ])('restores default formulas from a saved $kind input', ({ kind, config, expected }) => {
+        const draft = createDraft('metadata', {
+            ...definition,
+            calculation: 'composite',
+            composition: {
+                expression: 'False',
+                inputs: [{ alias: 'quality', scorer_version_id: 'source-v1' }],
+            },
+            input_scorers: [
+                {
+                    alias: 'quality',
+                    name: 'Quality',
+                    definition_id: 'source',
+                    scorer_version_id: 'source-v1',
+                    version: 1,
+                    latest_version_id: 'source-v2',
+                    latest_version: 2,
+                    kind,
+                    config,
+                },
+            ],
+        })
+        expect(draft.expression).toBe('False')
+        expect(defaultCompositeExpression(draft)).toBe(expected)
+        expect(updateScorerDraft(draft, 'expressionIsCustom', false).expression).toBe(expected)
+    })
+
     it.each([
         ['single', [], 'Choose at least one passing category.'],
         ['single', ['missing'], 'Choose passing categories from the configured options.'],
@@ -28,6 +79,7 @@ describe('scorer form configuration', () => {
     ] as const)('validates categorical passing rules for %s with %j', (selectionMode, categories, error) => {
         const draft = {
             ...createDraft('create'),
+            kind: 'categorical' as const,
             name: 'Quality',
             selectionMode,
             categoricalPassingEnabled: true,
@@ -60,7 +112,7 @@ describe('scorer form configuration', () => {
             expect(buildConfigFromDraft(existing)).toEqual({ true_is_failure: false })
         }
 
-        const created = { ...createDraft('create'), kind: 'boolean' as const }
+        const created = createDraft('create')
         expect(buildConfigFromDraft(created)).toEqual({
             true_label: 'True',
             false_label: 'False',
