@@ -245,8 +245,8 @@ describe('mcpSessionsLogic', () => {
         beforeEach(async () => {
             listMock.mockResolvedValue({
                 results: [
-                    { session_id: 'A', session_start: '2026-01-01T00:00:00Z' },
-                    { session_id: 'B', session_start: '2026-01-01T00:01:00Z' },
+                    { session_id: 'A', session_start: '2026-01-01T00:00:00Z', session_end: '2026-01-01T00:10:00Z' },
+                    { session_id: 'B', session_start: '2026-01-01T00:01:00Z', session_end: '2026-01-01T00:02:00Z' },
                 ],
                 has_next: false,
             })
@@ -302,13 +302,30 @@ describe('mcpSessionsLogic', () => {
             consoleErrorSpy.mockRestore()
         })
 
+        it('bounds every page of A by its start and end', async () => {
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('a2')], has_next: false })
+
+            await expectLogic(logic, () => logic.actions.loadMoreToolCalls('A')).toDispatchActions([
+                'loadMoreToolCallsSuccess',
+            ])
+
+            expect(toolCallsMock.mock.calls.map(([, , params]) => [params.date_from, params.date_to])).toEqual([
+                ['2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z'],
+                ['2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z'],
+            ])
+        })
+
         it.each([
-            ['keeps', '2026-01-01T00:00:00Z', 0],
-            ['moves', '2025-12-20T00:00:00Z', 1],
-        ])('refetches A when a new date range %s its start: %s', async (_label, sessionStart, refetches) => {
+            ['keeps its bounds', '2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z', 0],
+            ['moves its start', '2025-12-20T00:00:00Z', '2026-01-01T00:10:00Z', 1],
+            ['moves its end', '2026-01-01T00:00:00Z', '2026-01-01T00:20:00Z', 1],
+        ])('refetches A when a list reload %s', async (_label, sessionStart, sessionEnd, refetches) => {
             toolCallsMock.mockClear()
             toolCallsMock.mockResolvedValue({ results: [toolCall('wider')], has_next: false })
-            listMock.mockResolvedValue({ results: [{ session_id: 'A', session_start: sessionStart }], has_next: false })
+            listMock.mockResolvedValue({
+                results: [{ session_id: 'A', session_start: sessionStart, session_end: sessionEnd }],
+                has_next: false,
+            })
 
             await expectLogic(logic, () => logic.actions.setDateFilter('-90d', null)).toDispatchActions([
                 'loadSessionsSuccess',
@@ -316,7 +333,9 @@ describe('mcpSessionsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(toolCallsMock).toHaveBeenCalledTimes(refetches)
-            toolCallsMock.mock.calls.forEach(([, , params]) => expect(params.date_from).toBe(sessionStart))
+            toolCallsMock.mock.calls.forEach(([, , params]) =>
+                expect([params.date_from, params.date_to]).toEqual([sessionStart, sessionEnd])
+            )
         })
 
         it("stops A's load more spinner when a filter change replaces its first page", async () => {

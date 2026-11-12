@@ -72,7 +72,7 @@ export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrder
 export interface SessionToolCalls {
     filters: MCPSharedQueryFilters
     refreshCount: number
-    sessionStart: string | undefined
+    scanBounds: ScanBounds
     calls: MCPToolCallApi[]
     hasNext: boolean
 }
@@ -82,19 +82,33 @@ export interface ToolCallsRequest {
     failed: boolean
 }
 
+interface ScanBounds {
+    date_from: string | undefined
+    date_to: string | undefined
+}
+
+function scanBoundsOf(session: MCPSessionApi | null): ScanBounds {
+    return { date_from: session?.session_start || undefined, date_to: session?.session_end || undefined }
+}
+
+function sameScanBounds(a: ScanBounds | undefined, b: ScanBounds): boolean {
+    return a !== undefined && a.date_from === b.date_from && a.date_to === b.date_to
+}
+
 // Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id comes from
 // untrusted event properties, so encode it — path/query delimiters must not redirect the request to
 // another same-origin endpoint. date_from bounds the scan by the session's start so sessions older
-// than the backend's default lookback still return their calls.
+// than the backend's default lookback still return their calls, and date_to by its end so the scan
+// stops there instead of reading up to now.
 async function fetchToolCallsPage(
     projectId: string | number,
     sessionId: string,
-    sessionStart: string | null | undefined,
+    scanBounds: ScanBounds,
     offset: number,
     sharedFilters: MCPSharedQueryFilters
 ): Promise<{ calls: MCPToolCallApi[]; hasNext: boolean }> {
     const response = await mcpAnalyticsSessionsToolCalls(String(projectId), encodeURIComponent(sessionId), {
-        date_from: sessionStart || undefined,
+        ...scanBounds,
         limit: TOOL_CALLS_PAGE_SIZE,
         offset,
         ...sharedFilterParams(sharedFilters),
@@ -399,11 +413,11 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     }
                     const filters = values.sharedQueryFilters
                     const refreshCount = values.refreshCount
-                    const sessionStart = values.selectedSession?.session_start
+                    const scanBounds = scanBoundsOf(values.selectedSession)
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
-                        sessionStart,
+                        scanBounds,
                         0,
                         filters
                     ).catch((error) => {
@@ -420,7 +434,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     )
                     return {
                         ...Object.fromEntries(kept),
-                        [sessionId]: { filters, refreshCount, sessionStart, ...page },
+                        [sessionId]: { filters, refreshCount, scanBounds, ...page },
                     }
                 },
                 // Load more: append the next page at offset = current length.
@@ -433,7 +447,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
-                        entry.sessionStart,
+                        entry.scanBounds,
                         entry.calls.length,
                         entry.filters
                     ).finally(() => actions.finishLoadingMore(entry))
@@ -636,7 +650,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             return (
                 entry?.filters === values.sharedQueryFilters &&
                 entry.refreshCount === values.refreshCount &&
-                entry.sessionStart === values.selectedSession?.session_start
+                sameScanBounds(entry.scanBounds, scanBoundsOf(values.selectedSession))
             )
         }
         return {
@@ -677,8 +691,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     actions.selectSession(sessions[0].session_id)
                 } else if (
                     values.selectedSessionId &&
-                    values.toolCallsBySession[values.selectedSessionId]?.sessionStart !==
-                        values.selectedSession?.session_start
+                    !sameScanBounds(
+                        values.toolCallsBySession[values.selectedSessionId]?.scanBounds,
+                        scanBoundsOf(values.selectedSession)
+                    )
                 ) {
                     actions.loadToolCalls(values.selectedSessionId)
                 }
