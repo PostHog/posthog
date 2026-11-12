@@ -33,8 +33,8 @@ const isQuillFile = (specifier) => specifier.startsWith('.')
  * Reads a rollup-built index of re-exports. Returns a map from each export name to the file that
  * defines it and the name it has in that file.
  *
- * A name that the index re-exports from another package is not in the map, so its imports stay on the
- * index. The app cannot import that package by name, because only the quill package depends on it.
+ * A name that the index re-exports from another package has no quill file. It is not in the map, so
+ * its imports stay on the index.
  */
 export function quillExportMap(indexSource, distDir) {
     const localBindings = new Map()
