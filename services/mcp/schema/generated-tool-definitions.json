@@ -8026,6 +8026,36 @@
             "readOnlyHint": true
         }
     },
+    "inbox-my-settings-get": {
+        "description": "Get the personal inbox overrides of the authenticated user. These overrides replace the project defaults for this user only: the minimum priority at which PostHog opens pull requests for reports that suggest the user as reviewer (`autostart_priority`), whether those pull requests open ready for review (`github_open_pull_request_ready`), whether the user becomes a GitHub assignee on them (`github_assign_on_pull_request`), and where and from which priority PostHog sends the user Slack pings (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A null field follows the project default. `has_overrides: false` means the user saved no overrides, so the project defaults apply to every setting.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get your inbox overrides",
+        "title": "Get your inbox overrides",
+        "required_scopes": ["user:write"],
+        "api_operations": ["GET /api/users/{user_id}/signal_autonomy/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-my-settings-update": {
+        "description": "Change the personal inbox overrides of the authenticated user, for example \"open pull requests for me only at P1 or higher\" (`autostart_priority: P1`) or \"send my inbox pings to this channel\". This is a partial update: only the fields you send change, and the other fields keep their values. Send null on a field to make it follow the project default again. The API checks `slack_notification_integration_id` against the current project of the user, so take the id from integrations-list in that project. Read inbox-my-settings-get first and confirm the change with the user.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update your inbox overrides",
+        "title": "Update your inbox overrides",
+        "required_scopes": ["user:write"],
+        "api_operations": ["POST /api/users/{user_id}/signal_autonomy/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-ranking-outcomes-list": {
         "description": "List the outcomes the inbox ranking model predicts for each report (`open`, `action`, `fix`), with what each one means, its horizon in days, its cohort, its base rate, and whether training could read it. The values come from the model that scored this project's reports, so read this tool for the current meaning of the `ranking.predictions` field in inbox-reports-list rather than relying on a fixed description. A lift is the probability divided by the base rate. A prediction is a forecast, never the report's state. `status: not_available` means you cannot see the ranking model.",
         "category": "Signals",
