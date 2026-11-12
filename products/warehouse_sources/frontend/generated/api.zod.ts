@@ -572,12 +572,12 @@ export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -642,12 +642,12 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -819,12 +819,12 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -910,12 +910,12 @@ export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -991,12 +991,12 @@ export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1061,12 +1061,12 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1131,12 +1131,12 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1204,12 +1204,12 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1279,12 +1279,12 @@ export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zo
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1555,12 +1555,12 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
                 credential_id: zod
                     .uuid()
                     .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds."
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
             })
             .optional()
             .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}."
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')

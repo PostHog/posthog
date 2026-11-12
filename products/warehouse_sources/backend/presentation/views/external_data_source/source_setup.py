@@ -295,7 +295,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         required=False,
         help_text=(
             "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do "
-            "not go through the request. Send {'credential_id': '<uuid>'}."
+            "not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
         ),
     )
 
@@ -523,6 +523,48 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
+    def _stored_credential_for_update(
+        self, instance: ExternalDataSource, validated_data: dict[str, Any]
+    ) -> PendingSourceCredential | None:
+        """Resolve `payload.credential_id` and put the stored values in `validated_data["job_inputs"]`.
+
+        The stored values are the whole connection change, so inline `job_inputs` and a reference to other
+        saved credentials are refused: either one could pair the user's new secrets with a target or
+        credentials that the user did not enter on the connect page.
+        """
+        update_payload = validated_data.pop("payload", None)
+        if update_payload is None:
+            return None
+        if "job_inputs" in validated_data:
+            raise ValidationError(
+                {"payload": "Send a stored credential without job_inputs. Its values replace the connection details."}
+            )
+        # A PATCH skips required fields of nested serializers, so the id is checked here.
+        credential_id = update_payload.get("credential_id")
+        if credential_id is None:
+            raise ValidationError({"payload": {"credential_id": "This field is required."}})
+        try:
+            stored_credential = credential_store.find_stored_credential(
+                team_id=instance.team_id,
+                user=cast(User, self.context["request"].user),
+                credential_id=credential_id,
+                source_type=instance.source_type,
+            )
+        except credential_store.StoredCredentialUnavailableError as error:
+            raise ValidationError({"payload": {"credential_id": str(error)}})
+        if stored_credential.payload.get(CREDENTIALS_REFERENCE_INPUT_KEY) not in (None, ""):
+            raise ValidationError(
+                {
+                    "payload": {
+                        "credential_id": "This stored credential points at other saved credentials. "
+                        "Ask the user to enter the connection details on a new connect link."
+                    }
+                }
+            )
+        # The stored values go through the same path as job_inputs from the settings form.
+        validated_data["job_inputs"] = dict(stored_credential.payload)
+        return stored_credential
+
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
         requested_access_method = request.data.get("access_method") if request is not None else None
@@ -552,21 +594,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        stored_credential: PendingSourceCredential | None = None
-        update_payload = validated_data.pop("payload", None)
-        if update_payload is not None:
-            try:
-                stored_credential = credential_store.find_stored_credential(
-                    team_id=instance.team_id,
-                    user=cast(User, self.context["request"].user),
-                    credential_id=update_payload["credential_id"],
-                    source_type=instance.source_type,
-                )
-            except credential_store.StoredCredentialUnavailableError as error:
-                raise ValidationError({"payload": {"credential_id": str(error)}})
-            # The stored values go through the same path as job_inputs from the settings form. They win over
-            # inline keys, as on create, so a caller can't override what the user entered.
-            validated_data["job_inputs"] = {**validated_data.get("job_inputs", {}), **stored_credential.payload}
+        stored_credential = self._stored_credential_for_update(instance, validated_data)
 
         try:
             existing_job_inputs = SourceInputsStore.load(instance)
@@ -584,7 +612,23 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         discovered_schemas: list[SourceSchema] | None = None
         connection_warning: str | None = None
 
+        # The connect page checked the stored values without the source's current routing. A tunnel the user did
+        # not enter there is turned off, so the new secrets never go through a tunnel the user did not see.
+        if (
+            stored_credential is not None
+            and existing_job_inputs.get("ssh_tunnel")
+            and "ssh_tunnel" not in incoming_job_inputs
+        ):
+            incoming_job_inputs["ssh_tunnel"] = {"enabled": False}
+
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+
+        # For the same reason, a stored connection target replaces the source's own, and one the user did not
+        # enter is dropped rather than inherited.
+        if stored_credential is not None:
+            for field in (*helpers._CONNECTION_TARGET_FIELDS, *source.connection_host_fields):
+                if field not in incoming_job_inputs:
+                    new_job_inputs.pop(field, None)
 
         # CDC resource ownership changes must go through the CDC-specific endpoints.
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:

@@ -125,7 +125,8 @@ The recovery action depends on root cause, not just status. Match the user's sit
   2. When the user confirms they are done, call `data-warehouse-stored-credentials-list` with the same `source_type`
      and take the newest `credential_id`.
   3. Call `external-data-sources-partial-update` with the source id and `{"payload": {"credential_id": "<id>"}}`.
-     PostHog replaces the source's connection details with the stored ones and checks the connection before it saves.
+     Do not send `job_inputs` in the same call. PostHog replaces the source's connection details with the stored
+     ones and checks the connection before it saves. An SSH tunnel the user did not enter on the page is turned off.
      A failed update keeps the stored credential. When the connection check fails, get a new link so the user can
      enter correct details.
 - The stored credential is single-use and expires after 24 hours. Only the user who filled the page can use it, so that

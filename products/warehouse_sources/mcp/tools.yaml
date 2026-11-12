@@ -548,8 +548,9 @@ tools:
             changed password or API key): 1) call 'data-warehouse-source-connect-link' with the source's source_type and
             share the connect_url with the user; 2) wait for the user to confirm they finished the page; 3) find the
             newest credential_id for that source_type with 'data-warehouse-stored-credentials-list'; 4) call this tool
-            with the source id and {"payload": {"credential_id": "<uuid>"}}. The stored values replace the source's
-            connection details and the connection is checked before the save. The stored credential must belong to the
+            with the source id and {"payload": {"credential_id": "<uuid>"}}, and no job_inputs. The stored values
+            replace the source's connection details and the connection is checked before the save. An SSH tunnel or
+            connection host that the user did not enter on the page is not kept. The stored credential must belong to the
             same user, match the source's source_type, and not be expired. It is deleted after a successful update. A
             failed update keeps it. When the connection check fails, get a new link so the user can enter correct
             details.
