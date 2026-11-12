@@ -2,7 +2,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 
 from products.workflows.backend.providers import SESProvider
 
@@ -20,9 +20,9 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         domain = options["domain"].lower()
-        in_use = Integration.objects.filter(kind="email", config__domain=domain)
-        if in_use.exists():
-            team_ids = sorted(in_use.values_list("team_id", flat=True))
+        in_use = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}))
+        if in_use:
+            team_ids = sorted(row.team_id for row in in_use)
             raise CommandError(
                 f"Refusing to delete: domain {domain} is still used by email integration(s) on team(s) {team_ids}"
             )

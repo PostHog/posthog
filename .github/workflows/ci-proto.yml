@@ -118,10 +118,10 @@ jobs:
                       }
 
     validation:
-        name: Lint and check proto compatibility (depot-ubuntu-22.04-4)
+        name: Lint and check proto compatibility (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 5
 
         steps:

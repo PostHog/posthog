@@ -11,7 +11,12 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.redis import get_client as get_redis_client
-from posthog.tasks.integrations import refresh_github_branch_cache, refresh_integration, refresh_integrations
+from posthog.tasks.integrations import (
+    delete_ses_identity_if_unused,
+    refresh_github_branch_cache,
+    refresh_integration,
+    refresh_integrations,
+)
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -152,9 +157,44 @@ class TestIntegrationsTasks(APIBaseTest):
             patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache", side_effect=error),
             pytest.raises(type(error)),
         ):
-            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token")
+            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token", self.team.id)
 
         assert (get_redis_client().get(lock_key) == b"token") is lock_held
+
+    @parameterized.expand(
+        [
+            ("queued_before_team_id_was_added", False),
+            ("row_of_another_team", True),
+        ]
+    )
+    def test_branch_refresh_skips_a_row_it_cannot_read_in_scope(self, _name: str, with_other_team: bool) -> None:
+        integration = self.create_integration("github", config={"installation_id": "INSTALL"})
+        other_team_id = self.team.id + 1000
+
+        with patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache") as mock_refresh:
+            if with_other_team:
+                refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token", other_team_id)
+            else:
+                refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token")
+
+        mock_refresh.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("domain_still_used", "example.com", False),
+            ("domain_unused", None, True),
+            ("only_other_domain_used", "other.example.com", True),
+        ]
+    )
+    def test_delete_ses_identity_only_when_no_team_uses_the_domain(
+        self, _name: str, row_domain: Optional[str], expect_delete: bool
+    ) -> None:
+        if row_domain:
+            self.create_integration("email", config={"domain": row_domain})
+        with patch("posthog.tasks.integrations.delete_ses_identity") as mock_delete:
+            delete_ses_identity_if_unused("example.com")
+
+        assert mock_delete.called is expect_delete
 
     def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
         integration = self.create_integration("github", config={"installation_id": "INSTALL"})
@@ -164,6 +204,6 @@ class TestIntegrationsTasks(APIBaseTest):
         self.addCleanup(get_redis_client().delete, lock_key)
 
         with patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache"):
-            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "older")
+            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "older", self.team.id)
 
         assert get_redis_client().get(lock_key) == b"newer"

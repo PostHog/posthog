@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogValidationError } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -230,7 +231,7 @@ describe('Cohorts', { concurrent: false }, () => {
                     id: created.id,
                     person_ids: [fakeUuid],
                 })
-            ).rejects.toThrow('Validation error')
+            ).rejects.toThrow(PostHogValidationError)
         })
 
         it('should reject removing a person UUID that does not exist in the team', async () => {

@@ -398,6 +398,12 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         # of raising InvalidBSON during cursor iteration. We then convert DatetimeMS
         # to None in _process_nested_value so a single bad row doesn't fail the sync.
         "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
+        # A BSON string is supposed to be valid UTF-8, but a document written by a buggy
+        # driver or migrated from a different encoding can hold a string field that isn't.
+        # The default ("strict") raises InvalidBSON while decoding the whole getMore batch,
+        # which fails the sync for every document in it, not just the malformed one. "replace"
+        # substitutes U+FFFD for the bad bytes so the batch still decodes.
+        "unicode_decode_error_handler": "replace",
     }
     client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
     try:

@@ -32,6 +32,7 @@ from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_
 from products.tasks.backend.facade.api import (
     CHANNEL_INSTRUCTIONS_MAX_BYTES,
     PUBLIC_RUN_OPTIONS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_RUN_FAILURE_ERROR_TYPES,
     create_fields_from_options,
     options_from_request,
@@ -759,7 +760,6 @@ class TaskRunResponseSerializer(TaskCreateResponseSerializer):
         fields = [*TaskCreateResponseSerializer.Meta.fields, "run"]
 
 
-TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
     f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
     "surface can show a prompt snippet without the full body. Open the task for the complete text."
@@ -2500,8 +2500,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 

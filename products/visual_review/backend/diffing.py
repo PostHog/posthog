@@ -19,8 +19,9 @@ from .db import WRITER_DB
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .diff_metadata import DiffMetadata
 from .facade.contracts import PIXEL_DIFF_THRESHOLD_PERCENT, SHIFT_ABSORB_MAX_ROWS, SSIM_DISSIMILARITY_THRESHOLD
-from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
-from .models import Artifact, RunSnapshot, ToleratedHash
+from .facade.enums import BaselineMode, ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
+from .logic import baseline_record
+from .models import Artifact, Run, RunSnapshot, ToleratedHash
 
 logger = structlog.get_logger(__name__)
 
@@ -209,7 +210,54 @@ def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot) -> bool:
+def _compare_with_second_candidate(
+    snapshot: RunSnapshot, second_hash: str, current_bytes: bytes
+) -> CompareResult | None:
+    """Compare the render with the overlay hash, and re-point the snapshot to it when that worked.
+
+    None when the second candidate cannot be read or compared. The snapshot then keeps the ledger
+    baseline it was first compared with, so it never points at a baseline it was not compared with.
+    """
+    from .logic import artifact_store
+
+    # Only the storage read is guarded. A swallowed database error would hide a broken transaction.
+    artifact = Artifact.objects.filter(repo_id=snapshot.run.repo_id, content_hash=second_hash).first()
+    second_bytes = None
+    if artifact is not None:
+        try:
+            second_bytes = artifact_store.read_artifact_bytes(snapshot.run.repo_id, second_hash)
+        except Exception:
+            logger.warning(
+                "visual_review.second_candidate_read_failed",
+                snapshot_id=str(snapshot.id),
+                identifier=snapshot.identifier,
+                exc_info=True,
+            )
+            return None
+    if artifact is None or not second_bytes:
+        logger.warning(
+            "visual_review.second_candidate_artifact_missing",
+            snapshot_id=str(snapshot.id),
+            identifier=snapshot.identifier,
+        )
+        return None
+    try:
+        result = compare_images(second_bytes, current_bytes)
+    except Exception:
+        logger.warning(
+            "visual_review.second_candidate_compare_failed",
+            snapshot_id=str(snapshot.id),
+            identifier=snapshot.identifier,
+            exc_info=True,
+        )
+        return None
+    snapshot.baseline_hash = second_hash
+    snapshot.baseline_artifact = artifact
+    snapshot.save(update_fields=["baseline_hash", "baseline_artifact"])
+    return result
+
+
+def _diff_snapshot(snapshot: RunSnapshot, second_candidates: dict[str, str] | None = None) -> bool:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -254,6 +302,15 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
     _store_thumbnail(snapshot, result)
 
     kind = classify_compare_result(result)
+    second_hash = (second_candidates or {}).get(snapshot.identifier, "")
+    if kind is not None and second_hash and second_hash != snapshot.baseline_hash:
+        # The hash and toleration checks against the second candidate already ran when the
+        # baseline was picked, so only the pixel diff is left.
+        second_result = _compare_with_second_candidate(snapshot, second_hash, current_bytes)
+        if second_result is not None:
+            result = second_result
+            kind = classify_compare_result(result)
+
     if kind is not None:
         _store_diff(snapshot, result, kind)
         return True
@@ -330,6 +387,18 @@ def count_processed_diffs(run_id: UUID) -> int:
     )
 
 
+def _ledger_second_candidates(run: Run) -> dict[str, str]:
+    """The overlay hashes a ledger-mode run may diff against when its ledger baseline is over a threshold.
+
+    A shadow-mode run is decided by the YAML file, so its shadow record never re-points a snapshot.
+    """
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
+    record = baseline_record.BaselineRecord.from_json(metadata.get(baseline_record.METADATA_KEY))
+    if record is None or record.mode != BaselineMode.LEDGER:
+        return {}
+    return record.second_candidates
+
+
 def process_diffs(run_id: UUID) -> int:
     """
     Process diffs for all changed snapshots in a run.
@@ -352,6 +421,7 @@ def process_diffs(run_id: UUID) -> int:
         .iterator(chunk_size=100)
     )
     diffed_count = 0
+    second_candidates: dict[str, str] | None = None
 
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
@@ -363,8 +433,10 @@ def process_diffs(run_id: UUID) -> int:
         if not snapshot.current_artifact or not snapshot.baseline_artifact:
             continue
 
+        if second_candidates is None:
+            second_candidates = _ledger_second_candidates(snapshot.run)
         try:
-            if _diff_snapshot(snapshot):
+            if _diff_snapshot(snapshot, second_candidates):
                 diffed_count += 1
         except Exception as e:
             logger.warning(
