@@ -73,6 +73,8 @@ describe('InvocationQuarantine', () => {
             ['2026-11-12 08:00:00', '2026-11-12 08:00:00'],
             ['2026-11-12T08:00:00.000Z', undefined],
             ['2026-02-30 08:00:00.000000', undefined],
+            ['2026-11-12 08:60:00', undefined],
+            ['2026-11-12 24:30:00', undefined],
             ['garbage', undefined],
             [1731398400, undefined],
         ])('keeps state.firstScheduledAt %p only in the format ClickHouse reads', async (firstScheduledAt, kept) => {
