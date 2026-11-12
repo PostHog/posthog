@@ -30,6 +30,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
+    change_rows,
     changes_to_check,
     count_only_after,
     exposed_when,
@@ -60,7 +61,7 @@ from products.experiments.backend.health.pinned_share import (
     pinned_conditions,
     pinned_share_severity,
 )
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
@@ -70,6 +71,10 @@ _REORDERED_TITLE = "The order of the release conditions changed after launch"
 _ROLLOUT_TITLE = "A release condition's rollout was lowered after launch"
 _REVERTED_TITLE = "The release conditions changed and were set back"
 _NOT_CHECKED_TITLE = "Release condition changes were not checked"
+
+
+def release_conditions_changed_rows(ctx: HealthContext) -> CheckRows:
+    return change_rows(ctx, ConditionsChange)
 
 
 def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:

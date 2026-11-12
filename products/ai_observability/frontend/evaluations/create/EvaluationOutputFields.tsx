@@ -139,7 +139,7 @@ export function EvaluationOutputFields(): JSX.Element | null {
                     data-attr="llma-evaluation-create-allows-na"
                 />
                 <span className="text-xs text-secondary pl-6">
-                    Runs it can't judge then count as neither a pass nor a fail.
+                    Runs where the check doesn't apply count as neither a pass nor a fail.
                 </span>
             </div>
             <div className="grid grid-cols-1 items-start gap-4 border-t pt-6 @min-[40rem]/evaluation:grid-cols-2">

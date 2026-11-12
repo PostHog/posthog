@@ -6,14 +6,13 @@ from unittest import mock
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
+from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
-from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery,
     NoSchedulableDagError,
-    SchedulingUnavailableError,
 )
 from products.data_modeling.backend.models.node import NodeType
 

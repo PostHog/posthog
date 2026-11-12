@@ -171,7 +171,18 @@ export const AcceptedSendSchema = z
         replyTo: z.array(z.string()).readonly().optional(),
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
-        tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        sensitive: z.boolean().optional(),
+        tracking: z
+            .object({
+                captureEngagement: z.boolean(),
+                opens: z.literal(false).optional(),
+                clicks: z.boolean().optional(),
+            })
+            .strict()
+            .readonly()
+            .refine((tracking) => !(tracking.opens === false && tracking.clicks === true), {
+                message: 'click tracking needs open tracking',
+            }),
         attachments: z
             .array(
                 z
