@@ -928,9 +928,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The sweep turns a scanner without consent or a creator with recording access straight back off.
         # Kept in attrs only when this save hands the scanner over, so `update` can act on it.
         take_over = attrs.pop("take_over_as_creator", False)
-        if self.instance is not None and self.instance.enabled and attrs.get("enabled") is False:
-            attrs["disabled_reason"] = ScannerDisabledReason.MANUAL
-            return
         if self.instance is None or self.instance.enabled or not attrs.get("enabled"):
             return
         if not self.context["get_team"]().organization.is_ai_data_processing_approved:

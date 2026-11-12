@@ -12,7 +12,6 @@ import {
     observationsToCredits,
     replayScannerLogic,
 } from '../replayScannerLogic'
-import { FREE_ONLY_STOPS } from '../scannerCopy'
 import { MAX_CREDIT_LIMIT } from '../types'
 
 interface ScannerCreditLimitProps {
@@ -61,7 +60,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                             <LemonLabel htmlFor="vision-scanner-free-only">Free credits only</LemonLabel>
                             <div className="text-xs text-muted">
                                 Scan only on your organization's free monthly credits, so this scanner never adds to
-                                your bill. {FREE_ONLY_STOPS}
+                                your bill. It stops when they run out.
                             </div>
                         </div>
                         <LemonSwitch

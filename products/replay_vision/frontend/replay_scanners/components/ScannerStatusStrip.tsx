@@ -18,7 +18,7 @@ import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
-import { disabledReasonDetail, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
+import { disabledReasonDetail, FREE_CREDITS_STOPPING, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
 import { HERO_CARD_HEADER, HERO_CARD_HEIGHT } from './scannerHeroCard'
@@ -43,9 +43,7 @@ function statusDetail(status: ScannerStatus, resetsOn: string | null): React.Rea
         case 'no_recordings':
             return `${RECORDINGS_BLOCK_CAUSE['no-recordings']}, so there is nothing to scan.`
         case 'limit_reached':
-            return stoppedByFreeCredits(status)
-                ? 'Your free credits are used up, so this scanner is stopping.'
-                : limitReachedTooltip(status)
+            return stoppedByFreeCredits(status) ? FREE_CREDITS_STOPPING : limitReachedTooltip(status)
         case 'quota_exhausted':
             return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
         case 'filter_error':

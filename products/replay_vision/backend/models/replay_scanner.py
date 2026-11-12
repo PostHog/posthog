@@ -541,6 +541,9 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                                 "disabled_reason",
                             ]
                         )
+                    if track_enabled and old.enabled and not self.enabled and self.disabled_reason is None:
+                        self.disabled_reason = ScannerDisabledReason.MANUAL
+                        extra_fields.append("disabled_reason")
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)

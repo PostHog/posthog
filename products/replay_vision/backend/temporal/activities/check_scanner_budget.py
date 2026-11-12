@@ -108,8 +108,8 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> CheckScannerBudgetOut
     on its own next period, which is the restart this turn-off exists to prevent.
     """
     with transaction.atomic():
-        # The lock makes one of two racing ticks the one that turns it off and sends the notification.
-        locked = ReplayScanner.objects.select_for_update().filter(pk=scanner.pk, enabled=True).first()
+        # One racing tick wins the lock, and a concurrent switch off "Free credits only" wins over the turn-off.
+        locked = ReplayScanner.objects.select_for_update().filter(pk=scanner.pk, enabled=True, free_only=True).first()
         if locked is None:
             return CheckScannerBudgetOutput(capped=True)
         locked.turn_off(ScannerDisabledReason.FREE_CREDITS_USED)

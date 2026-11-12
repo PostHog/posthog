@@ -15,14 +15,13 @@ export function stoppedByFreeCredits(scanner: LimitFields): boolean {
     return !!scanner?.free_only && (scanner.credit_limit == null || !!scanner.limit_from_free_credits)
 }
 
-const FREE_CREDITS_USED_TOOLTIP =
-    'Your free credits are used up, so this scanner is stopping. To keep scanning, turn off "Free credits only".'
+export const FREE_CREDITS_STOPPING = 'Your free credits are used up, so this scanner is stopping.'
+
+const FREE_CREDITS_USED_TOOLTIP = `${FREE_CREDITS_STOPPING} To keep scanning, turn off "Free credits only".`
 
 export function limitReachedTooltip(scanner: LimitFields): string {
     return stoppedByFreeCredits(scanner) ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
 }
-
-export const FREE_ONLY_STOPS = 'It stops when they run out.'
 
 const DISABLED_REASON_DETAIL: Record<ScannerDisabledReasonEnumApi, string> = {
     manual: 'Someone turned this scanner off.',
