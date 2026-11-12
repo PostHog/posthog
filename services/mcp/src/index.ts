@@ -62,6 +62,12 @@ const handleRequest = async (
         return env.ASSETS.fetch(request)
     }
 
+    // The tool catalog hog downloads. Public like the health check, because it lists the tools this
+    // server runs and holds no account data. The Hono server of this hostname's region builds it.
+    if (url.pathname === '/cli/catalog.json') {
+        return proxyToHono(request, getRegionFromRequest(request) ?? 'us')
+    }
+
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
     const effectiveRegion = getRegionFromRequest(request)

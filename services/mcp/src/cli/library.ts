@@ -13,17 +13,23 @@ import {
     serverDetailOf,
     ToolInputValidationError,
 } from '@/lib/errors'
+import { TOOL_MAP } from '@/tools'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
-import { getToolDefinition } from '@/tools/toolDefinitions'
-import type { Context, Tool, ZodObjectAny } from '@/tools/types'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { getToolDefinition, setCatalogToolDefinitions } from '@/tools/toolDefinitions'
+import type { Context, Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { catalogTool } from './catalog/executor'
+import { loadCatalog } from './catalog/load'
 import { buildCliContext, flushAnalytics } from './context'
 import type {
+    ApiCatalogStatus,
     ApiConnection,
     ApiKeyAccess,
     ApiSearchResult,
     ApiToolError,
     ApiToolLibrary,
+    ApiToolLibraryOptions,
     ApiToolResult,
     ApiToolSummary,
     ApiToolValidation,
@@ -163,9 +169,40 @@ function buildContext(connection: ApiConnection): Promise<Context> {
     )
 }
 
-export function createApiToolLibrary(): ApiToolLibrary {
+function catalogFrom(catalog: unknown): {
+    status: ApiCatalogStatus
+    catalogTools: Record<string, () => ToolBase<ZodObjectAny>>
+} {
+    const bundled = { source: 'bundled', build: null, tools: 0, dropped: [], rejected: null } as const
+    if (catalog === undefined) {
+        return { status: { ...bundled, dropped: [] }, catalogTools: {} }
+    }
+
+    const loaded = loadCatalog(catalog, new Set(Object.keys(TOOL_MAP)))
+    if (!loaded.ok) {
+        return { status: { ...bundled, dropped: [], rejected: loaded.reason }, catalogTools: {} }
+    }
+
+    setCatalogToolDefinitions(Object.fromEntries(loaded.entries.map((entry) => [entry.name, entry.definition])))
+    return {
+        status: {
+            source: 'downloaded',
+            build: loaded.build,
+            tools: loaded.entries.length,
+            dropped: loaded.dropped.map((tool) => ({
+                ...tool,
+                builtIn: tool.name in GENERATED_TOOL_MAP || tool.name in TOOL_MAP,
+            })),
+            rejected: null,
+        },
+        catalogTools: Object.fromEntries(loaded.entries.map((entry) => [entry.name, () => catalogTool(entry)])),
+    }
+}
+
+export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiToolLibrary {
+    const { status, catalogTools } = catalogFrom(options.catalog)
     // The catalog lists every tool. A call only offers the AI consent tools when the organization allows them.
-    const tools = getCliTools({ aiConsentGiven: true })
+    const tools = getCliTools({ aiConsentGiven: true, catalogTools })
     const byName = new Map(tools.map((tool) => [tool.name, tool]))
     const exec = staticExec(tools)
     const find = (name: string): Tool<ZodObjectAny> => {
@@ -189,6 +226,8 @@ export function createApiToolLibrary(): ApiToolLibrary {
 
     return {
         tools: () => tools.map(summarize),
+
+        catalog: () => status,
 
         async search(query: string): Promise<ApiSearchResult> {
             const result = await runExec(exec, undefined, `search ${query}`)
@@ -246,7 +285,7 @@ export function createApiToolLibrary(): ApiToolLibrary {
                     })
                 }
                 const callExec = createExecTool(
-                    getCliTools({ aiConsentGiven }),
+                    getCliTools({ aiConsentGiven, catalogTools }),
                     context,
                     'PostHog tools',
                     COMMAND_REFERENCE,
