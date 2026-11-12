@@ -448,7 +448,8 @@ function SyncMethodSection({
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
     const { availableSources } = useValues(availableSourcesLogic)
-    const sourceSupportsCdc = !!source && !!availableSources?.[source.source_type]?.cdcEngine
+    const sourceSupportsCdc =
+        source?.access_method === 'warehouse' && !!availableSources?.[source.source_type]?.cdcEngine
     const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)

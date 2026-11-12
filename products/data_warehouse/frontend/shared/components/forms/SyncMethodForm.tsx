@@ -136,7 +136,7 @@ export const getCdcAvailability = (
 ): { isCdcOnForSource: boolean; tableHasPrimaryKeyForCdc: boolean; canPickCdc: boolean } => {
     const isCdcOnForSource = schema.cdc_available != null
     const tableHasPrimaryKeyForCdc = schema.cdc_available === true
-    return { isCdcOnForSource, tableHasPrimaryKeyForCdc, canPickCdc: isCdcOnForSource && tableHasPrimaryKeyForCdc }
+    return { isCdcOnForSource, tableHasPrimaryKeyForCdc, canPickCdc: tableHasPrimaryKeyForCdc }
 }
 
 const CDC_OFF_FOR_SOURCE_REASON = 'Turn on CDC for this source first'
