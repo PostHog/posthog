@@ -517,6 +517,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("unclosed_opening", "a {{ b", 'a {{ "{{" }} b'),
             ("endraw_inside", "{{foo endraw bar}}", '{{ "{{" }}foo endraw bar}}'),
             (
+                "quoted_greater_than_keeps_the_tag_open",
+                '<a title="5 > 3" href={{url}}>',
+                '<a title="5 > 3" href={{ variables.url | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}>',
+            ),
+            (
                 "unclosed_block_is_closed",
                 "{{#if a}}x",
                 "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}x{% endif %}",
