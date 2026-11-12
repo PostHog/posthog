@@ -1445,6 +1445,7 @@ export namespace Schemas {
      * * `llm_provider_key` - llm_provider_key
      * * `llm_skill` - llm_skill
      * * `logs` - logs
+     * * `logs_unredacted` - logs_unredacted
      * * `loop` - loop
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
@@ -1573,6 +1574,7 @@ export namespace Schemas {
       LlmProviderKey: 'llm_provider_key',
       LlmSkill: 'llm_skill',
       Logs: 'logs',
+      LogsUnredacted: 'logs_unredacted',
       Loop: 'loop',
       MarketingAnalytics: 'marketing_analytics',
       McpAnalytics: 'mcp_analytics',
@@ -1701,6 +1703,7 @@ export namespace Schemas {
        * * `llm_provider_key` - llm_provider_key
        * * `llm_skill` - llm_skill
        * * `logs` - logs
+       * * `logs_unredacted` - logs_unredacted
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
@@ -1952,6 +1955,7 @@ export namespace Schemas {
        * * `llm_provider_key` - llm_provider_key
        * * `llm_skill` - llm_skill
        * * `logs` - logs
+       * * `logs_unredacted` - logs_unredacted
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
@@ -2372,6 +2376,7 @@ export namespace Schemas {
        * * `llm_provider_key` - llm_provider_key
        * * `llm_skill` - llm_skill
        * * `logs` - logs
+       * * `logs_unredacted` - logs_unredacted
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
@@ -69732,6 +69737,7 @@ export namespace Schemas {
        * * `llm_provider_key` - llm_provider_key
        * * `llm_skill` - llm_skill
        * * `logs` - logs
+       * * `logs_unredacted` - logs_unredacted
        * * `loop` - loop
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
