@@ -377,7 +377,8 @@
     }
 
     & > .react-resizable-handle.react-resizable-handle-e {
-        top: 0;
+        // Starts below the header so it doesn't cover the tile's "more" button.
+        top: 3rem;
         bottom: 2rem;
         height: auto;
         cursor: ew-resize;
