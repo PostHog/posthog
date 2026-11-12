@@ -4,11 +4,13 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from products.aeo.backend.facade.api import create_keywords
+from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand
@@ -36,7 +38,9 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.url = f"/api/projects/{self.team.id}/aeo_setup/"
 
-    def _run(self, responses: list, *, first_run_available: bool = True) -> tuple[dict, MagicMock, MagicMock]:
+    def _run(
+        self, responses: list, *, run_first_check: bool = True, first_run_available: bool = True
+    ) -> tuple[dict, MagicMock, MagicMock]:
         post = MagicMock(side_effect=responses)
         gateway = MagicMock(url="http://gateway", api_key="test-key")
         with (
@@ -46,7 +50,11 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             patch("products.aeo.backend.tasks.tasks.citation_tracking_enabled", return_value=first_run_available),
             patch("products.aeo.backend.tasks.tasks.run_aeo_citation_checks_for_team_task.delay") as first_run,
         ):
-            started = self.client.post(self.url, {"domain": "https://www.example.com/pricing"}, format="json")
+            started = self.client.post(
+                self.url,
+                {"domain": "https://www.example.com/pricing", "run_first_check": run_first_check},
+                format="json",
+            )
         assert started.status_code == status.HTTP_202_ACCEPTED, started.json()
         job = self.client.get(f"{self.url}{started.json()['id']}/").json()
         return job, post, first_run
@@ -61,6 +69,7 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
                 "everything_runs",
                 [_answer(PROMPTS_ANSWER), _answer(KEYWORDS_ANSWER)],
                 True,
+                True,
                 "completed",
                 [("brand", "done", 1), ("prompts", "done", 3), ("keywords", "done", 1), ("first_run", "done", 0)],
             ),
@@ -68,12 +77,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
                 "keyword_call_fails_and_setup_goes_on",
                 [_answer(PROMPTS_ANSWER), requests.Timeout()],
                 True,
+                True,
                 "completed",
                 [("brand", "done", 1), ("prompts", "done", 3), ("keywords", "failed", 0), ("first_run", "done", 0)],
             ),
             (
                 "prompt_call_fails_and_setup_stops",
                 [requests.Timeout()],
+                True,
                 True,
                 "failed",
                 [
@@ -84,8 +95,17 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
                 ],
             ),
             (
+                "configure_only_queues_no_run",
+                [_answer(PROMPTS_ANSWER), _answer(KEYWORDS_ANSWER)],
+                False,
+                True,
+                "completed",
+                [("brand", "done", 1), ("prompts", "done", 3), ("keywords", "done", 1), ("first_run", "skipped", 0)],
+            ),
+            (
                 "first_run_not_available",
                 [_answer(PROMPTS_ANSWER), _answer(KEYWORDS_ANSWER)],
+                True,
                 False,
                 "completed",
                 [("brand", "done", 1), ("prompts", "done", 3), ("keywords", "done", 1), ("first_run", "skipped", 0)],
@@ -96,11 +116,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         self,
         _name: str,
         responses: list,
+        run_first_check: bool,
         first_run_available: bool,
         expected_status: str,
         expected_steps: list[tuple[str, str, int]],
     ) -> None:
-        job, _, first_run = self._run(responses, first_run_available=first_run_available)
+        job, _, first_run = self._run(
+            responses, run_first_check=run_first_check, first_run_available=first_run_available
+        )
 
         assert job["status"] == expected_status
         assert self._steps(job) == expected_steps
@@ -111,6 +134,8 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert AEOPrompt.objects.for_team(self.team.id).count() == prompts_added
         assert AEOKeyword.objects.for_team(self.team.id).count() == expected_steps[2][2]
         assert first_run.call_count == (1 if expected_steps[3][1] == "done" else 0)
+        if expected_steps[3][1] == "skipped":
+            assert job["steps"][3]["detail"] == ("not_available" if run_first_check else "not_requested")
 
     def test_setup_skips_every_step_a_project_already_covers(self) -> None:
         create_own_brand(self.team, "example.com")
@@ -166,6 +191,29 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == expected
         assert queued.call_count == 0
         assert AEOBrand.objects.for_team(self.team.id).count() == 0
+
+    @parameterized.expand(
+        [
+            ("tracks_only_the_chosen_engines", ["exa-answer"], status.HTTP_202_ACCEPTED, {"exa-answer"}),
+            ("unknown_engine", ["exa-answer", "not-an-engine"], status.HTTP_400_BAD_REQUEST, None),
+            ("no_chosen_engine_can_run", ["claude-web-search"], status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    @override_settings(EXA_API_KEY="test-key")
+    def test_setup_writes_the_chosen_engines_before_the_job(
+        self, _name: str, engines: list[str], expected: int, enabled: set[str] | None
+    ) -> None:
+        before = {s.engine for s in list_engine_settings(self.team.id) if s.enabled}
+
+        with (
+            patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=None),
+            patch("products.aeo.backend.facade.api.set_up_aeo_task.apply_async") as queued,
+        ):
+            response = self.client.post(self.url, {"domain": "example.com", "engines": engines}, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert queued.call_count == (1 if enabled else 0)
+        assert {s.engine for s in list_engine_settings(self.team.id) if s.enabled} == (enabled or before)
 
     def test_get_returns_404_for_an_unknown_job(self) -> None:
         assert self.client.get(f"{self.url}{uuid.uuid4()}/").status_code == status.HTTP_404_NOT_FOUND

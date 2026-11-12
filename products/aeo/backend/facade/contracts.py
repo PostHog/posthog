@@ -783,6 +783,10 @@ class SetupContext:
     has_checks: bool
     ai_data_processing_approved: bool
     first_run_available: bool
+    # The engines as the project runs them now, defaults included, for choosing which ones to track.
+    engines: tuple[EngineSetting, ...]
+    # How many prompts setup asks for, so a client can show how many checks one run makes.
+    prompt_target: int
 
 
 class SetupStep(LabeledStrEnum):
@@ -814,6 +818,10 @@ class SetupRequest:
     domain: str
     brand: str = ""
     description: str = ""
+    # Each check is a paid call to every enabled engine, so the first run is queued only when asked for.
+    run_first_check: bool = False
+    # The engines to track. Every other engine is turned off. None keeps the current settings.
+    engines: tuple[str, ...] | None = None
 
 
 @frozen

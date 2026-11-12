@@ -1244,11 +1244,22 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
     domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
     if domain is None or not _is_dns_name(domain):
         raise SetupRequestError(f"'{request.domain}' is not a valid domain. Use a domain such as example.com.")
+    if request.engines is not None:
+        _apply_setup_engines(team_id, set(request.engines))
     job = auto_setup.create_job(team_id)
     try:
         # A task still queued when readers would see the job as failed is dropped by the broker instead of run.
         set_up_aeo_task.apply_async(
-            args=(team_id, job.id, {"domain": domain, "brand": request.brand, "description": request.description}),
+            args=(
+                team_id,
+                job.id,
+                {
+                    "domain": domain,
+                    "brand": request.brand,
+                    "description": request.description,
+                    "run_first_check": request.run_first_check,
+                },
+            ),
             expires=auto_setup.SETUP_JOB_STALE_SECONDS,
         )
     except Exception:
@@ -1261,3 +1272,17 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
 def get_setup(team_id: int, job_id: str) -> SetupJob:
     """Raises SetupJobNotFoundError when the job is unknown or expired."""
     return auto_setup.load_job(team_id, job_id)
+
+
+def _apply_setup_engines(team_id: int, chosen: set[str]) -> None:
+    # Written before the job is queued, so the first run, and every daily run after it, uses only these engines.
+    current = engine_settings.list_engine_settings(team_id)
+    unknown = chosen - {setting.engine for setting in current}
+    if unknown:
+        raise SetupRequestError(f"Unknown engines: {', '.join(sorted(unknown))}.")
+    if not any(setting.available and setting.engine in chosen for setting in current):
+        raise SetupRequestError("Choose at least one engine that this project can run.")
+    for setting in current:
+        enabled = setting.engine in chosen
+        if setting.enabled != enabled:
+            engine_settings.update_engine_setting(team_id, setting.engine, EngineSettingUpdate(enabled=enabled))

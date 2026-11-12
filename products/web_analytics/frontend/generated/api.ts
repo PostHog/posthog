@@ -745,7 +745,7 @@ export const getAeoSetupCreateUrl = (projectId: string) => {
 }
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, has PostHog suggest 20 keywords and saves them, then queues a first citation check run with the default engines. A step the project already covers is skipped: an own brand exists, 10 or more active prompts, 10 or more keywords, or any check already recorded. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, has PostHog suggest 20 keywords and saves them, and with run_first_check queues a first citation check run with the enabled engines. Each check is a paid call to every enabled engine, and the daily schedule keeps running them. A step the project already covers is skipped: an own brand exists, 10 or more active prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const aeoSetupCreate = async (
