@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.aeo.backend import auto_setup
+from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, SetupRequest
 from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt
@@ -328,8 +329,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("tracks_only_the_chosen_engines", ["exa-answer"], status.HTTP_202_ACCEPTED, {"exa-answer"}),
+            (
+                "keeps_a_chosen_engine_that_is_not_available_yet",
+                ["exa-answer", "claude-web-search"],
+                status.HTTP_202_ACCEPTED,
+                {"exa-answer", "claude-web-search"},
+            ),
             ("unknown_engine", ["exa-answer", "not-an-engine"], status.HTTP_400_BAD_REQUEST, None),
-            ("no_chosen_engine_can_run", ["claude-web-search"], status.HTTP_400_BAD_REQUEST, None),
+            ("no_engine", [], status.HTTP_400_BAD_REQUEST, None),
         ]
     )
     @override_settings(EXA_API_KEY="test-key")
@@ -347,14 +354,13 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == expected, response.json()
         assert queued.call_count == (1 if enabled else 0)
         after = list_engine_settings(self.team.id)
-        if enabled is None:
-            assert {s.engine: s.enabled for s in after} == before
-        else:
-            assert {s.engine for s in after if s.available and s.enabled} == enabled
-            # Engines this deployment cannot run keep their setting, whatever was chosen.
-            assert {s.engine: s.enabled for s in after if not s.available} == {
-                engine: on for engine, on in before.items() if engine not in {s.engine for s in after if s.available}
-            }
+        # An engine this deployment cannot run yet stays on when chosen; the runner's schedule still skips it.
+        assert {s.engine: s.enabled for s in after} == (
+            before if enabled is None else {engine: engine in enabled for engine in before}
+        )
+        with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=None):
+            schedule = engine_schedule(self.team.id)
+        assert {e.name for e in [*schedule.daily, *schedule.weekly]} <= {"exa-answer"}
 
     def test_get_returns_404_for_an_unknown_job(self) -> None:
         assert self.client.get(f"{self.url}{uuid.uuid4()}/").status_code == status.HTTP_404_NOT_FOUND

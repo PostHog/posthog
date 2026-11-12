@@ -458,7 +458,8 @@ tools:
         description: >
             Set up AI visibility tracking for the project from its site's `domain`, with an optional `brand` and
             `description`. Ask the user which answer engines to track, offering the available ones from
-            `aeo-setup-context-get`, and pass their ids as `engines`; the other available engines are turned off.
+            `aeo-setup-context-get`, and pass their ids as `engines`; every other engine is turned off. An engine that is
+            not available yet may be chosen: PostHog starts checking with it, and charging for it, once it is available.
             In one job PostHog adds the site as the own brand, suggests and saves 20 prompts, and suggests and saves
             20 keywords. Each check is a paid call to every enabled engine, and one run makes about `prompt_target`
             checks per engine, so ask the user before setting `run_first_check`. With it true, the prompts are saved

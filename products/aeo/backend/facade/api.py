@@ -1284,10 +1284,11 @@ def _apply_setup_engines(team_id: int, chosen: set[str]) -> None:
     unknown = chosen - {setting.engine for setting in current}
     if unknown:
         raise SetupRequestError(f"Unknown engines: {', '.join(sorted(unknown))}.")
-    if not any(setting.available and setting.engine in chosen for setting in current):
-        raise SetupRequestError("Choose at least one engine that this project can run.")
-    # An engine this deployment cannot run keeps its setting, so it starts as chosen once it becomes available.
+    if not chosen:
+        raise SetupRequestError("Choose at least one engine.")
+    # An engine this deployment cannot run yet may still be chosen. It stays on, and the runner skips it until it
+    # becomes available.
     for setting in current:
         enabled = setting.engine in chosen
-        if setting.available and setting.enabled != enabled:
+        if setting.enabled != enabled:
             engine_settings.update_engine_setting(team_id, setting.engine, EngineSettingUpdate(enabled=enabled))

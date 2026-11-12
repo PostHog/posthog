@@ -382,8 +382,13 @@ def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
         return skipped("not_available")
     if request.only_first_run and request.activate_paused_prompts:
         AEOPrompt.objects.for_team(team.id).filter(active=False, archived_at__isnull=True).update(active=True)
-    if not catalog.own_domains(team.id) or _active_prompt_count(team.id) == 0:
-        # The run records nothing without an own brand and active prompts, so it would only spend credits.
+    schedule = engine_settings.engine_schedule(team.id)
+    if (
+        not catalog.own_domains(team.id)
+        or _active_prompt_count(team.id) == 0
+        or not (schedule.daily or schedule.weekly)
+    ):
+        # The run records nothing without an own brand, active prompts and an engine that can run today.
         return skipped("nothing_to_run")
     try:
         # The task holds a per-team lease, so a daily run already in progress makes this one a no-op.

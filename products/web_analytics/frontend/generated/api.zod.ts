@@ -310,7 +310,7 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and the other available ones off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const aeoSetupCreateBodyDomainMax = 200
@@ -352,7 +352,7 @@ export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
         .max(aeoSetupCreateBodyEnginesMax)
         .optional()
         .describe(
-            'The engines to track, by id. Every other engine is turned off before any run. At least one must be available. Leave it out to keep the current engine settings.'
+            'The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.'
         ),
     run_first_check: zod
         .boolean()
