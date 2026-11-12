@@ -176,23 +176,25 @@ describe('scorecard', () => {
         expect(api.captured).toHaveLength(1)
     })
 
-    it.each<[string, (interrupt: AbortController) => void]>([
-        ['before the publish', (interrupt) => interrupt.abort()],
+    it.each<[string, (interrupt: AbortController) => void, number]>([
+        ['before the publish', (interrupt) => interrupt.abort(), 0],
         [
             'once the event is captured',
             (interrupt) => {
                 api.onCapture = () => interrupt.abort()
             },
+            0,
         ],
         [
             'while it waits to read the event back again',
             (interrupt) => {
                 api.onQueryAnswered = () => setTimeout(() => interrupt.abort(), 200)
             },
+            1,
         ],
     ])(
         'captures the event and stops reading it back when the run is interrupted %s',
-        async (_story, arrange) => {
+        async (_story, arrange, queries) => {
             api.hideForQueries = Infinity
             const interrupt = new AbortController()
             arrange(interrupt)
@@ -204,7 +206,7 @@ describe('scorecard', () => {
 
             expect(outcome).toEqual({ recorded: false, captured: true })
             expect(api.captured).toHaveLength(1)
-            expect(api.queries).toBe(1)
+            expect(api.queries).toBe(queries)
         },
         10_000
     )

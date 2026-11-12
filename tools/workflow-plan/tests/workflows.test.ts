@@ -1185,24 +1185,27 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['Rust-only PR', pullRequest(), 'true', 'false', true],
-        ['missing Node filter', pullRequest(), 'true', '', true],
-        ['fork', pullRequest({ fork: true }), 'true', 'false', true],
-        ['Rust-only merge queue', mergeQueue(), 'true', 'false', true],
-        ['mixed Node/Rust PR', pullRequest(), 'true', 'true', false],
-        ['mixed Node/Rust fork', pullRequest({ fork: true }), 'true', 'true', false],
-        ['mixed Node/Rust merge queue', mergeQueue(), 'true', 'true', false],
-        ['Node-only PR', pullRequest(), 'false', 'true', false],
-        ['unrelated PR', pullRequest(), 'false', 'false', false],
-        ['push', push(), 'true', 'false', false],
-        ['schedule', schedule(), 'true', 'false', false],
-    ] as const)('Node Rust preparation on %s', (name, github, rust, nodejs, runs) => {
+        ['Rust-only PR', pullRequest(), 'true', 'false', true, true],
+        ['missing Node filter', pullRequest(), 'true', '', true, true],
+        ['fork', pullRequest({ fork: true }), 'true', 'false', true, true],
+        ['Rust-only merge queue', mergeQueue(), 'true', 'false', true, true],
+        ['mixed Node/Rust PR', pullRequest(), 'true', 'true', false, true],
+        ['mixed Node/Rust fork', pullRequest({ fork: true }), 'true', 'true', false, true],
+        ['mixed Node/Rust merge queue', mergeQueue(), 'true', 'true', false, true],
+        ['Node-only PR', pullRequest(), 'false', 'true', false, true],
+        ['unrelated PR', pullRequest(), 'false', 'false', false, true],
+        ['push', push(), 'true', 'false', false, false],
+        ['schedule', schedule(), 'true', 'false', false, false],
+    ] as const)('Node coordinator preparation on %s', (name, github, rust, nodejs, runs, checkoutRuns) => {
         const plan = planWorkflow(workflow('ci-nodejs.yml'), {
             name,
             github,
             steps: { changes: { filter: { outputs: { rust, nodejs } } } },
         })
         expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.runs).toBe(
+            checkoutRuns
+        )
         for (const name of [
             'Check out the Rust tree for affected-crate detection',
             'Resolve the Rust changed files',

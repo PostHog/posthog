@@ -41,6 +41,16 @@ describe('rewriteAgentObjectTags', () => {
             '<insight id="a">Error [rate] > 1% | daily</insight>',
             '[Error rate &gt; 1% daily](/project/2/insights/a)',
         ],
+        [
+            'a tag between a closed code span and an unmatched backtick',
+            '`a` <insight id="a">x</insight> `',
+            '`a` [x](/project/2/insights/a) `',
+        ],
+        [
+            'a tag between backtick runs of different lengths',
+            '`` <insight id="a">x</insight> `',
+            '`` [x](/project/2/insights/a) `',
+        ],
     ])('%s', (_name, input, expected) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(expected)
     })
@@ -54,6 +64,12 @@ describe('rewriteAgentObjectTags', () => {
 
     it.each([
         ['inline code', 'Use `<insight id="a">kept</insight>`.'],
+        ['a double-backtick span that holds a single backtick', 'Use ``a ` <insight id="a">kept</insight>``.'],
+        [
+            'a double-backtick span that holds a whole single-backtick pair',
+            'Use `` <insight id="a">kept</insight> `b` ``.',
+        ],
+        ['the second of two code spans', 'Use `a` and `<insight id="a">kept</insight>`.'],
         ['fenced code', '```xml\n<insight id="a">kept</insight>\n```'],
         ['plain text without tags', 'Nothing to do here.'],
         ['unknown non-object markup', 'A <div>block</div> stays.'],
@@ -133,5 +149,16 @@ describe('rewriteAgentObjectTags', () => {
 
     it('links project-relative when no project base is known', () => {
         expect(rewriteAgentObjectTags('<insight id="a">x</insight>', '')).toBe('[x](/insights/a)')
+    })
+
+    it('rewrites a tag after a line that only looks like a fence opener', () => {
+        expect(rewriteAgentObjectTags('```js`\n<insight id="a">x</insight>', BASE)).toBe(
+            '```js`\n[x](/project/2/insights/a)'
+        )
+    })
+
+    it('keeps a trailing partial tag in complete text', () => {
+        expect(rewriteAgentObjectTags('keep <insight', BASE)).toBe('keep ')
+        expect(rewriteAgentObjectTags('keep <insight', BASE, { streaming: false })).toBe('keep <insight')
     })
 })

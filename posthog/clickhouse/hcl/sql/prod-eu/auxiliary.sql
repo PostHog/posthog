@@ -38,6 +38,7 @@ CREATE TABLE posthog.email_status_events_data (
   recipient String,
   function_id String,
   sending_domain LowCardinality(String),
+  scheduled_at Nullable(DateTime64(6, 'UTC')),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -207,7 +208,8 @@ CREATE TABLE posthog.kafka_email_status_events (
   reason String,
   recipient String,
   function_id String,
-  sending_domain LowCardinality(String)
+  sending_domain LowCardinality(String),
+  scheduled_at Nullable(DateTime64(6, 'UTC'))
 ) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status_events', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
 CREATE TABLE posthog.kafka_hog_invocation_results (
   team_id Int64,
@@ -1368,7 +1370,7 @@ CREATE TABLE posthog.writable_query_log_archive_v3 (
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_v3_buffer');
-CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_events_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, recipient String, function_id String, sending_domain LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_events_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, recipient String, function_id String, sending_domain LowCardinality(String), scheduled_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   message_id,
   status,
@@ -1379,6 +1381,7 @@ CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_
   recipient,
   function_id,
   sending_domain,
+  scheduled_at,
   _timestamp,
   _offset,
   _partition
@@ -1740,6 +1743,7 @@ CREATE TABLE posthog.email_status_events (
   recipient String,
   function_id String,
   sending_domain LowCardinality(String),
+  scheduled_at Nullable(DateTime64(6, 'UTC')),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
