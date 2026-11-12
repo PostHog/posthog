@@ -10,7 +10,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { InsightColor } from '~/types'
 
-import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
+import { DashboardInsightDisplayOptionsMenu } from './DashboardInsightDisplayOptionsMenu'
 import { DashboardTileRefreshDataButton } from './DashboardTileRefreshDataButton'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import type { InsightCardMenu } from './insightCardMenu'
@@ -66,7 +66,7 @@ export function InsightCardMoreButtons({
                 </LemonButton>
             )}
             {menu.displayOptions && (
-                <DashboardInsightDisplayOptions
+                <DashboardInsightDisplayOptionsMenu
                     visualizationItems={menu.displayOptions.visualizationItems}
                     tabs={menu.displayOptions.tabs}
                 />
