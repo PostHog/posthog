@@ -411,6 +411,18 @@ class TestRecordToRow:
                 },
                 [VALUE_COLUMN, RAW_DATA_COLUMN],
             ),
+            (
+                "camel_case_keys",
+                b'{"userId": "u1", "eventType": "click", "Page": "/"}',
+                {"user_id": "u1", "event_type": "click", "page": "/"},
+                [],
+            ),
+            (
+                "colliding_keys",
+                b'{"userId": "camel", "user_id": "snake"}',
+                {"user_id": "snake"},
+                [],
+            ),
             ("json_array", b"[1, 2]", {VALUE_COLUMN: "[1,2]"}, [RAW_DATA_COLUMN]),
             ("text", b"plain text", {RAW_DATA_COLUMN: "plain text", RAW_DATA_ENCODING_COLUMN: "utf-8"}, []),
             ("binary", b"\xff\xfe", {RAW_DATA_COLUMN: "//4=", RAW_DATA_ENCODING_COLUMN: "base64"}, []),

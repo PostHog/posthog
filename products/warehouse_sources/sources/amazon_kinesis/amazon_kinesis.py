@@ -302,15 +302,41 @@ def _raw_payload(data: bytes) -> _RawPayload:
         return _base64_payload(data)
 
 
-def _payload_column_name(name: str) -> str:
+def _normalize_payload_key(name: str) -> str:
     try:
-        normalized = NamingConvention.normalize_identifier(name)
+        return NamingConvention.normalize_identifier(name)
     except ValueError:
-        normalized = "column"
-    if name == normalized and normalized not in _RESERVED_PAYLOAD_COLUMNS and not normalized.startswith("_kinesis_"):
-        return normalized
+        return "column"
+
+
+def _hashed_payload_column_name(name: str, normalized: str) -> str:
     digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
     return f"_kinesis_payload_{normalized}_{digest}"
+
+
+def _payload_columns(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map JSON keys to snake_case columns, renaming only keys that would clash.
+
+    A key is hashed into an opaque `_kinesis_payload_*` column only when its normalized name is reserved,
+    uses the `_kinesis_` prefix, or collides with another key of the same record (e.g. `userId` and `user_id`;
+    the key already in snake_case keeps the plain name).
+    """
+    normalized_keys = {key: _normalize_payload_key(key) for key in payload}
+    owners: dict[str, str] = {}
+    for key, normalized in normalized_keys.items():
+        if normalized in _RESERVED_PAYLOAD_COLUMNS or normalized.startswith("_kinesis_"):
+            continue
+        current = owners.get(normalized)
+        if current is None or (key == normalized and current != normalized):
+            owners[normalized] = key
+    columns: dict[str, Any] = {}
+    for key, value in payload.items():
+        normalized = normalized_keys[key]
+        if owners.get(normalized) == key:
+            columns[normalized] = value
+        else:
+            columns[_hashed_payload_column_name(key, normalized)] = value
+    return columns
 
 
 def record_to_row(record: dict[str, Any], shard_id: str) -> dict[str, Any]:
@@ -325,7 +351,7 @@ def record_to_row(record: dict[str, Any], shard_id: str) -> dict[str, Any]:
             row.update(_raw_payload(data).columns())
         else:
             if isinstance(decoded, dict):
-                row.update({_payload_column_name(key): value for key, value in decoded.items()})
+                row.update(_payload_columns(decoded))
             else:
                 row[VALUE_COLUMN] = orjson.dumps(decoded).decode()
     row.update(
