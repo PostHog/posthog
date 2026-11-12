@@ -8,6 +8,7 @@
                 "backend/routes.py",
                 "backend/data_freshness.py",
                 "backend/integration_usages.py",
+                "backend/integration_hooks.py",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/tasks/**",

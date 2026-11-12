@@ -1,0 +1,18 @@
+{# A Stats block as a row of small cards. It wraps when the page is narrow. #}
+<dl class="m-0 flex flex-wrap gap-3">
+    {% for stat in stats.items %}
+        <div class="quill-card group/card flex flex-col flex-1 min-w-[160px] max-w-[280px] gap-1 px-4 py-3"
+             data-quill
+             data-slot="card"
+             data-size="sm">
+            <dt class="text-xs text-muted-foreground">{{ stat.label }}</dt>
+            <dd class="m-0">
+                {% if stat.tone %}
+                    {% include "admin_console/_badge.html" with label=stat.value tone=stat.tone %}
+                {% else %}
+                    <span class="text-[22px] leading-7 font-extrabold tabular-nums">{{ stat.value }}</span>
+                {% endif %}
+            </dd>
+        </div>
+    {% endfor %}
+</dl>
