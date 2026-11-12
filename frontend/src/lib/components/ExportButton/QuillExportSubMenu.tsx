@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic } from 'kea'
+import { useMountedLogic } from 'kea'
 
 import {
     DropdownMenuGroup,
@@ -16,7 +16,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ExportButtonCopyToClipboardItem, ExportButtonItem } from './ExportButton'
-import { exportButtonItemAttributes } from './exportButtonItemAttributes'
+import { QuillExportFileTypeItems } from './QuillExportFileTypeItems'
 
 export function QuillExportSubMenu({
     items,
@@ -26,7 +26,6 @@ export function QuillExportSubMenu({
     copyToClipboardItems?: ExportButtonCopyToClipboardItem[]
 }): JSX.Element {
     useMountedLogic(exportsLogic)
-    const { startExport } = useActions(exportsLogic)
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Export, AccessControlLevel.Editor)
 
     if (disabledReason) {
@@ -43,23 +42,7 @@ export function QuillExportSubMenu({
         <DropdownMenuSub>
             <DropdownMenuSubTrigger data-attr="export-button">Export</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-                <DropdownMenuGroup>
-                    <DropdownMenuLabel>File type</DropdownMenuLabel>
-                    {items.map(({ title, ...triggerExportProps }, i) => {
-                        const { extension, target, body } = exportButtonItemAttributes(triggerExportProps)
-                        return (
-                            <DropdownMenuItem
-                                key={i}
-                                onClick={() => startExport(triggerExportProps)}
-                                data-attr={`export-button-${extension}`}
-                                data-ph-capture-attribute-export-target={target}
-                                data-ph-capture-attribute-export-body={body.length ? JSON.stringify(body) : null}
-                            >
-                                {title ? title : `.${extension}`}
-                            </DropdownMenuItem>
-                        )
-                    })}
-                </DropdownMenuGroup>
+                <QuillExportFileTypeItems items={items} />
                 {copyToClipboardItems && copyToClipboardItems.length > 0 ? (
                     <>
                         <DropdownMenuSeparator />
