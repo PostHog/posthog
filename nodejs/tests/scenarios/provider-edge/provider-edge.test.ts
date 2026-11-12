@@ -315,23 +315,6 @@ describe('provider edge', () => {
         }
     })
 
-    it('does not observe a held fault from a send after its observation window', async () => {
-        const start = Date.now()
-        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
-        try {
-            const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
-            const observed = held.observed()
-            clock.mockReturnValue(start + 10_001)
-
-            expect({ send: await send(ALICE), observed: await observed }).toEqual({
-                send: 'MessageRejected',
-                observed: false,
-            })
-        } finally {
-            clock.mockRestore()
-        }
-    })
-
     const rejectFor = (recipient: string): CardFault => ({
         name: 'ses.reject',
         params: { type: 'rejected' },
@@ -375,6 +358,31 @@ describe('provider edge', () => {
         await send(ALICE)
 
         expect((await truth()).records.map((record) => record.seq)).toEqual([1, 2, 3])
+    })
+
+    it.each<[string, { sendAt: number; releaseAt?: number }, boolean]>([
+        ['observes a held fault from a send in the last moment of its window', { sendAt: 9_999 }, true],
+        ['does not observe a held fault from a send after its window', { sendAt: 10_001 }, false],
+        ['observes a held fault from a send just before the drive released it', { sendAt: 5, releaseAt: 6 }, true],
+    ])('%s', async (_story, { sendAt, releaseAt }, observedFault) => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        const released = new AbortController()
+        try {
+            const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+            const observed = held.observed(released.signal)
+            clock.mockReturnValue(start + sendAt)
+            const answer = await send(ALICE)
+            if (releaseAt !== undefined) {
+                clock.mockReturnValue(start + releaseAt)
+                released.abort()
+            }
+            clock.mockReturnValue(start + 10_001)
+
+            expect({ answer, observed: await observed }).toEqual({ answer: 'MessageRejected', observed: observedFault })
+        } finally {
+            clock.mockRestore()
+        }
     })
 
     it.each<[string, string, TruthPage]>([
