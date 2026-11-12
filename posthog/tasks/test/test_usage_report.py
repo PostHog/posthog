@@ -1839,11 +1839,7 @@ class TestQueryUsageReportSQL:
                 (1, "posthog-aspnetcore", "posthog-ai", 2),
             ],
         ]
-        mock_sync_execute.return_value = [
-            (1, "$mcp_tool_call", 4, 2),
-            (1, "$mcp_missing_capability", 6, 0),
-            (1, "$mcp_initialize", 7, 0),
-        ]
+        mock_sync_execute.return_value = [(1, 4, 6, 7, 0, 0, 0, 0, 0, 2)]
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
 
@@ -1883,11 +1879,11 @@ class TestQueryUsageReportSQL:
         assert "'posthog-ai'" in ai_query
         assert "'posthog-opencode'" in ai_query
 
-        dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
+        dedup_expression = "tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
 
         mcp_query = mock_sync_execute.call_args.args[0]
         assert dedup_expression in mcp_query
-        assert "GROUP BY team_id, event" in mcp_query
+        assert "GROUP BY team_id" in mcp_query
         assert "FROM events" in mcp_query
         assert "interface_expr" in mcp_query
         assert "interface_expr" not in main_query
@@ -6250,13 +6246,9 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
         # pieces that must be added, not overwritten, and kept separate per team and per event.
         mock_sync_execute.side_effect = [
-            [(1, "$mcp_initialize", 2, 1), (2, "$mcp_initialize", 5, 0)],
-            [(1, "$mcp_initialize", 3, 2), (1, "$mcp_tools_list", 7, 0)],
-            [
-                (1, "$mcp_initialize", 4, 0),
-                ("unexpected", "$mcp_not_a_real_event", 9, 0),
-                (3, "$mcp_future_event", 4, 4),
-            ],
+            [(1, 0, 0, 2, 0, 0, 0, 0, 0, 1), (2, 0, 0, 5, 0, 0, 0, 0, 0, 0)],
+            [(1, 0, 0, 3, 7, 0, 0, 0, 0, 2)],
+            [(1, 0, 0, 4, 0, 0, 0, 0, 0, 0), (4, 0, 0, 0, 0, 0, 0, 0, 0, 0), (3, 0, 0, 0, 0, 0, 0, 0, 0, 4)],
         ]
 
         result = _get_mcp_analytics_event_metric_counts(
@@ -6596,6 +6588,29 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         for team, expected_count in [(self.team, 2), (self.analytics_team, 1)]:
             report = dataclasses.asdict(_get_team_report(all_data, team))
             assert report["web_mcp_events_count_in_period"] == expected_count
+
+    def test_mcp_metric_rows_are_bounded_for_unknown_event_names(self) -> None:
+        event_uuid = uuid4()
+        event_names = ["$mcp_tool_call", *(f"$mcp_custom_{index}" for index in range(32))]
+        for event in event_names:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="webmcp_cardinality_user",
+                event_uuid=event_uuid,
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$lib": "web", "$mcp_interface": "webmcp"},
+            )
+        flush_persons_and_events()
+
+        with patch("posthog.tasks.usage_report.sync_execute", wraps=sync_execute) as execute:
+            metrics = _get_mcp_analytics_event_metric_counts(self.begin, self.end)
+
+        assert dict(metrics["web_mcp_events"]) == {self.team.id: len(event_names)}
+        assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 1}
+        for query in execute.call_args_list:
+            rows = sync_execute(*query.args, **query.kwargs)
+            assert len(rows) <= len(MCP_ANALYTICS_EVENT_METRICS) + 1
 
     def test_mcp_event_count_deduplicates_copies_hours_apart_on_the_same_day(self) -> None:
         # make sure we don't collapse duplicate rows

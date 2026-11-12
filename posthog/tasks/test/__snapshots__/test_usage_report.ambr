@@ -1495,17 +1495,22 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.65
   '''
-  
+  WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
   SELECT team_id,
-         event,
-         uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count,
-         uniqExactIf(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)), replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp'
-                     AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web') AS web_mcp_count
+         uniqExactIf(event_key, event = '$mcp_tool_call') AS mcp_tool_call_events,
+         uniqExactIf(event_key, event = '$mcp_missing_capability') AS mcp_missing_capability_events,
+         uniqExactIf(event_key, event = '$mcp_initialize') AS mcp_initialize_events,
+         uniqExactIf(event_key, event = '$mcp_tools_list') AS mcp_tools_list_events,
+         uniqExactIf(event_key, event = '$mcp_resource_read') AS mcp_resource_read_events,
+         uniqExactIf(event_key, event = '$mcp_resources_list') AS mcp_resources_list_events,
+         uniqExactIf(event_key, event = '$mcp_prompt_get') AS mcp_prompt_get_events,
+         uniqExactIf(event_key, event = '$mcp_prompts_list') AS mcp_prompts_list_events,
+         uniqExactIf(event_key, replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp'
+                     AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web') AS web_mcp_events
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 23:59:59'
   AND startsWith(event, '$mcp_')
-  GROUP BY team_id,
-           event
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.66

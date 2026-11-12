@@ -1021,43 +1021,47 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     library_expression, _ = get_property_string_expr(
         "events", "$lib", "'$lib'", "properties", use_new_events_schema=False
     )
-    # nosemgrep: clickhouse-fstring-param-audit - property expressions come from internal helpers
+    metric_names = (*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events")
+    metric_expressions = ",\n            ".join(
+        f"uniqExactIf(event_key, event = %({metric_name})s) AS {metric_name}"
+        for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
+    )
+    # nosemgrep: clickhouse-fstring-param-audit - metric names and property expressions come from internal definitions
     query_template = f"""
+        WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
         SELECT
             team_id,
-            event,
-            uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count,
+            {metric_expressions},
             uniqExactIf(
-                tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)),
+                event_key,
                 {interface_expression} = %(web_mcp_interface)s AND {library_expression} = %(web_mcp_lib)s
-            ) AS web_mcp_count
+            ) AS web_mcp_events
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND startsWith(event, %(mcp_event_prefix)s)
-        GROUP BY team_id, event
+        GROUP BY team_id
     """
 
     def combine_mcp_analytics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
-        counts_by_metric: dict[str, dict[int, int]] = {
-            metric_name: {} for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
-        }
-        counts_by_metric["web_mcp_events"] = {}
+        counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in metric_names}
         for results in results_list:
-            for team_id, event, count, web_mcp_count in results:
-                metric_name = MCP_ANALYTICS_EVENT_METRICS.get(event)
-                if metric_name is not None:
-                    team_counts = counts_by_metric[metric_name]
-                    team_counts[team_id] = team_counts.get(team_id, 0) + count
-                if web_mcp_count:
-                    web_counts = counts_by_metric["web_mcp_events"]
-                    web_counts[team_id] = web_counts.get(team_id, 0) + web_mcp_count
+            for team_id, *counts in results:
+                for metric_name, count in zip(metric_names, counts, strict=True):
+                    if count:
+                        team_counts = counts_by_metric[metric_name]
+                        team_counts[team_id] = team_counts.get(team_id, 0) + count
         return {metric_name: list(team_counts.items()) for metric_name, team_counts in counts_by_metric.items()}
 
     return _execute_calendar_aligned_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
-        params={"mcp_event_prefix": MCP_EVENT_NAME_PREFIX, "web_mcp_interface": "webmcp", "web_mcp_lib": "web"},
+        params={
+            "mcp_event_prefix": MCP_EVENT_NAME_PREFIX,
+            "web_mcp_interface": "webmcp",
+            "web_mcp_lib": "web",
+            **{metric_name: event for event, metric_name in MCP_ANALYTICS_EVENT_METRICS.items()},
+        },
         num_splits=12,
         combine_results_func=combine_mcp_analytics_results,
     )
