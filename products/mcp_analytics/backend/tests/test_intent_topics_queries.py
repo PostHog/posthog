@@ -18,11 +18,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql.errors import QueryError
+from posthog.hogql.printer.utils import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -30,6 +30,7 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend.facade.clickhouse_schema import MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE
 from products.mcp_analytics.backend.hogql_queries.intent_topics import (
     MCPIntentMapQueryRunner,
@@ -111,6 +112,18 @@ class TestIntentTopicsQuery(_Base):
             response.coverage.calls_assigned,
             response.coverage.assigned_pct,
         ) == (200, 100, 50.0)
+
+    def test_sessions_count_each_conversation_once_across_tools_and_days(self) -> None:
+        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 3, conversations=(1, 2))
+        _daily(self.team.pk, TODAY, "query-funnel", self.t_insights, 2, conversations=(2, 3))
+        _daily(self.team.pk, TODAY - timedelta(days=1), "query-trends", self.t_insights, 1, conversations=(1, 4))
+
+        response = MCPIntentTopicsQueryRunner(
+            query=MCPIntentTopicsQuery(dateRange=WINDOW, toolName=None), team=self.team
+        ).calculate()
+
+        insights = next(t for t in response.results if t.topic_id == self.t_insights)
+        assert insights.sessions == 4
 
     def test_scopes_to_a_tool_and_limits(self) -> None:
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 60)
@@ -314,6 +327,16 @@ class TestIntentMapQuery(_Base):
         ).calculate()
         assert [p.intent_hash for p in flags_by_tool.results] == ["p2"]
         assert [(t.label, t.calls) for t in flags_by_tool.topics] == [("List flags", 0)]
+
+    def test_a_full_page_counts_every_point_and_reads_text_only_for_its_rows(self) -> None:
+        runner = MCPIntentMapQueryRunner(query=MCPIntentMapQuery(dateRange=WINDOW, limit=1), team=self.team)
+
+        response = runner.calculate()
+
+        assert [(p.intent_hash, p.intent_text) for p in response.results] == [("p1", "plot signups")]
+        assert response.total_points == 3
+        # The ranking join carries no intent text: a month of a large team's texts does not fit in memory.
+        assert "intent_text" not in to_printed_hogql(runner.to_query(), self.team)
 
     def test_points_assigned_before_the_latest_refit_use_an_older_basis_and_stay_off_the_map(self) -> None:
         refit = MCPIntentClusteringRun.objects.create(
