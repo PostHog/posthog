@@ -18,6 +18,7 @@ from products.alerts_platform.backend.delivery.destinations import list_alert_de
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
+    AlertDestinationGroup,
     AlertDestinationValidationError,
     AlertEventKind,
     DestinationType,
@@ -29,7 +30,6 @@ from products.alerts_platform.backend.models import AlertDestination, PlatformAl
 
 # The destination types that open and close incidents rather than post messages.
 INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
-_SUBSCRIBER_TYPES: Final = frozenset({DestinationType.EMAIL, DestinationType.IN_APP})
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -285,7 +285,11 @@ def _subscriber_rows(team_id: int, configuration_ids: Collection[UUID]) -> list[
     rows = AlertDestination.objects.for_team(team_id).filter(
         configuration_id__in=list(configuration_ids), type__in=[DestinationType.EMAIL, DestinationType.IN_APP]
     )
-    return [row for row in rows if row.type == DestinationType.IN_APP or "email_user_ids" in row.config]
+    return [row for row in rows if _names_subscribers(row)]
+
+
+def _names_subscribers(row: AlertDestination) -> bool:
+    return row.type == DestinationType.IN_APP or (row.type == DestinationType.EMAIL and "email_user_ids" in row.config)
 
 
 def _refuse_duplicates(
@@ -299,15 +303,7 @@ def _refuse_duplicates(
         _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration.id)
     ]
     groups = (
-        [
-            group
-            for group in list_alert_destination_groups(
-                team_id=team_id,
-                alert_id=str(configuration.destination_alert_id),
-                allowed_event_ids=hog_function_event_ids,
-            )
-            if group.hog_function_ids
-        ]
+        _hog_function_groups(team_id, configuration.destination_alert_id, hog_function_event_ids)
         if hog_function_event_ids
         else []
     )
@@ -332,12 +328,7 @@ def record_source_destination(
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`."""
-    configuration_id = (
-        PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
-        .values_list("id", flat=True)
-        .first()
-    )
+    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(
@@ -359,28 +350,14 @@ def list_source_destinations(
     """The destinations a person sees on the page of an alert whose source keeps HogFunctions: each
     HogFunction group, with the row that copies it, then each row whose HogFunctions are gone.
     Subscriber rows are left out, because the source shows its subscribers apart."""
-    groups = [
-        group
-        for group in list_alert_destination_groups(
-            team_id=team_id, alert_id=str(public_id), allowed_event_ids=hog_function_event_ids
-        )
-        if group.hog_function_ids
+    groups = _hog_function_groups(team_id, public_id, hog_function_event_ids)
+    rows = [
+        _stored(row)
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id))
+        .order_by("created_at", "id")
+        if not _names_subscribers(row)
     ]
-    configuration_id = (
-        PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
-        .values_list("id", flat=True)
-        .first()
-    )
-    rows = (
-        [
-            row
-            for row in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
-            if row.data["type"] not in _SUBSCRIBER_TYPES
-        ]
-        if configuration_id is not None
-        else []
-    )
     matched: set[UUID] = set()
     listed: list[SourceDestination] = []
     for group in groups:
@@ -413,9 +390,7 @@ def delete_source_destination_rows(
         return frozenset()
     rows = AlertDestination.objects.for_team(team_id).filter(
         models.Q(id__in=list(destination_ids)) | models.Q(legacy_hog_function_ids__overlap=list(hog_function_ids)),
-        configuration__in=PlatformAlertConfiguration.objects.for_team(team_id).filter(
-            PlatformAlertConfiguration.with_destination_alert_ids([public_id])
-        ),
+        configuration__in=_configurations_by_public_id(team_id, public_id),
     )
     copied = frozenset(
         hog_function_id
@@ -424,6 +399,25 @@ def delete_source_destination_rows(
     )
     rows.delete()
     return copied
+
+
+def _configurations_by_public_id(team_id: int, public_id: UUID) -> models.QuerySet[PlatformAlertConfiguration]:
+    return PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        PlatformAlertConfiguration.with_destination_alert_ids([public_id])
+    )
+
+
+def _hog_function_groups(
+    team_id: int, public_id: UUID, hog_function_event_ids: Collection[str]
+) -> list[AlertDestinationGroup]:
+    """The alert's HogFunction destinations, without the subscriber groups a source adds with none."""
+    return [
+        group
+        for group in list_alert_destination_groups(
+            team_id=team_id, alert_id=str(public_id), allowed_event_ids=hog_function_event_ids
+        )
+        if group.hog_function_ids
+    ]
 
 
 def _receiver(data: AlertDestinationData) -> dict[str, object]:
