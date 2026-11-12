@@ -14,9 +14,20 @@ celery_settings = importlib.import_module("posthog.settings.celery")
 @pytest.mark.parametrize(
     "url,expected",
     [
-        ("rediss://broker:6379", "rediss://broker:6379?ssl_cert_reqs=required"),
-        ("rediss://broker:6379/0?socket_timeout=5", "rediss://broker:6379/0?socket_timeout=5&ssl_cert_reqs=required"),
-        ("rediss://broker:6379?ssl_cert_reqs=none", "rediss://broker:6379?ssl_cert_reqs=none"),
+        ("rediss://broker:6379", "rediss://broker:6379?ssl_cert_reqs=required&ssl_check_hostname=true"),
+        (
+            "rediss://broker:6379/0?socket_timeout=5",
+            "rediss://broker:6379/0?socket_timeout=5&ssl_cert_reqs=required&ssl_check_hostname=true",
+        ),
+        (
+            "rediss://broker:6379?ssl_cert_reqs=CERT_REQUIRED",
+            "rediss://broker:6379?ssl_cert_reqs=required&ssl_check_hostname=true",
+        ),
+        (
+            "rediss://broker:6379?ssl_cert_reqs=required&ssl_check_hostname=false",
+            "rediss://broker:6379?ssl_cert_reqs=required&ssl_check_hostname=false",
+        ),
+        ("rediss://broker:6379?ssl_cert_reqs=CERT_NONE", "rediss://broker:6379?ssl_cert_reqs=none"),
         ("redis://broker:6379", "redis://broker:6379"),
         (None, None),
     ],
@@ -47,7 +58,7 @@ def reload_celery_settings() -> Iterator[None]:
         (
             {"CELERY_BROKER_REDIS_URL": "rediss://broker:6379"},
             {
-                "CELERY_BROKER_URL": "rediss://broker:6379?ssl_cert_reqs=required",
+                "CELERY_BROKER_URL": "rediss://broker:6379?ssl_cert_reqs=required&ssl_check_hostname=true",
                 "CELERY_RESULT_BACKEND": REDIS_URL,
                 "CELERY_REDBEAT_REDIS_URL": REDIS_URL,
             },
@@ -57,7 +68,7 @@ def reload_celery_settings() -> Iterator[None]:
             {
                 "CELERY_BROKER_URL": REDIS_URL,
                 "CELERY_BROKER_READ_URL": "redis://old:6379",
-                "CELERY_BROKER_WRITE_URL": "rediss://new:6379?ssl_cert_reqs=required",
+                "CELERY_BROKER_WRITE_URL": "rediss://new:6379?ssl_cert_reqs=required&ssl_check_hostname=true",
             },
         ),
     ],

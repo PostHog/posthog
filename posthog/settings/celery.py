@@ -41,18 +41,24 @@ CELERY_IMPORTS: list[str] = [
 ]
 
 
-def with_tls_verification(url: str | None) -> str | None:
-    """Add ssl_cert_reqs=required to a rediss:// URL that lacks it.
+_CERT_REQS_ALIASES = {"cert_required": "required", "cert_optional": "optional", "cert_none": "none"}
 
-    Without it, kombu connects with certificate checks off and the Redis result backend refuses to start.
+
+def with_tls_verification(url: str | None) -> str | None:
+    """Make a rediss:// URL verify the certificate and hostname, in a form Celery, kombu and redis-py all accept.
+
+    Without ssl_cert_reqs, kombu skips certificate checks and the Redis result backend refuses to start.
+    redis-py accepts only the lowercase ssl_cert_reqs values, and checks the hostname only when asked.
     """
     if not url or urlsplit(url).scheme != "rediss":
         return url
     parts = urlsplit(url)
-    query = parse_qsl(parts.query)
-    if any(key == "ssl_cert_reqs" for key, _ in query):
-        return url
-    return urlunsplit(parts._replace(query=urlencode([*query, ("ssl_cert_reqs", "required")])))
+    query = dict(parse_qsl(parts.query))
+    cert_reqs = query.get("ssl_cert_reqs", "required").lower()
+    query["ssl_cert_reqs"] = _CERT_REQS_ALIASES.get(cert_reqs, cert_reqs)
+    if query["ssl_cert_reqs"] == "required":
+        query.setdefault("ssl_check_hostname", "true")
+    return urlunsplit(parts._replace(query=urlencode(list(query.items()))))
 
 
 def _celery_redis_url(env_key: str, default: str | None) -> str | None:
