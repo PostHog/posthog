@@ -95,7 +95,7 @@ describe('HogFunctionHandler', () => {
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() }
+            { report: jest.fn(), reportEmailSent: jest.fn() }
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -486,8 +486,10 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
-        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
-        expect(invocationResult.metrics).toEqual([])
+        // A broadcast's audience breakdown counts opt-outs from this metric. It is not billable.
+        expect(invocationResult.metrics).toEqual([
+            expect.objectContaining({ metric_kind: 'email', metric_name: 'email_opted_out', count: 1 }),
+        ])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
@@ -614,7 +616,10 @@ describe('HogFunctionHandler', () => {
 
                 expect(wokenResult.nextAction?.id).toBe('exit')
                 expect(woken.logs[0].message).toContain('no slot opened before the hold ended')
-                expect(woken.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+                expect(woken.metrics).toMatchObject([
+                    { metric_name: 'message_frequency_capped', count: 1 },
+                    { metric_name: 'message_frequency_cap_hold_ended', count: 1 },
+                ])
                 expect(checkFrequencyCap).toHaveBeenCalledTimes(checks)
                 expect(mockFetch).not.toHaveBeenCalled()
             } finally {

@@ -939,8 +939,39 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
+            - name: Restore cargo-binstall archive
+              id: binstall-cache
+              continue-on-error: true
+              timeout-minutes: 1
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+                  key: cargo-binstall-1.26.2-linux-x64-v1
+
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              env:
+                  BINSTALL_ARCHIVE: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+              run: |
+                  set -euo pipefail
+                  checksum=9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5
+                  if ! echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check --status; then
+                      curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                          -o "$BINSTALL_ARCHIVE" \
+                          https://github.com/cargo-bins/cargo-binstall/releases/download/v1.26.2/cargo-binstall-x86_64-unknown-linux-musl.tgz
+                  fi
+                  echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check
+                  mkdir -p "$CARGO_HOME/bin"
+                  tar -xzf "$BINSTALL_ARCHIVE" -C "$CARGO_HOME/bin" cargo-binstall
+                  "$CARGO_HOME/bin/cargo-binstall" -V
+
+            - name: Save cargo-binstall archive
+              if: steps.binstall-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+              continue-on-error: true
+              timeout-minutes: 1
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+                  key: cargo-binstall-1.26.2-linux-x64-v1
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
