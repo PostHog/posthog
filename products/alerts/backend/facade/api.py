@@ -287,14 +287,15 @@ def snooze_alert_from_slack(
                     capture_exception(error, {"alert_id": str(alert_id)})
                     transaction.set_rollback(True)
                     return "not_snoozable"
-            AlertCheck.objects.create(
-                alert_configuration=locked_alert,
-                calculated_value=None,
-                condition=locked_alert.condition,
-                targets_notified={},
-                state=locked_alert.state,
-                error=None,
-            )
+            else:
+                AlertCheck.objects.create(
+                    alert_configuration=locked_alert,
+                    calculated_value=None,
+                    condition=locked_alert.condition,
+                    targets_notified={},
+                    state=locked_alert.state,
+                    error=None,
+                )
 
     return "snoozed"
 

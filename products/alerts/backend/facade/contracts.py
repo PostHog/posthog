@@ -234,6 +234,10 @@ class MovedAlertCheckPage:
     checks: tuple[MovedAlertCheck, ...]
 
 
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
 @frozen
 class MovedAlertSettings:
     """A moved alert's settings as its platform copy holds them."""
