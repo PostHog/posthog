@@ -126,6 +126,15 @@ def refresh_integration(id: int, team_id: int | None = None) -> int:
     return 0
 
 
+def _domain_has_sender(domain: str, *, team_id: int | None = None) -> bool:
+    team_ids = (team_id,) if team_id is not None else None
+    return bool(
+        IntegrationManager.email.any.list_across_teams(
+            CrossTeamFilter(team_ids=team_ids, where={"domain": domain}, limit=1)
+        )
+    )
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.INTEGRATIONS.value,
@@ -140,10 +149,9 @@ def delete_ses_identity_if_unused(domain: str, team_id: int | None = None) -> No
     with transaction.atomic():
         with connection.cursor() as cursor:
             lock_sender_domain(cursor, domain)
-        senders = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}))
-        if not senders:
+        if not _domain_has_sender(domain):
             delete_ses_identity(domain)
-        elif team_id is not None and all(sender.team_id != team_id for sender in senders):
+        elif team_id is not None and not _domain_has_sender(domain, team_id=team_id):
             # The identity stays for the other projects. A link to a project that no longer sends from the domain
             # would look like another organization's claim when someone else adds the domain.
             remove_ses_tenant_associations(domain, team_ids=[team_id])
@@ -154,7 +162,7 @@ def delete_ses_identity_if_unused(domain: str, team_id: int | None = None) -> No
 UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
 # Each expired sender can queue one SES DeleteIdentity call, which SES accepts once per second per account, so a
 # backlog drains over several hourly runs instead of one burst that exhausts the cleanup task's retries.
-EXPIRED_EMAIL_SENDERS_PER_RUN = 20
+EXPIRED_EMAIL_SENDERS_PER_RUN = 10
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
