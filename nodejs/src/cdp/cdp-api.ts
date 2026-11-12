@@ -95,6 +95,7 @@ import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { SandboxFeedbackService } from './services/messaging/sandbox/sandbox-feedback.service'
 import {
     HogWatcherService,
     HogWatcherState,
@@ -313,6 +314,7 @@ export class CdpApi {
     private hogQueue: JobQueue
     private hogflowQueue: JobQueue
     private emailTrackingService: EmailTrackingService
+    private sandboxFeedbackService: SandboxFeedbackService
     private emailTrackingCodeSigner: EmailTrackingCodeSigner
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
@@ -381,6 +383,12 @@ export class CdpApi {
             config.CDP_EMAIL_TRACKING_URL
         )
         this.emailTrackingService = services.emailTrackingService
+        this.sandboxFeedbackService = new SandboxFeedbackService(
+            config,
+            services.emailSuppressionService,
+            services.hogFunctionMonitoringService,
+            deps.teamManager
+        )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
@@ -563,6 +571,12 @@ export class CdpApi {
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
+        router.post(
+            '/public/m/ses_sandbox_webhook',
+            publicBodySizeLimit,
+            express.text(),
+            asyncHandler(this.postSesSandboxWebhook())
+        )
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -2299,6 +2313,17 @@ export class CdpApi {
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
                 const { status, message } = await this.emailTrackingService.handleSesWebhook(req)
+                return res.status(status).json({ message })
+            } catch {
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
+
+    private postSesSandboxWebhook =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                const { status, message } = await this.sandboxFeedbackService.handle(req)
                 return res.status(status).json({ message })
             } catch {
                 return res.status(500).json({ error: 'Internal error' })

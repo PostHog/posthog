@@ -320,6 +320,7 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
     END_EXPERIMENT = "end_experiment"
     FREEZE_EXPOSURE = "freeze_exposure"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):

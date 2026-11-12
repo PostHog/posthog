@@ -1,13 +1,25 @@
 import { defineCommand } from '@/core/command'
-import { updateConfig, type SchemaLanguage } from '@/core/config'
+import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
+import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { absolutePath, storedPath } from '@/core/paths'
 import { plural } from '@/core/text'
 
-import { chosenFile, configRoot, fetchDefinitions, isLanguage, LANGUAGE_INFO, LANGUAGES, type Language } from './shared'
+import {
+    chosenFile,
+    configRoot,
+    DEFAULT_TYPESCRIPT_SDK,
+    fetchDefinitions,
+    isLanguage,
+    LANGUAGE_INFO,
+    LANGUAGES,
+    moduleInfo,
+    type Language,
+} from './shared'
 
 interface PulledLanguage {
     language: Language
+    sdk: TypeScriptSdk | undefined
     file: string
     status: 'written' | 'would_write' | 'unchanged'
     eventCount: number
@@ -23,6 +35,12 @@ export default defineCommand({
             short: 'l',
             choices: LANGUAGES,
             description: 'The language to generate. Without it, hog regenerates every language in posthog.json',
+        },
+        sdk: {
+            type: 'string',
+            choices: TYPESCRIPT_SDKS,
+            description:
+                'TypeScript only: the SDK the module wraps. none generates only the event types, for posthog-react-native, posthog-node or any other SDK. posthog.json remembers it',
         },
         file: {
             type: 'string',
@@ -40,6 +58,7 @@ export default defineCommand({
         'hog schema pull --language typescript --file src/lib/',
         'hog schema pull',
         'hog schema pull -l python --file app/posthog_typed.py',
+        'hog schema pull -l typescript --sdk none',
     ],
 
     async run({ options, ctx }) {
@@ -76,37 +95,48 @@ export default defineCommand({
             )
         }
 
+        if (options.sdk !== undefined && !languages.includes('typescript')) {
+            throw new HogError(
+                'usage_error',
+                '--sdk only applies to TypeScript, but hog is not generating TypeScript.',
+                'Pass --language typescript too.',
+                EXIT_USAGE
+            )
+        }
+
         const pulled: PulledLanguage[] = []
         const entries: Partial<Record<Language, SchemaLanguage>> = {}
         for (const language of languages) {
             const saved = configured[language]
+            const sdk = language === 'typescript' ? await typescriptSdk(ctx, options.sdk, saved) : undefined
             let file: string
             if (options.file !== undefined) {
-                file = await chosenFile(ctx, options.file, language)
+                file = await chosenFile(ctx, options.file, language, sdk)
             } else if (saved) {
                 file = absolutePath(root, saved.output_path)
             } else {
-                const fallback = LANGUAGE_INFO[language].defaultFile
+                const info = moduleInfo(language, sdk)
                 const answer = ctx.prompts
-                    ? await ctx.prompts.text(
-                          `Where should hog write the ${LANGUAGE_INFO[language].name} module? Your app imports PostHog from it.`,
-                          { initialValue: fallback }
-                      )
-                    : fallback
-                file = await chosenFile(ctx, answer || fallback, language)
+                    ? await ctx.prompts.text(`Where should hog write the ${info.name} module?`, {
+                          initialValue: info.defaultFile,
+                      })
+                    : info.defaultFile
+                file = await chosenFile(ctx, answer || info.defaultFile, language, sdk)
             }
 
-            const definitions = await fetchDefinitions(ctx, language)
+            const definitions = await fetchDefinitions(ctx, language, sdk)
             const outputPath = storedPath(root, file)
             // The module carries the time PostHog generated it, so only the hash says whether the events changed.
             const unchanged =
                 saved?.output_path === outputPath &&
+                savedSdk(language, saved) === sdk &&
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
                 await ctx.runtime.writeFile(file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
+                    sdk,
                     schema_hash: definitions.schema_hash,
                     updated_at: new Date(ctx.runtime.now()).toISOString(),
                     event_count: definitions.event_count,
@@ -114,6 +144,7 @@ export default defineCommand({
             }
             pulled.push({
                 language,
+                sdk,
                 file: outputPath,
                 status: unchanged ? 'unchanged' : options.dryRun ? 'would_write' : 'written',
                 eventCount: definitions.event_count,
@@ -134,18 +165,21 @@ export default defineCommand({
     human({ result, out }) {
         const labels = { unchanged: 'Up to date', would_write: 'Would generate', written: 'Generated' }
         const written = result.languages.filter((pulled) => pulled.status === 'written')
-        const effects = result.languages.map(({ language, file, status, eventCount }) => {
+        const effects = result.languages.map(({ language, sdk, file, status, eventCount }) => {
             const label = out.style(labels[status], status === 'would_write' ? 'yellow' : 'green', 'bold')
-            return `${label}  ${LANGUAGE_INFO[language].name} in ${file} (${plural(eventCount, 'event')})`
+            return `${label}  ${moduleInfo(language, sdk).name} in ${file} (${plural(eventCount, 'event')})`
         })
         if (result.configUpdated) {
             effects.push(`Saved the settings in ${result.config}`)
         }
-        const notes = written.flatMap(({ language, file }, index) => [
-            ...(index > 0 ? [''] : []),
-            out.style(written.length > 1 ? `Next steps for ${LANGUAGE_INFO[language].name}:` : 'Next steps:', 'bold'),
-            ...LANGUAGE_INFO[language].nextSteps(file).map((step, number) => `  ${number + 1}. ${step}`),
-        ])
+        const notes = written.flatMap(({ language, sdk, file }, index) => {
+            const { name, nextSteps } = moduleInfo(language, sdk)
+            return [
+                ...(index > 0 ? [''] : []),
+                out.style(written.length > 1 ? `Next steps for ${name}:` : 'Next steps:', 'bold'),
+                ...nextSteps(file).map((step, number) => `  ${number + 1}. ${step}`),
+            ]
+        })
 
         out.report({
             status: written.length > 0 ? 'done' : 'unchanged',
@@ -165,6 +199,29 @@ export default defineCommand({
 
     telemetry: ({ result }) => ({
         languages: result.languages.map((pulled) => pulled.language),
+        sdks: result.languages.flatMap((pulled) => (pulled.sdk ? [pulled.sdk] : [])),
         written: result.languages.filter((pulled) => pulled.status === 'written').length,
     }),
 })
+
+// A posthog.json entry without `sdk` has a module that wraps posthog-js.
+function savedSdk(language: Language, saved: SchemaLanguage | undefined): TypeScriptSdk | undefined {
+    return language === 'typescript' ? (saved?.sdk ?? DEFAULT_TYPESCRIPT_SDK) : undefined
+}
+
+async function typescriptSdk(
+    ctx: Context,
+    flag: TypeScriptSdk | undefined,
+    saved: SchemaLanguage | undefined
+): Promise<TypeScriptSdk> {
+    if (flag) {
+        return flag
+    }
+    if (saved || !ctx.prompts) {
+        return savedSdk('typescript', saved) ?? DEFAULT_TYPESCRIPT_SDK
+    }
+    return ctx.prompts.select('Which PostHog SDK does this app use?', [
+        { value: 'posthog-js', label: 'posthog-js: hog wraps it so capture() checks your events' },
+        { value: 'none', label: 'Another SDK, such as posthog-react-native: hog writes only the event types' },
+    ])
+}
