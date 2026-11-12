@@ -86,7 +86,7 @@ _SCORERS: dict[str, OfflineScorer] = {
     "sentinel_absent": OfflineScorer(kind="boolean", version=UUID("01a1893a-448a-72e4-abed-3b1d03271183")),
     "sources_avoided": OfflineScorer(kind="boolean", version=UUID("01a1893a-4d81-73de-8a6e-687277f05729")),
     "sources_consulted": OfflineScorer(kind="numeric", version=UUID("01a1893a-deaa-71b2-ab5a-818ddecb5b4c")),
-    "surfaces_all_findings": OfflineScorer(kind="boolean", version=UUID("01a1558f-ad52-7b81-8a93-d7e602bf0125")),
+    "surfaces_all_findings": OfflineScorer(kind="boolean", version=UUID("01a1d0e7-d616-7870-acff-2aacf1aad18a")),
     "table_inspected": OfflineScorer(kind="boolean", version=UUID("01a1893a-5564-7dfa-8d1d-e2d15bb8808c")),
     "trust_badge": OfflineScorer(kind="boolean", version=UUID("01a15a28-17ed-7638-82e4-d39bd349ce9e")),
     "verified_before_explaining": OfflineScorer(kind="boolean", version=UUID("01a1893a-890b-7cf2-ab58-28fd0442f5c8")),
