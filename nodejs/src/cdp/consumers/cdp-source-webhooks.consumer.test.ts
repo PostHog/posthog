@@ -208,7 +208,7 @@ describe('SourceWebhooksConsumer', () => {
         }
         const getQueuedHogFlowIds = (): string[] =>
             mockQueueHogflowInvocationsSpy.mock.calls.flatMap(([invocations]) =>
-                invocations.map((invocation) => invocation.functionId)
+                invocations.map((invocation: { functionId: string }) => invocation.functionId)
             )
 
         describe('hog function processing', () => {
