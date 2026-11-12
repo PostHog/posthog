@@ -209,6 +209,19 @@ describe('self-loop-guard', () => {
                 expected: true,
             },
             {
+                // Capture drops `$performance_event` entries before it reads the tokens, so the
+                // other token never reaches its check and the request lands in this project.
+                case: 'array body whose only other token is on a $performance_event',
+                args: {
+                    url: 'https://us.i.posthog.com/e/',
+                    body: JSON.stringify([
+                        { token: OWN_TOKEN, event: 'e0', distinct_id: 'synthetic_user_1', properties: {} },
+                        { token: OTHER_TOKEN, event: '$performance_event', distinct_id: 'synthetic_user_1' },
+                    ]),
+                },
+                expected: true,
+            },
+            {
                 case: 'array body mixing the project own token and another, which capture rejects',
                 args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OTHER_TOKEN]) },
                 expected: false,

@@ -90,7 +90,13 @@ export const extractRequestApiKey = (body: string | null | undefined, urlString:
         try {
             const parsed = parseJSON(body)
             if (Array.isArray(parsed)) {
-                const tokens = new Set(parsed.map(eventToken).filter((token) => token !== null))
+                // Capture drops `$performance_event` entries before it reads the tokens.
+                const tokens = new Set(
+                    parsed
+                        .filter((event) => (event as Record<string, unknown> | null)?.event !== '$performance_event')
+                        .map(eventToken)
+                        .filter((token) => token !== null)
+                )
                 if (tokens.size === 1) {
                     return [...tokens][0]
                 }
