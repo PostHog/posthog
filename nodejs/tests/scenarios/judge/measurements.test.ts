@@ -64,6 +64,12 @@ describe('measurements', () => {
             { value: 5 },
         ],
         [
+            'one process, while another role missed its last scrape',
+            [sample(0, -60, 10), sample(5, -60, 12), sample(10, -60, 15)],
+            [{ role: 'cdp-api', at: FROM + 15_000 }],
+            { value: 5 },
+        ],
+        [
             'a process killed while its scrape was missed, marked incomplete',
             [sample(0, -60, 10), sample(5, -60, 12), sample(15, 12, 1.5)],
             [missedAt(10)],
