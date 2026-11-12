@@ -33,10 +33,20 @@ const HAND_BUILT_WEBHOOK = {
 const SERVER_PAGE_SIZE = 2
 
 const STORED_TEMPLATES = [
-    { id: '0190e3a1-aaaa-7000-8000-00000000abcd', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt' },
-    { id: 'template-newsletter', name: 'Newsletter', transactional_hog_flow_id: null },
-    { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset' },
-    { id: '0190e3a1-aaaa-7000-8000-00000000ef01', name: 'Receipt', transactional_hog_flow_id: 'flow-receipt-copy' },
+    {
+        id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+        name: 'Receipt',
+        transactional_hog_flow_id: 'flow-receipt',
+        has_draft: false,
+    },
+    { id: 'template-newsletter', name: 'Newsletter', transactional_hog_flow_id: null, has_draft: false },
+    { id: 'template-reset', name: 'Password reset', transactional_hog_flow_id: 'flow-reset', has_draft: false },
+    {
+        id: '0190e3a1-aaaa-7000-8000-00000000ef01',
+        name: 'Receipt',
+        transactional_hog_flow_id: 'flow-receipt-copy',
+        has_draft: false,
+    },
 ]
 
 describe('deliveryWebhooksLogic', () => {
@@ -55,12 +65,11 @@ describe('deliveryWebhooksLogic', () => {
                 '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
                     requestedTeamIds.add(String(params.team_id))
                     const query = new URL(request.url).searchParams
-                    const matching = STORED_TEMPLATES.filter(
-                        (template) =>
-                            !serverFiltersTransactional ||
-                            query.get('transactional') !== 'true' ||
-                            template.transactional_hog_flow_id
-                    )
+                    const matching = serverFiltersTransactional
+                        ? STORED_TEMPLATES.filter(
+                              (template) => query.get('transactional') !== 'true' || template.transactional_hog_flow_id
+                          )
+                        : STORED_TEMPLATES.map(({ has_draft, ...template }) => template)
                     const offset = Number(query.get('offset') ?? 0)
                     const limit = Math.min(Number(query.get('limit') ?? 100), SERVER_PAGE_SIZE)
                     return [200, { count: matching.length, results: matching.slice(offset, offset + limit) }]

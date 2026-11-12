@@ -34,10 +34,10 @@ const template = (
     }) as unknown as MessageTemplateApi
 
 const STORED_TEMPLATES = [
+    template('d', 'Newsletter', ['auth'], 1, false),
     template('a', 'Password reset', ['auth'], 1),
     template('b', 'Receipt', ['billing'], 2, true, true),
     template('c', 'Sign-in code', ['auth'], 2),
-    template('d', 'Newsletter', ['auth'], 1, false),
 ]
 
 const codeEmail = (id: string, key: string, tags: string[]): CodeEmailApi => ({
@@ -63,11 +63,13 @@ describe('transactionalEmailsLogic', () => {
     const codeRow = (): TransactionalEmailRow =>
         logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
     let writes: { path: string; tags: string[] }[]
-    let serverPredatesBasicRows: boolean
+    let serverPredatesBasicRowsByRequest: boolean[]
+    let templateListRequests: number
 
     beforeEach(async () => {
         writes = []
-        serverPredatesBasicRows = false
+        serverPredatesBasicRowsByRequest = [false]
+        templateListRequests = 0
         useMocks({
             patch: {
                 '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
@@ -88,6 +90,10 @@ describe('transactionalEmailsLogic', () => {
                     const params = new URL(request.url).searchParams
                     const offset = Number(params.get('offset') ?? 0)
                     const limit = Math.min(Number(params.get('limit') ?? SERVER_PAGE_SIZE), SERVER_PAGE_SIZE)
+                    const serverPredatesBasicRows =
+                        serverPredatesBasicRowsByRequest[
+                            Math.min(templateListRequests++, serverPredatesBasicRowsByRequest.length - 1)
+                        ]
                     const matching = serverPredatesBasicRows
                         ? STORED_TEMPLATES.map(({ has_draft, ...full }) => full)
                         : STORED_TEMPLATES.filter(
@@ -121,10 +127,13 @@ describe('transactionalEmailsLogic', () => {
     })
 
     it.each([
-        ['this release', false],
-        ['an earlier release, mid-deploy', true],
-    ])('lists transactional emails and their draft badges from a server on %s', async (_case, predates) => {
-        serverPredatesBasicRows = predates
+        ['this release', [false]],
+        ['an earlier release, mid-deploy', [true]],
+        ['an earlier release for the first page, then this release', [true, false]],
+        ['this release for the first page, then an earlier release', [false, true]],
+    ])('lists transactional emails and their draft badges from a server on %s', async (_case, releases) => {
+        serverPredatesBasicRowsByRequest = releases
+        templateListRequests = 0
         logic.actions.loadTransactionalTemplates()
         await expectLogic(logic).toFinishAllListeners()
 

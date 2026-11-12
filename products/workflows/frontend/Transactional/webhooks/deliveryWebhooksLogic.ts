@@ -8,14 +8,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { isHttpsUrl } from 'lib/utils/url'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
-import { listAllPages } from 'scenes/settings/environment/cloudEnvironmentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
-import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
 
+import { listTransactionalTemplates } from '../listTransactionalTemplates'
 import {
     DELIVERY_WEBHOOK_EVENTS,
     DELIVERY_WEBHOOK_LIST_FILTER_GROUPS,
@@ -215,13 +214,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             [] as TransactionalEmailOption[],
             {
                 loadTransactionalEmailOptions: async () => {
-                    const projectId = String(values.currentTeamId)
-                    const templates = await listAllPages((params) =>
-                        messagingTemplatesList(projectId, { ...params, transactional: true, basic: true })
-                    )
-                    const transactional = templates.flatMap(({ transactional_hog_flow_id, ...template }) =>
-                        transactional_hog_flow_id ? [{ ...template, transactional_hog_flow_id }] : []
-                    )
+                    const transactional = await listTransactionalTemplates(String(values.currentTeamId))
                     const nameCounts = new Map<string, number>()
                     for (const { name } of transactional) {
                         nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
