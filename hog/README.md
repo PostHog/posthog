@@ -125,6 +125,7 @@ Each PostHog serves those tools as data at `/api/cli/catalog.json`, built from t
 - hog drops any tool whose plan has a field, a parameter place or a step it doesn't know, and keeps its built-in version of that tool. `hog api refresh` lists them, and so does `--debug` on any `hog api` command.
 - A catalog in a format this hog can't read, or one that needs a newer hog, is ignored whole.
 - `HOG_API_CATALOG=bundled` keeps the built-in tools, for a run that must not change between days.
+- With `--skip-ssl-verification`, hog neither downloads a catalog nor uses the saved one, because anyone on the network could have answered.
 - A call that PostHog refuses for an unknown or invalid field, or that reaches a missing endpoint, says the tool definitions may be out of date, and how to get newer ones.
 
 To work on the catalog locally, run hog against your dev stack with `--host http://localhost:8010`. `bin/start-backend` builds the catalog of your checkout when the backend starts, and `pnpm --filter=@posthog/mcp run build:cli:catalog` builds it again after you change a tool.

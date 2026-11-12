@@ -573,6 +573,22 @@ describe('hog api tool catalog', () => {
         expect(library.received()).toBeUndefined()
     })
 
+    test('with TLS verification off, neither downloads a catalog nor uses the saved one', async () => {
+        const library = catalogLibrary()
+        const result = await runHog(['api', 'groups', '--debug'], {
+            env: { CLAUDECODE: '1', HOG_SKIP_SSL_VERIFICATION: '1' },
+            apiTools: library.build,
+            files: cached(['flag-list'], HOUR),
+            respond: () => ({ status: 200, body: catalog(['flag-new']) }),
+        })
+
+        expect(catalogRequests(result)).toBe(0)
+        expect(library.received()).toBeUndefined()
+        expect(result.stderr).toContain(
+            '[debug] api catalog: the tools built into hog, because TLS verification is off'
+        )
+    })
+
     test('--debug names the source and each tool hog kept built in', async () => {
         const library = catalogLibrary([{ name: 'flag-new', reason: 'unknown field response.redact', builtIn: true }])
         const result = await runHog(['api', 'groups', '--debug'], {

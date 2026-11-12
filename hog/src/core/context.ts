@@ -106,7 +106,11 @@ export class Context {
     catalog: ResolvedCatalog | undefined
 
     private async loadApiTools(refresh: boolean): Promise<ApiToolLibrary> {
-        const resolved = await resolveCatalog(this.runtime, { host: (await this.apiHost()) ?? REGIONS.us, refresh })
+        const resolved = await resolveCatalog(this.runtime, {
+            host: (await this.apiHost()) ?? REGIONS.us,
+            refresh,
+            skipSslVerification: this.globals.skipSslVerification === true,
+        })
         this.catalog = resolved
         const library = await this.runtime.loadApiTools(resolved.catalog ? { catalog: resolved.catalog } : {})
 
