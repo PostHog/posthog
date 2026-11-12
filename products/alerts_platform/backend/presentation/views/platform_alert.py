@@ -411,7 +411,8 @@ def create_serializers() -> dict[str, type[PlatformAlertConfigurationEditSeriali
     return {
         source_kind: _typed_create_serializer(serializer)
         for source_kind, serializer in edit_serializers().items()
-        if source_kind in creatable
+        # An unserved kind's alerts are created through its source's own API, which checks access to them.
+        if source_kind in creatable and source_kind not in UNSERVED_SOURCE_KINDS
     }
 
 
