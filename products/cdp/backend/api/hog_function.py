@@ -379,7 +379,7 @@ def _jsonb_key_rank(key: str) -> tuple[int, bytes]:
     return len(encoded), encoded
 
 
-def _draft_guarded_content(content: dict, secrets: dict) -> tuple:
+def _draft_guarded_content(content: dict, secrets: dict) -> str:
     secret_keys = set(secrets) | {
         str(schema.get("key"))
         for schema in content.get("inputs_schema") or []
