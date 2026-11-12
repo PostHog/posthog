@@ -32,7 +32,6 @@ const IntakeJobStateSchema = z.looseObject({
     state: z
         .looseObject({
             acceptedAt: z.iso.datetime().optional(),
-            sendBy: z.iso.datetime().optional(),
         })
         .nullable(),
 })
