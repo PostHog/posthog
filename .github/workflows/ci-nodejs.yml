@@ -411,8 +411,8 @@ jobs:
               with:
                   path: nodejs/node_modules/.cache/prettier-ci
                   # Prettier does not include plugin versions in its cache key.
-                  key: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', 'nodejs/**/.prettier*', 'nodejs/**/prettier.config.*', '**/.editorconfig') }}-${{ github.sha }}
-                  restore-keys: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', 'nodejs/**/.prettier*', 'nodejs/**/prettier.config.*', '**/.editorconfig') }}-
+                  key: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', '.editorconfig', '.prettierignore', 'nodejs/.prettierrc', 'nodejs/.prettierignore', 'nodejs/.editorconfig') }}-${{ github.sha }}
+                  restore-keys: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', '.editorconfig', '.prettierignore', 'nodejs/.prettierrc', 'nodejs/.prettierignore', 'nodejs/.editorconfig') }}-
 
             - parallel:
                   - name: Check formatting with prettier
