@@ -24,6 +24,8 @@ test_scheduled_change_gating, test_experiment_service_approvals, and the copy ga
 in products/feature_flags/.../test_organization_feature_flag.py). This file asserts the
 headline "gated field UNCHANGED + a pending ChangeRequest created + 0 applied" outcome for
 each path in one place so a future regression on any single bypass fails loudly here.
+The experiment paths are the exception: they drive the experiments service, so
+test_experiment_service_approvals in products/experiments asserts the same outcome for them.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -35,17 +37,12 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework.test import APIRequestFactory
 
-from posthog.constants import AvailableFeature
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 from products.approvals.backend.actions.feature_flags import DisableFeatureFlagAction
-from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
-from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.api import set_flag_active
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -405,154 +402,6 @@ class TestScheduledChangeBypassMatrix(FeatureFlagBypassMatrixBase):
         assert 90 not in rollouts
         scheduled.change_request.refresh_from_db()
         assert scheduled.change_request.state == ChangeRequestState.EXPIRED
-
-
-@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-class TestExperimentBypassMatrix(APIBaseTest):
-    """Experiment lifecycle transitions flip the linked flag through FeatureFlagSerializer, so each
-    must pass through the gate: launch/resume (enable), pause (disable), ship_variant + variant
-    rollout edits (update). A gated transition raises ApprovalRequired and leaves the flag untouched."""
-
-    _METRIC = {
-        "kind": "ExperimentMetric",
-        "metric_type": "mean",
-        "uuid": "m1",
-        "source": {"kind": "EventsNode", "event": "$pageview"},
-    }
-
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
-        ]
-        self.organization.save()
-
-    def _service(self) -> ExperimentService:
-        return ExperimentService(team=self.team, user=self.user)
-
-    def _request(self) -> Any:
-        request = APIRequestFactory().post("/fake")
-        request.user = self.user
-        return request
-
-    def _policy(self, action_key: str) -> ApprovalPolicy:
-        return ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key=action_key,
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
-
-    def _draft(self, key: str) -> Experiment:
-        return self._service().create_experiment(
-            name="Matrix",
-            feature_flag_key=key,
-            metrics=[self._METRIC],
-            primary_metrics_ordered_uuids=["m1"],
-            allow_unknown_events=True,
-        )
-
-    def _launched(self, key: str) -> Experiment:
-        experiment = self._draft(key)
-        self._service().launch_experiment(experiment, request=self._request())
-        experiment.refresh_from_db()
-        return experiment
-
-    def _assert_pending_zero_applied(self) -> None:
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.APPLIED).count() == 0
-
-    def test_launch_is_gated(self, _mock_enabled):
-        experiment = self._draft("m-launch")
-        self._policy("feature_flag.enable")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().launch_experiment(experiment, request=self._request())
-
-        experiment.refresh_from_db()
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        assert experiment.start_date is None
-        self._assert_pending_zero_applied()
-
-    def test_pause_is_gated(self, _mock_enabled):
-        experiment = self._launched("m-pause")
-        assert experiment.feature_flag.active is True
-        self._policy("feature_flag.disable")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().pause_experiment(experiment, request=self._request())
-
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is True
-        self._assert_pending_zero_applied()
-
-    def test_resume_is_gated(self, _mock_enabled):
-        experiment = self._launched("m-resume")
-        self._service().pause_experiment(experiment, request=self._request())
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        self._policy("feature_flag.enable")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().resume_experiment(experiment, request=self._request())
-
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        self._assert_pending_zero_applied()
-
-    def test_ship_variant_is_gated(self, _mock_enabled):
-        experiment = self._launched("m-ship")
-        original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
-        self._policy("feature_flag.update")
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().ship_variant(experiment, variant_key="test", request=self._request())
-
-        experiment.refresh_from_db()
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
-        assert experiment.end_date is None
-        self._assert_pending_zero_applied()
-
-    def test_web_experiment_variant_rollout_edit_is_gated(self, _mock_enabled):
-        # update_experiment() writes a variant/rollout change back through FeatureFlagSerializer.
-        # It routes through feature_flag.update, raises ApprovalRequired, and leaves the flag's
-        # variants untouched. The gated flag write runs OUTSIDE update_experiment's atomic block
-        # (like ship_variant/launch/pause/resume), so the pending ChangeRequest the gate created
-        # survives for an approver to act on.
-        experiment = self._launched("m-web")
-        original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
-        self._policy("feature_flag.update")
-
-        new_variants = [
-            {"key": "control", "rollout_percentage": 10},
-            {"key": "test", "rollout_percentage": 90},
-        ]
-
-        # Mirror the DRF serializer context the experiment viewset hands to update_experiment.
-        context = {
-            "request": self._request(),
-            "team_id": self.team.id,
-            "project_id": self.team.project_id,
-            "get_team": lambda: self.team,
-            "get_organization": lambda: self.organization,
-        }
-
-        with self.assertRaises(ApprovalRequired):
-            self._service().update_experiment(
-                experiment,
-                {"parameters": {"feature_flag_variants": new_variants}, "update_feature_flag_params": True},
-                serializer_context=context,
-            )
-
-        # Security invariant: the gated field is unchanged and nothing was applied.
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
-        # The gated flag write runs outside the atomic block, so the pending CR survives.
-        self._assert_pending_zero_applied()
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)

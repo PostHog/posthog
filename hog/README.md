@@ -81,6 +81,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                                     |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
 | `hog upgrade`                             | Updates hog. `--check` only reports, and `--version` picks a version. See [Updates](#updates).                                    |
+| `hog feedback [message]`                  | Sends feedback about hog or PostHog to the PostHog team. `-` reads it from stdin. See [Feedback](#feedback).                      |
 | Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
 
 ## What's left
@@ -224,6 +225,17 @@ A flag beats the environment variable, which beats `posthog.json`.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
 hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
 `HOG_NO_UPDATE_CHECK=1` and `cli.updateCheck: false` stop every update request except setup's. See [Updates](#updates).
+
+## Feedback
+
+`hog feedback "hog query run cuts off long values"` sends a message to the PostHog team. Its first line is the summary, and the whole text goes along when it's longer.
+
+- `--type` says what it's about: `cli` (hog itself, the default), `product`, `docs`, `mcp` or `other`. `--area` names the product or command, like `session replay`.
+- `--sentiment` is `positive`, `neutral`, `negative` or `mixed`, and `--suggestion` says what would make it better.
+- At a terminal, `hog feedback` alone asks for the message. Agents pass it as an argument, or `-` to read stdin.
+- It sends the event `cli feedback submitted` to the project telemetry goes to, with the same `feedback_` properties as the MCP server's `agent-feedback` tool.
+- Feedback goes out with telemetry off too, because you asked hog to send it. Then it carries no PostHog user, organization or install ID.
+- `--dry-run` shows the summary and type without sending anything.
 
 ## Telemetry
 
