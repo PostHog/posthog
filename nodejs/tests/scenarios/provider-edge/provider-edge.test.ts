@@ -281,17 +281,33 @@ describe('provider edge', () => {
         }
     })
 
-    it('counts only the sends that go out against the throttle rate', async () => {
+    it.each<[string, CardFault[], string[], string[]]>([
+        [
+            'counts only the sends that go out against the throttle rate',
+            [
+                { name: 'ses.throttle', params: { rate: 1 } },
+                { name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } },
+            ],
+            [ALICE, ALICE, ALICE],
+            ['MessageRejected', 'sent', 'TooManyRequestsException'],
+        ],
+        [
+            'answers a send over the throttle rate with the throttle, though a rejection added before it matches',
+            [
+                { name: 'ses.reject', params: { type: 'rejected' }, match: { recipient: BOB }, dose: { share: 1 } },
+                { name: 'ses.throttle', params: { rate: 1 } },
+            ],
+            [ALICE, BOB],
+            ['sent', 'TooManyRequestsException'],
+        ],
+    ])('%s', async (_story, faults, recipients, outcomes) => {
         const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
         try {
-            await addFault({ name: 'ses.throttle', params: { rate: 1 } })
-            await addFault({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            for (const fault of faults) {
+                await addFault(fault)
+            }
 
-            expect(await sendEach([ALICE, ALICE, ALICE])).toEqual([
-                'MessageRejected',
-                'sent',
-                'TooManyRequestsException',
-            ])
+            expect(await sendEach(recipients)).toEqual(outcomes)
         } finally {
             clock.mockRestore()
         }
