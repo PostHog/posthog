@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -206,7 +206,7 @@ def _row(
         event="$ai_generation",
         timestamp=AT + timedelta(seconds=index),
         distinct_id="u",
-        properties=json.dumps(properties or {}),
+        properties=json.dumps({"$ai_model": "gpt-5-mini", **(properties or {})}),
         last_input="",
         user_messages=1,
         has_tool_results=False,
@@ -355,13 +355,18 @@ def test_a_tool_call_held_in_the_output_state_makes_a_generation_a_step() -> Non
     assert _calls_tools(event) is True
 
 
-def _generation_event(index: int, output: Any) -> LLMTraceEvent:
+def _generation_event(index: int, output: Any, model: str | None = "gpt-5-mini") -> LLMTraceEvent:
     return LLMTraceEvent(
         id=f"e{index}",
         event="$ai_generation",
         createdAt=(AT + timedelta(seconds=index)).isoformat(),
-        properties={"$ai_output_choices": output},
+        properties={"$ai_output_choices": output, **({"$ai_model": model} if model else {})},
     )
+
+
+@dataclass
+class _NoModel:
+    output: Any
 
 
 def _text(content: str) -> list[dict[str, Any]]:
@@ -416,10 +421,16 @@ _SEARCH_CALL = {"type": "function", "id": "c1", "function": {"name": "search", "
             "Found it.",
         ),
         ("no_text", [[{"role": "assistant", "content": ""}]], ""),
+        ("tool_result_logged_without_a_model", [_text("Found it."), _NoModel(_text("a@b.io"))], "Found it."),
     ]
 )
 def test_python_and_hog_pick_the_same_final_answer(_name: str, outputs: list[Any], expected: str) -> None:
-    events = [_generation_event(index, output) for index, output in enumerate(outputs)]
+    events = [
+        _generation_event(index, output.output, model=None)
+        if isinstance(output, _NoModel)
+        else _generation_event(index, output)
+        for index, output in enumerate(outputs)
+    ]
     check = AdaptedCheck(
         key="k",
         name="n",

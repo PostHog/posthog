@@ -34,7 +34,11 @@ def _verdict(check: adapters.AdaptedCheck, events: list[tuple[str, dict[str, Any
 
 
 def _answer(text: str, **properties: Any) -> tuple[str, dict[str, Any]]:
-    return "$ai_generation", {"$ai_output_choices": [{"role": "assistant", "content": text}], **properties}
+    return "$ai_generation", {
+        "$ai_model": "gpt-5-mini",
+        "$ai_output_choices": [{"role": "assistant", "content": text}],
+        **properties,
+    }
 
 
 def _calls(*calls: tuple[str, dict[str, Any], str]) -> tuple[str, dict[str, Any]]:
@@ -182,13 +186,51 @@ class TestAdaptedChecks:
                     (
                         "$ai_generation",
                         {
+                            "$ai_model": "gpt-5-mini",
                             "$ai_output_choices": [
                                 {"role": "assistant", "content": "Ask jane.doe@acme.io", "tool_calls": []}
-                            ]
+                            ],
                         },
                     )
                 ],
                 False,
+            ),
+            (
+                "tool_result_logged_without_a_model_does_not_apply",
+                adapters.sensitive_data(),
+                [("$ai_generation", {"$ai_output_choices": [{"role": "assistant", "content": "jane.doe@acme.io"}]})],
+                None,
+            ),
+            (
+                "email_repeated_from_the_input",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Find Jane.Doe@acme.io"}]},
+                    )
+                ],
+                True,
+            ),
+            (
+                "email_other_than_the_one_in_the_input",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Ask john@acme.io instead",
+                        **{"$ai_input": [{"role": "user", "content": "Find jane.doe@acme.io"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "email_from_a_tool_result",
+                adapters.sensitive_data(),
+                [
+                    ("$ai_span", {"$ai_span_name": "query", "$ai_output_state": {"rows": ["jane.doe@acme.io"]}}),
+                    _answer("The user is jane.doe@acme.io"),
+                ],
+                True,
             ),
             (
                 "otel_tool_call_parts_repeat",
