@@ -14,6 +14,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
+from products.slack_app.backend.logic.politeness import POLITE_REQUEST_REACTION, is_polite_request
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.services.slack_messages import (
@@ -697,6 +698,8 @@ def create_posthog_code_task_for_repo_activity(
     # how a request arrives from a Slack workflow or a client that posts rich text. The
     # thread and fork paths already read every source through this extractor.
     user_text = decode_slack_event_text(slack, integration, extract_message_text(event))
+    if user_message_ts and is_polite_request(user_text):
+        safe_react(slack.client, channel, user_message_ts, POLITE_REQUEST_REACTION)
     # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
