@@ -2,7 +2,6 @@ import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import path from 'path'
-import { Client } from 'pg'
 import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
 
@@ -114,59 +113,59 @@ function writeEvidence(result: RunResult, judge: Judge): void {
     writeFileSync(path.join(result.evidenceDir, 'scorecard.json'), JSON.stringify(result, null, 2))
 }
 
-async function connectWithin(databaseUrl: string, withinMs: number, signal: AbortSignal): Promise<void> {
-    signal.throwIfAborted()
-    const client = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: withinMs })
-    let cancel = (): void => undefined
-    const aborted = new Promise<never>((_, reject) => {
-        cancel = () => {
-            void client.end().catch(() => undefined)
-            reject(signal.reason)
-        }
-        signal.addEventListener('abort', cancel, { once: true })
-    })
-    try {
-        await Promise.race([client.connect(), aborted])
-    } catch (error) {
-        signal.throwIfAborted()
-        throw new Error(
-            `the seeding database did not finish connecting within ${withinMs} ms: ${(error as Error).message}`
-        )
-    } finally {
-        signal.removeEventListener('abort', cancel)
-    }
-    await client.end()
+type OpenPool = {
+    ending: boolean
+    end(): Promise<void>
+    _clients: { connection: { stream: { destroy(): void } } }[]
 }
 
-async function closedWithin(postgres: PostgresRouter | undefined, withinMs: number): Promise<boolean> {
-    return (
-        postgres === undefined ||
-        (await Promise.race([
-            postgres.end().then(
-                () => true,
-                () => true
-            ),
-            sleep(withinMs, false, { ref: false }),
-        ]))
-    )
+function destroyConnections(postgres: PostgresRouter): void {
+    const { pools } = postgres as unknown as { pools: Map<unknown, OpenPool> }
+    for (const pool of new Set(pools.values())) {
+        if (!pool.ending) {
+            void pool.end().catch(() => undefined)
+        }
+        pool._clients.forEach((client) => client.connection.stream.destroy())
+    }
 }
+
+class SeedingCutShort extends Error {}
 
 async function seedWithin(
     loaded: LoadedCard,
-    postgres: PostgresRouter,
+    seedingUrl: string,
     signal: AbortSignal,
     withinMs: number
 ): Promise<SeedState> {
+    signal.throwIfAborted()
     const deadline = AbortSignal.timeout(withinMs)
     const stop = AbortSignal.any([signal, deadline])
+    const postgres = new PostgresRouter(
+        { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
+        'posthog-scenarios'
+    )
+    const stage = (async () => {
+        try {
+            return await seed(loaded, postgres, stop)
+        } finally {
+            await postgres.end()
+        }
+    })()
     let onStop = (): void => undefined
     const stopped = new Promise<never>((_, reject) => {
-        onStop = () =>
-            reject(deadline.aborted ? new Error(`seeding did not finish within ${withinMs} ms`) : stop.reason)
+        onStop = () => reject(stop.reason)
         stop.addEventListener('abort', onStop, { once: true })
     })
     try {
-        return await Promise.race([seed(loaded, postgres, stop), stopped])
+        return await Promise.race([stage, stopped])
+    } catch (error) {
+        if (!stop.aborted) {
+            throw error
+        }
+        stage.catch(() => undefined)
+        destroyConnections(postgres)
+        const why = deadline.aborted ? `seeding did not finish within ${withinMs} ms` : (signal.reason as Error).message
+        throw new SeedingCutShort(`${why}; its connections were destroyed, restart required`)
     } finally {
         stop.removeEventListener('abort', onStop)
     }
@@ -207,7 +206,6 @@ export function createRunner(
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             let producer: KafkaProducerWrapper | undefined
-            let postgres: PostgresRouter | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings).catch((error: unknown) => {
@@ -216,13 +214,16 @@ export function createRunner(
                     )
                     throw error
                 })
-                const seedingUrl = seedingUrlOf(specs[0])
-                await connectWithin(seedingUrl, seedWithinMs, signal)
-                postgres = new PostgresRouter(
-                    { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
-                    'posthog-scenarios'
+                const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal, seedWithinMs).catch(
+                    (error: unknown) => {
+                        if (error instanceof SeedingCutShort) {
+                            restartRequired = new Error(
+                                `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
+                            )
+                        }
+                        throw error
+                    }
                 )
-                const seeded = await seedWithin(loaded, postgres, signal, seedWithinMs)
                 await judge.open(seeded)
                 stopHealth = watchHealth(environment)
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, runId })
@@ -249,17 +250,6 @@ export function createRunner(
                         `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
                     )
                     const failed = `the load producer did not disconnect: ${(error as Error).message}`
-                    outcome = {
-                        ...outcome,
-                        status: 'invalid',
-                        statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
-                    }
-                }
-                if (!(await closedWithin(postgres, seedWithinMs))) {
-                    restartRequired = new Error(
-                        `The seeding connections of run ${runId} did not close and may still write fixtures into the next card. Restart the runner, then run the card again.`
-                    )
-                    const failed = `the seeding connections did not close within ${seedWithinMs} ms`
                     outcome = {
                         ...outcome,
                         status: 'invalid',

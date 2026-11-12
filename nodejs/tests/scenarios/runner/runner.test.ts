@@ -164,95 +164,99 @@ describe('runner', () => {
         20_000
     )
 
-    const listening = async (onSocket: (socket: Socket, index: number) => void): Promise<Server> => {
-        let accepted = 0
-        const server = createServer((socket) => onSocket(socket, accepted++))
+    type Stall = 'startup' | 'query'
+
+    const stalling = async (
+        stall: Stall,
+        onStalled: () => void
+    ): Promise<{ server: Server; clients: Socket[]; sockets: Socket[] }> => {
+        const database = new URL(defaultConfig.DATABASE_URL)
+        const clients: Socket[] = []
+        const sockets: Socket[] = []
+        const server = createServer((client) => {
+            clients.push(client)
+            sockets.push(client)
+            if (stall === 'startup') {
+                client.once('data', onStalled).resume()
+                return
+            }
+            const upstream = connect(Number(database.port), database.hostname)
+            sockets.push(upstream)
+            let ready = false
+            let pending = Buffer.alloc(0)
+            upstream.on('data', (chunk: Buffer) => {
+                pending = Buffer.concat([pending, chunk])
+                while (pending.length >= 5 && pending.length >= 1 + pending.readUInt32BE(1)) {
+                    ready ||= pending[0] === 0x5a
+                    pending = pending.subarray(1 + pending.readUInt32BE(1))
+                }
+                client.write(chunk)
+            })
+            upstream.on('end', () => client.end())
+            client.on('data', (chunk: Buffer) => {
+                if (ready) {
+                    onStalled()
+                    return
+                }
+                upstream.write(chunk)
+            })
+            client.on('end', () => upstream.end())
+        })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-        return server
+        return { server, clients, sockets }
     }
 
-    const boundedRunner = (seedWithinMs: number): Runner =>
-        createRunner(
-            environment,
-            { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
-            { seedWithinMs }
-        )
-
-    it.each<[string, number, boolean, RegExp]>([
-        [
-            'runs out of its deadline',
-            1000,
-            false,
-            /^the run stopped: the seeding database did not finish connecting within 1000 ms/,
-        ],
-        ['is interrupted', 60_000, true, /^the run stopped: .*aborted/],
+    it.each<[string, Stall, boolean]>([
+        ['the database never answers its startup', 'startup', false],
+        ['the database never answers a seed query', 'query', false],
+        ['the run is interrupted while the database never answers its startup', 'startup', true],
     ])(
-        'closes its connection and stops when the database never answers its startup and the run %s',
-        async (_story, seedWithinMs, interrupted, statusReason) => {
+        'ends the run by the seeding deadline and requires a restart when %s',
+        async (_story, stall, interrupted) => {
             const interrupt = new AbortController()
-            const sockets: Socket[] = []
-            const silent = await listening((socket) => {
-                sockets.push(socket)
-                socket.once('data', () => {
-                    if (interrupted) {
-                        interrupt.abort()
-                    }
-                })
-                socket.resume()
+            let stalled = false
+            const { server, clients, sockets } = await stalling(stall, () => {
+                stalled = true
+                if (interrupted) {
+                    interrupt.abort()
+                }
             })
             try {
-                const { port } = silent.address() as AddressInfo
-
-                const result = await boundedRunner(seedWithinMs).run(
-                    withSettings({ DATABASE_URL: `postgres://scenario:scenario@127.0.0.1:${port}/scenario` }),
-                    interrupt.signal
+                const proxied = new URL(defaultConfig.DATABASE_URL)
+                proxied.hostname = '127.0.0.1'
+                proxied.port = String((server.address() as AddressInfo).port)
+                const bounded = createRunner(
+                    environment,
+                    { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
+                    { seedWithinMs: 2000 }
                 )
+                const startedAt = Date.now()
 
-                expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
-                await Promise.all(sockets.map((socket) => (socket.closed ? Promise.resolve() : once(socket, 'close'))))
-                expect(sockets).toHaveLength(1)
+                const result = await bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), interrupt.signal)
+
+                expect(Date.now() - startedAt).toBeLessThan(5000)
+                expect(stalled).toBe(true)
+                expect(result).toMatchObject({
+                    status: 'invalid',
+                    statusReason: expect.stringMatching(
+                        new RegExp(
+                            `^the run stopped: (${interrupted ? '.*aborted' : 'seeding did not finish within 2000 ms'}); its connections were destroyed, restart required$`
+                        )
+                    ),
+                })
+                await Promise.all(clients.map((client) => (client.closed ? Promise.resolve() : once(client, 'close'))))
+                await expect(
+                    bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), NEVER_ABORTED)
+                ).rejects.toThrow(
+                    /^The seeding stage of run \S+ was cut short .* Restart the runner, then run the card again\.$/
+                )
             } finally {
                 sockets.forEach((socket) => socket.destroy())
-                await new Promise((resolve) => silent.close(resolve))
+                await new Promise((resolve) => server.close(resolve))
             }
         },
         20_000
     )
-
-    it('refuses later cards when a seeding connection stalls after the database answered', async () => {
-        const database = new URL(defaultConfig.DATABASE_URL)
-        const held: Socket[] = []
-        const proxy = await listening((socket, index) => {
-            if (index > 0) {
-                held.push(socket.resume())
-                return
-            }
-            const upstream = connect(Number(database.port), database.hostname)
-            held.push(upstream)
-            socket.pipe(upstream).pipe(socket)
-        })
-        try {
-            const { port } = proxy.address() as AddressInfo
-            const proxied = new URL(defaultConfig.DATABASE_URL)
-            proxied.hostname = '127.0.0.1'
-            proxied.port = String(port)
-            const bounded = boundedRunner(1000)
-
-            const result = await bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), NEVER_ABORTED)
-
-            expect(result.statusReason).toMatch(
-                /^the run stopped: seeding did not finish within 1000 ms; the seeding connections did not close within 1000 ms$/
-            )
-            await expect(
-                bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), NEVER_ABORTED)
-            ).rejects.toThrow(
-                /^The seeding connections of run \S+ did not close .* Restart the runner, then run the card again\.$/
-            )
-        } finally {
-            held.forEach((socket) => socket.destroy())
-            await new Promise((resolve) => proxy.close(resolve))
-        }
-    }, 20_000)
 
     it('produces with the Kafka settings the card profile names', async () => {
         const profile = path.join(cacheHome, 'profile.yaml')
