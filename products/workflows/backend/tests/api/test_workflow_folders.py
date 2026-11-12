@@ -225,8 +225,133 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("file_by_editor", "file", "editor", 201, True),
+            ("file_by_viewer", "file", "viewer", 403, False),
+            ("file_by_key_without_workflow_scope", "file", "key_without_workflow_scope", 403, False),
+            ("shortcut_by_viewer", "shortcut", "viewer", 201, True),
+            ("shortcut_by_member_without_access", "shortcut", "no_access", 403, False),
+            ("shortcut_by_key_without_workflow_scope", "shortcut", "key_without_workflow_scope", 403, False),
+            ("rename_by_editor", "rename", "editor", 200, True),
+            ("rename_by_viewer", "rename", "viewer", 403, False),
+            ("retype_by_editor", "retype", "editor", 200, True),
+            ("retype_by_viewer", "retype", "viewer", 403, False),
+            ("promote_by_editor", "promote", "editor", 200, True),
+            ("promote_by_viewer", "promote", "viewer", 403, False),
+            ("move_by_editor", "move", "editor", 200, True),
+            ("move_by_viewer", "move", "viewer", 403, False),
+            ("folder_move_by_editor", "folder_move", "editor", 200, True),
+            ("folder_move_by_viewer", "folder_move", "viewer", 403, False),
+            ("link_by_viewer", "link", "viewer", 200, True),
+            ("link_by_key_without_workflow_scope", "link", "key_without_workflow_scope", 403, False),
+            ("folder_link_by_viewer", "folder_link", "viewer", 200, True),
+            ("folder_link_by_key_without_workflow_scope", "folder_link", "key_without_workflow_scope", 403, False),
+            ("unlink_by_editor", "unlink", "editor", 204, True),
+            ("unlink_by_viewer", "unlink", "viewer", 403, False),
+            ("folder_delete_by_editor", "folder_delete", "editor", 204, True),
+            ("folder_delete_by_viewer", "folder_delete", "viewer", 403, False),
+            ("delete_by_editor", "delete", "editor", 200, True),
+            ("delete_by_viewer", "delete", "viewer", 403, False),
+            ("restore_by_editor", "restore", "editor", 200, True),
+            ("restore_by_key_without_workflow_scope", "restore", "key_without_workflow_scope", 403, False),
+            ("unfiled_by_editor", "unfiled", "editor", 200, True),
+            ("unfiled_by_viewer", "unfiled", "viewer", 200, False),
+            ("unfiled_by_read_only_key", "unfiled", "read_only_key", 200, False),
+        ]
+    )
+    def test_every_template_file_write_needs_access_to_change_the_template(
+        self, _name: str, path: str, actor: str, expected_status: int, writes: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(templates_url, {"name": "Guarded email", "type": "email"}, format="json").json()[
+            "id"
+        ]
+        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=template_id)
+        inbox = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        copy = FileSystem.objects.create(
+            team=self.team,
+            path="Inbox/Guarded email",
+            depth=2,
+            type="message_template",
+            ref=template_id,
+            shortcut=False,
+        )
+        shortcut = FileSystem.objects.create(
+            team=self.team, path="Starred email", depth=1, type="message_template", ref=template_id, shortcut=True
+        )
+        plain = FileSystem.objects.create(team=self.team, path="Plain", depth=1, type="folder")
+        if path == "delete":
+            copy.delete()
+        if path == "restore":
+            self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
+        if path == "unfiled":
+            FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        requests: dict[str, tuple[str, str, dict | None]] = {
+            "file": ("post", "", {"path": "Placed/Guarded email", "type": "message_template", "ref": template_id}),
+            "shortcut": (
+                "post",
+                "",
+                {"path": "Mine/Guarded email", "type": "message_template", "ref": template_id, "shortcut": True},
+            ),
+            "rename": ("patch", f"{entry.id}/", {"path": "Renamed/Guarded email"}),
+            "retype": ("patch", f"{plain.id}/", {"type": "message_template", "ref": template_id}),
+            "promote": ("patch", f"{shortcut.id}/", {"shortcut": False}),
+            "move": ("post", f"{entry.id}/move/", {"new_path": "Moved/Guarded email"}),
+            "folder_move": ("post", f"{inbox.id}/move/", {"new_path": "Archive/Inbox"}),
+            "link": ("post", f"{entry.id}/link/", {"new_path": "Linked/Guarded email"}),
+            "folder_link": ("post", f"{inbox.id}/link/", {"new_path": "Linked"}),
+            "unlink": ("delete", f"{entry.id}/", None),
+            "folder_delete": ("delete", f"{inbox.id}/?recursive=true", None),
+            "delete": ("delete", f"{entry.id}/", None),
+            "restore": (
+                "post",
+                "undo_delete/",
+                {"items": [{"type": "message_template", "ref": template_id, "path": "Restored/Guarded email"}]},
+            ),
+            "unfiled": ("get", "unfiled/?type=message_template", None),
+        }
+        headers: dict[str, str] = {}
+        if "key" in actor:
+            scopes = {
+                "read_only_key": ["file_system:read", "hog_flow:read"],
+                "key_without_workflow_scope": ["file_system:read", "file_system:write"],
+            }[actor]
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"
+            self.client.logout()
+        else:
+            member = User.objects.create_and_join(self.organization, f"{actor}@example.com", "invented-password")
+            membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                access_level={"editor": "editor", "viewer": "viewer", "no_access": "none"}[actor],
+                organization_member_id=membership.id,
+            )
+            self.client.force_login(member)
+
+        owner = APIClient()
+        owner.force_login(self.user)
+
+        def stored() -> tuple[list[tuple[str, bool]], int]:
+            rows = FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id)
+            template_status = owner.get(f"{templates_url}{template_id}/").status_code
+            return sorted((row.path, bool(row.shortcut)) for row in rows), template_status
+
+        before = stored()
+        method, suffix, payload = requests[path]
+        response = getattr(self.client, method)(f"{files_url}{suffix}", payload, format="json", **headers)
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(stored() != before, writes, stored())
+
+    @parameterized.expand(
+        [
             ("move", "post", "move/", {"new_path": "Archive/Inbox"}, 'INSERT INTO "posthog_filesystem"', 200),
-            ("delete", "delete", "?recursive=true", None, 'FROM "posthog_filesystem"', 204),
+            ("delete", "delete", "?recursive=true", None, '"posthog_filesystem"."ref" IN', 204),
         ]
     )
     def test_a_folder_change_leaves_template_files_that_arrive_after_its_access_check(
@@ -272,7 +397,45 @@ class TestWorkflowFolders(APIBaseTest):
         late_rows[0].refresh_from_db()
         self.assertEqual(late_rows[0].path, "Inbox/Late email")
 
-    def test_a_folder_move_checks_a_child_that_became_a_denied_template_before_its_lock(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "folder_move",
+                "folder",
+                "post",
+                "move/",
+                {"new_path": "Archive/Inbox"},
+                'SELECT "posthog_filesystem"."id" AS "pk" FROM',
+            ),
+            (
+                "move",
+                "child",
+                "post",
+                "move/",
+                {"new_path": "Archive/Report"},
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+            (
+                "rename",
+                "child",
+                "patch",
+                "",
+                {"path": "Archive/Report"},
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+            (
+                "delete",
+                "child",
+                "delete",
+                "",
+                None,
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+        ]
+    )
+    def test_a_file_write_checks_a_row_that_became_a_denied_template_before_its_lock(
+        self, _name: str, target: str, method: str, suffix: str, payload: dict | None, read: str
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -286,7 +449,7 @@ class TestWorkflowFolders(APIBaseTest):
         folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
         dashboard_id = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
         child = FileSystem.objects.create(
-            team=self.team, path="Inbox/Report", depth=2, type="dashboard", ref=str(dashboard_id)
+            team=self.team, path="Inbox/Report", depth=2, type="dashboard", ref=str(dashboard_id), shortcut=False
         )
         member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
         membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
@@ -296,26 +459,56 @@ class TestWorkflowFolders(APIBaseTest):
         self.client.force_login(member)
         retyped = Event()
 
-        def retype_after_the_visible_read(
-            execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]
-        ) -> Any:
+        def retype_after_the_read(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
             result = execute(sql, params, many, context)
-            if not retyped.is_set() and sql.startswith('SELECT "posthog_filesystem"."id" AS "pk" FROM'):
+            if not retyped.is_set() and sql.startswith(read) and "FOR UPDATE" not in sql:
                 retyped.set()
                 FileSystem.objects.filter(pk=child.pk).update(type="message_template", ref=template_id)
             return result
 
-        with connection.execute_wrapper(retype_after_the_visible_read):
-            moved = self.client.post(
-                f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
-                {"new_path": "Archive/Inbox"},
-                format="json",
+        written = {"folder": folder, "child": child}[target]
+        with connection.execute_wrapper(retype_after_the_read):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{written.id}/{suffix}", payload, format="json"
             )
 
         self.assertTrue(retyped.is_set())
-        self.assertEqual(moved.status_code, 403, moved.content)
+        self.assertEqual(response.status_code, 403, response.content)
         child.refresh_from_db()
         self.assertEqual(child.path, "Inbox/Report")
+
+    @parameterized.expand(
+        [
+            ("folder_move", "post", "{folder_id}/move/", {"new_path": "Archive/Inbox"}),
+            ("file", "post", "", {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"}),
+        ]
+    )
+    def test_a_template_file_check_reads_only_the_template_access_fields(
+        self, _name: str, method: str, suffix: str, payload: dict
+    ) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Large email", "type": "email", "content": {"email": {"subject": "Hi", "html": "<p>Hi</p>"}}},
+            format="json",
+        ).json()["id"]
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).update(
+            path="Inbox/Large email", depth=2
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{suffix.format(folder_id=folder.id)}",
+                {key: value.format(template_id=template_id) for key, value in payload.items()},
+                format="json",
+            )
+
+        self.assertIn(response.status_code, (200, 201), response.content)
+        template_reads = [
+            query["sql"] for query in queries.captured_queries if 'FROM "posthog_messagetemplate"' in query["sql"]
+        ]
+        self.assertTrue(template_reads)
+        self.assertFalse([sql for sql in template_reads if '"content"' in sql], template_reads)
 
     @parameterized.expand(
         [
@@ -744,6 +937,49 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
                 cursor.execute("DROP FUNCTION IF EXISTS refuse_file_row()")
 
         self.addCleanup(drop)
+
+    @parameterized.expand([("create",), ("update",), ("restore",)])
+    def test_filing_a_template_into_a_folder_asks_the_flag_service_before_taking_any_lock(self, operation: str) -> None:
+        remote_answers_in_a_transaction: list[bool] = []
+
+        def answer(key: str, *args: Any, only_evaluate_locally: bool = False, **kwargs: Any) -> bool | None:
+            if only_evaluate_locally:
+                return None
+            remote_answers_in_a_transaction.append(connection.in_atomic_block)
+            return True
+
+        flag = patch("posthoganalytics.feature_enabled", side_effect=answer)
+        flag.start()
+        self.addCleanup(flag.stop)
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        filed = {"name": "Folder email", "type": "email", "_create_in_folder": "Campaigns"}
+        if operation == "create":
+            response = self.client.post(templates_url, filed, format="json")
+            template_id = response.json()["id"]
+        else:
+            template_id = self.client.post(
+                templates_url, {"name": "Folder email", "type": "email"}, format="json"
+            ).json()["id"]
+            FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
+            remote_answers_in_a_transaction.clear()
+            if operation == "update":
+                response = self.client.patch(f"{templates_url}{template_id}/", filed, format="json")
+            else:
+                self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
+                remote_answers_in_a_transaction.clear()
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                    {"items": [{"type": "message_template", "ref": template_id, "path": "Campaigns/Folder email"}]},
+                    format="json",
+                )
+
+        self.assertIn(response.status_code, (200, 201), response.content)
+        paths = FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).values_list(
+            "path", flat=True
+        )
+        self.assertEqual(list(paths), ["Campaigns/Folder email"])
+        self.assertTrue(remote_answers_in_a_transaction)
+        self.assertNotIn(True, remote_answers_in_a_transaction)
 
     def test_a_folder_move_and_a_file_sync_of_the_same_object_both_finish(self) -> None:
         dashboard_id = str(

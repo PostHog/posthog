@@ -57,4 +57,6 @@ class WorkflowsConfig(AppConfig):
         register_prepare_delete_hook("message_template", prepare_linked_workflows)
         register_pre_delete_hook("message_template", lock_then_require_linked_workflow_editor)
         register_pre_restore_hook("message_template", require_linked_workflow_editor)
-        register_file_change_check("message_template", require_linked_workflow_editor)
+        register_file_change_check(
+            "message_template", require_linked_workflow_editor, fields=("id", "team_id", "transactional_hog_flow_id")
+        )

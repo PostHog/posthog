@@ -13,6 +13,7 @@ from django.core.exceptions import (
 from django.db import IntegrityError, transaction
 
 import psycopg
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.exceptions import Conflict
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
@@ -100,7 +101,7 @@ PostRestoreHook = Callable[[RestoreContext, Any], None]
 _MODEL_REGISTRY: dict[str, ModelRegistration] = {}
 _PREPARE_DELETE_HOOKS: dict[str, PrepareDeleteHook] = {}
 _PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
-_FILE_CHANGE_CHECKS: dict[str, FileChangeCheck] = {}
+_FILE_CHANGE_CHECKS: dict[str, tuple[FileChangeCheck, tuple[str, ...]]] = {}
 _POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
 _PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
 _POST_RESTORE_HOOKS: dict[str, PostRestoreHook] = {}
@@ -157,9 +158,10 @@ def register_pre_delete_hook(type_string: str, hook: PreDeleteHook) -> None:
     _PRE_DELETE_HOOKS[type_string] = hook
 
 
-# Runs for every file a request places, changes or unlinks, including files whose object stays.
-def register_file_change_check(type_string: str, check: FileChangeCheck) -> None:
-    _FILE_CHANGE_CHECKS[type_string] = check
+# Runs for every file a request places, changes or unlinks, including files whose object stays. The check
+# gets each object with only `fields` loaded, so a type lists the fields its check reads.
+def register_file_change_check(type_string: str, check: FileChangeCheck, *, fields: tuple[str, ...]) -> None:
+    _FILE_CHANGE_CHECKS[type_string] = (check, fields)
 
 
 def register_post_delete_hook(type_string: str, hook: PostDeleteHook) -> None:
@@ -174,16 +176,21 @@ def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
     _POST_RESTORE_HOOKS[type_string] = hook
 
 
-def _registered_objects(registration: ModelRegistration, team_id: int, refs: Iterable[str]) -> Any | None:
+def _lookup_values(registration: ModelRegistration, refs: Iterable[str]) -> dict[Any, list[str]]:
     lookup_field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(
         registration.lookup_field
     )
-    lookup_values = []
+    values: dict[Any, list[str]] = {}
     for ref in sorted(refs):
         try:
-            lookup_values.append(lookup_field.to_python(ref))
+            values.setdefault(lookup_field.to_python(ref), []).append(ref)
         except (ValueError, TypeError, DjangoValidationError):
             continue
+    return values
+
+
+def _registered_objects(registration: ModelRegistration, team_id: int, refs: Iterable[str]) -> Any | None:
+    lookup_values = list(_lookup_values(registration, refs))
     if not lookup_values:
         return None
     return _get_queryset(registration).filter(
@@ -205,16 +212,35 @@ def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple
 
 def check_file_system_object_changes(
     context: FileChangeContext, refs_by_type: Mapping[tuple[int, str], Iterable[str]]
-) -> None:
+) -> dict[tuple[int, str, str], PermissionDenied]:
+    """Run each type's change check and return the refs it refused, keyed by (team_id, type, ref)."""
     checked = {key: refs for key, refs in refs_by_type.items() if key[1] in _FILE_CHANGE_CHECKS}
     prepare_file_system_objects(context.request, checked)
+    denied: dict[tuple[int, str, str], PermissionDenied] = {}
     for (team_id, type_string), refs in sorted(checked.items()):
         registration = _MODEL_REGISTRY.get(type_string)
         if registration is None:
             continue
+        check, fields = _FILE_CHANGE_CHECKS[type_string]
+        refs_by_value = _lookup_values(registration, refs)
         objects = _registered_objects(registration, team_id, refs)
-        for obj in objects if objects is not None else []:
-            _FILE_CHANGE_CHECKS[type_string](context, obj)
+        for obj in objects.only(*fields) if objects is not None else []:
+            try:
+                check(context, obj)
+            except PermissionDenied as error:
+                for ref in refs_by_value.get(getattr(obj, registration.lookup_field), []):
+                    denied[(team_id, type_string, ref)] = error
+    return denied
+
+
+def file_system_object_creator_ids(type_string: str, team_id: int, refs: Iterable[str]) -> set[int]:
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        return set()
+    objects = _registered_objects(registration, team_id, refs)
+    if objects is None:
+        return set()
+    return set(objects.exclude(created_by_id=None).values_list("created_by_id", flat=True))
 
 
 def is_file_system_type_registered(type_string: str) -> bool:

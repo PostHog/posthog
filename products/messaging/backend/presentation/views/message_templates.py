@@ -41,6 +41,7 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyU
 from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
+from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
@@ -1129,7 +1130,8 @@ class MessageTemplatesViewSet(
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        template = create_template(self.team_id, request.user.id, serializer.validated_data)
+        with self._resolve_files_flag(serializer.validated_data, request.user.id):
+            template = create_template(self.team_id, request.user.id, serializer.validated_data)
         # report_user_action injects source and MCP-client properties from the request, so a create from the
         # visual editor and one from the agent count in the same metric. Capture must never break the request.
         try:
@@ -1176,7 +1178,7 @@ class MessageTemplatesViewSet(
             fields["draft_content"] = None
         # Sends use the workflow's copy, so the template and its new workflow version are saved together,
         # under a row lock that keeps a concurrent make_transactional from slipping in between.
-        with transaction.atomic():
+        with self._resolve_files_flag(fields, template.created_by_id), transaction.atomic():
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
@@ -1191,6 +1193,13 @@ class MessageTemplatesViewSet(
                 updated = get_template(self.team_id, template.id)
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
+
+    def _resolve_files_flag(self, fields: dict[str, Any], created_by_id: int | None) -> AbstractContextManager[None]:
+        # Filing into a requested folder asks the flag service, so it has to answer before the save locks the template.
+        if "_create_in_folder" not in fields or created_by_id is None:
+            return nullcontext()
+        creator = User.objects.filter(pk=created_by_id).first()
+        return resolved_workflows_list_v2(self.team, [creator] if creator else [])
 
     def _sync_transactional_workflow(self, template_id: Any) -> None:
         # Raising rolls back the template save, so the template and its workflow never disagree.

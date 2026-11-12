@@ -2230,8 +2230,10 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         ]
         self.assertEqual(len(dashboard_deletions), 1, deleted)
 
-        lock_queries = [q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
-        self.assertEqual(len(lock_queries), 1, lock_queries)
+        reference_locks = [
+            q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"] and '"posthog_filesystem"."ref" IN' in q["sql"]
+        ]
+        self.assertEqual(len(reference_locks), 1, reference_locks)
 
     def test_undo_delete_function_refuses_to_restore_a_live_object(self):
         flag = FeatureFlag.objects.create(

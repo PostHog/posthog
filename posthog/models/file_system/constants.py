@@ -1,3 +1,6 @@
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 from django.db.models import Q
@@ -10,19 +13,42 @@ if TYPE_CHECKING:
 
 WORKFLOW_FILE_SYSTEM_TYPES = frozenset({"hog_flow", "message_template"})
 
+_resolved_workflows_list_v2: ContextVar[dict[tuple[int, int], bool] | None] = ContextVar(
+    "resolved_workflows_list_v2", default=None
+)
 
-# File reads evaluate the flag locally only, so that file navigation never waits on the flag service.
-# Only a create or restore into a requested folder may ask the service, so that its placement survives
-# when local evaluation cannot decide.
-def workflows_list_v2_enabled(team: "Team", user: "User", *, allow_remote_evaluation: bool = False) -> bool:
+
+def _evaluate_workflows_list_v2(team: "Team", user: "User", *, only_evaluate_locally: bool) -> bool:
     return feature_enabled_or_false(
         "workflows-list-v2",
         user.distinct_id or str(user.pk),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
         person_properties={"email": user.email},
-        only_evaluate_locally=not allow_remote_evaluation,
+        only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )
+
+
+# The flag service can take seconds to answer. So the flag is evaluated locally everywhere, and only a
+# request that files an object into a requested folder asks the service, through this scope, before it
+# takes any lock. Saves inside the scope then read the answer instead of waiting on the service.
+@contextmanager
+def resolved_workflows_list_v2(team: "Team", users: Iterable["User"]) -> Iterator[None]:
+    answers = dict(_resolved_workflows_list_v2.get() or {})
+    for user in users:
+        answers[(team.id, user.pk)] = _evaluate_workflows_list_v2(team, user, only_evaluate_locally=False)
+    token = _resolved_workflows_list_v2.set(answers)
+    try:
+        yield
+    finally:
+        _resolved_workflows_list_v2.reset(token)
+
+
+def workflows_list_v2_enabled(team: "Team", user: "User") -> bool:
+    answers = _resolved_workflows_list_v2.get()
+    if answers is not None and (team.id, user.pk) in answers:
+        return answers[(team.id, user.pk)]
+    return _evaluate_workflows_list_v2(team, user, only_evaluate_locally=True)
 
 
 # The product surface a FileSystem row belongs to. Legacy rows predate this column and are
