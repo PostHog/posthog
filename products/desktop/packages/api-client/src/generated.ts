@@ -6025,6 +6025,11 @@ export namespace Schemas {
         history_limit_days: number | null;
     };
     export type SearchMatchTypeEnum = "exact" | "similar";
+    /**
+     * * `append` - Append
+     * * `replace` - Replace
+     */
+    export type CohortPopulationModeEnum = "append" | "replace";
     export type Cohort = {
         id: number;
         name?: (string | null) | undefined;
@@ -6069,6 +6074,7 @@ export namespace Schemas {
         search_match_type: SearchMatchTypeEnum | NullEnum;
         _create_in_folder?: string | undefined;
         _create_static_person_ids?: Array<string> | undefined;
+        population_mode?: (CohortPopulationModeEnum & unknown) | undefined;
     };
     export type CommentSlackThreadRef = {
         /**
@@ -16433,6 +16439,7 @@ export namespace Schemas {
         search_match_type: SearchMatchTypeEnum | NullEnum;
         _create_in_folder: string;
         _create_static_person_ids: Array<string>;
+        population_mode: CohortPopulationModeEnum & unknown;
     }>;
     export type PatchedErrorTrackingIssueWrite = Partial<{
         status: ErrorTrackingIssueWritableStatusEnum;
