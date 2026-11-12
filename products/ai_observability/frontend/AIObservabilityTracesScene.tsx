@@ -200,7 +200,7 @@ function getTraceFromRow(record: unknown): LLMTrace | null {
 export function useTracesDrawerContext(listId: TraceDrawerListId, dataNodeKey: string): QueryContext<DataTableNode> {
     const baseContext = useTracesQueryContext()
     const { rowProps: baseRowProps } = baseContext
-    const { isEnabled, rowProps: toDrawerRowProps } = useTraceDrawerRows(listId, TRACE_LINKS)
+    const { rowProps: toDrawerRowProps } = useTraceDrawerRows(listId, TRACE_LINKS)
     const drawerRowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
         (record) => {
             const baseProps = baseRowProps?.(record) ?? {}
@@ -210,7 +210,7 @@ export function useTracesDrawerContext(listId: TraceDrawerListId, dataNodeKey: s
         },
         [baseRowProps, toDrawerRowProps]
     )
-    return { ...baseContext, dataNodeLogicKey: dataNodeKey, rowProps: isEnabled ? drawerRowProps : baseRowProps }
+    return { ...baseContext, dataNodeLogicKey: dataNodeKey, rowProps: drawerRowProps }
 }
 
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {

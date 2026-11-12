@@ -73,7 +73,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
-    'generateSummary', // Summary view renders its own retry state
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
     'loadProductDataEvents',
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
@@ -233,16 +232,6 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 /*
-Loads whose owning logic renders a 404 with code `content_expired` inline. AI events drop their
-message content after the retention window, so the 404 is an expected state, not a defect. Other 404s
-from these loads still report. Owned by summaryViewLogic's summaryError reducer. The backend raises
-the code in products/ai_observability/backend/api/summarization.py.
-*/
-const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
-}
-
-/*
 Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
 to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
 the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
@@ -260,9 +249,6 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 }
 
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
-    if (error?.status === 404 && error?.code === 'content_expired') {
-        return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
-    }
     if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
         return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
     }

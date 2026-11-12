@@ -197,7 +197,7 @@ describe('traceViewModelLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('reads a deep-linked node alongside the trace, then the thread node, and never runs the legacy trace query', async () => {
+    it('reads a deep-linked node alongside the trace, then the thread node, and never runs a TraceQuery', async () => {
         let releaseTrace = (): void => {}
         traceGate = new Promise<void>((resolve) => {
             releaseTrace = resolve

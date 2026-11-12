@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -16,10 +14,6 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 describe('aiObservabilityMetricChartLogic', () => {
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
-        })
         router.actions.push(urls.aiObservabilityTraces(), { date_from: '-1h' })
     })
 

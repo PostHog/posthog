@@ -9706,22 +9706,6 @@ snapshots:
         hash: v1.k794b7964.81ce7999f24877f6e4ac2d9ab89fb4e584e5bc0749e594742c15377c8da8a1a7.BlSbtKwSVk0n9eZKEpRMG7hADbYEDAXAedKVuCaBN_8
     scenes-app-ai-observability-system-one-connection--provider-settings--light:
         hash: v1.k794b7964.05b7de1c84c25e03badf722fa567182ff449e74a6299d6a543c554ecd20e3184.eccRHOq726ohqws6q_XlZPELbvyUZPfAZk1cwlog_QY
-    scenes-app-ai-observability-trace--full--dark:
-        hash: v1.k794b7964.4d3ad4ebbe259bff3cd17afce36a4f9e9e69b5def84e53c89a543b970751e695.a2alK28PTn9_H4Th1Gy1knhB3uSsWmZ77ZmrV0jqQso
-    scenes-app-ai-observability-trace--full--light:
-        hash: v1.k794b7964.57c11ed1fabef66c724244d8f8c10a48048451bfb8c20725e5a7db7e6f3e97fa.ECgSmPCIFu7JDolQEatnDs2tvmkmel9NzTvekgyGgpA
-    scenes-app-ai-observability-trace--full-specific-event--dark:
-        hash: v1.k794b7964.7217028734058dd12b86d8f68f4ed0a510f683169858408758d72ce2e6e234ba.JDDh_ogh5LgsDZzRGoqREXTpBphBCxeHfmIVFriEJhs
-    scenes-app-ai-observability-trace--full-specific-event--light:
-        hash: v1.k794b7964.1ddd78a021ebd0cd3cea5ca666c614f58559072fe662f906a6088e55996c39f1.-Yz__8kqDKDJjJF22RHdo6Oc7bor-4yVH9B3QlcqUjU
-    scenes-app-ai-observability-trace--missing-span-instrumentation--dark:
-        hash: v1.k794b7964.55a8c1762dbc5754a88756dc4c6ed91c71a899cf2c9db890fc897b47ce491fa7.I9XZfEkQusLgygE5aoPMHaHd-2OhEQSjggO5HOz-k1Q
-    scenes-app-ai-observability-trace--missing-span-instrumentation--light:
-        hash: v1.k794b7964.b2063861e73507e5911e950992454c438283b7e0e4758c0bf3603f7884135817.S3qYv9943XR0LhtTIhSxe5CVCjR41ysrmgN0LfgwYrg
-    scenes-app-ai-observability-trace--without-content--dark:
-        hash: v1.k794b7964.065a9980470f35b7f51d4e5943b3990752fd4245f5537e67744683bc40e68f73.RrP5nFq9CZ--jD-uCfFALgQcsBQase6zp2D996rVI6k
-    scenes-app-ai-observability-trace--without-content--light:
-        hash: v1.k794b7964.cdee9ec2c6fded05ad4a583ba11574423b6fbe1685ec0c4c1f777e233845c467.87Jht5vUQnHMpxJ1KeqOIPgUtSlmqRwKAZhhEkgC2EM
     scenes-app-ai-observability-trace-view-chip-tag--on-page-and-drawer--dark:
         hash: v1.k794b7964.1b9b694e8c1c4a63b8d416f6801e90138eaecae5c25ea44495d54ffe12940080.EqMTOMoZQS8z8hMxg_jkcN5VLYmU72S2_RZgZTQBBec
     scenes-app-ai-observability-trace-view-chip-tag--on-page-and-drawer--light:

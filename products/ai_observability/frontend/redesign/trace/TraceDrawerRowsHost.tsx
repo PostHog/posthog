@@ -13,20 +13,19 @@ export interface TraceDrawerRowProps {
 }
 
 export interface TraceDrawerRows {
-    isEnabled: boolean
     openTraceId: string | null
     rowProps: (row: TraceListRow | null) => TraceDrawerRowProps
 }
 
 export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: string): TraceDrawerRows {
     const logic = traceDrawerLogic({ listId })
-    const { isEnabled, openTraceId } = useValues(logic)
+    const { openTraceId } = useValues(logic)
     const { openRow } = useActions(logic)
     const { rowClick } = TRACE_DRAWER_LISTS[listId]
 
     const rowProps = useCallback(
         (row: TraceListRow | null): TraceDrawerRowProps => {
-            if (!row || !isEnabled) {
+            if (!row) {
                 return {}
             }
             return {
@@ -45,10 +44,10 @@ export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: stri
                 },
             }
         },
-        [isEnabled, linkSelector, openRow, openTraceId, rowClick]
+        [linkSelector, openRow, openTraceId, rowClick]
     )
 
-    return { isEnabled, openTraceId, rowProps }
+    return { openTraceId, rowProps }
 }
 
 export interface TraceDrawerTableProps<T> {

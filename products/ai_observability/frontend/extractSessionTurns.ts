@@ -1,6 +1,6 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { normalizeMessage, normalizeMessages } from './messageNormalization'
+import { normalizeMessages } from './messageNormalization'
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
 import { eventLabel, formatAiErrorForDisplay, readAiInput, readAiOutput } from './utils'
@@ -34,30 +34,6 @@ export function pickUserVisibleTurn(trace: LLMTrace | undefined): LLMTraceEvent 
         }
     }
     return latest
-}
-
-/**
- * Maps each normalized message back to its index in the raw `$ai_input`.
- * Many-to-one: `normalizeMessage` may expand one raw entry into multiple
- * messages. A leading `-1` marks the synthetic "available tools" message.
- *
- * Used by `ConversationMessagesDisplay` to map per-message sentiment to the
- * right rendered bubble after dedup. Also used by the Trace page renderer.
- */
-export function buildInputSourceIndices(rawInput: unknown, tools: unknown): number[] {
-    const indices: number[] = []
-    if (tools) {
-        indices.push(-1)
-    }
-    if (Array.isArray(rawInput)) {
-        for (let i = 0; i < rawInput.length; i++) {
-            const expanded = normalizeMessage(rawInput[i], 'user')
-            for (let j = 0; j < expanded.length; j++) {
-                indices.push(i)
-            }
-        }
-    }
-    return indices
 }
 
 export interface SessionTurnError {

@@ -1,7 +1,6 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +24,7 @@ function generationRow(uuid: string | null, traceId: string): unknown[] {
     return [uuid, traceId, PERSON, 'gpt-4', null, '', '1 s', '1 → 1 (∑ 2)', '$0.1', '2026-01-01T12:00:00Z']
 }
 
-async function renderGenerations({ flag = true, url = GENERATIONS_PATH } = {}): Promise<RenderResult> {
+async function renderGenerations({ url = GENERATIONS_PATH } = {}): Promise<RenderResult> {
     initKeaTests()
     localStorage.clear()
     jest.mocked(performQuery).mockReset()
@@ -35,9 +34,6 @@ async function renderGenerations({ flag = true, url = GENERATIONS_PATH } = {}): 
             : { results: [] }
     )
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-        [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: flag,
-    })
     panelLayoutLogic.mount()
     router.actions.push(url)
     const view = render(<AIObservabilityGenerations />)
@@ -137,17 +133,6 @@ describe('AIObservabilityScene', () => {
             expect(combineUrl(link).searchParams).toMatchObject({ back_to: 'generations', event: 'gen-1' })
             expect(combineUrl(link).searchParams).not.toHaveProperty('trace')
             expect(combineUrl(link).searchParams).not.toHaveProperty('step')
-        })
-
-        it('keeps the row and its links as they were when the drawer is disabled', async () => {
-            const view = await renderGenerations({ flag: false })
-
-            fireEvent.click(row(view).querySelectorAll('td')[3])
-            expect(router.values.location.pathname).toContain(GENERATIONS_PATH)
-
-            fireEvent.click(element(view, '[data-attr="generation-trace-link"]'))
-            expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('trace-1'))
-            expect(router.values.searchParams).not.toHaveProperty('trace')
         })
     })
 })

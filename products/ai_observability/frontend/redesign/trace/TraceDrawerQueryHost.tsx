@@ -6,7 +6,6 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 
 import { TraceDrawerHost } from './TraceDrawerHost'
 import type { TraceDrawerListId } from './traceDrawerLists'
-import { traceDrawerLogic } from './traceDrawerLogic'
 import { TraceDrawerRowsSync } from './TraceDrawerRowsHost'
 import { TraceListRow } from './traceListRows'
 
@@ -39,11 +38,9 @@ function TraceDrawerQueryRows({ listId, dataNodeKey, query, toRow }: TraceDrawer
 // Render this as a sibling after DataTable, so that DataTable builds the logic with its full props. Subscribing in the
 // list component would also rebuild the table context on each poll and re-render every row.
 export function TraceDrawerQueryHost(props: TraceDrawerQueryHostProps): JSX.Element {
-    const { isEnabled } = useValues(traceDrawerLogic({ listId: props.listId }))
-
     return (
         <>
-            {isEnabled ? <TraceDrawerQueryRows {...props} /> : null}
+            <TraceDrawerQueryRows {...props} />
             <TraceDrawerHost listId={props.listId} />
         </>
     )

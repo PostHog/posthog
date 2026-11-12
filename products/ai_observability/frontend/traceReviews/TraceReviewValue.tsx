@@ -70,7 +70,7 @@ export interface TraceReviewTagItem {
     type: React.ComponentProps<typeof LemonTag>['type']
 }
 
-export function getTraceReviewTagItems({
+function getTraceReviewTagItems({
     review,
     maxVisibleScores,
     tagTypeOverride,

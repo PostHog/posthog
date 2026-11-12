@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { SceneExport } from 'scenes/sceneTypes'
+
 import { TRACE_PAGE_HOST_ID, tracePageLogic } from './tracePageLogic'
 import { TraceViewHost } from './TraceViewHost'
 
@@ -18,4 +20,9 @@ export function TraceScene(): JSX.Element | null {
             />
         </div>
     )
+}
+
+export const scene: SceneExport = {
+    component: TraceScene,
+    logic: tracePageLogic,
 }

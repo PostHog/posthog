@@ -3,7 +3,6 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -61,8 +60,6 @@ describe('AIObservabilityReviewQueues', () => {
         mockReviewQueuesApi.listQueueItems.mockResolvedValue({ count: 2, next: null, previous: null, results: items })
         localStorage.clear()
         featureFlagLogic.mount()
-        const flag = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
-        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
         router.actions.push(urls.aiObservabilityReviews(), { queue_id: 'queue_1' })
     })
 

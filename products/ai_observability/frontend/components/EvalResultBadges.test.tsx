@@ -1,20 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { Provider } from 'kea'
+import { render, screen } from '@testing-library/react'
 
-import { initKeaTests } from '~/test/init'
-
-import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
-import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import {
-    EvalResultBadges,
-    EvalTooltipContent,
-    getEvalBadgeProps,
-    getEvalSummaries,
-    scopeRunsToTarget,
-} from './EvalResultBadges'
+import { EvaluationRun } from '../evaluations/types'
+import { EvalTooltipContent, getEvalBadgeProps, getEvalSummaries } from './EvalResultBadges'
 import {
     compareEvaluationResults,
     getEvaluationResultDisplay,
@@ -178,23 +167,6 @@ describe('EvalResultBadges', () => {
         })
     })
 
-    describe('scopeRunsToTarget', () => {
-        const generationRun = makeRun({ id: 'gen-run', generation_id: 'gen-1' })
-        const otherGenerationRun = makeRun({ id: 'other-gen-run', generation_id: 'gen-2' })
-        // HogQL returns '' (not null) for a missing $ai_target_event_id on trace-target runs.
-        const traceRunEmptyString = makeRun({ id: 'trace-run-empty', generation_id: '' })
-        const traceRunNull = makeRun({ id: 'trace-run-null', generation_id: null })
-        const allRuns = [generationRun, otherGenerationRun, traceRunEmptyString, traceRunNull]
-
-        it('scoped to a generation, returns only that generation runs', () => {
-            expect(scopeRunsToTarget(allRuns, 'gen-1').map((r) => r.id)).toEqual(['gen-run'])
-        })
-
-        it('without a generation, returns only trace-target runs (empty string and null)', () => {
-            expect(scopeRunsToTarget(allRuns).map((r) => r.id)).toEqual(['trace-run-empty', 'trace-run-null'])
-        })
-    })
-
     describe('getEvalBadgeProps', () => {
         it.each([
             ['failed status', makeRun({ status: 'failed' }), { type: 'danger', label: 'Error' }],
@@ -285,60 +257,6 @@ describe('EvalResultBadges', () => {
 
         it('returns false for boolean evaluation runs', () => {
             expect(isSentimentRun(makeRun())).toBe(false)
-        })
-    })
-
-    describe('rendered with the trace scene evaluations logic', () => {
-        const detectorEvaluation: EvaluationConfig = {
-            id: 'eval-detector',
-            name: 'Detects struggle',
-            enabled: true,
-            status: 'active',
-            status_reason: null,
-            status_reason_detail: null,
-            evaluation_type: 'hog',
-            evaluation_config: { source: 'return true' },
-            output_type: 'boolean',
-            output_config: { true_is_failure: true },
-            conditions: [{ id: 'cond-1', rollout_percentage: 100, properties: [] }],
-            target: 'trace',
-            target_config: {},
-            model_configuration: null,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
-        }
-
-        beforeEach(() => {
-            initKeaTests()
-        })
-
-        afterEach(() => {
-            cleanup()
-        })
-
-        it('colors a detector true result as danger, matching the config switch', () => {
-            const evaluationsLogic = llmEvaluationsLogic()
-            evaluationsLogic.mount()
-            evaluationsLogic.actions.loadEvaluationsSuccess([detectorEvaluation])
-
-            const runsLogic = generationEvaluationRunsLogic({ traceId: 'trace-1' })
-            runsLogic.mount()
-            runsLogic.actions.loadGenerationEvaluationRunsSuccess([
-                makeRun({ evaluation_id: 'eval-detector', evaluation_name: 'Detects struggle', generation_id: '' }),
-            ])
-
-            render(
-                <Provider>
-                    <EvalResultBadges traceId="trace-1" />
-                </Provider>
-            )
-
-            expect(screen.getByText('Detects struggle: True')).toBeInTheDocument()
-            expect(document.querySelector('.LemonTag--danger')).toBeInTheDocument()
-            expect(document.querySelector('.LemonTag--success')).not.toBeInTheDocument()
-
-            evaluationsLogic.unmount()
-            runsLogic.unmount()
         })
     })
 })

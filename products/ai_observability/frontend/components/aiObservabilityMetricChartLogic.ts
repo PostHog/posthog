@@ -48,7 +48,6 @@ export interface aiObservabilityMetricChartLogicValues {
     shouldFilterSupportTraces: boolean // aiObservabilitySharedLogic
     shouldFilterTestAccounts: boolean // aiObservabilitySharedLogic
     weekStartDay: number // teamLogic
-    drawerEnabled: boolean // traceDrawerLogic
     user: UserType | null // userLogic
     activeMetric: MetricChartKey
     bucketTrace: TraceListRow | null
@@ -160,8 +159,6 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
         values: [
             aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
-            traceDrawerLogic({ listId: 'traces' }),
-            ['isEnabled as drawerEnabled'],
             userLogic,
             ['user'],
             teamLogic,
@@ -289,7 +286,7 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
             const onTracesTab = TRACE_DRAWER_LISTS.traces.pathMatcher.test(
                 removeProjectIdIfPresent(router.values.location.pathname)
             )
-            if (values.drawerEnabled && onTracesTab) {
+            if (onTracesTab) {
                 actions.openRow(bucketTrace)
             } else {
                 router.actions.push(urls.aiObservabilityTrace(traceId, { timestamp: timestamp ?? undefined }))

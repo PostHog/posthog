@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
             docsHref: 'https://posthog.com/docs/ai-observability',
         },
         AIObservabilityTrace: {
-            import: () => import('./frontend/AIObservabilityTraceScene'),
+            import: () => import('./frontend/redesign/trace/TraceScene'),
             projectBased: true,
             name: 'AI observability trace',
             layout: 'app-container',

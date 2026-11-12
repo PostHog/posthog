@@ -23,7 +23,7 @@ export function toFullPageListParams(searchParams: SearchParams): SearchParams {
     return withoutTraceDrawerParams(listParams(searchParams))
 }
 
-// Matches the legacy scene: a link opened from a review queue returns to that queue, other links to the reviews tab.
+// A link opened from a review queue returns to that queue, other links to the reviews tab.
 function reviewsBackHref(searchParams: SearchParams): string {
     const inQueue = typeof searchParams.queue_id === 'string' && searchParams.queue_id !== ''
     return combineUrl(urls.aiObservabilityReviews(), {

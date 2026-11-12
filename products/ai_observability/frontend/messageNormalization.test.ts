@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { resolveAiBlobUrl } from './aiBlob'
-import { captureNormalizationFailure, normalizeMessage, normalizeMessages } from './messageNormalization'
+import { normalizeMessage, normalizeMessages } from './messageNormalization'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
 
@@ -58,24 +58,6 @@ describe('messageNormalization', () => {
 
             expect(images).toHaveLength(1)
             expect(resolveAiBlobUrl(images[0], 1)).toBe(`/api/projects/1/ai_blob/v1/sha256/${HASH}`)
-        })
-    })
-
-    describe('captureNormalizationFailure', () => {
-        it('reports an object payload with its keys and type', () => {
-            captureNormalizationFailure({ file_path: 'src/index.ts' })
-            expect(capture).toHaveBeenCalledWith('llma message normalization failed', {
-                message_keys: ['file_path'],
-                message_type: 'object',
-            })
-        })
-
-        it('reports a scalar payload with no keys', () => {
-            captureNormalizationFailure('opaque')
-            expect(capture).toHaveBeenCalledWith('llma message normalization failed', {
-                message_keys: [],
-                message_type: 'string',
-            })
         })
     })
 })

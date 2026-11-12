@@ -22,12 +22,12 @@ import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
 import { aiObservabilitySharedLogic } from 'products/ai_observability/frontend/aiObservabilitySharedLogic'
-import {
-    aiObservabilityTraceDataLogic,
-    type aiObservabilityTraceDataLogicValues,
-} from 'products/ai_observability/frontend/aiObservabilityTraceDataLogic'
 import { useTracesQueryContext } from 'products/ai_observability/frontend/AIObservabilityTracesScene'
 import { AIObservabilityTraceEvents } from 'products/ai_observability/frontend/components/AIObservabilityTraceEvents'
+import {
+    notebookTraceLogic,
+    type notebookTraceLogicValues,
+} from 'products/ai_observability/frontend/notebookTraceLogic'
 import { aiObservabilityTracesTabLogic } from 'products/ai_observability/frontend/tabs/aiObservabilityTracesTabLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage } from 'products/ai_observability/frontend/utils'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
@@ -186,8 +186,8 @@ type NotebookNodeLLMTraceAttributes = {
     tabId: string
 }
 
-function useSingleTrace(attributes: NotebookNodeLLMTraceAttributes): aiObservabilityTraceDataLogicValues {
-    return useValues(aiObservabilityTraceDataLogic({ traceId: attributes.id || '', searchQuery: '' }))
+function useSingleTrace(attributes: NotebookNodeLLMTraceAttributes): notebookTraceLogicValues {
+    return useValues(notebookTraceLogic({ traceId: attributes.id || '' }))
 }
 
 function SingleTraceMetadata({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): null {

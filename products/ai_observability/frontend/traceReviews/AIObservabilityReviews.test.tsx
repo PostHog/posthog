@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -87,12 +86,9 @@ describe('AIObservabilityReviews', () => {
     })
 
     describe('opening the trace drawer', () => {
-        const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
-
         async function renderReviews(): Promise<HTMLElement> {
             localStorage.clear()
             featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
             router.actions.push(urls.aiObservabilityReviews(), { human_reviews_tab: 'reviews' })
             const { findByText } = render(<AIObservabilityReviews />)
             return await findByText('trace-0')

@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,7 +15,6 @@ import { AIObservabilityClusterScene } from './AIObservabilityClusterScene'
 import { clusterDetailLogic } from './clusterDetailLogic'
 import { Cluster } from './types'
 
-const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const RUN_ID = 'team_2025-01-05'
 const PROPS = { runId: RUN_ID, clusterId: 0 }
 
@@ -62,7 +60,6 @@ describe('AIObservabilityClusterScene', () => {
         teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
         router.actions.push('/ai-observability/clusters/' + RUN_ID + '/0')
         logic = clusterDetailLogic(PROPS)
         logic.mount()

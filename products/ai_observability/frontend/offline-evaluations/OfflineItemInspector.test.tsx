@@ -4,7 +4,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { router } from 'kea-router'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,9 +39,6 @@ describe('OfflineItemInspector', () => {
         'opens %s in the drawer and restores the selected result when closed',
         async (label) => {
             featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN], {
-                [FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN]: true,
-            })
             const result = { ...offlineDetailItemResults(detailItems[0].id)[0], evaluator_trace_id: 'judge-trace' }
             const item = { ...detailItems[0], application_trace_id: 'app-trace' }
             const path = `/project/997${urls.aiObservabilityOfflineEvaluationExperiment(detailExperiment.id)}`
