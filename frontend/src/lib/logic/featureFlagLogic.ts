@@ -57,23 +57,32 @@ export function revokePostHogAIAccess(): void {
 }
 let cachedFlagsProxy: FeatureFlagsSet | null = null
 
-function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    const appContext = getAppContext()
-    const persistedFlags = getPersistedFeatureFlags(appContext)
-    const availableFlags =
-        areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
-            ? { ...persistedFlags, ...featureFlags }
-            : persistedFlags
+/** Flags the app sets from other values, after the server and persisted flags are merged. */
+export function deriveFeatureFlags(flags: FeatureFlagsSet, posthogAiAccess: boolean | undefined): FeatureFlagsSet {
+    const derived = { ...flags }
     // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
-    const posthogAiAccess = posthogAiAccessRevoked ? false : appContext?.posthog_ai_access
     if (posthogAiAccess !== undefined) {
-        availableFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
+        derived[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
     }
     // The scene menu bar is part of the new navigation. Deriving it here keeps it in step with `today-rail-nav`,
     // which the nav switch changes locally before the server re-evaluates `scene-menu-bar`.
-    if (availableFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-        availableFlags[FEATURE_FLAGS.SCENE_MENU_BAR] = true
+    if (derived[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        derived[FEATURE_FLAGS.SCENE_MENU_BAR] = true
     }
+    return derived
+}
+
+function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
+    const appContext = getAppContext()
+    const persistedFlags = getPersistedFeatureFlags(appContext)
+    const mergedFlags =
+        areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
+            ? { ...persistedFlags, ...featureFlags }
+            : persistedFlags
+    const availableFlags = deriveFeatureFlags(
+        mergedFlags,
+        posthogAiAccessRevoked ? false : appContext?.posthog_ai_access
+    )
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {
