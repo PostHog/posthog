@@ -62,10 +62,7 @@ export function QuillWidgetCardHeader({
                         }
                     >
                         {titleHref ? (
-                            <LinkPrimitive
-                                to={titleHref}
-                                className="max-w-full truncate text-foreground hover:underline"
-                            >
+                            <LinkPrimitive to={titleHref} className="max-w-full truncate text-foreground">
                                 {titleContent}
                             </LinkPrimitive>
                         ) : (

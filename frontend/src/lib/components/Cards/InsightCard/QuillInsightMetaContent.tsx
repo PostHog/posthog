@@ -65,7 +65,7 @@ export function QuillInsightMetaContent({
                 }
             >
                 {link ? (
-                    <LinkPrimitive to={link} className="max-w-full truncate text-foreground hover:underline">
+                    <LinkPrimitive to={link} className="max-w-full truncate text-foreground">
                         {titleContent}
                     </LinkPrimitive>
                 ) : (
