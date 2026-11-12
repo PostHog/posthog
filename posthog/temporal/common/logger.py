@@ -621,12 +621,22 @@ def configure_logger(
     )
 
     async def stop_log_producer() -> None:
-        """Waits until the queue is fully processed, then cancels the task listening on it."""
-        await log_queue.join()
+        """Waits until the queue is fully processed, then cancels the task listening on it.
 
-        listen_task.cancel()
+        Gives up after the internal logs retry window, because the queue only empties when Kafka confirms
+        each message, and a Kafka outage would otherwise hold the process open.
+        """
 
-        await asyncio.wait([listen_task])
+        async def stop() -> None:
+            await log_queue.join()
+
+            listen_task.cancel()
+
+            await asyncio.wait([listen_task])
+
+        await asyncio.wait(
+            [asyncio.ensure_future(stop())], timeout=settings.LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS / 1000
+        )
 
     async def handle_worker_shutdown():
         """Gracefully handle a Temporal Worker shutting down."""
