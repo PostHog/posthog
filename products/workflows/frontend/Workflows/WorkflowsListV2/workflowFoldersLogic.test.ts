@@ -1429,6 +1429,46 @@ describe('workflowFoldersLogic', () => {
         unmountMoveTo()
     })
 
+    it('refuses Move to… for a file whose earlier move is still in flight', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        showToasts()
+        let releaseMove!: () => void
+        const moveHeld = new Promise<void>((resolve) => (releaseMove = resolve))
+        const renewal = { id: 'nested', path: 'Billing/Cards/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) =>
+                    new URL(request.url).searchParams.get('search')?.includes('ref:')
+                        ? [200, paginated([renewal])]
+                        : projectFiles({ request }),
+            },
+            post: {
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request }) => {
+                    const body = (await request.json()) as { new_path: string }
+                    await moveHeld
+                    return [200, { ...renewal, path: body.new_path }]
+                },
+            },
+        })
+        const unmountMoveTo = moveToLogic.mount()
+        logic.actions.openFolder('Billing/Cards')
+        await logic.asyncActions.dropFile('project/nested', 'project://Billing')
+        await waitFor(() => expect(logic.values.pendingFileMoveIds).toEqual(['nested']))
+
+        logic.actions.moveFileToFolder(renewal)
+        logic.actions.toggleSelectedFile(`workflow:${FIXTURE_WORKFLOWS[1].id}`)
+        logic.actions.moveSelectedFiles()
+        await logic.asyncActions.moveWorkflowToFolder(FIXTURE_WORKFLOWS[1].id)
+        expect(moveToLogic.values.isOpen).toBe(false)
+        expect(await screen.findAllByText("Couldn't move the file. Wait until it finishes moving.")).not.toHaveLength(0)
+
+        releaseMove()
+        await waitFor(() => expect(logic.values.pendingFileMoveIds).toEqual([]))
+        logic.actions.moveFileToFolder({ ...renewal, path: 'Billing/Renewal' })
+        expect(moveToLogic.values.isOpen).toBe(true)
+        unmountMoveTo()
+    })
+
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectTreeFolder('Billing/Cards', false)

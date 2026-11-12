@@ -435,9 +435,17 @@ function whenSettled(isPending: () => boolean): Promise<void> {
 
 const NAME_TAKEN = 'This name is already used in this folder.'
 
-// A file move queued while its folder moves starts from the folder's old path, so the shared tree caches the file
-// there once both land.
-function refuseMovingSource(items: FileSystemEntry[], folderMoving: (path: string) => string | null): boolean {
+// A file move queued while the file or its folder moves starts from the old path, so the shared tree caches the
+// file there once both land.
+function refuseMovingSource(
+    items: FileSystemEntry[],
+    folderMoving: (path: string) => string | null,
+    pendingFileMoveIds: string[]
+): boolean {
+    if (items.some((item) => pendingFileMoveIds.includes(item.id))) {
+        lemonToast.error("Couldn't move the file. Wait until it finishes moving.")
+        return true
+    }
     if (!items.some((item) => folderMoving(item.path))) {
         return false
     }
@@ -1156,7 +1164,13 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         moveSelectedFiles: () => {
-            if (!refuseMovingSource(values.selectedFiles, values.folderMutationDisabledReason)) {
+            if (
+                !refuseMovingSource(
+                    values.selectedFiles,
+                    values.folderMutationDisabledReason,
+                    values.pendingFileMoveIds
+                )
+            ) {
                 moveToLogic.actions.openMoveToModal(values.selectedFiles)
             }
         },
@@ -1210,7 +1224,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             const items = (
                 values.selectedFiles.some((item) => item.id === drop.item.id) ? values.selectedFiles : [drop.item]
             ).filter((item) => !values.pendingFileMoveIds.includes(item.id))
-            if (refuseMovingSource(items, values.folderMutationDisabledReason)) {
+            if (refuseMovingSource(items, values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
                 return
             }
             const moves = items.flatMap((item) => {
@@ -1374,7 +1388,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         moveFileToFolder: ({ entry }) => {
-            if (!refuseMovingSource([entry], values.folderMutationDisabledReason)) {
+            if (!refuseMovingSource([entry], values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
                 moveToLogic.actions.openMoveToModal([entry])
             }
         },
@@ -1403,7 +1417,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 })
                 const entry = workflowFilesByRef([...fileIndex(cache).values()])[`hog_flow::${id}`]
                 if (entry && !entry.shortcut) {
-                    if (!refuseMovingSource([entry], values.folderMutationDisabledReason)) {
+                    if (!refuseMovingSource([entry], values.folderMutationDisabledReason, values.pendingFileMoveIds)) {
                         moveToLogic.actions.openMoveToModal([entry])
                     }
                 } else {
