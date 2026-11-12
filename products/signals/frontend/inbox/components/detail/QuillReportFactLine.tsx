@@ -1,15 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    Kbd,
-    Text,
-} from '@posthog/quill'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { priorityTone } from 'scenes/project-homepage/today/todayPriority'
@@ -100,14 +92,13 @@ export function QuillReportFactLine({
                 {!phoneLayout && claim.canClaim && (
                     <Button
                         size="sm"
-                        variant="outline"
-                        className="me-2"
+                        variant="link-muted"
                         loading={claim.saving}
                         onClick={claim.claim}
+                        tooltip="Claim this report (U)"
                         data-attr="inbox-report-claim"
                     >
                         Claim
-                        <Kbd>U</Kbd>
                     </Button>
                 )}
                 {inlineActions.map((action) => (

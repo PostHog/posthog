@@ -530,33 +530,39 @@ const quillReport: SignalReport = {
 }
 
 // The Home report data and the notes that the Quill report top reads.
-const quillReportMocks = mswDecorator({
-    get: {
-        '/api/projects/:id/signals/reports/': { results: [], count: 0, next: null },
-        '/api/projects/:id/signals/reports/available_reviewers/': () => [200, mockReviewers],
-        '/api/projects/:id/signals/reports/:reportId/': () => [200, quillReport],
-        '/api/projects/:id/today/reports/:reportId/page/': () => [200, quillReportPage],
-        '/api/projects/:id/today/reports/:reportId/evidence/': () => [200, { evidence: quillEvidence }],
-        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
-            const artefacts = mockArtefacts(req.params.reportId as string)
-            const results = [...artefacts.results.filter((artefact) => artefact.type !== 'task_run'), ...noteArtefacts]
-            return [200, { ...artefacts, results, count: results.length }]
+const quillReportMocksFor = (report: SignalReport): Decorator =>
+    mswDecorator({
+        get: {
+            '/api/projects/:id/signals/reports/': { results: [], count: 0, next: null },
+            '/api/projects/:id/signals/reports/available_reviewers/': () => [200, mockReviewers],
+            '/api/projects/:id/signals/reports/:reportId/': () => [200, report],
+            '/api/projects/:id/today/reports/:reportId/page/': () => [200, quillReportPage],
+            '/api/projects/:id/today/reports/:reportId/evidence/': () => [200, { evidence: quillEvidence }],
+            '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+                const artefacts = mockArtefacts(req.params.reportId as string)
+                const results = [
+                    ...artefacts.results.filter((artefact) => artefact.type !== 'task_run'),
+                    ...noteArtefacts,
+                ]
+                return [200, { ...artefacts, results, count: results.length }]
+            },
+            '/api/projects/:id/file_system/frequent/': [],
+            '/api/projects/:id/today/highlights/': {
+                status: 'ready',
+                generated_at: null,
+                day: '2026-08-29',
+                refresh_at: '2026-08-30T00:00:00Z',
+                pulse: [],
+                pulse_slots: [],
+                items: [],
+                pins: [],
+            },
+            '/api/projects/:id/today/pulse_pins/': { pins: [], hidden: [] },
+            '/api/organizations/:organization_id/product_push_campaign/active/': () => [204],
         },
-        '/api/projects/:id/file_system/frequent/': [],
-        '/api/projects/:id/today/highlights/': {
-            status: 'ready',
-            generated_at: null,
-            day: '2026-08-29',
-            refresh_at: '2026-08-30T00:00:00Z',
-            pulse: [],
-            pulse_slots: [],
-            items: [],
-            pins: [],
-        },
-        '/api/projects/:id/today/pulse_pins/': { pins: [], hidden: [] },
-        '/api/organizations/:organization_id/product_push_campaign/active/': () => [204],
-    },
-})
+    })
+
+const quillReportMocks = quillReportMocksFor(quillReport)
 
 // The Home report styles break on the `main-content` container, which the app shell declares.
 const mainContentContainer: Decorator = (Story) => (
@@ -579,6 +585,14 @@ export const QuillReport: Story = {
         testOptions: { snapshotBrowsers: [], waitForSelector: '[aria-label="Proposal"]' },
     },
     render: () => <ReportDetail report={quillReport} />,
+}
+
+const unclaimedQuillReport: SignalReport = { ...quillReport, assignee: null }
+
+export const QuillReportUnclaimed: Story = {
+    ...QuillReport,
+    decorators: [reportNotesMocks, quillReportMocksFor(unclaimedQuillReport), mainContentContainer],
+    render: () => <ReportDetail report={unclaimedQuillReport} />,
 }
 
 export const QuillReportPhone: Story = {
