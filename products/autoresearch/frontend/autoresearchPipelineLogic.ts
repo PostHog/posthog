@@ -344,10 +344,10 @@ export interface autoresearchPipelineLogicValues {
     hideLowestBucket: boolean | null
     hoveredAccuracyDate: string | null
     hoveredSearchPoint: SearchPoint | null
-    liveTrainingRun: AutoresearchTrainingRunApi | null
     latestChampionPerformance: OnlinePerformanceRowApi | null
     latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
+    liveTrainingRun: AutoresearchTrainingRunApi | null
     lowCoveragePct: number | null
     lowestBucket: LowestBucket | null
     lowestBucketHidden: boolean

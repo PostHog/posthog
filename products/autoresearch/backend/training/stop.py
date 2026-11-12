@@ -8,6 +8,8 @@ run when the cancelled ``TaskRun`` ends, and nothing is promoted. The iterations
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import structlog
 
 from posthog.models.scoping import team_scope
@@ -42,13 +44,13 @@ def stop_training_run(run: AutoresearchTrainingRun, *, user_id: int | None) -> b
         user_id=user_id,
     )
     if run.task_run_id is not None:
-        _cancel_task_run(run, user_id=user_id)
+        _cancel_task_run(run, run.task_run_id, user_id=user_id)
     return True
 
 
-def _cancel_task_run(run: AutoresearchTrainingRun, *, user_id: int | None) -> None:
+def _cancel_task_run(run: AutoresearchTrainingRun, task_run_id: UUID, *, user_id: int | None) -> None:
     try:
-        task_run = tasks_facade.get_task_run(run.task_run_id, team_id=run.team_id)
+        task_run = tasks_facade.get_task_run(task_run_id, team_id=run.team_id)
         if task_run is None:
             return
         outcome, _ = tasks_cancellation.cancel_task_run(
@@ -60,9 +62,7 @@ def _cancel_task_run(run: AutoresearchTrainingRun, *, user_id: int | None) -> No
             requested_by_user_id=user_id,
         )
     except Exception:
-        logger.exception("autoresearch_stop_training_cancel_failed", task_run_id=str(run.task_run_id))
+        logger.exception("autoresearch_stop_training_cancel_failed", task_run_id=str(task_run_id))
         return
     if outcome not in ("accepted", "already_terminal", "not_found"):
-        logger.warning(
-            "autoresearch_stop_training_cancel_not_accepted", task_run_id=str(run.task_run_id), outcome=outcome
-        )
+        logger.warning("autoresearch_stop_training_cancel_not_accepted", task_run_id=str(task_run_id), outcome=outcome)
