@@ -588,16 +588,28 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("link_in_the_html", {"html": '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'}, 202),
-            ("one_click_link_in_the_html", {"html": '<a href="{{ unsubscribe_url_one_click }}">Unsubscribe</a>'}, 202),
-            ("text_link_running_into_liquid_markup", {"html": "", "text": TEXT_LINK_INTO_LIQUID_MARKUP}, 202),
-            ("no_link", {"html": "<p>See you next week</p>", "text": ""}, status.HTTP_400_BAD_REQUEST),
+            ("link_in_the_html", {"html": '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'}, 202, None),
+            (
+                "one_click_link_in_the_html",
+                {"html": '<a href="{{ unsubscribe_url_one_click }}">Unsubscribe</a>'},
+                202,
+                None,
+            ),
+            ("text_link_running_into_liquid_markup", {"html": "", "text": TEXT_LINK_INTO_LIQUID_MARKUP}, 202, None),
+            ("no_link", {"html": "<p>See you next week</p>", "text": ""}, status.HTTP_400_BAD_REQUEST, None),
+            (
+                "pipeline_unavailable",
+                {"html": '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'},
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                (503, "intake_unavailable"),
+            ),
         ]
     )
     def test_a_marketing_template_send_needs_the_unsubscribe_placeholder(
-        self, cdp_post, _flag, capture, _name, step_email, expected_status
+        self, cdp_post, _flag, capture, _name, step_email, expected_status, refusal
     ):
-        self._use_fakes(cdp_post, capture)
+        self.cdp = self.enterContext(FakeCdpApi(refusal=refusal).serving(cdp_post))
+        self.events = CapturedEvents(capture)
         newsletter = self._category()
         content = {"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}}
         self._save_template({"message_category": str(newsletter.id), "content": content})
@@ -606,11 +618,17 @@ class TestTransactionalEmail(APIBaseTest):
         response = self.client.post(self.url, self.body, format="json")
 
         assert response.status_code == expected_status, response.json()
+        sends = self.events.properties("transactional email api send")
         if expected_status == status.HTTP_202_ACCEPTED:
             assert self.cdp.categories() == [{"id": str(newsletter.id), "type": "marketing"}]
+            assert [(send["outcome"], send["category_type"]) for send in sends] == [("queued", "marketing")]
+        elif refusal:
+            assert response.json()["code"] == "delivery_unavailable"
+            assert [(send["outcome"], send["category_type"]) for send in sends] == [("unavailable", "marketing")]
         else:
             assert response.json()["code"] == "unsubscribe_link_required"
             assert self.cdp.received == []
+            assert [(send["outcome"], send["category_type"]) for send in sends] == [("rejected", "marketing")]
 
     @parameterized.expand(
         [
@@ -2248,9 +2266,15 @@ class TestTransactionalEmail(APIBaseTest):
                 format="json",
             )
 
-    @parameterized.expand([("flag_on", True, None), ("flag_off", False, "marketing_template")])
+    @parameterized.expand(
+        [
+            ("flag_on", True, UNSUBSCRIBE_HTML, None),
+            ("flag_on_without_a_link", True, "<p>See you next week</p>", "unsubscribe_link_required"),
+            ("flag_off", False, UNSUBSCRIBE_HTML, "marketing_template"),
+        ]
+    )
     def test_a_code_send_under_a_marketing_templates_key_goes_out_as_marketing(
-        self, cdp_post, flag, capture, _name, flag_on, expected_code
+        self, cdp_post, flag, capture, _name, flag_on, html, expected_code
     ):
         self._use_fakes(cdp_post, capture)
         flag.side_effect = lambda key, *_args, **_kwargs: flag_on or key != CODE_SEND_CATEGORIES_FLAG
@@ -2258,9 +2282,11 @@ class TestTransactionalEmail(APIBaseTest):
         MessageTemplate.objects.filter(id=self.template.id).update(key="weekly", message_category=newsletter)
 
         response = self._psak_client(["transactional_email:write"]).post(
-            self.send_email_url, self._code_send(template_key="weekly", html=self.UNSUBSCRIBE_HTML), format="json"
+            self.send_email_url, self._code_send(template_key="weekly", html=html), format="json"
         )
 
+        sends = self.events.properties("transactional email api send")
+        assert [send["category_type"] for send in sends] == ["marketing"]
         if expected_code:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert response.json()["code"] == expected_code
@@ -2268,8 +2294,6 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
             assert self.cdp.categories() == [{"id": str(newsletter.id), "type": "marketing"}]
-            sends = self.events.properties("transactional email api send")
-            assert [send["category_type"] for send in sends] == ["marketing"]
 
     def test_moving_a_transactional_template_into_a_marketing_category_marks_its_workflow_step_marketing(
         self, mock_post, _flag, _capture

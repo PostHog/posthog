@@ -1025,10 +1025,10 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if attachments:
                 outcome["attachment_bytes"] = queued.attachment_bytes
         except FieldNotAccepted as e:
-            outcome.update({"outcome": "rejected", "error_code": e.code})
+            outcome.update(_failed_send("rejected", e), error_code=e.code)
             raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
-            outcome.update({"outcome": "rejected", "error_code": e.code})
+            outcome.update(_failed_send("rejected", e), error_code=e.code)
             if attachments:
                 outcome["attachment_bytes"] = e.attachment_bytes
             if isinstance(e, AttachmentNotUploaded | MessageTooLarge):
@@ -1036,8 +1036,8 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if isinstance(e, AttachmentsRefused):
                 raise ExplainedRefusal(str(e), code=e.code, attr=e.attr, why=e.why, fix=e.fix) from None
             raise TransactionalEmailRejected(e)
-        except DeliveryUnavailable:
-            outcome["outcome"] = "unavailable"
+        except DeliveryUnavailable as e:
+            outcome.update(_failed_send("unavailable", e))
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
@@ -1544,6 +1544,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
             category=self._enabled_category(data.get("category")),
         )
+
+
+def _failed_send(outcome: str, error: TransactionalEmailError | DeliveryUnavailable) -> dict[str, Any]:
+    return {"outcome": outcome, **({"category_type": error.category_type} if error.category_type else {})}
 
 
 def _requested_category_type(category: Any) -> str:

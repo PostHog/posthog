@@ -529,9 +529,10 @@ def _template_send(team: Team, template: TransactionalTemplate | MessageTemplate
     _require_email_content(template.type, template.content)
     category = template_category(team.id, template.message_category_id)
     marketing = _is_marketing(category)
-    if marketing and not _categories_enabled_for(team):
-        raise MarketingTemplate(MARKETING_TEMPLATE_REFUSAL)
-    _require_active(team.id, template.transactional_hog_flow_id)
+    with _sent_as("marketing" if marketing else "transactional"):
+        if marketing and not _categories_enabled_for(team):
+            raise MarketingTemplate(MARKETING_TEMPLATE_REFUSAL)
+        _require_active(team.id, template.transactional_hog_flow_id)
     return TemplateSend(hog_flow_id=template.transactional_hog_flow_id, category=category, marketing=marketing)
 
 
@@ -647,13 +648,16 @@ def send_transactional_email(
         )
         send = _template_send(team, loaded)
         send_category = _send_category(team, send, category)
+        kind = _kind_of(send_category)
         if send.marketing:
-            _require_marketing_template_step(team.id, send.hog_flow_id)
+            with _sent_as(kind):
+                _require_marketing_template_step(team.id, send.hog_flow_id)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     if send_category is not None:
         payload["message_category"] = {"id": str(send_category.id), "type": send_category.type}
-    queued = _queue(team.id, send.hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
-    return replace(queued, category_type=_kind_of(send_category))
+    with _sent_as(kind):
+        queued = _queue(team.id, send.hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
+    return replace(queued, category_type=kind)
 
 
 def send_code_email(
@@ -675,17 +679,19 @@ def send_code_email(
             kind = _kind_of(category)
         else:
             kind = requested_kind(email.category)
-        _require_marketing_rules(email, kind)
-        accepted_send = _accepted_send(team.id, email, kind)
-        if template is None:
-            with transaction.atomic():
-                hog_flow_id = _key_workflow_id(team.id, email.key)
-                _require_active(team.id, hog_flow_id)
-                category = code_send_category(team.id, email.category)
+        with _sent_as(kind):
+            _require_marketing_rules(email, kind)
+            accepted_send = _accepted_send(team.id, email, kind)
+            if template is None:
+                with transaction.atomic():
+                    hog_flow_id = _key_workflow_id(team.id, email.key)
+                    _require_active(team.id, hog_flow_id)
+                    category = code_send_category(team.id, email.category)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     if category is not None:
         payload["message_category"] = {"id": str(category.id), "type": category.type}
-    queued = _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
+    with _sent_as(kind):
+        queued = _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
     return replace(queued, category_type=_kind_of(category))
 
 
@@ -725,6 +731,15 @@ def _send_category(team: Team, send: TemplateSend, requested: RequestedCategory)
 
 def _kind_of(category: SendCategory | None) -> MessageCategoryKind:
     return "transactional" if category is None else category.type
+
+
+@contextmanager
+def _sent_as(kind: MessageCategoryKind) -> Iterator[None]:
+    try:
+        yield
+    except (TransactionalEmailError, DeliveryUnavailable) as e:
+        e.category_type = e.category_type or kind
+        raise
 
 
 def _require_marketing_template_step(team_id: int, hog_flow_id: UUID) -> None:
