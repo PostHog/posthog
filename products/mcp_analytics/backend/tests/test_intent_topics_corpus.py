@@ -2,7 +2,20 @@ from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from parameterized import parameterized
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
+from posthog.models.organization import OrganizationMembership
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.error_tracking.backend.indexed_embedding import DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL, EMBEDDING_TABLES
 from products.mcp_analytics.backend.intent_hash import intent_hash
+from products.mcp_analytics.backend.intent_topics.constants import EMBEDDING_MODEL
 from products.mcp_analytics.backend.intent_topics.corpus import fetch_distinct_intents, fetch_seen_hashes
 from products.mcp_analytics.backend.tests.intent_topics_helpers import insert_intent_embedding, recent_hour
 
@@ -100,3 +113,58 @@ class TestFetchSeenHashes(ClickhouseTestMixin, APIBaseTest):
 
     def test_empty_input_makes_no_query(self) -> None:
         assert fetch_seen_hashes(self.team, [], now=WINDOW_START) == set()
+
+
+class TestIntentEmbeddingsAccess(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("lazy", f"SELECT document_id, content FROM document_embeddings WHERE model_name = '{EMBEDDING_MODEL}'"),
+            ("model_table", "SELECT document_id, content FROM posthog.document_embeddings_text_embedding_3_small_256"),
+            ("raw", f"SELECT document_id, content FROM raw_document_embeddings WHERE model_name = '{EMBEDDING_MODEL}'"),
+        ]
+    )
+    def test_a_member_denied_the_intent_property_cannot_read_intent_rows_of_the_embedding_tables(
+        self, _name: str, query: str
+    ) -> None:
+        sync_execute(DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(replace=True))
+        insert_intent_embedding(self.team.pk, intent_hash("list flags"), "list flags", at=WINDOW_START)
+        table = next(t for t in EMBEDDING_TABLES if t.model_name == EMBEDDING_MODEL).distributed_table_name()
+        sync_execute(
+            f"INSERT INTO {table} (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, metadata, embedding) VALUES",
+            [
+                (
+                    self.team.pk,
+                    "error_tracking",
+                    "fingerprint",
+                    "plain",
+                    "fp-1",
+                    WINDOW_START,
+                    WINDOW_START,
+                    "TypeError in checkout",
+                    "{}",
+                    [0.0] * 256,
+                )
+            ],
+        )
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$mcp_intent", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        def run(sql: str) -> list[tuple]:
+            return execute_hogql_query(query=sql, team=self.team, user=self.user).results
+
+        assert sorted(run(query), key=str) == sorted([("fp-1", "TypeError in checkout"), (None, None)], key=str)
+        assert run(f"SELECT count() FROM ({query}) WHERE content = 'list flags'") == [(0,)]
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        assert sorted(run(query), key=str) == sorted(
+            [("fp-1", "TypeError in checkout"), (intent_hash("list flags"), "list flags")], key=str
+        )
