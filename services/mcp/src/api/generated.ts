@@ -27448,6 +27448,33 @@ export namespace Schemas {
       UnsupportedConfig: 'unsupported_config',
     } as const;
 
+    export interface CodeEmail {
+      /** The code email's ID. */
+      id: string;
+      /** The `template_key` your code sends under. Each key is one email. */
+      key: string;
+      /** The hidden workflow that sends this key's emails. */
+      hog_flow_id: string;
+      /** What the email is for. Empty when nobody added one. */
+      description: string;
+      /** Tags for organizing transactional emails. */
+      tags: string[];
+      /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+      sensitive: boolean;
+      /**
+         * A link to the file in your repository that sends this email. Null when unlinked.
+         * @nullable
+         */
+      source_url: string | null;
+      /** When your code first sent under this key. */
+      created_at: string;
+      /**
+         * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+         * @nullable
+         */
+      user_access_level: string | null;
+    }
+
     /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
@@ -84314,6 +84341,22 @@ export namespace Schemas {
       enabled?: boolean;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedCodeEmailUpdate {
+      /**
+         * What the email is for.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+      source_url?: string | null;
     }
 
     export interface PatchedCohort {
