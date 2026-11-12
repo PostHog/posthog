@@ -618,6 +618,7 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
         self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
         if expected != saved:
+            self.assertEqual(reconcile.call_args.kwargs["graph"].declared_targets[str(node.id)], expected)
             self.assertEqual(
                 capture.call_args.kwargs["properties"],
                 {"saved_query_id": str(node.saved_query_id), "previous_cadence": "15min", "plan_floor": "6hour"},
@@ -657,6 +658,7 @@ class TestMaybeReconcileDag(BaseTest):
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=error)),
             mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
         ):
@@ -665,29 +667,6 @@ class TestMaybeReconcileDag(BaseTest):
         node.refresh_from_db()
         self.assertEqual((rewritten, get_declared_target(node)), expected)
         self.assertEqual(capture.call_count, expected[0])
-
-    @parameterized.expand(
-        [
-            ("one_timeout_skips_only_its_dag", [TimeoutError, None], 2, 1),
-            ("repeated_timeouts_stop_the_sweep", [TimeoutError] * 4, 3, 0),
-        ]
-    )
-    def test_plan_floor_sweep_on_reconcile_timeouts(self, _name, outcomes, expected_calls, expected_rewritten):
-        _grant_refresh_interval(self.organization, 360)
-        for index in range(len(outcomes)):
-            node = _saved_query_node(
-                self.team, DAG.objects.create(team=self.team, name=f"dag_{index}"), f"mv_{index}", NodeType.MAT_VIEW
-            )
-            set_declared_target(node, M15)
-
-        with (
-            mock.patch(FLOOR_FLAG, return_value=True),
-            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=outcomes) as reconcile,
-            mock.patch("posthog.event_usage.posthoganalytics.capture"),
-        ):
-            rewritten = clamp_targets_to_plan_floor()
-
-        self.assertEqual((rewritten, reconcile.call_count), (expected_rewritten, expected_calls))
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()

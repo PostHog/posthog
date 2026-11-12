@@ -11,7 +11,6 @@ the Temporal schedule API.
 """
 
 import uuid
-import asyncio
 import dataclasses
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
@@ -76,11 +75,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
     stage_declared_target,
 )
-from products.data_modeling.backend.logic.refresh_floor import (
-    MAX_PLAN_REFRESH_FLOOR,
-    organization_plan_refresh_floor,
-    read_plan_refresh_floor,
-)
+from products.data_modeling.backend.logic.refresh_floor import MAX_PLAN_REFRESH_FLOOR, organization_plan_refresh_floor
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -96,9 +91,6 @@ logger = structlog.get_logger(__name__)
 
 PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
 PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
-
-_STRICT_RECONCILE_TIMEOUT_SECONDS = 60
-_SWEEP_TIMEOUT_LIMIT = 3
 
 
 class StaleScheduleDeleteError(Exception):
@@ -380,8 +372,8 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None, st
     An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
     schedules are torn down.
 
-    `strict` is for a caller that retries by rolling back its own transaction: a stale schedule
-    that fails to delete raises instead of being logged, and the reconcile gives up after a timeout.
+    `strict` raises when a stale schedule fails to delete instead of logging it, for a caller that
+    holds back its own write until Temporal matches.
     """
     team = dag.team
     if graph is None:
@@ -399,18 +391,18 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None, st
 
 
 def clamp_targets_to_plan_floor() -> int:
-    """Rewrite every saved cadence finer than its organization's plan floor to the floor, then reconcile its DAG.
+    """Rewrite every saved cadence finer than its organization's plan floor to the floor.
 
     Saving refuses a cadence finer than the floor, so only a cadence saved before the floor applied, or
-    before a plan downgrade, is finer than it. The rewrite is permanent: an upgrade or the flag turning
-    off leaves the floor in place, and the person picks a faster cadence again. A pin stays. Managed
-    views keep the cadence their provider declares.
+    before a plan downgrade, is finer than it. Each DAG's schedules move to the floor before its saved
+    cadences do, so a failed reconcile leaves the cadences as they were and the next run retries. The
+    rewrite is permanent: an upgrade or the flag turning off leaves the floor in place, and the person
+    picks a faster cadence again. A pin stays. Managed views keep the cadence their provider declares.
 
     Returns how many nodes it rewrote.
     """
     candidates = _user_set_targets_finer_than(MAX_PLAN_REFRESH_FLOOR)
     clamped = 0
-    timeouts = 0
     for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
         try:
             dags = _dags_with_targets_finer_than_plan_floor(organization)
@@ -421,12 +413,6 @@ def clamp_targets_to_plan_floor() -> int:
         for dag in dags:
             try:
                 clamped += _clamp_dag_targets_to_plan_floor(dag)
-            except TimeoutError as error:
-                logger.exception("Plan floor clamp timed out", dag_id=str(dag.id), team_id=dag.team_id)
-                capture_exception(error)
-                timeouts += 1
-                if timeouts >= _SWEEP_TIMEOUT_LIMIT:
-                    return clamped
             except Exception as error:
                 logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
                 capture_exception(error)
@@ -453,16 +439,30 @@ def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
 
 
 def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
+    graph = build_frequency_graph(dag)
+    floor = graph.plan_floor
+    if floor is None:
+        return 0
+    finer = {
+        str(node_id) for node_id in _user_set_targets_finer_than(floor).filter(dag=dag).values_list("id", flat=True)
+    }
+    if not finer:
+        return 0
+    clamped_graph = dataclasses.replace(
+        graph, declared_targets={**graph.declared_targets, **dict.fromkeys(finer, floor)}
+    )
+    try:
+        reconcile_dag_schedules(dag, graph=clamped_graph, strict=True)
+    except Exception:
+        _reconcile_dag_best_effort(dag)
+        raise
     with transaction.atomic():
         # The same lock order as apply_saved_query_frequency_target, so a concurrent save takes turns with the rewrite.
         list(DAG.objects.select_for_update(no_key=True).filter(pk=dag.pk).values_list("pk", flat=True))
-        floor = read_plan_refresh_floor(dag.team_id)
-        if floor is None:
-            return 0
         nodes = (
             _user_set_targets_finer_than(floor)
             .select_for_update(of=("self",), skip_locked=True)
-            .filter(dag=dag)
+            .filter(dag=dag, id__in=finer)
             .order_by("id")
         )
         rewritten: list[tuple[Node, timedelta]] = []
@@ -474,7 +474,7 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             rewritten.append((node, previous))
         Node.objects.bulk_update([node for node, _ in rewritten], ["properties"])
         if rewritten:
-            reconcile_dag_schedules(dag, strict=True)
+            maybe_reconcile_dag(dag)
     for node, previous in rewritten:
         report_team_action(
             dag.team,
@@ -625,29 +625,6 @@ async def _apply_reconciliation(
     team_timezone: str,
     desired_tiers: dict[Tier, set[str]],
     strict: bool = False,
-) -> None:
-    reconcile = _reconcile_tier_schedules(
-        dag_id=dag_id,
-        team_id=team_id,
-        organization_id=organization_id,
-        team_timezone=team_timezone,
-        desired_tiers=desired_tiers,
-        strict=strict,
-    )
-    if strict:
-        await asyncio.wait_for(reconcile, timeout=_STRICT_RECONCILE_TIMEOUT_SECONDS)
-    else:
-        await reconcile
-
-
-async def _reconcile_tier_schedules(
-    *,
-    dag_id: str,
-    team_id: int,
-    organization_id: str,
-    team_timezone: str,
-    desired_tiers: dict[Tier, set[str]],
-    strict: bool,
 ) -> None:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
