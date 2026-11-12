@@ -161,6 +161,7 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
                     label: item.label,
                     detail: item.detail,
                 },
+                detail: `${item.label}${item.detail ?? ''}`,
                 documentation: item.documentation,
                 insertText: item.insertText,
                 range: {

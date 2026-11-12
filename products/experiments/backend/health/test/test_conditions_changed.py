@@ -524,3 +524,18 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         rows = release_conditions_changed_rows(ctx)
 
         self.assertEqual([row[ExperimentHealthValueKey.BEFORE_EXPOSURE] for row in rows], expected)
+
+    def test_lists_each_change_with_the_conditions_before_and_after(self) -> None:
+        rows = release_conditions_changed_rows(
+            _context([PRO_PINNED, EVERYONE], [PRO, {**EVERYONE, "rollout_percentage": 50}])
+        )
+
+        self.assertEqual(
+            [(row[ExperimentHealthValueKey.BEFORE], row[ExperimentHealthValueKey.AFTER]) for row in rows],
+            [
+                (
+                    'Set 1: 100%, filters on plan, forces "test"\nSet 2: 100%',
+                    "Set 1: 100%, filters on plan\nSet 2: 50%",
+                )
+            ],
+        )

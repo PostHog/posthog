@@ -1186,6 +1186,19 @@ export class CdpApi {
                 this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                 throw error
             }
+            this.invocationResultsService.monitoringService.queueAppMetric(
+                {
+                    team_id: team.id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                },
+                'hog_flow'
+            )
+            // Not awaited, so a stalled metrics produce cannot time out a run that is already queued.
+            void this.invocationResultsService.monitoringService.flush()
             // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
             // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
             await this.invocationResultsService.invocationResultsRowsService.flush()
@@ -1645,6 +1658,8 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
+                case 'idempotency_unavailable':
+                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }
@@ -1679,6 +1694,7 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
+                idempotencyKeys: this.transactionalEmailIdempotencyKeys,
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,

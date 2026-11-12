@@ -369,7 +369,6 @@ export const IncrementalFieldTypeEnumApi = {
 } as const
 
 /**
- * * `never` - never
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -384,7 +383,6 @@ export type SettableSyncFrequencyEnumApi =
     (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
 export const SettableSyncFrequencyEnumApi = {
-    Never: 'never',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -565,9 +563,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -810,9 +807,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -994,6 +990,11 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     include_invoiceless_charges?: boolean
 }
 
+export interface SourceUpdatePayloadApi {
+    /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+    credential_id: string
+}
+
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
@@ -1084,6 +1085,8 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -1151,6 +1154,81 @@ export interface ExternalDataSourceCreateApi {
 export interface ExternalDataSourceCreateResponseApi {
     /** ID of the created external data source. */
     id: string
+}
+
+/**
+ * * `unresolved_secret_ref` - Unresolved secret reference
+ * * `credential_not_found` - Stored credential not found
+ * * `credential_expired` - Stored credential expired
+ * * `credential_source_type_mismatch` - Stored credential is for another source type
+ * * `reserved_name` - Reserved source name
+ * * `direct_query_unsupported` - Direct query not supported for this source type
+ * * `direct_query_name_required` - Direct query sources need a name
+ * * `duplicate_source` - A source of this type already exists without a prefix
+ * * `duplicate_prefix` - Prefix already used by another source of this type
+ * * `billing_limit_reached` - Monthly sync limit reached
+ * * `max_instances_reached` - Too many sources of this type
+ * * `source_unavailable` - Source cannot be set up this way
+ * * `invalid_config` - Invalid source config
+ * * `credential_validation_failed` - Credential validation failed
+ * * `schema_discovery_failed` - Table discovery failed
+ * * `no_tables_found` - No tables found
+ * * `cdc_unsupported_source_type` - Source type does not support CDC
+ * * `invalid_cdc_management_mode` - Invalid CDC management mode
+ * * `host_not_allowed` - Host not allowed
+ * * `connection_failed` - Connection failed
+ */
+export type SourceSetupErrorCodeEnumApi = (typeof SourceSetupErrorCodeEnumApi)[keyof typeof SourceSetupErrorCodeEnumApi]
+
+export const SourceSetupErrorCodeEnumApi = {
+    UnresolvedSecretRef: 'unresolved_secret_ref',
+    CredentialNotFound: 'credential_not_found',
+    CredentialExpired: 'credential_expired',
+    CredentialSourceTypeMismatch: 'credential_source_type_mismatch',
+    ReservedName: 'reserved_name',
+    DirectQueryUnsupported: 'direct_query_unsupported',
+    DirectQueryNameRequired: 'direct_query_name_required',
+    DuplicateSource: 'duplicate_source',
+    DuplicatePrefix: 'duplicate_prefix',
+    BillingLimitReached: 'billing_limit_reached',
+    MaxInstancesReached: 'max_instances_reached',
+    SourceUnavailable: 'source_unavailable',
+    InvalidConfig: 'invalid_config',
+    CredentialValidationFailed: 'credential_validation_failed',
+    SchemaDiscoveryFailed: 'schema_discovery_failed',
+    NoTablesFound: 'no_tables_found',
+    CdcUnsupportedSourceType: 'cdc_unsupported_source_type',
+    InvalidCdcManagementMode: 'invalid_cdc_management_mode',
+    HostNotAllowed: 'host_not_allowed',
+    ConnectionFailed: 'connection_failed',
+} as const
+
+export interface ExternalDataSourceErrorResponseApi {
+    /** Human-readable explanation of why the request failed and what to do next. */
+    message: string
+    /** Stable machine-readable failure cause, for example 'credential_expired', 'invalid_config' or 'credential_validation_failed'. Branch on this instead of parsing the message. Absent on errors that have no dedicated code.
+     *
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed */
+    code?: SourceSetupErrorCodeEnumApi
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -1243,6 +1321,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning?: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -1278,7 +1358,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     incremental_field_type?: string | null
     /**
-     * Human-readable sync frequency value.
+     * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      * @nullable
      */
     sync_frequency?: string | null
@@ -1335,12 +1415,12 @@ export interface ExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
- * * `posthog` - posthog
- * * `self_managed` - self_managed
+ * * `posthog` - PostHog
+ * * `self_managed` - Self managed
  */
-export type ManagementModeEnumApi = (typeof ManagementModeEnumApi)[keyof typeof ManagementModeEnumApi]
+export type CdcManagementModeEnumApi = (typeof CdcManagementModeEnumApi)[keyof typeof CdcManagementModeEnumApi]
 
-export const ManagementModeEnumApi = {
+export const CdcManagementModeEnumApi = {
     Posthog: 'posthog',
     SelfManaged: 'self_managed',
 } as const
@@ -1350,9 +1430,9 @@ export interface CdcStatusApi {
     enabled: boolean
     /** Who owns the slot and publication: PostHog or the customer.
      *
-     * * `posthog` - posthog
-     * * `self_managed` - self_managed */
-    management_mode?: ManagementModeEnumApi
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    management_mode?: CdcManagementModeEnumApi
     /** Replication slot PostHog consumes from. Empty when unset. */
     slot_name?: string
     /** Publication PostHog reads changes from. Empty when unset. */
@@ -1413,6 +1493,37 @@ export interface SourceDestinationsApi {
     destination_ids: string[]
 }
 
+export interface CdcDisableResponseApi {
+    /** Whether CDC is now disabled on the source. */
+    success: boolean
+    /** True when CDC was already off, so nothing changed. */
+    already_disabled?: boolean
+}
+
+export interface CdcEnableRequestApi {
+    /** Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.
+     *
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    cdc_management_mode?: CdcManagementModeEnumApi
+    /** Name of the replication slot to use. Defaults to a name derived from the source id. */
+    cdc_slot_name?: string
+    /** Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode. */
+    cdc_publication_name?: string
+    /** Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
 export interface CdcEnableResponseApi {
     /** Whether CDC was enabled on the source. */
     success: boolean
@@ -1471,6 +1582,33 @@ export interface ExternalDataJobSerializersApi {
     readonly billable: boolean | null
     /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
     readonly destination_ids: readonly string[]
+}
+
+export interface CdcResumeResponseApi {
+    /** Whether the extraction schedule was unpaused. */
+    success: boolean
+}
+
+export interface CdcUpdateSettingsRequestApi {
+    /** Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
+export interface CdcUpdateSettingsResponseApi {
+    /** Whether the request was accepted. */
+    success: boolean
+    /** True when the request held no setting to change, so nothing was written. */
+    unchanged?: boolean
 }
 
 /**
@@ -1643,6 +1781,32 @@ export interface ApplyMigrationItemResponseApi {
     source_id: string
     /** Every difference from the Fivetran connection, including new ones. */
     caveats: string[]
+}
+
+/**
+ * Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards.
+ */
+export type CdcPrerequisitesRequestApiPayload = { [key: string]: unknown }
+
+export interface CdcPrerequisitesRequestApi {
+    /** A CDC-capable source type, for example 'Postgres'. Other source types are rejected. */
+    source_type: string
+    /** Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards. */
+    payload?: CdcPrerequisitesRequestApiPayload
+    /** Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or 'self_managed' (the user created them). */
+    cdc_management_mode?: string
+    /** Tables to check against the publication. Omit to check the database-level prerequisites only. */
+    tables?: string[]
+    /**
+     * Self-managed replication slot name to check. Ignored in 'posthog' mode.
+     * @nullable
+     */
+    cdc_slot_name?: string | null
+    /**
+     * Self-managed publication name to check. Ignored in 'posthog' mode.
+     * @nullable
+     */
+    cdc_publication_name?: string | null
 }
 
 export interface CdcPrerequisitesResponseApi {
@@ -1885,14 +2049,14 @@ export interface SourcePreviewResponseApi {
 }
 
 /**
- * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+ * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
 
 export interface SourceSetupApi {
     /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot'). */
     source_type: string
-    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
      * Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. Does not filter which tables are imported. Defaults to the source type.
@@ -1949,7 +2113,7 @@ export interface SourceCredentialCreateApi {
 }
 
 export interface SourceCredentialApi {
-    /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+    /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
     credential_id: string
     /** The source type the stored credentials are for. */
     source_type: string
@@ -2946,10 +3110,6 @@ export type ExternalDataSourcesJobsListParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
-}
-
-export type ExternalDataSourcesResumeCdcCreate200 = {
-    success?: boolean
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {

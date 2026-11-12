@@ -190,14 +190,16 @@ describe('createRecordingApiAuthMiddleware', () => {
     })
 })
 
-describe('dev signing keys', () => {
+describe('deployed signing keys', () => {
     const base = { isProd: true, blocksJwtSecret: 'b', jwtSecret: 'k' }
 
     it.each([
         ['public', { blocksJwtSecret: 'dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['all', { blocksJwtSecret: 'new,dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['internal', { jwtSecret: 'dev-recording-api-jwt-secret' }, /dev RECORDING_API_JWT_SECRET/],
-    ] as const)('refuses a deployed %s process holding a dev key', (role, secrets, error) => {
+        ['public', { blocksJwtSecret: 'x'.repeat(31) }, /at least 32 bytes/],
+        ['all', { blocksJwtSecret: `${'x'.repeat(32)},short` }, /at least 32 bytes/],
+    ] as const)('refuses a deployed %s process holding a dev or short key', (role, secrets, error) => {
         expect(() => assertRecordingApiRoleAuthConfigured({ ...base, ...secrets, role, deployed: true })).toThrow(error)
     })
 

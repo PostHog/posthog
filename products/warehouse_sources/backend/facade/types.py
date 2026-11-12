@@ -1650,9 +1650,11 @@ class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
 
 
 class SettableSyncFrequency(LabeledStrEnum):
-    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor."""
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor.
 
-    NEVER = "never", "never"
+    There is no "never": a table that should not sync sets should_sync to false instead.
+    """
+
     FIVE_MINUTES = "5min", "5min"
     FIFTEEN_MINUTES = "15min", "15min"
     THIRTY_MINUTES = "30min", "30min"

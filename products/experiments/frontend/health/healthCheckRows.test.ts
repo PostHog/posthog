@@ -33,9 +33,57 @@ describe('healthCheckRows', () => {
             effect: 'Saved after users were exposed',
         },
     ])('healthCheckRowsTable: $name', ({ row, effect }) => {
-        const table = healthCheckRowsTable(check('release_conditions_changed_mid_run', [row]), 'users')
+        const before = 'Set 1: 100%'
+        const after = 'Set 1: 50%'
+        const table = healthCheckRowsTable(
+            check('release_conditions_changed_mid_run', [{ ...row, before, after }]),
+            'users'
+        )
 
-        expect(table?.rows).toEqual([{ saved: { time: row.changed_at }, effect: { text: effect } }])
+        expect(table?.rows).toEqual([
+            {
+                saved: { time: row.changed_at },
+                before: { text: before },
+                after: { text: after },
+                effect: { text: effect },
+            },
+        ])
+    })
+
+    it('healthCheckRowsTable: a bucketing change names its setting', () => {
+        const table = healthCheckRowsTable(
+            check('bucketing_changed_mid_run', [
+                {
+                    changed_at: '2026-10-24T12:10:00Z',
+                    changed_setting: 'Match by',
+                    before: 'user ID',
+                    after: 'device ID',
+                    before_exposure: false,
+                },
+            ]),
+            'users'
+        )
+
+        expect(table?.columns.map(({ title }) => title)).toEqual(['Saved', 'Setting', 'Before', 'After', 'Effect'])
+        expect(table?.rows[0].setting).toEqual({ text: 'Match by' })
+    })
+
+    it('healthCheckRowsTable: a metric event without a record reads as unknown', () => {
+        const metric = { metric_name: 'Checkout', metric_role: 'primary', ratio_side: null }
+        const table = healthCheckRowsTable(
+            check('metric_event_not_ingested', [
+                { ...metric, event: 'cart', event_received: true },
+                { ...metric, event: 'pay', event_received: false },
+                { ...metric, event: 'refund', event_received: null },
+            ]),
+            'users'
+        )
+
+        expect(table?.rows.map(({ metric, event, received }) => [metric, event, received])).toEqual([
+            [{ text: 'Checkout (primary)' }, { text: 'cart' }, { text: 'Yes' }],
+            [{ text: 'Checkout (primary)' }, { text: 'pay' }, { text: 'No' }],
+            [{ text: 'Checkout (primary)' }, { text: 'refund' }, { text: 'Unknown' }],
+        ])
     })
 
     it('healthCheckRowsTable: a difference carries its sign', () => {

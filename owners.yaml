@@ -157,6 +157,7 @@ rules:
           - '/frontend/src/lib/api-orval-mutator.ts'
           - '/frontend/src/lib/api-ratchet-baseline.txt'
           - '/frontend/src/lib/api-stream.ts'
+          - '/frontend/src/lib/utils/createWorker.*'
           - '/posthog/management/commands/analyze_migration_risk.py'
           - '/posthog/migration_helpers/'
           - '/posthog/openapi/'
