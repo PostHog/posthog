@@ -35,7 +35,7 @@ import { buildEmailExtensions } from './emailExtensions'
 import { uploadEmailImage, uploadErrorText } from './emailMediaLibraryLogic'
 import { EmailSuggestionItem, createEmailSuggestion } from './emailSuggestionExtension'
 import { EmailVariableContext, EmailVariableOption, variableOptions as toVariableOptions } from './emailVariables'
-import { renderEmailHtml } from './renderEmailHtml'
+import { renderEmailHtml, safeEmailDoc } from './renderEmailHtml'
 
 const PLACEHOLDER = 'Write something, type / for blocks or {{ for variables'
 const NARROW_WIDTH = 900
@@ -245,7 +245,7 @@ export function EmailDocumentEditor(): JSX.Element {
     )
     const editor = useEditor({
         extensions,
-        content: initialDoc,
+        content: safeEmailDoc(initialDoc),
         shouldRerenderOnTransaction: true,
         immediatelyRender: true,
         editorProps,
@@ -459,9 +459,12 @@ export function EmailDocumentEditor(): JSX.Element {
                                     }
                                 >
                                     <style>{`.EmailDocumentCanvas .ProseMirror h1{font-size:${page.h1Size}px}.EmailDocumentCanvas .ProseMirror h2{font-size:${page.h2Size}px}.EmailDocumentCanvas .ProseMirror h3{font-size:${page.h3Size}px}`}</style>
-                                    {emailFontUrls(doc).map((url) => (
-                                        <link key={url} rel="stylesheet" href={url} />
-                                    ))}
+                                    {/* Only Google Fonts loads in the app page. The email itself can use any stylesheet. */}
+                                    {emailFontUrls(doc)
+                                        .filter((url) => url.startsWith('https://fonts.googleapis.com/'))
+                                        .map((url) => (
+                                            <link key={url} rel="stylesheet" href={url} />
+                                        ))}
                                     <EditorContent editor={editor} />
                                 </div>
                             </div>

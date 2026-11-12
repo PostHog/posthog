@@ -2,7 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 
 import { resolvePageStyle } from './emailDocument'
 import { blockStyleToCanvasCss } from './emailExtensions'
-import { renderEmailHtml, renderEmailText, withoutLiquidBetweenRows } from './renderEmailHtml'
+import { renderEmailHtml, renderEmailText, safeEmailDoc, withoutLiquidBetweenRows } from './renderEmailHtml'
 
 function doc(...content: JSONContent[]): JSONContent {
     return { type: 'doc', attrs: { page: {} }, content }
@@ -99,6 +99,26 @@ describe('renderEmailHtml', () => {
         expect(
             resolvePageStyle({ h1Size: '32px}body{background:url(x)}' as any, bodyBackgroundColor: 'red;x' })
         ).toMatchObject({ h1Size: 32, bodyBackgroundColor: '#ffffff' })
+    })
+
+    it('cleans every style a saved document carries before the canvas shows it', () => {
+        const saved = doc(
+            {
+                type: 'emailButton',
+                attrs: { href: 'https://example.com', emailStyle: { backgroundColor: 'red;position:fixed' } },
+                content: [{ type: 'text', text: 'Go' }],
+            },
+            { type: 'emailSpacer', attrs: { height: 8, backgroundColor: 'red;position:fixed' } },
+            paragraph('x')
+        )
+        saved.content![2].content![0].marks = [
+            { type: 'textStyle', attrs: { fontFamily: 'Arial;position:fixed', color: '#123456' } },
+        ]
+
+        const clean = JSON.stringify(safeEmailDoc(saved))
+
+        expect(clean).not.toMatch(/;position/)
+        expect(clean).toContain('#123456')
     })
 
     it('starts a numbered list where it started in the old editor, in the html and the plain text', () => {

@@ -8,7 +8,7 @@ import {
     isEmailDocEmpty,
 } from './emailDocument'
 import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
-import { renderEmailHtml, renderEmailText } from './renderEmailHtml'
+import { renderEmailHtml, renderEmailText, safeEmailDoc } from './renderEmailHtml'
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 type Listener = () => void
@@ -52,7 +52,7 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
         editor
             .chain()
             .setMeta('addToHistory', false)
-            .setContent(doc, { emitUpdate: false })
+            .setContent(safeEmailDoc(doc), { emitUpdate: false })
             .command(({ tr }) => {
                 tr.setDocAttribute('page', doc.attrs?.page ?? {})
                 return true

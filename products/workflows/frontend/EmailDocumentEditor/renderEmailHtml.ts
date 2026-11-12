@@ -181,6 +181,56 @@ export function safeEmailStyle(value: unknown): EmailBlockStyle | null {
     return style as EmailBlockStyle
 }
 
+const CSS_LENGTH = /^-?\d+(\.\d+)?(px|em|%)?$/
+
+function safeTextStyleMark(attrs: Record<string, any>): Record<string, any> {
+    const clean: Record<string, any> = {}
+    for (const [key, value] of Object.entries(attrs)) {
+        if (value === null || value === undefined) {
+            clean[key] = value
+        } else if (key === 'color' || key === 'highlight') {
+            clean[key] = safeColor(value) || null
+        } else if (key === 'fontSize') {
+            clean[key] = Number.isFinite(Number(value)) ? Number(value) : null
+        } else if (key === 'fontFamily') {
+            clean[key] = safeFont(String(value)).replace(/[()\\]/g, '')
+        } else if (key === 'letterSpacing' || key === 'lineHeight') {
+            clean[key] = CSS_LENGTH.test(String(value).trim()) ? String(value).trim() : null
+        } else if (key === 'textTransform') {
+            clean[key] = ['uppercase', 'lowercase', 'capitalize', 'none'].includes(value) ? value : null
+        } else {
+            clean[key] = null
+        }
+    }
+    return clean
+}
+
+/**
+ * A saved document with every style value checked, so one written by the API or another person can't put its own
+ * CSS into the app page once the editor shows it.
+ */
+export function safeEmailDoc(node: JSONContent): JSONContent {
+    const attrs = node.attrs ? { ...node.attrs } : undefined
+    if (attrs && 'emailStyle' in attrs) {
+        attrs.emailStyle = safeEmailStyle(attrs.emailStyle)
+    }
+    if (attrs && node.type === 'emailSpacer' && 'backgroundColor' in attrs) {
+        attrs.backgroundColor = safeColor(attrs.backgroundColor) || null
+    }
+    return {
+        ...node,
+        ...(attrs ? { attrs } : {}),
+        ...(node.marks
+            ? {
+                  marks: node.marks.map((mark) =>
+                      mark.type === 'textStyle' && mark.attrs ? { ...mark, attrs: safeTextStyleMark(mark.attrs) } : mark
+                  ),
+              }
+            : {}),
+        ...(node.content ? { content: node.content.map(safeEmailDoc) } : {}),
+    }
+}
+
 function styleOf(node: JSONContent): EmailBlockStyle {
     return safeEmailStyle(node.attrs?.emailStyle) ?? {}
 }

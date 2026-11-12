@@ -117,6 +117,19 @@ describe('unlayerToEmailDocument', () => {
         expect(JSON.stringify(document?.doc)).toContain('{{- event.name -}}')
     })
 
+    it('keeps text with a link opted out of click tracking as written, so the opt-out still reaches the send', () => {
+        const { document } = unlayerToEmailDocument(
+            design([
+                content('text', {
+                    text: '<p>Open <a href="https://example.com/app" clicktracking="off">the app</a></p>',
+                }),
+            ])
+        )
+
+        expect(document?.doc.content?.[0]).toMatchObject({ type: 'emailHtml' })
+        expect(document?.doc.content?.[0].attrs?.html).toContain('clicktracking="off"')
+    })
+
     it("spreads a text block's padding over its paragraphs without doubling the gaps between them", () => {
         const { document } = unlayerToEmailDocument(
             design([content('text', { text: '<p>One</p><p>Two</p>', containerPadding: '10px' })])

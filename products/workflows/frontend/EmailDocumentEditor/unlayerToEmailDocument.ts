@@ -273,9 +273,19 @@ function canKeepCss(css: Record<string, string>, supported: Set<string>): boolea
     })
 }
 
+/** A link opted out of click tracking. The editor's links can't carry that, so the text has to stay as written. */
+function isUntrackedLink(element: Element): boolean {
+    return (
+        element.tagName === 'A' &&
+        (element.getAttribute('clicktracking')?.toLowerCase() === 'off' ||
+            element.hasAttribute('data-ph-no-track') ||
+            element.hasAttribute('ses:no-track'))
+    )
+}
+
 function canKeepInline(element: Element, insideBold = false): boolean {
     return Array.from(element.children).every((child) => {
-        if (!INLINE_TAGS.has(child.tagName)) {
+        if (!INLINE_TAGS.has(child.tagName) || isUntrackedLink(child)) {
             return false
         }
         const css = cssOf(child)

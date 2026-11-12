@@ -150,7 +150,7 @@ export const EmailButton = Node.create({
         return [{ tag: 'div[data-email-button]', contentElement: 'span' }]
     },
     renderHTML({ node, HTMLAttributes }) {
-        const style = (node.attrs.emailStyle ?? {}) as EmailBlockStyle
+        const style = safeEmailStyle(node.attrs.emailStyle) ?? {}
         const buttonCss = [
             style.backgroundColor ? `background-color:${style.backgroundColor}` : '',
             style.color ? `color:${style.color}` : '',
@@ -253,8 +253,10 @@ export const EmailSpacer = Node.create({
             mergeAttributes(HTMLAttributes, {
                 'data-email-spacer': '',
                 class: 'email-canvas-spacer',
-                style: `height:${node.attrs.height}px${
-                    node.attrs.backgroundColor ? `;background-color:${node.attrs.backgroundColor}` : ''
+                style: `height:${Number(node.attrs.height) || 0}px${
+                    safeColor(node.attrs.backgroundColor)
+                        ? `;background-color:${safeColor(node.attrs.backgroundColor)}`
+                        : ''
                 }`,
             }),
         ]

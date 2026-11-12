@@ -7,7 +7,7 @@ export interface ParsedLiquidOutput {
 
 /** Splits `name | default: 'x'` so a chip can show and edit its fallback. Other filters stay part of the expression. */
 export function parseLiquidOutput(inner: string): ParsedLiquidOutput {
-    const match = inner.match(/^([\s\S]*?)\s*\|\s*default:\s*(['"])((?:\\.|(?!\2).)*)\2\s*$/)
+    const match = inner.match(/^([\s\S]*?)\s*\|\s*default:\s*(['"])((?:\\.|(?!\2)[^\\])*)\2\s*$/)
     if (!match) {
         return { expression: inner.trim(), fallback: '' }
     }
