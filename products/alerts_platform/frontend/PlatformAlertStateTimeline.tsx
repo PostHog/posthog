@@ -22,6 +22,9 @@ const SNAP_THRESHOLD_PX = 6
 // exact proportional fidelity for long quiet periods.
 const MIN_INTERVAL_PX = 2
 
+// The segments sit inside a bordered row, so they get the measured width minus both borders.
+const BAR_BORDER_PX = 1
+
 const PX_PER_AXIS_LABEL = 64
 const AXIS_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12] as const
 
@@ -226,7 +229,7 @@ export function PlatformAlertStateTimeline({
 
     // A flapping alert has more intervals than the bar has room for at the minimum, and forcing it
     // would push the newest ones, the current state among them, out of view.
-    const minIntervalPx = measuredWidth >= timeline.length * MIN_INTERVAL_PX ? MIN_INTERVAL_PX : 0
+    const minIntervalPx = measuredWidth - BAR_BORDER_PX * 2 >= timeline.length * MIN_INTERVAL_PX ? MIN_INTERVAL_PX : 0
 
     const bar = (
         <div
