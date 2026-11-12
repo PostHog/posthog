@@ -28,6 +28,7 @@ describe('TodayPreviewCardProvider', () => {
             <TodayPreviewCardProvider>
                 <TodayPreviewTrigger payload={broadcasts}>
                     <button type="button">Broadcasts row</button>
+                    <button type="button">Broadcasts star</button>
                 </TodayPreviewTrigger>
                 <TodayPreviewTrigger payload={playground}>
                     <button type="button">Playground row</button>
@@ -100,6 +101,20 @@ describe('TodayPreviewCardProvider', () => {
             jest.advanceTimersByTime(1000)
         })
         expect(cardShown('Broadcasts')).toBe(true)
+    })
+
+    it('keeps the card shut while keyboard focus moves within a row activated with Enter', async () => {
+        renderRows()
+        const broadcastsRow = screen.getByText('Broadcasts row')
+        const broadcastsStar = screen.getByText('Broadcasts star')
+
+        await click('Broadcasts row')
+        fireEvent.blur(broadcastsRow, { relatedTarget: broadcastsStar })
+        fireEvent.focus(broadcastsStar, { relatedTarget: broadcastsRow })
+        await act(async () => {
+            jest.advanceTimersByTime(1000)
+        })
+        expect(cardShown('Broadcasts')).toBe(false)
     })
 
     it('opens on the first hover of a row clicked from a search list, which the pointer never visited', async () => {
