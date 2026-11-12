@@ -49,6 +49,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.facade.platform import native_insight_alert_ids_by_insight
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
@@ -1162,21 +1163,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 10 + 6 once at least one insight materializes. Three of the 6 read the
-            # revenue, marketing and customer analytics configs that go into the query cache key.
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key,
+            # and one reads the insights' alerts that only the alerts platform keeps.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 10 + 6):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-    def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
+    @parameterized.expand([("get",), ("stream",)])
+    def test_insight_alerts_do_not_nplus1_dashboard_gets(self, endpoint: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         def _add_insight_with_alerts() -> None:
@@ -1202,18 +1205,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 )
                 AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
 
-        def _dashboard_query_count() -> int:
-            with capture_db_queries() as ctx:
-                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
-            return len(ctx.captured_queries)
+        def _dashboard_reads() -> tuple[int, int]:
+            # A streamed tile queries from another thread, which the query capture does not see, so the
+            # reads of the alerts kept only on the platform are counted at the alerts facade as well.
+            with (
+                capture_db_queries() as ctx,
+                patch(
+                    "products.alerts.backend.facade.platform.native_insight_alert_ids_by_insight",
+                    wraps=native_insight_alert_ids_by_insight,
+                ) as platform_reads,
+            ):
+                if endpoint == "stream":
+                    streamed = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
+                    b"".join(streamed.streaming_content)  # type: ignore[attr-defined]
+                else:
+                    self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+            return len(ctx.captured_queries), platform_reads.call_count
 
         _add_insight_with_alerts()
-        _dashboard_query_count()  # warmup: absorbs one-off writes like last_accessed_at
-        baseline = _dashboard_query_count()
+        _dashboard_reads()  # warmup: absorbs one-off writes like last_accessed_at
+        baseline = _dashboard_reads()
 
         _add_insight_with_alerts()
         _add_insight_with_alerts()
-        self.assertEqual(_dashboard_query_count(), baseline)
+        self.assertEqual(_dashboard_reads(), baseline)
+        self.assertEqual(baseline[1], 1)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:

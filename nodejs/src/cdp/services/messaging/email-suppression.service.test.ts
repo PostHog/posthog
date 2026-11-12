@@ -1,5 +1,7 @@
+import { Client } from 'pg'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
@@ -728,6 +730,90 @@ describe('EmailSuppressionService', () => {
             ])
 
             expect(results).toEqual([true, false])
+        })
+    })
+
+    describe('write failures', () => {
+        type WriteCall = (svc: EmailSuppressionService, throwOnFailure?: boolean) => Promise<void>
+        const writes: [string, WriteCall][] = [
+            [
+                'recordTransientBounces',
+                (svc, t) =>
+                    svc.recordTransientBounces(team.id, ['a@example.com'], undefined, undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordHardBounces',
+                (svc, t) => svc.recordHardBounces(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordGlobalHardBounces',
+                (svc, t) => svc.recordGlobalHardBounces(['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordComplaints',
+                (svc, t) => svc.recordComplaints(team.id, ['a@example.com'], undefined, { throwOnFailure: t }),
+            ],
+            [
+                'recordDeliveries',
+                (svc, t) =>
+                    svc.recordDeliveries(team.id, ['a@example.com'], '2024-01-01T00:00:00Z', { throwOnFailure: t }),
+            ],
+            [
+                'recordDeliveries clearing the global list',
+                (svc, t) =>
+                    svc.recordDeliveries(team.id, ['a@example.com'], '2024-01-01T00:00:00Z', {
+                        clearGlobal: true,
+                        throwOnFailure: t,
+                    }),
+            ],
+        ]
+
+        it.each(writes)('%s rejects on a failed write only when asked to', async (_name, write) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            await hub.postgres.end()
+
+            await expect(write(svc)).resolves.toBeUndefined()
+            await expect(write(svc, true)).rejects.toThrow()
+        })
+
+        it('recordDeliveries rejects when only the global clear fails, when asked to', async () => {
+            const email = `held-global-${team.id}@example.com`
+            const config = emailSuppressionConfigFromEnv()
+            await new EmailSuppressionService(hub.postgres, config).recordGlobalHardBounces(
+                [email],
+                new Date(Date.now() - 120_000).toISOString()
+            )
+            const impatientUrl = new URL(hub.DATABASE_URL)
+            impatientUrl.searchParams.set('options', '-c lock_timeout=100')
+            const impatient = new PostgresRouter({
+                DATABASE_URL: impatientUrl.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
+            const holder = new Client({ connectionString: hub.DATABASE_URL })
+            await holder.connect()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('SELECT email FROM posthog_emailhardbounce WHERE email = $1 FOR UPDATE', [email])
+
+                await expect(
+                    new EmailSuppressionService(impatient, config).recordDeliveries(
+                        team.id,
+                        [email],
+                        new Date().toISOString(),
+                        { clearGlobal: true, throwOnFailure: true }
+                    )
+                ).rejects.toThrow('lock timeout')
+            } finally {
+                await holder.end()
+                await impatient.end()
+            }
+            const remaining = await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                'SELECT email FROM posthog_emailhardbounce WHERE email = $1',
+                [email],
+                'test-read-global-hard-bounce'
+            )
+            expect(remaining.rows).toEqual([{ email }])
         })
     })
 })
