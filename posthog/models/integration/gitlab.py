@@ -21,7 +21,10 @@ from .auth_types import effective_auth_type
 
 
 class GitLabIntegrationError(Exception):
-    pass
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        # A 429 or 5xx from GitLab, which a retry can get past.
+        self.transient = transient
 
 
 # Caps one listing at 1,000 projects so that a token with access to a whole instance stays cheap.
@@ -451,7 +454,10 @@ class GitLabIntegration:
         if response.status_code == 404:
             return None
         if response.status_code != 200:
-            raise GitLabIntegrationError(f"GitLabIntegration: failed to retrieve project: {response.text[:300]}")
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to retrieve project: {response.text[:300]}",
+                transient=response.status_code == 429 or response.status_code >= 500,
+            )
         project = self._json(response)
         permissions = project.get("permissions") or {}
         access_level = max(
@@ -468,30 +474,26 @@ class GitLabIntegration:
         )
 
     def token_reaches_only_connected_project(self, *, timeout: float = 10) -> bool:
-        """Whether the token can reach the connected project and no other project.
+        """Whether the token belongs to the bot user of the connected project's access token.
 
-        A project access token passes. A group or personal token that reaches more fails, because
-        the sandbox holds the token and could use it on projects the connector never shared.
+        GitLab names that bot `project_<id>_bot_<suffix>` and never adds it to another project. A
+        personal or group token fails, because the sandbox holds the token and a personal token
+        can also call account-wide APIs.
         """
+        connected_id = self.integration.config.get("project_id")
+        if connected_id is None:
+            return False
         response = self._request(
-            "GET",
-            self.hostname,
-            "projects",
-            self._access_token(),
-            endpoint="/api/v4/projects",
-            params={"membership": "true", "simple": "true", "per_page": 2},
-            timeout=timeout,
+            "GET", self.hostname, "user", self._access_token(), endpoint="/api/v4/user", timeout=timeout
         )
         if response.status_code != 200:
-            raise GitLabIntegrationError(f"GitLabIntegration: failed to list projects: {response.text[:300]}")
-        projects = self._json(response)
-        connected_id = self.integration.config.get("project_id")
-        return (
-            isinstance(projects, list)
-            and len(projects) == 1
-            and connected_id is not None
-            and str(projects[0].get("id")) == str(connected_id)
-        )
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to read the token's user: {response.text[:300]}",
+                transient=response.status_code == 429 or response.status_code >= 500,
+            )
+        user = self._json(response)
+        username = user.get("username") if isinstance(user, dict) else None
+        return isinstance(username, str) and username.startswith(f"project_{connected_id}_bot")
 
     @staticmethod
     def _merge_request(payload: dict[str, Any]) -> GitLabMergeRequest:
