@@ -9,11 +9,12 @@ class MailgunDomainRegistration(UUIDModel):
 
     Several regions share one Mailgun account, so a domain with no support channel here may
     still belong to a channel in another region. The cleanup task only deletes domains listed
-    here. No team foreign key: the row must outlive the team so the cleanup can still find the domain.
+    here, and only while Mailgun still reports the same domain id. No team foreign key: the row
+    must outlive the team so the cleanup can still find the domain.
     """
 
     domain = models.CharField(max_length=255, unique=True)
-    # Refreshed on every registration. A Mailgun creation time later than this means another region registered the domain again.
+    mailgun_domain_id = models.CharField(max_length=64, blank=True, default="")
     registered_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

@@ -108,10 +108,16 @@ def add_domain(domain: str) -> MailgunDnsRecords:
     )
 
     if resp.status_code in (200, 201):
-        MailgunDomainRegistration.objects.update_or_create(
-            domain=domain.lower(), defaults={"registered_at": timezone.now()}
-        )
         data = resp.json()
+        domain_info = data.get("domain")
+        mailgun_domain_id = domain_info.get("id") if isinstance(domain_info, dict) else None
+        MailgunDomainRegistration.objects.update_or_create(
+            domain=domain.lower(),
+            defaults={
+                "mailgun_domain_id": mailgun_domain_id if isinstance(mailgun_domain_id, str) else "",
+                "registered_at": timezone.now(),
+            },
+        )
         return {
             "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
         }

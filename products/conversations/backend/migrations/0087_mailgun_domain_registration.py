@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("domain", models.CharField(max_length=255, unique=True)),
+                ("mailgun_domain_id", models.CharField(blank=True, default="", max_length=64)),
                 ("registered_at", models.DateTimeField(default=django.utils.timezone.now)),
             ],
             options={

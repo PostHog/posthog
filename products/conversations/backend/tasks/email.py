@@ -350,7 +350,6 @@ def cleanup_mailgun_domains(dry_run: bool = False) -> None:
         dry_run=dry_run,
         mailgun_domain_count=result.mailgun_domain_count,
         candidates=result.candidates if dry_run else len(result.candidates),
-        # Operators delete these by hand once every region that shares the account lists them.
         unowned_orphans=result.unowned_orphans,
         kept=result.kept,
         deleted=result.deleted,

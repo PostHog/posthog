@@ -930,7 +930,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flush pending conversation email replies",
     )
 
-    # Mailgun caps the account's domain count, so free slots held by unused support domains
+    # Mailgun caps the account's domain count. Free the slots that unused support domains hold.
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="4", minute="45"),

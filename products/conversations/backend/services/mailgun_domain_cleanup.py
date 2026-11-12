@@ -15,23 +15,21 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
 
-from products.conversations.backend.mailgun import delete_domain, list_domains
+from products.conversations.backend.mailgun import delete_domain, get_domain, list_domains
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, MailgunDomainRegistration
 
 logger = structlog.get_logger(__name__)
 
 # An orphan this young may belong to a connect that registered the domain but has not saved its channel yet.
 ORPHAN_MIN_AGE = timedelta(hours=1)
-# Allows for clock skew between Mailgun and us when comparing creation times.
-REGISTRATION_CLOCK_SKEW = timedelta(minutes=10)
 MAX_DELETIONS_PER_RUN = 100
+MAX_PRUNE_CHECKS_PER_RUN = 100
 DELETE_PAUSE_SECONDS = 0.1
 
 
 @frozen
 class OrphanScan:
-    owned: list[str]
-    # Orphans this region did not register. Another region may still use them, so only an operator can delete them.
+    owned: dict[str, str]
     unowned: list[str]
     kept: Counter[str]
 
@@ -69,8 +67,10 @@ def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime) -> Orpha
         domain.lower()
         for domain in EmailChannel.objects.filter(kind=EmailChannelKind.SUPPORT).values_list("domain", flat=True)
     }
-    registered_at_by_domain = dict(MailgunDomainRegistration.objects.values_list("domain", "registered_at"))
-    scan = OrphanScan(owned=[], unowned=[], kept=Counter())
+    registered_ids = dict(
+        MailgunDomainRegistration.objects.exclude(mailgun_domain_id="").values_list("domain", "mailgun_domain_id")
+    )
+    scan = OrphanScan(owned={}, unowned=[], kept=Counter())
 
     for item in mailgun_domains:
         name = str(item.get("name", "")).lower()
@@ -85,36 +85,51 @@ def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime) -> Orpha
         elif state != "unverified":
             # An active or disabled orphan may belong to something outside Conversations. Operators decide.
             scan.kept[f"orphan_{state or 'unknown'}"] += 1
+        elif registered_ids.get(name) and registered_ids[name] == item.get("id"):
+            scan.owned[name] = registered_ids[name]
         else:
-            registered_at = registered_at_by_domain.get(name)
-            # Another region can reclaim an unverified domain, which re-creates it in Mailgun after our registration.
-            if registered_at is None or created_at > registered_at + REGISTRATION_CLOCK_SKEW:
-                scan.unowned.append(name)
-            else:
-                scan.owned.append(name)
+            # Another region registered or reclaimed it and may still use it, so only an operator can delete it.
+            scan.unowned.append(name)
 
     return scan
 
 
+def _registration_gone(registered_id: str, current: dict[str, Any] | None) -> bool:
+    return current is None or bool(registered_id and current.get("id") != registered_id)
+
+
 def _prune_registrations(mailgun_domains: list[dict[str, Any]], now: datetime) -> int:
-    """Forget registrations for domains that left Mailgun some other way, such as a manual delete."""
-    in_mailgun = {str(item.get("name", "")).lower() for item in mailgun_domains}
-    stale_ids = [
-        registration_id
-        for registration_id, domain in MailgunDomainRegistration.objects.filter(
+    """Forget registrations that left Mailgun some other way, such as a manual delete or a reclaim by another region."""
+    listed = {str(item.get("name", "")).lower(): item for item in mailgun_domains}
+    suspects = [
+        (registration_id, domain, registered_id, registered_at)
+        for registration_id, domain, registered_id, registered_at in MailgunDomainRegistration.objects.filter(
             registered_at__lt=now - ORPHAN_MIN_AGE
-        ).values_list("id", "domain")
-        if domain not in in_mailgun
+        ).values_list("id", "domain", "mailgun_domain_id", "registered_at")
+        if _registration_gone(registered_id, listed.get(domain))
     ]
-    deleted, _ = MailgunDomainRegistration.objects.filter(id__in=stale_ids).delete()
-    return deleted
+
+    pruned = 0
+    # The listing pages by offset, so it can skip a domain that another region deletes during the scan.
+    for registration_id, domain, registered_id, registered_at in suspects[:MAX_PRUNE_CHECKS_PER_RUN]:
+        try:
+            current = get_domain(domain)
+        except Exception:
+            logger.exception("mailgun_domain_cleanup_prune_lookup_failed", domain=domain)
+            continue
+        if _registration_gone(registered_id, current):
+            deleted, _ = MailgunDomainRegistration.objects.filter(
+                id=registration_id, registered_at=registered_at
+            ).delete()
+            pruned += deleted
+    return pruned
 
 
 def cleanup_mailgun_domains(*, dry_run: bool, max_deletions: int = MAX_DELETIONS_PER_RUN) -> CleanupResult:
     now = timezone.now()
     mailgun_domains = list_domains()
     scan = _scan_orphans(mailgun_domains, now)
-    candidates = scan.owned[:max_deletions]
+    candidates = list(scan.owned)[:max_deletions]
     kept = scan.kept
 
     deleted = 0
@@ -128,6 +143,10 @@ def cleanup_mailgun_domains(*, dry_run: bool, max_deletions: int = MAX_DELETIONS
                 kept["claimed_during_run"] += 1
                 continue
             try:
+                current = get_domain(domain)
+                if current is None or current.get("id") != scan.owned[domain] or current.get("state") != "unverified":
+                    kept["changed_during_run"] += 1
+                    continue
                 delete_domain(domain)
                 deleted += 1
                 logger.info("mailgun_domain_cleanup_deleted", domain=domain)

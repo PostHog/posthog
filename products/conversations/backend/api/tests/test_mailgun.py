@@ -52,17 +52,20 @@ class TestAddDomain:
         mock_post.return_value = _mailgun_response(
             201,
             {
+                "domain": {"id": "mg-1", "name": "example.com", "state": "unverified"},
                 "sending_dns_records": [
                     {"record_type": "TXT", "name": "example.com", "value": "v=spf1"},
                     {"record_type": "CNAME", "name": "track.example.com", "value": "m.mg"},
-                ]
+                ],
             },
         )
 
         result = add_domain("Example.com")
 
         assert [r["record_type"] for r in result["sending_dns_records"]] == ["TXT"]
-        assert list(MailgunDomainRegistration.objects.values_list("domain", flat=True)) == ["example.com"]
+        assert list(MailgunDomainRegistration.objects.values_list("domain", "mailgun_domain_id")) == [
+            ("example.com", "mg-1")
+        ]
 
     def test_case_insensitive_already_exists_match(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "Domain Already EXISTS"})
