@@ -843,8 +843,6 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
                     return [...values.reportRuns, ...(response?.results ?? []).filter((run) => !loadedIds.has(run.id))]
                 },
-                // Puts new reports in front of the loaded ones and refreshes the ones it sees again, so polling keeps
-                // older pages and the open report while a new report moves from pending to delivered.
                 loadNewestReportRuns: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
                     const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId, {

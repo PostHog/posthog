@@ -37,7 +37,6 @@ export function EvaluationReportDrawer({
         useValues(logic)
     const { stepTo, close, retryLoad, openRun: openRunById } = useActions(logic)
     const { searchParams } = useValues(router)
-    // A cited trace opens in a drawer above this one, and the keys belong to it until it closes.
     const traceOpen = !!searchParams.trace
     const { activeReport, generateResultLoading, waitingForNewReportSince } = useValues(
         evaluationReportLogic({ evaluationId })
@@ -81,7 +80,6 @@ export function EvaluationReportDrawer({
         return null
     }
 
-    // The wait starts from an empty timestamp when the evaluation has no report yet.
     const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const newestRun = reportRuns[0]
 

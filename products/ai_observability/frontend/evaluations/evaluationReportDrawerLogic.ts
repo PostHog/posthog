@@ -205,7 +205,6 @@ export const evaluationReportDrawerLogic = kea<evaluationReportDrawerLogicType>(
             (reportRuns: EvaluationReportRun[], openIndex: number): ReportDrawerPosition | null =>
                 openIndex < 0 ? null : { index: openIndex, total: reportRuns.length },
         ],
-        // A failed page leaves the open report unresolved, which is neither "still searching" nor "deleted".
         runLoadFailed: [
             (s) => [s.openRun, s.reportRunsLoadFailed, s.olderReportRunsLoadFailed],
             (
