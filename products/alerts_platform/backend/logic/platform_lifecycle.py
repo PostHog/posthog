@@ -797,6 +797,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             "snooze_until": upsert.snooze_until,
             "created_by_id": upsert.created_by_id,
         }
+        if upsert.first_enabled_at is not None:
+            defaults["first_enabled_at"] = upsert.first_enabled_at
         if (
             existing is None
             or not existing["enabled"]

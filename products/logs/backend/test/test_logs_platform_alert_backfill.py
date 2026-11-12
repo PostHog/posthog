@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
 from uuid import UUID
@@ -20,9 +21,11 @@ from products.logs.backend.platform_alert_backfill import (
 
 
 class TestPlatformLogsAlertBackfill(APIBaseTest):
-    def _alert(self, team: Team, name: str = "API errors", created_by: User | None = None) -> LogsAlertConfiguration:
+    def _alert(
+        self, team: Team, name: str = "API errors", created_by: User | None = None, **fields: Any
+    ) -> LogsAlertConfiguration:
         return LogsAlertConfiguration.objects.create(
-            team=team, name=name, filters={"serviceNames": ["api"]}, created_by=created_by
+            team=team, name=name, filters={"serviceNames": ["api"]}, created_by=created_by, **fields
         )
 
     def _copies(self, team: Team) -> dict[UUID | None, Any]:
@@ -95,3 +98,32 @@ class TestPlatformLogsAlertBackfill(APIBaseTest):
             predates_column.id: self.user.id,
             no_creator.id: None,
         }
+
+    def test_copies_carry_first_enabled_at_and_the_command_matches_only_copies_that_differ(self) -> None:
+        first, later = datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 9, 2, tzinfo=UTC)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        copied = self._alert(self.team, first_enabled_at=first)
+        stale = self._alert(self.team, name="Slow requests", first_enabled_at=first)
+        draft = self._alert(self.team, name="Draft", enabled=False)
+        elsewhere = self._alert(other_team, first_enabled_at=first)
+        backfill_platform_alert_configurations()
+        assert self._copies(self.team)[copied.id].first_enabled_at == first
+        LogsAlertConfiguration.objects.filter(id__in=[stale.id, elsewhere.id]).update(first_enabled_at=later)
+
+        dry_run = StringIO()
+        call_command("backfill_platform_logs_alert_first_enabled_at", team_ids=[self.team.id], stdout=dry_run)
+        assert self._copies(self.team)[stale.id].first_enabled_at == first
+        call_command(
+            "backfill_platform_logs_alert_first_enabled_at", team_ids=[self.team.id], apply=True, stdout=StringIO()
+        )
+        rerun = StringIO()
+        call_command("backfill_platform_logs_alert_first_enabled_at", team_ids=[self.team.id], apply=True, stdout=rerun)
+
+        assert "Would set first_enabled_at on 1 " in dry_run.getvalue()
+        assert "Set first_enabled_at on 0 " in rerun.getvalue()
+        assert {key: view.first_enabled_at for key, view in self._copies(self.team).items()} == {
+            copied.id: first,
+            stale.id: later,
+            draft.id: None,
+        }
+        assert self._copies(other_team)[elsewhere.id].first_enabled_at == first

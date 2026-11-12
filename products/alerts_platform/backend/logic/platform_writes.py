@@ -419,10 +419,12 @@ def update_owned_copy(
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
     at: datetime | None = None,
+    first_enabled_at: datetime | None = None,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
-    copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is."""
+    copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is.
+    `first_enabled_at` is when the source row was first turned on, which the copy takes."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -436,6 +438,13 @@ def update_owned_copy(
             platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
+        if first_enabled_at is not None and configuration.first_enabled_at != first_enabled_at:
+            # `update()` rather than `save()`, so the copy logs no second edit. The source row's time wins
+            # over the stamp this edit's own enable wrote a moment later.
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration.id).update(
+                first_enabled_at=first_enabled_at
+            )
+            configuration.first_enabled_at = first_enabled_at
         control_plane.announce_after_commit(pending)
         _record_change(
             configuration,
@@ -616,6 +625,40 @@ def fill_missing_creators(
                 created_by_id=Case(*(When(id=key, then=Value(user_id)) for key, user_id in found.items()))
             )
     return filled
+
+
+def match_first_enabled_at(
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    first_enabled_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+    batch_size: int = 500,
+) -> int:
+    """Sets `first_enabled_at` on each of the team's copies of `source_kind` to its source row's, where
+    the two differ, and returns how many it set, or would set with `dry_run`.
+
+    `first_enabled_of` maps the given source row ids to when each row was first turned on. A row never
+    turned on, or one that is gone, is left out, and its copy stays as it is.
+    """
+    copies = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind.value, legacy_configuration_id__isnull=False
+    )
+    matched = 0
+    for batch in _pages_by_id(copies, "legacy_configuration_id", "first_enabled_at", batch_size=batch_size):
+        source_values = first_enabled_of([legacy_id for _, legacy_id, _ in batch])
+        found = {
+            configuration_id: source_values[legacy_id]
+            for configuration_id, legacy_id, current in batch
+            if legacy_id in source_values and source_values[legacy_id] != current
+        }
+        matched += len(found)
+        if found and not dry_run:
+            # `update()` rather than `save()`: the copy takes its source's history, which is not a user's edit.
+            copies.filter(id__in=list(found)).update(
+                first_enabled_at=Case(*(When(id=key, then=Value(at)) for key, at in found.items()))
+            )
+    return matched
 
 
 def assign_native_creator(
