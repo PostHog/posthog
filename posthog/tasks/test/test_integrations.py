@@ -226,6 +226,24 @@ class TestIntegrationsTasks(APIBaseTest):
         assert sorted(remaining) == ["b@fresh.com", "c@verified.com"]
         assert [call.args[0] for call in mock_delete_identity.call_args_list] == ["stale.com"]
 
+    @patch("posthog.tasks.integrations.EXPIRED_EMAIL_SENDERS_PER_RUN", 2)
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_drains_a_backlog_over_several_runs(self, _mock_delete_identity) -> None:
+        for index in range(3):
+            email = f"a@stale{index}.com"
+            sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": f"stale{index}.com", "provider": "ses", "verified": False},
+            )
+            Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=15))
+
+        expire_unverified_email_senders()
+        assert Integration.objects.filter(kind="email").count() == 1
+        expire_unverified_email_senders()
+        assert Integration.objects.filter(kind="email").count() == 0
+
     @patch("posthog.tasks.integrations.delete_ses_identity")
     def test_expire_unverified_email_senders_keeps_a_sender_that_verifies_during_the_sweep(
         self, mock_delete_identity

@@ -146,6 +146,9 @@ def delete_ses_identity_if_unused(domain: str) -> None:
 # A sender that never verifies keeps the identity of its domain at the email provider, and the provider caps
 # identities per region for all customers together.
 UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
+# Each expired sender can queue one SES DeleteIdentity call, which SES accepts once per second per account, so a
+# backlog drains over several hourly runs instead of one burst that exhausts the cleanup task's retries.
+EXPIRED_EMAIL_SENDERS_PER_RUN = 20
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
@@ -155,6 +158,8 @@ def expire_unverified_email_senders() -> None:
     candidates = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"verified": False}))
     expired = 0
     for sender in candidates:
+        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN:
+            break
         if sender.created_at >= cutoff:
             continue
         with transaction.atomic():

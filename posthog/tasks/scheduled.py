@@ -824,7 +824,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="2", minute="37"),
+        crontab(minute="37"),
         expire_unverified_email_senders.s(),
         name="expire unverified email senders",
     )
