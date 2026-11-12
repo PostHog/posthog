@@ -87,8 +87,7 @@ export function decodeMetricRecords(
                 }
                 cb(null, block)
             }
-            // avsc asks for every block of the buffer at once, so the chain inflates one block at a time and
-            // starts none after the limit. The promise settles only after the chain drains.
+            // avsc requests every block at once, so inflate one at a time and stop at the limit.
             let inflating: Promise<void> = Promise.resolve()
             const inflate = (buf: Buffer, cb: (err: Error | null, inflated?: Buffer) => void): void => {
                 inflating = inflating.then(async () => {
