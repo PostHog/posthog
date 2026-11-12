@@ -16,11 +16,16 @@ from parameterized import parameterized
 from posthog.schema import FilterLogicalOperator, HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.database.schema.sessions_v3 import (
     get_lazy_session_table_properties_v3,
     get_lazy_session_table_values_v3,
 )
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, _count_events_scans
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -845,9 +850,62 @@ class TestSessionFilterGlobalJoin(ClickhouseTestMixin, APIBaseTest):
             ("non_nullable_default", "events.session.$session_duration = 0", False),
             ("numeric_column_string_default", "events.session.$session_duration = '0'", False),
             ("or_with_event_filter", "events.session.$entry_referring_domain = 'a.example.com' or event = 'x'", False),
+            ("numeric_session_key_string_default", "events.session.session_id_v7 = '0'", False),
         ]
     )
     def test_session_filter_global_join_keeps_results(self, _name, session_filter, expect_global_join):
+        self._create_sessions()
+        query = f"select count() from events where event = '$pageview' and {session_filter}"
+        self._assert_same_results(query, expect_global_join=expect_global_join)
+
+    def test_extractor_lifts_select_alias_as_its_source_column(self):
+        events = EventsTable()
+        lazy_join = events.fields["session"]
+        assert isinstance(lazy_join, LazyJoin)
+        join_type = ast.LazyJoinType(table_type=ast.TableType(table=events), field="session", lazy_join=lazy_join)
+        # `id` is also a sessions column, so keeping the alias name would filter on the session id.
+        alias_field = ast.Field(
+            chain=["id"],
+            type=ast.FieldAliasType(
+                alias="id", type=ast.FieldType(name="$entry_referring_domain", table_type=join_type)
+            ),
+        )
+        extractor = WhereClauseExtractor(HogQLContext(team_id=self.team.pk))
+        extractor.add_local_tables(
+            LazyJoinToAdd(
+                from_table="events", to_table="events__session", lazy_join=lazy_join, lazy_join_type=join_type
+            )
+        )
+
+        lifted = extractor.get_inner_where(
+            ast.SelectQuery(
+                select=[],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=alias_field, right=ast.Constant(value="a.example.com")
+                ),
+            )
+        )
+
+        assert isinstance(lifted, ast.CompareOperation)
+        assert isinstance(lifted.left, ast.Field)
+        assert lifted.left.chain == ["$entry_referring_domain"]
+
+    def _assert_same_results(self, query: str, *, expect_global_join: bool) -> None:
+        responses = {
+            enabled: execute_hogql_query(
+                query=parse_select(query),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(
+                    sessionTableVersion=SessionTableVersion.V3, sessionFilterGlobalJoin=enabled
+                ),
+            )
+            for enabled in (False, True)
+        }
+
+        assert responses[True].results == responses[False].results
+        assert ("GLOBAL LEFT JOIN" in (responses[True].clickhouse or "")) == expect_global_join
+
+    def _create_sessions(self) -> None:
         for referring_domain, pageviews in (("a.example.com", 2), ("b.example.com", 1), (None, 1)):
             session_id = str(uuid7())
             properties = {"$session_id": session_id}
@@ -862,20 +920,31 @@ class TestSessionFilterGlobalJoin(ClickhouseTestMixin, APIBaseTest):
                     timestamp=datetime.now() - timedelta(hours=1) + timedelta(minutes=minute),
                 )
 
-        query = f"select count() from events where event = '$pageview' and {session_filter}"
-        responses = {
-            enabled: execute_hogql_query(
-                query=parse_select(query),
-                team=self.team,
-                modifiers=HogQLQueryModifiers(
-                    sessionTableVersion=SessionTableVersion.V3, sessionFilterGlobalJoin=enabled
+    @parameterized.expand(
+        [
+            ("events_only", ["events"], 1),
+            ("events_and_flag_calls_union", ["events", "union"], 2),
+            ("flag_calls_union_and_other_subquery", ["union", "subquery"], 1),
+        ]
+    )
+    def test_count_events_scans_includes_expanded_flag_calls_union(self, _name, scans, expected):
+        def scan(kind: str) -> ast.JoinExpr:
+            if kind == "events":
+                return ast.JoinExpr(table=ast.Field(chain=["events"]), type=ast.TableType(table=EventsTable()))
+            return ast.JoinExpr(
+                table=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                type=ast.SelectQueryAliasType(
+                    alias=kind,
+                    select_query_type=ast.SelectQueryType(),
+                    lazy_table=EventsWithFlagCallsTable() if kind == "union" else None,
                 ),
             )
-            for enabled in (False, True)
-        }
 
-        assert responses[True].results == responses[False].results
-        assert ("GLOBAL LEFT JOIN" in (responses[True].clickhouse or "")) == expect_global_join
+        joins = [scan(kind) for kind in scans]
+        for left, right in zip(joins, joins[1:]):
+            left.next_join = right
+
+        assert _count_events_scans(joins[0]) == expected
 
     def test_session_filter_global_join_skips_events_self_join(self):
         response = execute_hogql_query(

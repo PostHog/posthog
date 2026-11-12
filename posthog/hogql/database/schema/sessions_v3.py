@@ -482,8 +482,12 @@ def select_from_sessions_table_v3(
     )
 
 
+# session_id_v7 is declared a string here but is a UInt128 in the sessions subquery, so a string constant is
+# coerced to a number and its LEFT JOIN default 0 can match.
 LAZY_SESSIONS_STRING_FIELDS = frozenset(
-    name for name, field in LAZY_SESSIONS_FIELDS.items() if isinstance(field, StringDatabaseField)
+    name
+    for name, field in LAZY_SESSIONS_FIELDS.items()
+    if isinstance(field, StringDatabaseField) and name != "session_id_v7"
 )
 
 

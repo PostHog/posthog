@@ -218,9 +218,12 @@ class WhereClauseExtractor(CloningVisitor):
                 new_field = cast(ast.Field, clone_expr(node))
                 if isinstance(node.type, ast.PropertyType):
                     chain_length = len(node.type.chain) + 1
+                    new_field.chain = new_field.chain[-chain_length:]
+                elif isinstance(node.type, ast.FieldAliasType):
+                    # The chain holds the SELECT alias, which may also name a different column of the inner table.
+                    new_field.chain = [type.name]
                 else:
-                    chain_length = 1
-                new_field.chain = new_field.chain[-chain_length:]
+                    new_field.chain = new_field.chain[-1:]
                 return new_field
         return ast.Constant(value=self.tombstone_string)
 
@@ -864,12 +867,21 @@ def build_global_sessions_join_filter(
 
 def _count_events_scans(select_from: Optional[ast.JoinExpr]) -> int:
     from posthog.hogql.database.schema.events import EventsTable
+    from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 
     count = 0
     ptr = select_from
     while ptr:
         table_type = ptr.type.table_type if isinstance(ptr.type, ast.TableAliasType) else ptr.type
         if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            count += 1
+        # The flag calls union shares the events fields, sessions join included, and is already expanded into
+        # a subquery by the time the sessions join resolves.
+        elif isinstance(table_type, ast.SelectQueryAliasType) and isinstance(
+            table_type.lazy_table, EventsWithFlagCallsTable
+        ):
+            count += 1
+        elif isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, EventsWithFlagCallsTable):
             count += 1
         ptr = ptr.next_join
     return count
