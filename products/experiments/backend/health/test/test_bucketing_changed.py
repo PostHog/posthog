@@ -14,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames
 from products.experiments.backend.health.checks.bucketing_changed import (
     bucketing_changed_mid_run,
     bucketing_changed_rows,
@@ -41,6 +42,7 @@ KEY = BucketingSetting.KEY
 AGGREGATION = BucketingSetting.AGGREGATION
 IDENTIFIER = BucketingSetting.BUCKETING_IDENTIFIER
 CONTINUITY = BucketingSetting.EXPERIENCE_CONTINUITY
+GROUP_TYPE_NAMES = {0: "organizations", 1: "companies"}
 
 Value = str | int | bool | None
 
@@ -54,6 +56,7 @@ def _context(
     variants: list[dict[str, Any]] = EVEN,
     not_checked: FlagHistoryNotCheckedReason | None = None,
     exposed_units: int | None = None,
+    group_type_names: GroupTypeNames = GROUP_TYPE_NAMES,
 ) -> HealthContext:
     bucketing = [
         BucketingChange(
@@ -75,6 +78,7 @@ def _context(
             exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
             not_checked=not_checked,
             exposed_units_before_last={ExperimentHealthFlagChangeKind.BUCKETING: exposed_units},
+            group_type_names=group_type_names,
         ),
     )
 
@@ -118,8 +122,8 @@ class TestBucketingChangedMidRun(TestCase):
                     ExperimentHealthFindingSeverity.INFO,
                     "The flag's variant assignment changed after launch",
                 ),
-                f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
-                f"hours after the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
+                f"The flag changed from matching by users to matching by organizations on {FIRST_CHANGE}. The change "
+                f"came 3 hours after the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -186,9 +190,22 @@ class TestBucketingChangedMidRun(TestCase):
                     ExperimentHealthFindingSeverity.WARNING,
                     "The flag's variant assignment changed after launch",
                 ),
-                f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. Every user and "
-                "group got a new variant draw, so people exposed before the change may have switched variants. "
+                f"The flag changed from matching by users to matching by organizations on {FIRST_CHANGE}. Every user "
+                "and group got a new variant draw, so people exposed before the change may have switched variants. "
                 f"{MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
+            ),
+            (
+                "aggregation_changed_between_group_types",
+                _context((AGGREGATION, 0, 1)),
+                (
+                    "aggregation_changed",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f"The flag changed from matching by organizations to matching by companies on {FIRST_CHANGE}. Every "
+                "user and group got a new variant draw, so people exposed before the change may have switched "
+                f"variants. {MIXED_ASSIGNMENTS} Reset the experiment, or move its start date to {FIRST_CHANGE}."
                 f" {RESET_EFFECT}",
             ),
             (
@@ -292,8 +309,17 @@ class TestBucketingChangedMidRun(TestCase):
     def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
         self.assertEqual(bucketing_changed_mid_run(ctx), expected)
 
-    def test_lists_each_change_with_the_setting_as_the_flag_page_names_it(self) -> None:
-        rows = bucketing_changed_rows(_context((IDENTIFIER, "distinct_id", "device_id")))
+    @parameterized.expand(
+        [
+            ("bucketing_identifier", (IDENTIFIER, "distinct_id", "device_id"), "User ID", "Device ID"),
+            ("group_types", (AGGREGATION, 0, 1), "Organizations", "Companies"),
+            ("deleted_group_type", (AGGREGATION, 0, 2), "Organizations", "Group type 2"),
+        ]
+    )
+    def test_lists_each_change_with_the_setting_as_the_flag_page_names_it(
+        self, _name: str, change: tuple[BucketingSetting, Value, Value], before: str, after: str
+    ) -> None:
+        rows = bucketing_changed_rows(_context(change))
 
         self.assertEqual(
             [
@@ -310,8 +336,8 @@ class TestBucketingChangedMidRun(TestCase):
             [
                 {
                     ExperimentHealthValueKey.CHANGED_SETTING: "Match by",
-                    ExperimentHealthValueKey.BEFORE: "User ID",
-                    ExperimentHealthValueKey.AFTER: "Device ID",
+                    ExperimentHealthValueKey.BEFORE: before,
+                    ExperimentHealthValueKey.AFTER: after,
                 }
             ],
         )

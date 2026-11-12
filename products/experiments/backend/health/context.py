@@ -37,6 +37,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.daily_calculation import daily_calculation_end, is_past_daily_calculation
 from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -104,6 +105,7 @@ class FlagHistory:
     team_timezone: str
     # Every change of every kind, in time order.
     changes: tuple[FlagChange, ...]
+    group_type_names: GroupTypeNames
     # The time of the first change, of any kind, with an exposure before it or an unknown answer. Every change
     # from then on counts. None when nobody was exposed before any change.
     counted_since: datetime | None
@@ -161,6 +163,7 @@ class FlagHistoryNotChecked:
     team_timezone: str
     # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
     changes: tuple[FlagChange, ...]
+    group_type_names: GroupTypeNames
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)

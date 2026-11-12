@@ -15,7 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.bucketing_changes import describe_bucketing_value
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames, describe_bucketing_value
 from products.experiments.backend.health.checks.change_wording import (
     delay,
     duration,
@@ -117,7 +117,7 @@ def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:
     return tuple(
         {
             ExperimentHealthValueKey.CHANGED_AT: change.changed_at.astimezone(UTC).isoformat(),
-            **_described(change),
+            **_described(change, history.group_type_names),
             ExperimentHealthValueKey.BEFORE_EXPOSURE: _before_exposure(history, change.changed_at),
         }
         for change in history.of_kind(kind)
@@ -133,7 +133,7 @@ _SETTING_LABELS = {
 }
 
 
-def _described(change: FlagChange) -> dict[ExperimentHealthValueKey, str]:
+def _described(change: FlagChange, group_type_names: GroupTypeNames) -> dict[ExperimentHealthValueKey, str]:
     match change:
         case SplitChange():
             return {
@@ -144,9 +144,11 @@ def _described(change: FlagChange) -> dict[ExperimentHealthValueKey, str]:
             return {
                 ExperimentHealthValueKey.CHANGED_SETTING: _SETTING_LABELS[change.setting],
                 ExperimentHealthValueKey.BEFORE: _sentence_case(
-                    describe_bucketing_value(change.setting, change.before)
+                    describe_bucketing_value(change.setting, change.before, group_type_names=group_type_names)
                 ),
-                ExperimentHealthValueKey.AFTER: _sentence_case(describe_bucketing_value(change.setting, change.after)),
+                ExperimentHealthValueKey.AFTER: _sentence_case(
+                    describe_bucketing_value(change.setting, change.after, group_type_names=group_type_names)
+                ),
             }
         case ConditionsChange():
             return {
