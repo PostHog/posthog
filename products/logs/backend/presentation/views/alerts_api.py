@@ -1185,7 +1185,11 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
     @extend_schema_field(LogsAlertDestinationConfigSerializer(many=True))
     def get_destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
         destinations = list_source_destinations(
-            team_id=obj.team_id, public_id=obj.id, hog_function_event_ids=LOGS_ALERT_EVENT_IDS
+            team_id=obj.team_id,
+            public_id=obj.id,
+            hog_function_groups=list_alert_destination_groups(
+                team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+            ),
         )
         customized = customized_alert_destination_ids(
             team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
@@ -1805,7 +1809,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data=data,
                     event_kinds=row_event_kinds(event_kinds),
                     hog_function_ids=hog_function_ids,
-                    hog_function_event_ids=LOGS_ALERT_EVENT_IDS,
+                    hog_function_groups=list_alert_destination_groups(
+                        team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+                    ),
                 )
             except AlertDestinationValidationError as error:
                 raise as_drf_validation_error(error)

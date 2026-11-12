@@ -15,6 +15,7 @@ from uuid import UUID
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertDestinationGroup,
     AlertEventKind,
     AlertReceiverEdit,
     AlertRouteEdit,
@@ -690,10 +691,10 @@ def record_source_destination(
     data: AlertDestinationData,
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
-    hog_function_event_ids: Collection[str],
+    hog_function_groups: Sequence[AlertDestinationGroup],
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
-    caller's transaction. Raises `AlertDestinationValidationError` when the alert already sends there.
+    caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
     None when the platform has no alert under `public_id`."""
     return alert_destinations.record_source_destination(
         team_id=team_id,
@@ -701,16 +702,16 @@ def record_source_destination(
         data=data,
         event_kinds=event_kinds,
         hog_function_ids=hog_function_ids,
-        hog_function_event_ids=hog_function_event_ids,
+        hog_function_groups=hog_function_groups,
     )
 
 
 def list_source_destinations(
-    *, team_id: int, public_id: UUID, hog_function_event_ids: Collection[str]
+    *, team_id: int, public_id: UUID, hog_function_groups: Sequence[AlertDestinationGroup]
 ) -> tuple[SourceDestination, ...]:
     """An alert's destinations as its source's page shows them, HogFunction groups and rows merged."""
     return alert_destinations.list_source_destinations(
-        team_id=team_id, public_id=public_id, hog_function_event_ids=hog_function_event_ids
+        team_id=team_id, public_id=public_id, hog_function_groups=hog_function_groups
     )
 
 
