@@ -176,10 +176,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     }
 }
 
-// The transactional email and push APIs queue their runs straight onto a worker queue, skipping the trigger pipeline,
-// so the worker counts them as triggered.
-// The flag is cleared on the state that the job queue persists, so a throttled or rate-limited reschedule of the
-// same job does not count it again. A canceled run counts too, because the API accepted it.
+// The email and push APIs queue runs onto the worker queue directly, skipping the trigger pipeline that counts them.
+// The flag is cleared on the persisted state so a rescheduled job counts once; a canceled run still counts.
 export function countPendingTrigger(result: CyclotronJobInvocationResult): void {
     const state = result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null | undefined
     if (!state?.triggerMetricPending) {
