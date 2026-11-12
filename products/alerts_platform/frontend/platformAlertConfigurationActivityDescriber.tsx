@@ -8,9 +8,11 @@ import {
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { InsightShortId } from '~/types'
+
 interface PlatformAlertActivityContext {
     source_kind?: string
-    source_id?: string | null
+    source_id?: InsightShortId | null
     source_name?: string | null
 }
 

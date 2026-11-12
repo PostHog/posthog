@@ -1183,7 +1183,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         logged = ActivityLog.objects.filter(
             team_id=self.team.id, scope="PlatformAlertConfiguration", item_id=created.json()["id"]
         )
-        assert sorted((row.activity, row.detail["context"]) for row in logged) == [
+        assert sorted((row.activity, (row.detail or {}).get("context")) for row in logged) == [
             (activity, {"source_kind": "insight", "source_id": insight.short_id, "source_name": "Signups"})
             for activity in ("created", "deleted")
         ]
