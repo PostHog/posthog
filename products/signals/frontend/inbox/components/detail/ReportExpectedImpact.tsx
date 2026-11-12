@@ -22,6 +22,31 @@ import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
+function approvalDisabledReason({
+    loading,
+    hasProject,
+    pendingCount,
+    unavailableMeasurements,
+}: {
+    loading: boolean
+    hasProject: boolean
+    pendingCount: number
+    unavailableMeasurements: boolean
+}): string | undefined {
+    if (loading) {
+        return 'Loading measurements…'
+    }
+    if (!hasProject) {
+        return 'Select a project to approve measurements.'
+    }
+    if (pendingCount > 0) {
+        return undefined
+    }
+    return unavailableMeasurements
+        ? 'The measurement query is not available to you.'
+        : 'No measurements awaiting approval.'
+}
+
 export function ReportExpectedImpact({
     report,
     reportUrl,
@@ -186,17 +211,12 @@ export function ReportExpectedImpact({
                             type="primary"
                             size="small"
                             loading={approving}
-                            disabledReason={
-                                reportChecks === null
-                                    ? 'Loading measurements…'
-                                    : currentProjectId == null
-                                      ? 'Select a project to approve measurements.'
-                                      : pendingApproval.length === 0
-                                        ? unavailableMeasurements
-                                            ? 'The measurement query is not available to you.'
-                                            : 'No measurements awaiting approval.'
-                                        : undefined
-                            }
+                            disabledReason={approvalDisabledReason({
+                                loading: reportChecks === null,
+                                hasProject: currentProjectId != null,
+                                pendingCount: pendingApproval.length,
+                                unavailableMeasurements,
+                            })}
                             tooltip="Approval is feedback. Checks run automatically."
                             onClick={() => pendingApproval.forEach(({ check }) => approveReportCheck(check.id))}
                         >
