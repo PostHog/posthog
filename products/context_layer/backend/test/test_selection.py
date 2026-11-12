@@ -199,7 +199,7 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(
             {record["kind"]: record["url"] for record in rendered},
             {
-                "skill": f"https://posthog.example.com/project/42/skills/{quote(self.skill['name'], safe='')}",
+                "skill": f"https://posthog.example.com/project/42/skills/{quote(str(self.skill['name']), safe='')}",
                 "metric": "https://posthog.example.com/project/42/data-catalog/metrics/activation",
                 "business_knowledge": "https://docs.example.com/activation",
                 "certification": "",
