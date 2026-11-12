@@ -744,6 +744,30 @@ _ADMISSION_LOCK_SQL: Final = {
 }
 
 
+def stored_settings_of(upsert: PlatformAlertUpsert) -> dict[str, Any]:
+    """The settings columns a copy of `upsert` stores. Raises `ValueError` on a cadence the platform
+    refuses, because an unparseable unit or anchor raised where the schedule advances would fail a
+    whole batch of unrelated checks."""
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    return {
+        "name": upsert.name,
+        "enabled": upsert.enabled,
+        "source_config": upsert.source_config,
+        "check_interval_minutes": upsert.check_interval_minutes,
+        "recurrence_unit": upsert.recurrence_unit,
+        "anchor_time": validate_and_normalize_schedule_start_time(upsert.anchor_time),
+        "evaluation_periods": upsert.evaluation_periods,
+        "datapoints_to_alarm": upsert.datapoints_to_alarm,
+        "cooldown_minutes": upsert.cooldown_minutes,
+        "schedule_restriction": upsert.schedule_restriction,
+        # A source's snooze mutes the whole alert. State is left alone because a muted alert
+        # keeps tracking reality.
+        "snooze_until": upsert.snooze_until,
+        "created_by_id": upsert.created_by_id,
+    }
+
+
 def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
@@ -757,15 +781,12 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     check, for example at the end of quiet hours, and copying that would skip checks the platform
     still runs.
 
-    The recurrence is checked here rather than where the schedule advances, because an
-    unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
+    The recurrence is checked before the write, by `stored_settings_of`.
 
     `revive` says the source alert was just created or turned back on, which resets the copy
     even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
 
     with transaction.atomic():
         existing = (
@@ -779,23 +800,10 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             return False
         defaults = {
             "team_id": upsert.team_id,
-            "name": upsert.name,
-            "enabled": upsert.enabled,
             "source_kind": upsert.source_kind.value,
-            "source_config": upsert.source_config,
-            "check_interval_minutes": upsert.check_interval_minutes,
-            "recurrence_unit": upsert.recurrence_unit,
-            "anchor_time": anchor_time,
-            "evaluation_periods": upsert.evaluation_periods,
-            "datapoints_to_alarm": upsert.datapoints_to_alarm,
-            "cooldown_minutes": upsert.cooldown_minutes,
-            "schedule_restriction": upsert.schedule_restriction,
+            **stored,
             # Reached by a backfill run, which re-admits a copy an operator switched off.
             "switched_off_at": None,
-            # A source's snooze mutes the whole alert. State is left alone because a muted alert
-            # keeps tracking reality.
-            "snooze_until": upsert.snooze_until,
-            "created_by_id": upsert.created_by_id,
         }
         if (
             existing is None
