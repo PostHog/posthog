@@ -162,7 +162,8 @@ tools:
             user which address to send from. Sending takes two calls: prepare checks only the arguments and returns a
             message for the user, and execute sends it only after the user replies with the literal word 'confirm'.
             PostHog checks the sender and the content when execute runs, so settle from before prepare, and tell the
-            user which address the email goes out from (the address you pass, or the project's default sender). Each
+            user which address the email goes out from (the address you pass, or the project's default sender). When you
+            pass scheduled_at, tell the user the time it goes out, with its timezone offset, before they confirm. Each
             execute call sends an email, so never repeat one that succeeded. A 503, a timeout or a connection error
             means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell
             the user. A 404 with code not_found means sending email from code is not enabled for this project, or the

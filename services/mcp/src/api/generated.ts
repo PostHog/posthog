@@ -103511,6 +103511,18 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
     }
 
+    /**
+     * * `queued` - Queued
+     * * `scheduled` - Scheduled
+     */
+    export type QueuedEmailStatusEnum = typeof QueuedEmailStatusEnum[keyof typeof QueuedEmailStatusEnum];
+
+
+    export const QueuedEmailStatusEnum = {
+      Queued: 'queued',
+      Scheduled: 'scheduled',
+    } as const;
+
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
@@ -111142,6 +111154,11 @@ export namespace Schemas {
          */
       attachments?: EmailAttachment[] | null;
       /**
+         * When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog keeps the time to the millisecond and holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /**
          * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
          * @deprecated
          */
@@ -111183,6 +111200,16 @@ export namespace Schemas {
     export interface SendTransactionalEmailResponse {
       /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
       message_id: string;
+      /** `scheduled` when PostHog holds the email until `scheduled_at`, and `queued` when it goes out now.
+       *
+       * * `queued` - Queued
+       * * `scheduled` - Scheduled */
+      status: QueuedEmailStatusEnum;
+      /**
+         * When PostHog sends the email. Null when it goes out now.
+         * @nullable
+         */
+      scheduled_at: string | null;
       /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
       replayed: boolean;
     }

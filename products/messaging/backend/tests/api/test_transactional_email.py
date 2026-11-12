@@ -1,9 +1,11 @@
 import json
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, _Call, call, patch
 
@@ -34,6 +36,7 @@ from products.messaging.backend.models.transactional_email_key import Transactio
 from products.messaging.backend.presentation.views.message_templates import CODE_SEND_FIELDS
 from products.messaging.backend.presentation.views.transactional_email_access import (
     EMAIL_FROM_CODE_FLAG,
+    EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
@@ -195,7 +198,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert {stage: stages_after[stage] - stages_before[stage] for stage in stages_after} == dict.fromkeys(
             stages_after, 1
         )
-        assert response.json() == {"message_id": "invocation-1", "replayed": False}
+        assert response.json() == {
+            "message_id": "invocation-1",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": False,
+        }
         assert capture.call_args.kwargs["properties"]["route"] == route.removesuffix("_nested")
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
@@ -229,7 +237,12 @@ class TestTransactionalEmail(APIBaseTest):
         response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset:user-1:42"})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert response.json() == {
+            "message_id": "first-send",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": True,
+        }
         assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "reset:user-1:42"
         assert capture.call_args.kwargs["properties"]["outcome"] == "replayed"
         assert capture.call_args.kwargs["properties"]["has_idempotency_key"] is True
@@ -578,7 +591,12 @@ class TestTransactionalEmail(APIBaseTest):
         second = psak.post(self.send_email_url, self._code_send(template_key=key, subject="Again"), format="json")
 
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
-        assert first.json() == {"message_id": "invocation-1", "replayed": False}
+        assert first.json() == {
+            "message_id": "invocation-1",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": False,
+        }
         assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
         first_url, second_url = (call.args[0] for call in mock_post.call_args_list)
         assert first_url == second_url
@@ -895,6 +913,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
                 None,
             ),
+            ("scheduled_at_without_an_offset", {"scheduled_at": "2026-11-20T09:00:00"}, "scheduled_at"),
             ("clicks_without_opens", {"tracking": {"opens": False, "clicks": True}}, "tracking"),
             ("tracking_kind_this_server_lacks", {"tracking": {"pixel": False}}, "tracking"),
             ("tracking_that_is_not_a_boolean", {"tracking": "sometimes"}, "tracking"),
@@ -966,19 +985,20 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{case}", route, scheduled_at)
-            for name, route in (
-                ("template_route", "template"),
-                ("template_id", "send_email"),
-                ("nested_template_id", "send_email_nested"),
-                ("template_key", "code"),
+            (f"{name}_{case}", route, flags_off, scheduled_at)
+            for name, route, flags_off in (
+                ("the_template_route", "template", set()),
+                ("template_id_while_scheduled_sends_are_off", "send_email", {EMAIL_SCHEDULED_SENDS_FLAG}),
+                ("nested_template_id_while_scheduled_sends_are_off", "send_email_nested", {EMAIL_SCHEDULED_SENDS_FLAG}),
+                ("template_key_while_scheduled_sends_are_off", "code", {EMAIL_SCHEDULED_SENDS_FLAG}),
             )
             for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("null", None))
         ]
     )
-    def test_every_send_surface_refuses_scheduled_at_unless_null(
-        self, mock_post, _flag, _capture, _name, route, scheduled_at
+    def test_refuses_scheduled_at_where_it_cannot_schedule_unless_null(
+        self, mock_post, flag, _capture, _name, route, flags_off, scheduled_at
     ):
+        flag.side_effect = lambda key, *_args, **_kwargs: key not in flags_off
         psak = self._psak_client(["hog_flow:write"])
 
         with FakeCdpApi().serving(mock_post) as cdp:
@@ -998,6 +1018,91 @@ class TestTransactionalEmail(APIBaseTest):
                 "attr": "scheduled_at",
             }
             assert cdp.received == []
+
+    @parameterized.expand(
+        [
+            (
+                "template_id_in_another_offset",
+                "send_email",
+                "2026-11-13T09:00:00+02:00",
+                "2026-11-13T07:00:00Z",
+                202,
+                {"status": "scheduled", "scheduled_at": "2026-11-13T07:00:00Z"},
+                "1h_to_24h",
+            ),
+            (
+                "template_key",
+                "code",
+                "2026-11-20T09:00:00Z",
+                "2026-11-20T09:00:00Z",
+                202,
+                {"status": "scheduled", "scheduled_at": "2026-11-20T09:00:00Z"},
+                "7d_to_30d",
+            ),
+            (
+                "a_time_that_passed",
+                "send_email",
+                "2026-11-12T11:00:00Z",
+                "2026-11-12T11:00:00Z",
+                202,
+                {"status": "queued", "scheduled_at": None},
+                "now",
+            ),
+            (
+                "more_than_30_days_ahead",
+                "code",
+                "2026-12-31T09:00:00Z",
+                "2026-12-31T09:00:00Z",
+                400,
+                {
+                    "code": "invalid_scheduled_at",
+                    "attr": "scheduled_at",
+                    "why": "scheduled_at is more than 30 days after the email was created.",
+                },
+                "over_30d",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-11-12T12:00:00Z", tick=False)
+    def test_schedules_a_send_for_the_time_it_names(
+        self, mock_post, _flag, capture, _name, route, scheduled_at, cdp_receives, status_code, expected, bucket
+    ):
+        psak = self._psak_client(["transactional_email:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            if route == "code":
+                response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
+            else:
+                response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
+
+        assert response.status_code == status_code, response.json()
+        assert {key: response.json()[key] for key in expected} == expected
+        received = [datetime.fromisoformat(payload["scheduled_at"]) for payload in cdp.received]
+        assert received == [datetime.fromisoformat(cdp_receives)]
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["scheduled"], reported["lead_time_bucket"]) == (bucket != "now", bucket)
+
+    def test_a_retry_after_the_scheduled_time_answers_queued(self, mock_post, _flag, _capture):
+        psak = self._psak_client(["transactional_email:write"])
+        body = {**self.body, "scheduled_at": "2026-11-12T13:00:00Z"}
+        headers = {"Idempotency-Key": "reminder:user-1"}
+
+        with (
+            time_machine.travel("2026-11-12T12:00:00Z", tick=False) as traveller,
+            FakeCdpApi().serving(mock_post) as cdp,
+        ):
+            first = self._send(psak, "send_email", body, headers=headers)
+            traveller.shift(timedelta(hours=2))
+            retry = self._send(psak, "send_email", body, headers=headers)
+
+        fields = ("status", "scheduled_at", "replayed")
+        assert [response.status_code for response in (first, retry)] == [202, 202], retry.json()
+        assert [{key: response.json()[key] for key in fields} for response in (first, retry)] == [
+            {"status": "scheduled", "scheduled_at": "2026-11-12T13:00:00Z", "replayed": False},
+            {"status": "queued", "scheduled_at": None, "replayed": True},
+        ]
+        assert retry.json()["message_id"] == first.json()["message_id"]
+        assert len(cdp.received) == 2
 
     @parameterized.expand(
         [
@@ -1161,7 +1266,12 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == 202, response.json()
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
-        assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert response.json() == {
+            "message_id": "first-send",
+            "status": "queued",
+            "scheduled_at": None,
+            "replayed": True,
+        }
 
     @parameterized.expand(
         [
