@@ -770,8 +770,8 @@ class TestClientBuildSkewMiddleware(SimpleTestCase):
         status_code: int,
         expected_labels: tuple[str, str] | None,
     ) -> None:
-        headers = {"HTTP_X_POSTHOG_CLIENT_BUILD": client_build} if client_build else {}
-        request = RequestFactory().get("/api/projects/2/insights/", **headers)
+        headers = {"X-PostHog-Client-Build": client_build} if client_build else None
+        request = RequestFactory().get("/api/projects/2/insights/", headers=headers)
         counts_before = self._skew_counts()
 
         response = ClientBuildSkewMiddleware(lambda request: HttpResponse(status=status_code))(request)

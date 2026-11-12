@@ -585,27 +585,16 @@ describe('API helper', () => {
 
         afterEach(() => {
             window.POSTHOG_APP_CONTEXT = existingAppContext
-            window.localStorage.removeItem(OAUTH_SESSION_KEY)
         })
 
-        it('sends the frontend build with session-authenticated requests', async () => {
+        it('sends the frontend build with same-origin requests', async () => {
             await api.get('/api/projects/2/insights/')
             const [, options] = fakeFetch.mock.calls[0]
             expect(options.headers['X-PostHog-Client-Build']).toEqual('abc123def0')
         })
 
-        it('omits the frontend build in OAuth mode, where the CORS allowlist would fail the preflight', async () => {
-            window.localStorage.setItem(
-                OAUTH_SESSION_KEY,
-                JSON.stringify({
-                    backendHost: 'https://us.posthog.com',
-                    clientId: 'client',
-                    accessToken: 'oauth-token',
-                    refreshToken: 'refresh',
-                    expiresAt: 9999999999999,
-                })
-            )
-            await api.get('/api/projects/2/insights/')
+        it('omits the frontend build on cross-origin requests, whose CORS allowlists do not include it', async () => {
+            await api.get('https://agent-proxy.example.com/v1/runs/1/stream')
             const [, options] = fakeFetch.mock.calls[0]
             expect(options.headers['X-PostHog-Client-Build']).toBeUndefined()
         })
