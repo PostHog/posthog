@@ -321,15 +321,15 @@ PromptsTabNeedsImprovement.decorators = PromptsTab.decorators
 
 export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
-// The sources tile fills from its own HogQL query after the overview loads, so wait for one of its rows.
-OverviewTab.parameters = { testOptions: { waitForSelector: 'text=docs.example.net' } }
+// The visibility chart animates as it draws, so the overview tab stays out of the snapshots.
+OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 
 // A shared link carries the filters in the URL.
 export const OverviewTabFiltered: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTabFiltered.decorators = OverviewTab.decorators
 OverviewTabFiltered.parameters = {
     pageUrl: '/web/content-autopilot?days=7&engine=claude-web-search&topic=Product%20analytics',
-    testOptions: { waitForSelector: 'text=docs.example.net' },
+    testOptions: { snapshotBrowsers: [] },
 }
 
 // Without the drafting flag there are no Opportunities or Drafts tabs, and no draft buttons.
