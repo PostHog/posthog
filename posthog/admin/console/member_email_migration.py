@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.db.models.functions import Lower
 
 import structlog
 from rest_framework import serializers
@@ -91,7 +92,12 @@ class MemberEmailMigration:
         verified = self.verified_domains(self.organization)
         # Legacy accounts can differ only by case, so one folded address can hold more than one member.
         members: dict[str, list[User]] = {}
-        for member in self.organization.members.all():
+        typed = {request.current_email for request in self.requested}
+        # Load only the members on the list. The exact match covers an address that Python and Postgres fold differently.
+        listed = self.organization.members.alias(lower_email=Lower("email")).filter(
+            Q(lower_email__in={email.lower() for email in typed}) | Q(email__in=typed)
+        )
+        for member in listed:
             members.setdefault(member.email.lower(), []).append(member)
         seen_users: set[int] = set()
         seen_targets: set[str] = set()
@@ -138,7 +144,6 @@ class MemberEmailMigration:
                     )
                 )
                 continue
-            revoke_other_sessions(change.user, keep_session_key=None)
             if change.user.pending_email:
                 email_verification_code_verifier.invalidate(change.user)
             if notify:
@@ -172,6 +177,8 @@ class MemberEmailMigration:
                 user.save(update_fields=["email", "pending_email"])
                 # Delete social auth so the identity at the old provider can't keep logging in.
                 UserSocialAuth.objects.filter(user=user).delete()
+                # In the same transaction, so an email never changes while the old sessions stay signed in.
+                revoke_other_sessions(user, keep_session_key=None)
                 # The same entry ModelAdmin.log_change writes, so the history on the user's Django admin
                 # page shows the change. It commits with the change, so no change is left without history.
                 LogEntry.objects.log_actions(
