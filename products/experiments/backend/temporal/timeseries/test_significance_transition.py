@@ -11,6 +11,8 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.experiments.backend.temporal.timeseries.utils import check_significance_transition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+_UTILS_MODULE = "products.experiments.backend.temporal.timeseries.utils"
+
 METRIC_DICT = {
     "uuid": "metric-123",
     "metric_type": "mean",
@@ -64,7 +66,7 @@ class TestCheckSignificanceTransition(BaseTest):
             ("previous_significant_new_not_significant", ["test"], [], False),
         ]
     )
-    @patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event")
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
     def test_significance_transition(
         self,
         _name: str,
@@ -119,7 +121,7 @@ class TestCheckSignificanceTransition(BaseTest):
         else:
             mock_produce.assert_not_called()
 
-    @patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event")
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
     def test_only_newly_significant_variants_fire(self, mock_produce: MagicMock) -> None:
         experiment = self._create_experiment()
         metric_uuid = "metric-123"
@@ -153,7 +155,7 @@ class TestCheckSignificanceTransition(BaseTest):
             ("decrease_goal", "decrease", "decrease", "1%"),
         ]
     )
-    @patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event")
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
     def test_goal_direction_and_chance_to_win(
         self,
         _name: str,
@@ -297,7 +299,7 @@ class TestCheckSignificanceTransition(BaseTest):
             ),
         ]
     )
-    @patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event")
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
     def test_relative_change_matches_results_page_per_metric_kind(
         self,
         _name: str,
@@ -325,7 +327,7 @@ class TestCheckSignificanceTransition(BaseTest):
         assert event.properties["relative_change"] == expected_relative_change
 
     @parameterized.expand([("increase",), ("decrease",)])
-    @patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event")
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
     def test_missing_chance_to_win_reports_na(self, goal: str, mock_produce: MagicMock) -> None:
         # Frequentist results have no chance_to_win; it must not be inverted into a fabricated 100%
         flag = FeatureFlag.objects.create(team=self.team, key=f"test-flag-na-{goal}", created_by=self.user)
@@ -353,7 +355,7 @@ class TestCheckSignificanceTransition(BaseTest):
         )
         assert event.properties["chance_to_win"] == "N/A"
 
-    @patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event")
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
     def test_metric_name_fallback_to_event_name(self, mock_produce: MagicMock) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,

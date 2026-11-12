@@ -24,6 +24,8 @@ from products.experiments.backend.temporal.timeseries.activities import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+_ACTIVITIES_MODULE = "products.experiments.backend.temporal.timeseries.activities"
+
 METRIC_UUID = "metric-uuid-1"
 METRIC = {"metric_type": "mean", "uuid": METRIC_UUID, "source": {"kind": "EventsNode", "event": "test"}}
 SAVED_FUNNEL: dict[str, Any] = {
@@ -73,7 +75,7 @@ class TestDiscoveryFingerprints:
     ) -> None:
         experiment, _ = self._create_experiment(only_count_matured_users=only_count_matured_users)
 
-        with patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"):
+        with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
             results = _raw_regular_sync(hour=2)
 
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
@@ -92,7 +94,7 @@ class TestDiscoveryFingerprints:
         )
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
 
-        with patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"):
+        with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
             results = _raw_saved_sync(hour=2)
 
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
@@ -112,7 +114,7 @@ class TestDiscoveryFingerprints:
             experiment_ids.add(experiment.id)
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             CaptureQueriesContext(connection) as queries,
         ):
             results = discover(hour=2)
@@ -147,10 +149,8 @@ class TestDiscoveryFingerprints:
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata=metadata)
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
-            patch(
-                "products.experiments.backend.temporal.timeseries.activities.ExperimentQueryRunner"
-            ) as mock_runner_class,
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.ExperimentQueryRunner") as mock_runner_class,
         ):
             mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
             mock_runner_class.return_value.calculation_config = get_metric_calculation_config(

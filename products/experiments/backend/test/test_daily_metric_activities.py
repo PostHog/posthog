@@ -35,6 +35,9 @@ from products.experiments.backend.temporal.timeseries.activities import (
 )
 from products.experiments.backend.temporal.timeseries.models import TIMESERIES_METRIC_MAX_ATTEMPTS
 
+_ACTIVITIES_MODULE = "products.experiments.backend.temporal.timeseries.activities"
+_UTILS_MODULE = "products.experiments.backend.temporal.timeseries.utils"
+
 # A recalculation of the experiment can hold the daily window under its own fingerprint. The daily write must take
 # that row over instead of failing on the (experiment, metric_uuid, query_to) unique constraint.
 _WINDOW_HOLDERS = [("free_window", None), ("window_held_by_another_fingerprint", "recalculation-fingerprint")]
@@ -56,9 +59,7 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
     @contextmanager
     def _mocked_runner(self, experiment: Experiment, metric_uuid: str) -> Iterator[MagicMock]:
         # The activity compares the key of the runner's settings with the queued key before it runs the query.
-        with patch(
-            "products.experiments.backend.temporal.timeseries.activities.ExperimentQueryRunner"
-        ) as mock_runner_class:
+        with patch(f"{_ACTIVITIES_MODULE}.ExperimentQueryRunner") as mock_runner_class:
             mock_runner_class.return_value.calculation_config = get_metric_calculation_config(experiment, metric_uuid)
             yield mock_runner_class
 
@@ -91,7 +92,7 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         self._hold_window(experiment.id, metric_dict["uuid"], expected_query_to, holder)
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             self._mocked_runner(experiment, metric_dict["uuid"]) as mock_runner_class,
         ):
             mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
@@ -138,7 +139,7 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         self._hold_window(experiment.id, metric_dict["uuid"], expected_query_to, holder)
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             self._mocked_runner(experiment, metric_dict["uuid"]) as mock_runner_class,
         ):
             mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
@@ -208,9 +209,9 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
             "variant_results": [{"key": "test", "significant": True, "chance_to_win": 0.99}]
         }
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             patch.object(ExperimentQueryRunner, "run", return_value=significant_result),
-            patch("products.experiments.backend.temporal.timeseries.utils.produce_internal_event") as mock_produce,
+            patch(f"{_UTILS_MODULE}.produce_internal_event") as mock_produce,
         ):
             activity_result = _ACTIVITY_FOR_KIND[kind].func(experiment.id, metric_dict["uuid"], queued_key)  # type: ignore[attr-defined]
 
@@ -261,7 +262,7 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         computed.model_dump.return_value = {"variant_results": []}
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             patch.object(ExperimentQueryRunner, "run", return_value=computed),
         ):
             activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
@@ -287,11 +288,9 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             self._mocked_runner(experiment, metric_dict["uuid"]) as mock_runner_class,
-            patch(
-                "products.experiments.backend.temporal.timeseries.activities.capture_experiment_metric_error_event"
-            ) as mock_event,
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
         ):
             mock_runner_class.return_value.run.side_effect = ValidationError("compound expressions not supported")
 
@@ -328,11 +327,9 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         )
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             self._mocked_runner(experiment, metric_dict["uuid"]) as mock_runner_class,
-            patch(
-                "products.experiments.backend.temporal.timeseries.activities.capture_experiment_metric_error_event"
-            ) as mock_event,
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
         ):
             mock_runner_class.return_value.run.side_effect = ValidationError("compound expressions not supported")
 
@@ -359,11 +356,9 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             self._mocked_runner(experiment, metric_dict["uuid"]) as mock_runner_class,
-            patch(
-                "products.experiments.backend.temporal.timeseries.activities.capture_experiment_metric_error_event"
-            ) as mock_event,
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
         ):
             mock_runner_class.return_value.run.side_effect = Exception("transient query failure")
 
@@ -406,11 +401,9 @@ class TestDailyMetricActivities(ExperimentQueryRunnerBaseTest):
         )
 
         with (
-            patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"),
+            patch(f"{_ACTIVITIES_MODULE}.close_old_connections"),
             self._mocked_runner(experiment, metric_dict["uuid"]) as mock_runner_class,
-            patch(
-                "products.experiments.backend.temporal.timeseries.activities.capture_experiment_metric_error_event"
-            ) as mock_event,
+            patch(f"{_ACTIVITIES_MODULE}.capture_experiment_metric_error_event") as mock_event,
         ):
             mock_runner_class.return_value.run.side_effect = Exception("transient query failure")
 

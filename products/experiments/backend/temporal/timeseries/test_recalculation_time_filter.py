@@ -15,6 +15,8 @@ from products.experiments.backend.temporal.timeseries.activities import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+_ACTIVITIES_MODULE = "products.experiments.backend.temporal.timeseries.activities"
+
 
 def _create_running_experiment(team, user, flag_key, metrics=None):
     flag = FeatureFlag.objects.create(team=team, key=flag_key, created_by=user)
@@ -35,12 +37,12 @@ _raw_saved_sync = _get_experiment_saved_metrics_for_hour_sync.func  # type: igno
 
 
 def _get_metrics_sync(hour):
-    with patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"):
+    with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
         return _raw_sync(hour)
 
 
 def _get_saved_metrics_sync(hour):
-    with patch("products.experiments.backend.temporal.timeseries.activities.close_old_connections"):
+    with patch(f"{_ACTIVITIES_MODULE}.close_old_connections"):
         return _raw_saved_sync(hour)
 
 
