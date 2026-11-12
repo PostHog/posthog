@@ -1,4 +1,4 @@
-import { rewriteAgentObjectTags } from './rewriteAgentObjectTags'
+import { escapeRawHtmlTags, rewriteAgentObjectTags } from './rewriteAgentObjectTags'
 
 const BASE = '/project/2'
 const APP = window.location.origin
@@ -133,5 +133,30 @@ describe('rewriteAgentObjectTags', () => {
 
     it('links project-relative when no project base is known', () => {
         expect(rewriteAgentObjectTags('<insight id="a">x</insight>', '')).toBe('[x](/insights/a)')
+    })
+
+    it('keeps a trailing partial tag in complete text', () => {
+        expect(rewriteAgentObjectTags('keep <insight', BASE)).toBe('keep ')
+        expect(rewriteAgentObjectTags('keep <insight', BASE, { streaming: false })).toBe('keep <insight')
+    })
+
+    describe('escapeRawHtmlTags', () => {
+        it.each([
+            ['an unknown tag', 'keep <example> intact', 'keep \\<example> intact'],
+            ['a closing tag', 'keep </example> intact', 'keep \\</example> intact'],
+            ['a tag with attributes', '<div class="a">x</div>', '\\<div class="a">x\\</div>'],
+            ['a self-closing tag', 'line<br/>break', 'line\\<br/>break'],
+            ['a comment', 'a <!-- note --> b', 'a \\<!-- note --> b'],
+            ['a tag after an even backslash run', 'a \\\\<example>', 'a \\\\\\<example>'],
+            ['a tag already escaped', 'a \\<example>', 'a \\<example>'],
+            ['inline code', 'use `<example>` here', 'use `<example>` here'],
+            ['a fenced block', '```html\n<example>\n```', '```html\n<example>\n```'],
+            ['a url autolink', 'see <https://example.com/a?b=1>', 'see <https://example.com/a?b=1>'],
+            ['an email autolink', 'mail <me@example.com>', 'mail <me@example.com>'],
+            ['a comparison', 'if a < b and c > d', 'if a < b and c > d'],
+            ['text with no tag', 'plain text', 'plain text'],
+        ])('handles %s', (_, text, expected) => {
+            expect(escapeRawHtmlTags(text)).toBe(expected)
+        })
     })
 })

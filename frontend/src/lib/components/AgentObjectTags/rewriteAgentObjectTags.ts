@@ -42,6 +42,10 @@ const RE_BARE_ID = /^[\w$.:-]{1,64}$/
 const RE_STANDALONE_LINK = /^\[([^[\]\n]*)\]\((?:<([^<>\n]*)>|(\S+?))(?:[ \t]+"([^"\n]*)")?\)[ \t]*$/
 const RE_SQL_EDITOR_PATH = /^(?:\/project\/\d+)?\/sql$/
 const RE_PARTIAL_OPEN_TAG = /^<(?:[a-z][\w-]*(?:\s[^>]*)?)?$/
+// Either a CommonMark autolink (`<https://example.com>`, `<me@example.com>`), which the first
+// branch matches so it stays untouched, or a `<` that starts raw HTML. Group 1 is the backslash
+// run before the `<`.
+const RE_RAW_HTML_START = /<(?:[a-z][a-z0-9+.-]{1,31}:[^\s<>]*|[^\s<>@\\]+@[^\s<>]+)>|(\\*)<(?=[a-z/!?])/gi
 
 // Only the five entities the desktop composer's XML serializer emits (`escapeXmlAttr`);
 // the full HTML entity table would rewrite SQL literals such as `'&copy;'`.
@@ -459,8 +463,15 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
  * `projectBase` is the app path every object link hangs off, e.g. `/project/2`.
  * Text with no tags passes through unchanged, so the transform is safe to run
  * on every render, including on text it already rewrote.
+ *
+ * A trailing tag that may still be streaming in is held back from the output.
+ * Pass `streaming: false` for text that is complete, so that text is kept whole.
  */
-export function rewriteAgentObjectTags(text: string, projectBase: string): string {
+export function rewriteAgentObjectTags(
+    text: string,
+    projectBase: string,
+    { streaming = true }: { streaming?: boolean } = {}
+): string {
     text = expandStandaloneSqlLinks(text)
     if (!text.includes('<')) {
         return text
@@ -470,7 +481,7 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
     // Complete tags all end before the held region starts, so the slice below
     // cannot invalidate them.
     const searchFrom = tags.length > 0 ? tags[tags.length - 1].end : 0
-    const held = heldSuffixStart(text, spans, searchFrom)
+    const held = streaming ? heldSuffixStart(text, spans, searchFrom) : null
     if (held !== null && text.length - held <= MAX_HELD_SUFFIX) {
         text = text.slice(0, held)
     }
@@ -511,4 +522,23 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
         rest = '\n\n' + rest.replace(/^\n+/, '')
     }
     return output + rest
+}
+
+/**
+ * Escape every `<` that starts raw HTML, so the markdown renderer shows the tag
+ * as text. The renderer drops raw HTML nodes (`skipHtml`), which removes text
+ * such as `<example>` that a person typed. Code spans and fenced blocks already
+ * render literally, and autolinks are not HTML, so both stay untouched.
+ */
+export function escapeRawHtmlTags(text: string): string {
+    if (!text.includes('<')) {
+        return text
+    }
+    const spans = scanCode(text)
+    return text.replace(RE_RAW_HTML_START, (match: string, backslashes: string | undefined, offset: number) => {
+        if (backslashes === undefined || backslashes.length % 2 === 1 || inSpan(offset + backslashes.length, spans)) {
+            return match
+        }
+        return `${backslashes}\\<`
+    })
 }
