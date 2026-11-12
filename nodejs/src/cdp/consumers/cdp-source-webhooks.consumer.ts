@@ -253,11 +253,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<HogFlowTriggerOutcome> {
-        if (await this.isHogFlowQuotaLimited(hogFlow)) {
-            await this.hogFunctionMonitoringService.flush()
-            throw new SourceWebhookError(429, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
-        }
-
         const idempotencyKey = this.getIdempotencyKey(request, hogFlow)
         // A key belongs to one workflow, so the same key on two workflows starts a run on each.
         const scopedIdempotencyKey = idempotencyKey ? `${hogFlow.id}/${idempotencyKey}` : null
@@ -386,6 +381,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                             hog_flow_id: hogFlow.id,
                         })
                     }
+                }
+
+                if (await this.isHogFlowQuotaLimited(hogFlow)) {
+                    if (scopedIdempotencyKey) {
+                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
+                    }
+                    functionResult.finished = false
+                    functionResult.execResult = {
+                        httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
+                    }
+                    return { result: functionResult, queuedInvocationId: null }
                 }
 
                 addMetric({

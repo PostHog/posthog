@@ -669,6 +669,39 @@ describe('SourceWebhooksConsumer', () => {
                     )
                 })
 
+                it('answers duplicate for a repeated key after the team goes over its workflow quota', async () => {
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    const first = await postWithKey(billableHogFlow.id, 'escalation-quota')
+                    jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    const second = await postWithKey(billableHogFlow.id, 'escalation-quota')
+
+                    expect(first.status).toEqual(201)
+                    expect(second.status).toEqual(200)
+                    expect(second.body.status).toEqual('duplicate')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                })
+
+                it('releases a key refused over quota so a retry queues the run once under quota', async () => {
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    const quotaSpy = jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+
+                    const refused = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
+                    quotaSpy.mockResolvedValue(false)
+                    const retried = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
+
+                    expect(refused.status).toEqual(429)
+                    expect(retried.status).toEqual(201)
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                })
+
                 it('queues a run on each workflow that receives the same key', async () => {
                     const otherHogFlow = await insertSecondHogFlow()
 
@@ -955,6 +988,25 @@ describe('SourceWebhooksConsumer', () => {
                         distinct_id: 'user@example.com',
                     })
                     expect(invocation.state.variables).toEqual({ greeting: 'Hello' })
+                })
+
+                it('refuses a run over the workflow quota with the quota reason', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...manualHogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+
+                    const res = await doManualRequest(team.id, billableHogFlow.id, {
+                        user_id: 'user@example.com',
+                        variables: {},
+                    })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body.error).toContain('The project is over its workflow quota')
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
                 })
 
                 type RefusalCase = {
