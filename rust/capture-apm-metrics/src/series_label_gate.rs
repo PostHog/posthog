@@ -43,7 +43,10 @@ const PULL_OVERLAP_SECS: i64 = 60;
 /// that a full seed of millions of series takes hundreds of calls, not tens
 /// of thousands.
 const PULL_PAGE_SIZE: usize = 50_000;
-const WRITER_CHANNEL_CAPACITY: usize = 10_000;
+/// Series waiting for the writer. One remote-write request can carry tens of
+/// thousands of new series, and every one that finds the queue full is never
+/// shared with other pods. 16 bytes each, so this is under 2 MB.
+const WRITER_CHANNEL_CAPACITY: usize = 100_000;
 const WRITER_BATCH_SIZE: usize = 500;
 const WRITER_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(300);
@@ -80,6 +83,8 @@ struct PullStats {
     /// Sum of member lengths: the payload bytes, without RESP framing.
     bytes: u64,
     merged: usize,
+    /// Members this pod already had, moved forward to the pull's `since`.
+    refreshed: u64,
     cache_full: u64,
 }
 
@@ -357,8 +362,12 @@ impl SeriesLabelGate {
     }
 
     /// Merge the series with a score at or after `since` into the cache. A
-    /// series this pod already knows keeps its exact local timestamp; a series
-    /// another pod labelled is recorded as seen now. Returns how many were new.
+    /// series another pod labelled is recorded as seen now. A series this pod
+    /// already knows moves forward to `since` when its own timestamp is older:
+    /// some pod labelled it at or after `since`, so the next label is due one
+    /// window after that, not one window after this pod's own label. Without
+    /// that every pod relabels every series once per window on its own clock.
+    /// Returns how many were new.
     ///
     /// Reads in pages and merges each page as it arrives, so a `budget` that
     /// runs out loses only the pages not yet read.
@@ -438,7 +447,7 @@ impl SeriesLabelGate {
                 stats.pages += 1;
                 stats.members_read += page_len as u64;
                 stats.bytes += page.iter().map(|m| m.len() as u64).sum::<u64>();
-                self.merge_members(page, now, stats);
+                self.merge_members(page, since, now, stats);
                 if page_len < page_size {
                     break;
                 }
@@ -448,13 +457,23 @@ impl SeriesLabelGate {
         Ok(())
     }
 
-    fn merge_members(&self, members: Vec<String>, now: i64, stats: &mut PullStats) {
+    fn merge_members(&self, members: Vec<String>, since: i64, now: i64, stats: &mut PullStats) {
         for member in members {
             let Ok(key) = member.parse::<u64>() else {
                 continue;
             };
-            let dashmap::Entry::Vacant(slot) = self.cache.entry(key) else {
-                continue;
+            let slot = match self.cache.entry(key) {
+                dashmap::Entry::Occupied(mut slot) => {
+                    // `since` is a lower bound on the member's score, so this
+                    // never moves a series past its real last label.
+                    let entry = slot.get_mut();
+                    if entry.last_seen < since {
+                        entry.last_seen = since;
+                        stats.refreshed += 1;
+                    }
+                    continue;
+                }
+                dashmap::Entry::Vacant(slot) => slot,
             };
             if self.reserve(None).is_err() {
                 stats.cache_full += 1;
@@ -485,17 +504,21 @@ impl SeriesLabelGate {
             loop {
                 ticker.tick().await;
                 let started = (gate.clock)();
-                match gate
+                let result = gate
                     .pull_from_redis(client.as_ref(), PullKind::Periodic, since, timeout)
-                    .await
-                {
+                    .await;
+                // Advance even when the pull failed or ran out of budget. Pages
+                // are read oldest first, so a `since` left behind makes every
+                // later pull re-read the same old members and run out of budget
+                // before reaching new ones, and pods stop learning each other's
+                // series. Members skipped this way only cost extra labels.
+                since = started - PULL_OVERLAP_SECS;
+                match result {
                     Ok(merged) => {
                         debug!("Pulled {merged} new series from Redis");
                         timeouts.reset();
-                        since = started - PULL_OVERLAP_SECS;
                     }
                     Err(e) => {
-                        // `since` stays put, so the next tick re-reads the gap.
                         debug!("Series label pull from Redis failed: {e}");
                         match &e {
                             PullError::Timeout { .. }
@@ -633,6 +656,8 @@ fn record_pull(kind: PullKind, outcome: &'static str, stats: &PullStats, elapsed
         .increment(stats.members_read);
     counter!("capture_metrics_series_redis_pull_bytes", "kind" => kind).increment(stats.bytes);
     counter!("capture_metrics_series_redis_pulled", "kind" => kind).increment(stats.merged as u64);
+    counter!("capture_metrics_series_redis_pull_refreshed", "kind" => kind)
+        .increment(stats.refreshed);
     if stats.cache_full > 0 {
         counter!("capture_metrics_series_cache_full", "source" => "pull", "cap" => Cap::Global.as_str())
             .increment(stats.cache_full);
@@ -1137,6 +1162,67 @@ mod tests {
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
         assert_stripped(&rows[1]);
+    }
+
+    #[tokio::test]
+    async fn pull_moves_a_known_series_forward_when_another_pod_relabelled_it() {
+        let (gate, now, _) = gate(true, false);
+        let key = gate_key("token-a", 7);
+        let window = gate.window_for(key);
+
+        // This pod labels the series at START.
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+
+        // Just past this pod's window, another pod has already relabelled it.
+        // The pull reads members scored at or after `since`, so that label is
+        // no older than `since`.
+        let since = START + window - 30;
+        now.store(START + window + 30, Ordering::SeqCst);
+        let mut client = MockRedisClient::new();
+        for bucket in bucket_keys(since, START + window + 30) {
+            client = client.zrangebyscore_ret(&bucket, vec![]);
+        }
+        let client =
+            client.zrangebyscore_ret(&bucket_key(START + window + 30), vec![key.to_string()]);
+        let merged = gate
+            .pull_from_redis(&client, PullKind::Periodic, since, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(merged, 0);
+        assert_eq!(gate.seen_at(key), Some(since));
+
+        // This pod no longer sends its own copy of the labels.
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_stripped(&rows[0]);
+
+        // One window after `since` it labels again, so the gap between labelled
+        // rows never exceeds the window.
+        now.store(since + window, Ordering::SeqCst);
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+    }
+
+    #[tokio::test]
+    async fn pull_never_moves_a_known_series_backwards() {
+        let (gate, now, _) = gate(true, false);
+        let key = gate_key("token-a", 7);
+        now.store(START + 600, Ordering::SeqCst);
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+
+        let mut client = MockRedisClient::new();
+        for bucket in bucket_keys(START, START + 600) {
+            client = client.zrangebyscore_ret(&bucket, vec![]);
+        }
+        let client = client.zrangebyscore_ret(&bucket_key(START + 600), vec![key.to_string()]);
+        gate.pull_from_redis(&client, PullKind::Periodic, START, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(gate.seen_at(key), Some(START + 600));
     }
 
     #[tokio::test]
