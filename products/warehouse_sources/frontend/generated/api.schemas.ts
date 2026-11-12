@@ -990,10 +990,13 @@ export const EngineEnumApi = {
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
-    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
     enabled?: boolean
-    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
     include_invoiceless_charges?: boolean
+}
+
+export interface SourceUpdatePayloadApi {
+    /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+    credential_id: string
 }
 
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -1086,6 +1089,8 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -1320,6 +1325,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning?: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -1548,13 +1555,6 @@ export interface ExternalDataJobSerializersApi {
     readonly billable: boolean | null
     /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
     readonly destination_ids: readonly string[]
-}
-
-export interface PatchedExternalDataSourceRevenueAnalyticsConfigApi {
-    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
-    enabled?: boolean
-    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
-    include_invoiceless_charges?: boolean
 }
 
 /**
@@ -2059,7 +2059,7 @@ export interface SourceCredentialCreateApi {
 }
 
 export interface SourceCredentialApi {
-    /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+    /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
     credential_id: string
     /** The source type the stored credentials are for. */
     source_type: string
