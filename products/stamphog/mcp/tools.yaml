@@ -233,7 +233,7 @@ tools:
             its `pull_request`: title, author, url, `merged_at`, and the size once merged. To answer "why was my team
             not asked to review", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as
             `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to
-            keep only the runs where that owner got it, and `created_after` or `created_before` to set a time window.
+            keep only the runs where that owner got it (comma-separate `outcome` to accept any of several), and `created_after` or `created_before` to set a time window.
             `head_sha` finds the run for one commit. `latest_per_pr=true` keeps one run per pull request: it picks each
             pull request's newest run over its whole history first, and every other filter (owner, outcome, reason,
             head_sha, created_*, merged*, repository, pr_number) then applies to that run, so a pull request whose

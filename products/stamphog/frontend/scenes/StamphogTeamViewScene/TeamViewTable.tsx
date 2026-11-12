@@ -125,7 +125,7 @@ export function TeamViewTable(): JSX.Element {
                 {runsResponseLoading || !runsResponse ? (
                     <span>Loading pull requests</span>
                 ) : (
-                    <span data-attr="stamphog-team-view-count">{`${pullRequestCount} ${pullRequestCount === 1 ? 'pull request' : 'pull requests'}`}</span>
+                    <span data-attr="stamphog-team-view-count">{pluralize(pullRequestCount, 'pull request')}</span>
                 )}
             </div>
             <LemonTable

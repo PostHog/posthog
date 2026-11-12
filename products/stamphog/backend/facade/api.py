@@ -797,15 +797,15 @@ def _filter_by_merge(
 
 
 def _runs_deciding_about(
-    team_id: int, *, owner: str | None, outcome: RoutingOwnerOutcome | None, reason: RoutingOwnerReason | None
+    team_id: int, *, owner: str | None, outcomes: list[RoutingOwnerOutcome] | None, reason: RoutingOwnerReason | None
 ) -> QuerySet:
     # One subquery on the owners table, so a run that cut one owner and requested another never
     # matches `owner` plus `outcome` across two rows. The (team_id, owner) index answers `owner`.
     owners = RoutingRunOwner.objects.for_team(team_id, canonical=True)
     if owner:
         owners = owners.filter(owner=owner)
-    if outcome:
-        owners = owners.filter(outcome=outcome)
+    if outcomes:
+        owners = owners.filter(outcome__in=outcomes)
     if reason:
         owners = owners.filter(reason=reason)
     return owners.values("run_id")
@@ -817,7 +817,7 @@ def list_routing_runs(
     repository: str | None = None,
     pr_number: int | None = None,
     owner: str | None = None,
-    outcome: RoutingOwnerOutcome | None = None,
+    outcome: list[RoutingOwnerOutcome] | None = None,
     reason: RoutingOwnerReason | None = None,
     head_sha: str | None = None,
     created_after: datetime | None = None,
@@ -831,7 +831,7 @@ def list_routing_runs(
     """The team's reviewer routing runs, each with its decision for every owner but no file lists.
 
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
-    `outcome` and `reason` keep the runs where one owner row has them, the same row as `owner` when it is set.
+    `outcome` (any of several) and `reason` keep the runs where one owner row has them, the same row as `owner` when it is set.
     `latest_per_pr` picks each pull request's newest run first, and every other filter then applies to that
     run, so a pull request whose newest run fails a filter drops out rather than falling back to an older run.
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
@@ -863,7 +863,7 @@ def list_routing_runs(
         qs = qs.filter(created_at__lt=created_before)
     qs = _filter_by_merge(qs, merged=merged, merged_after=merged_after, merged_before=merged_before)
     if owner or outcome or reason:
-        qs = qs.filter(id__in=_runs_deciding_about(team_id, owner=owner, outcome=outcome, reason=reason))
+        qs = qs.filter(id__in=_runs_deciding_about(team_id, owner=owner, outcomes=outcome, reason=reason))
     return LazyDTOList(qs, _routing_run_to_dto)
 
 

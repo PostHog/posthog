@@ -140809,17 +140809,9 @@ export namespace Schemas {
      */
     ordering?: StamphogRoutingRunsListOrdering;
     /**
-     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
-     *
-     * * `requested` - Requested
-     * * `labeled` - Labeled
-     * * `refused` - Refused by GitHub
-     * * `cut` - Cut
-     * * `not_requested` - Not requested
-     * * `already_requested` - Already requested
-     * @minLength 1
+     * Keep only runs where an owner got one of these outcomes. Pass several as a comma-separated list or repeat the parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
      */
-    outcome?: StamphogRoutingRunsListOutcome;
+    outcome?: StamphogRoutingRunsListOutcomeItem[];
     /**
      * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
@@ -140858,10 +140850,18 @@ export namespace Schemas {
       MergedAt: '-merged_at',
     } as const;
 
-    export type StamphogRoutingRunsListOutcome = typeof StamphogRoutingRunsListOutcome[keyof typeof StamphogRoutingRunsListOutcome];
+    /**
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     */
+    export type StamphogRoutingRunsListOutcomeItem = typeof StamphogRoutingRunsListOutcomeItem[keyof typeof StamphogRoutingRunsListOutcomeItem];
 
 
-    export const StamphogRoutingRunsListOutcome = {
+    export const StamphogRoutingRunsListOutcomeItem = {
       Requested: 'requested',
       Labeled: 'labeled',
       Refused: 'refused',

@@ -285,10 +285,16 @@ export const StamphogRoutingRunsListQueryParams = () => zod.object({
             "'-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, then the newest run, with unmerged pull requests last.\n\n\* `-created_at` - Newest run first\n\* `-merged_at` - Newest merge first"
         ),
     outcome: zod
-        .enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested'])
+        .array(
+            zod
+                .enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested'])
+                .describe(
+                    '\* `requested` - Requested\n\* `labeled` - Labeled\n\* `refused` - Refused by GitHub\n\* `cut` - Cut\n\* `not_requested` - Not requested\n\* `already_requested` - Already requested'
+                )
+        )
         .optional()
         .describe(
-            'Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.\n\n\* `requested` - Requested\n\* `labeled` - Labeled\n\* `refused` - Refused by GitHub\n\* `cut` - Cut\n\* `not_requested` - Not requested\n\* `already_requested` - Already requested'
+            'Keep only runs where an owner got one of these outcomes. Pass several as a comma-separated list or repeat the parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.'
         ),
     owner: zod
         .string()

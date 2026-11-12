@@ -12,6 +12,8 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
+
 from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
@@ -1026,12 +1028,13 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
             "'team-devex', or a GitHub login such as '@octocat'."
         ),
     )
-    outcome = serializers.ChoiceField(
-        choices=RoutingOwnerOutcome.choices,
+    outcome = RepeatedOrCommaSeparatedListField(
+        child=serializers.ChoiceField(choices=RoutingOwnerOutcome.choices),
         required=False,
         help_text=(
-            "Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so "
-            "`owner=team-devex&outcome=cut` lists the runs that cut team-devex."
+            "Keep only runs where an owner got one of these outcomes. Pass several as a comma-separated list or repeat the parameter. "
+            "With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs "
+            "that cut team-devex."
         ),
     )
     reason = serializers.ChoiceField(

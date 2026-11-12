@@ -3,20 +3,34 @@ import {
     RoutingOwnerReasonEnumApi,
     StamphogRoutingRunApi,
     StamphogRoutingRunOwnerApi,
-    StamphogRoutingRunsListOutcome,
+    StamphogRoutingRunsListOutcomeItem,
 } from '../../generated/api.schemas'
 
 /** The owner outcomes the team view filters on. The other outcomes are rare and stay in the runs API. */
 export type TeamViewOutcome =
-    | typeof StamphogRoutingRunsListOutcome.NotRequested
-    | typeof StamphogRoutingRunsListOutcome.Cut
-    | typeof StamphogRoutingRunsListOutcome.Requested
+    | typeof StamphogRoutingRunsListOutcomeItem.NotRequested
+    | typeof StamphogRoutingRunsListOutcomeItem.Cut
+    | typeof StamphogRoutingRunsListOutcomeItem.Requested
 
 export const TEAM_VIEW_OUTCOME_OPTIONS: { value: TeamViewOutcome; label: string }[] = [
-    { value: StamphogRoutingRunsListOutcome.NotRequested, label: 'Would have been asked' },
-    { value: StamphogRoutingRunsListOutcome.Cut, label: 'Cut by the model' },
-    { value: StamphogRoutingRunsListOutcome.Requested, label: 'Asked' },
+    { value: StamphogRoutingRunsListOutcomeItem.NotRequested, label: 'Would have been asked' },
+    { value: StamphogRoutingRunsListOutcomeItem.Cut, label: 'Cut by the model' },
+    { value: StamphogRoutingRunsListOutcomeItem.Requested, label: 'Asked' },
 ]
+
+/**
+ * What each segment sends as the `outcome` filter. "Asked" also takes the runs where the team was asked on an
+ * earlier run (`already_requested`) or by label on a fork pull request (`labeled`), so no pull request drops out.
+ */
+export const TEAM_VIEW_OUTCOME_FILTER: Record<TeamViewOutcome, StamphogRoutingRunsListOutcomeItem[]> = {
+    [StamphogRoutingRunsListOutcomeItem.NotRequested]: [StamphogRoutingRunsListOutcomeItem.NotRequested],
+    [StamphogRoutingRunsListOutcomeItem.Cut]: [StamphogRoutingRunsListOutcomeItem.Cut],
+    [StamphogRoutingRunsListOutcomeItem.Requested]: [
+        StamphogRoutingRunsListOutcomeItem.Requested,
+        StamphogRoutingRunsListOutcomeItem.AlreadyRequested,
+        StamphogRoutingRunsListOutcomeItem.Labeled,
+    ],
+}
 
 export type TeamViewWindowDays = 7 | 30 | 90
 

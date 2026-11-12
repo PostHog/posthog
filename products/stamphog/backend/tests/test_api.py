@@ -1431,6 +1431,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("by_pull_request", {"pr_number": 2}, [2]),
             ("by_head_sha", {"head_sha": "head-2"}, [2]),
             ("by_outcome", {"outcome": "cut"}, [1]),
+            ("by_any_of_several_outcomes", {"outcome": "cut,requested"}, [2, 1]),
             ("by_reason", {"reason": "model_kept"}, [2]),
             ("by_owner_and_outcome_on_one_owner", {"owner": "team-alpha", "outcome": "cut"}, []),
         ]
