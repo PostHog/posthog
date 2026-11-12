@@ -355,24 +355,46 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
     @parameterized.expand(
         [
-            ("before_any_status_landed", True, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("before_its_cancel_status_landed", True, [("scheduled", 0, "")], [], status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("once_its_cancel_status_landed", True, [("scheduled", 0, "")], [("canceled", 60, "")], status.HTTP_200_OK),
+            ("just_sent_before_any_status_landed", 10, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            (
+                "before_its_cancel_status_landed",
+                3600,
+                [("scheduled", 0, "")],
+                [],
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            (
+                "before_its_queued_cancel_landed",
+                3600,
+                [("queued", 0, "")],
+                [],
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            (
+                "once_its_cancel_status_landed",
+                3600,
+                [("scheduled", 0, "")],
+                [("canceled", 60, "")],
+                status.HTTP_200_OK,
+            ),
             (
                 "after_it_went_out_unchanged",
-                False,
+                3600,
                 [("scheduled", 0, "")],
                 [("sent", 60, "")],
                 status.HTTP_404_NOT_FOUND,
             ),
+            ("with_no_status_long_after_the_send", 3600, [], [], status.HTTP_404_NOT_FOUND),
         ]
     )
     def test_a_retry_after_a_lost_cancel_answer(
-        self, mock_post, _flag, _name, applied, status_rows, later_rows, expected_status
+        self, mock_post, _flag, _name, sent_seconds_ago, status_rows, later_rows, expected_status
     ):
+        self.queued_at = datetime.now(UTC) - timedelta(seconds=sent_seconds_ago)
+        self.message_id = self._message_id(self.queued_at)
         self._job("waiting")
         self._status_rows(status_rows)
-        mock_post.side_effect = self._lose_the_answer(applied)
+        mock_post.side_effect = self._lose_the_answer()
         lost = self.client.post(f"{self._url(self.message_id)}cancel/")
         self.cdp.jobs.pop((self.team.id, self.message_id), None)
         self._status_rows(later_rows)
@@ -382,26 +404,39 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         assert lost.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.status_code == expected_status, response.json()
 
-    def _lose_the_answer(self, applied: bool) -> Any:
+    def test_a_lost_answer_on_a_repeat_cancel_keeps_it_canceled(self, mock_post, _flag):
+        self._job("waiting")
+        self._cancel(mock_post)
+        del self.cdp.jobs[(self.team.id, self.message_id)]
+        mock_post.side_effect = self._lose_the_answer()
+        self.client.post(f"{self._url(self.message_id)}cancel/")
+
+        response = self._cancel(mock_post)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _lose_the_answer(self) -> Any:
         def post(*args: Any, **kwargs: Any) -> requests.Response:
-            if applied:
-                self.cdp.post(*args, **kwargs)
             raise requests.Timeout()
 
         return post
 
-    @parameterized.expand(
-        [
-            ("writing_the_mark", "set", "waiting", []),
-            ("reading_the_mark", "get", None, [("canceled", 60, "")]),
-        ]
-    )
-    def test_a_cancel_survives_a_cache_outage(self, mock_post, _flag, _name, call, job, status_rows):
-        self._job(job)
-        self._status_rows(status_rows)
+    def test_a_cancel_reaches_the_pipeline_when_writing_the_mark_fails(self, mock_post, _flag):
+        self._job("waiting")
 
         with patch(
-            f"products.messaging.backend.services.scheduled_emails.cache.{call}", side_effect=ConnectionError("down")
+            "products.messaging.backend.services.scheduled_emails.cache.set", side_effect=ConnectionError("down")
+        ):
+            response = self._cancel(mock_post)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.cdp.jobs.get((self.team.id, self.message_id)) == "canceled"
+
+    def test_a_repeat_cancel_answers_from_the_status_when_reading_the_mark_fails(self, mock_post, _flag):
+        self._status_rows([("canceled", 60, "")])
+
+        with patch(
+            "products.messaging.backend.services.scheduled_emails.cache.get", side_effect=ConnectionError("down")
         ):
             response = self._cancel(mock_post)
 
@@ -564,6 +599,18 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         responses = self._manage_from_another_project(mock_post)
 
         assert [response.status_code for response in responses] == [404, 404]
+
+    def test_another_projects_retry_after_a_lost_answer_is_not_found(self, mock_post, _flag):
+        self._job("waiting")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_client = self._psak_client(["transactional_email:write"], team=other_team)
+        mock_post.side_effect = self._lose_the_answer()
+        other_client.post(f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/cancel/")
+
+        with self.cdp.serving(mock_post):
+            response = other_client.post(f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/cancel/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def _manage_from_another_project(self, mock_post: MagicMock) -> list[Any]:
         other_team = Team.objects.create(organization=self.organization, name="Other")
