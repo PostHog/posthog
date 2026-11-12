@@ -61,7 +61,6 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
-_SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
@@ -311,6 +310,53 @@ async def test_degraded_report_still_synthesizes(
     assert props["degraded"] is True
     assert props["failed_steps"] == 1
     assert props["query_coverage"] == 0.0
+
+
+def _handler_trace_id(config: object) -> str:
+    assert isinstance(config, dict)
+    (handler,) = config["callbacks"]
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler.trace_id is not None
+    return handler.trace_id
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_SG}.is_privacy_mode_enabled", return_value=False)
+@patch(f"{_SG}.posthoganalytics.default_client", MagicMock(privacy_mode=False))
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_llm_calls_in_one_report_run_share_one_trace(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_privacy: MagicMock, _mock_capture: MagicMock
+) -> None:
+    team, user = MagicMock(id=7), MagicMock(distinct_id="user-1")
+    planner_trace_ids: list[str] = []
+
+    def _plan(**kwargs: object) -> EnrichedPromptSpec:
+        _, config = ai_subscription_llm_tracing(team=team, user=user, stage="plan", trace_correlation_id=None)
+        planner_trace_ids.append(_handler_trace_id(config))
+        return _spec(steps=1)
+
+    mock_bep.side_effect = _plan
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+        charts=[],
+    )
+    synthesis = mock_chat.return_value.with_structured_output.return_value
+    synthesis.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
+
+    for _ in range(2):
+        await generate_ai_report(team=team, user=user, prompt="x", window=_test_window())
+
+    synthesis_trace_ids = [_handler_trace_id(call.kwargs["config"]) for call in synthesis.invoke.call_args_list]
+    assert synthesis_trace_ids == planner_trace_ids
+    assert planner_trace_ids[0] != planner_trace_ids[1]
 
 
 @parameterized.expand(

@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 import contextlib
 import dataclasses
@@ -68,6 +67,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_trace,
     ai_subscription_llm_tracing,
     build_enriched_prompt,
     build_frozen_prompt,
@@ -289,16 +289,19 @@ async def generate_ai_report(
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
-    with slo_operation(
-        spec=SloSpec(
-            distinct_id=str(user.distinct_id),
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
-            team_id=team.id,
-            resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
-        ),
-        properties={"window_start": window.start_literal, "window_end": window.end_literal},
-    ) as slo:
+    with (
+        ai_subscription_llm_trace(),
+        slo_operation(
+            spec=SloSpec(
+                distinct_id=str(user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
+                team_id=team.id,
+                resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
+            ),
+            properties={"window_start": window.start_literal, "window_end": window.end_literal},
+        ) as slo,
+    ):
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
             if ai_query_plan is not None:
@@ -558,7 +561,6 @@ async def _synthesize(
     posthog_properties, llm_config = ai_subscription_llm_tracing(
         team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
     )
-    posthog_properties["trace_id"] = str(uuid.uuid4())
 
     report_schema = to_strict_json_schema(ReportDocument)
     allowed_urls: list[str] = []

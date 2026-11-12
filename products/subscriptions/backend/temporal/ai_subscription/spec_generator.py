@@ -2,7 +2,9 @@ import re
 import uuid
 import atexit
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
@@ -123,6 +125,7 @@ AI_SUBSCRIPTION_AI_PRODUCT = "subscriptions"
 
 _regional_analytics_clients: dict[str, posthoganalytics.Client] = {}
 _regional_analytics_clients_lock = threading.Lock()
+_report_run_trace_id: ContextVar[Optional[str]] = ContextVar("ai_subscription_report_run_trace_id", default=None)
 
 
 def _ai_subscription_analytics_client() -> Optional[posthoganalytics.Client]:
@@ -146,6 +149,17 @@ def _ai_subscription_analytics_client() -> Optional[posthoganalytics.Client]:
     return client
 
 
+@contextmanager
+def ai_subscription_llm_trace() -> Iterator[None]:
+    # Every LLM call made inside this block shares one trace ID, so LLM analytics shows one report run
+    # (event selection, planning, query fixes and synthesis) as one trace.
+    token = _report_run_trace_id.set(str(uuid.uuid4()))
+    try:
+        yield
+    finally:
+        _report_run_trace_id.reset(token)
+
+
 def ai_subscription_llm_tracing(
     *, team: Team, user: User, stage: str, trace_correlation_id: Optional[Union[int, str]]
 ) -> tuple[dict[str, Union[str, int]], RunnableConfig]:
@@ -164,7 +178,7 @@ def ai_subscription_llm_tracing(
     handler = MaxCallbackHandler(
         client,
         distinct_id=str(user.distinct_id),
-        trace_id=str(uuid.uuid4()),
+        trace_id=_report_run_trace_id.get() or str(uuid.uuid4()),
         properties={**properties, "team_id": team.id},
         privacy_mode=is_privacy_mode_enabled(team),
         # AI credit billing only counts generations whose instance group matches the region URL.
