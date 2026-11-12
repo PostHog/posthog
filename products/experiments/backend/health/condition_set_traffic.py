@@ -38,6 +38,7 @@ from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation, Persons
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -105,17 +106,22 @@ _SCAN_MODIFIERS = HogQLQueryModifiers(
 
 
 def load_condition_set_traffic(
-    experiment: Experiment, ctx: HealthContext, *, reader_access: ExperimentHealthReaderAccess
+    experiment: Experiment,
+    ctx: HealthContext,
+    *,
+    reader_access: ExperimentHealthReaderAccess,
+    reads_denied_property: bool | None = None,
 ) -> ConditionSetTraffic | None:
     """
     The traffic of the experiment's flag when the forced-variant check grades by it, or None. None also when
-    unknown. Never raises: the health endpoint serves the other findings when this fails.
+    unknown. Never raises: the health endpoint serves the other findings when this fails. `reads_denied_property`
+    is the answer of `scan_reads_denied_property` from a caller that needs it too, so the scan compiles once.
     """
-    if (
-        not reader_access.can_query_events
-        or not needs_condition_set_traffic(ctx)
-        or scan_reads_denied_property(reader_access, experiment)
-    ):
+    if not reader_access.can_query_events or not needs_condition_set_traffic(ctx):
+        return None
+    if reads_denied_property is None:
+        reads_denied_property = scan_reads_denied_property(reader_access, experiment)
+    if reads_denied_property:
         return None
     try:
         return _load_condition_set_traffic(experiment, ctx)
@@ -149,36 +155,44 @@ def _pins_to_grade(ctx: HealthContext) -> list[PinnedConditions]:
 
 
 def scan_reads_denied_property(reader_access: ExperimentHealthReaderAccess, experiment: Experiment) -> bool:
-    """Whether the scan reads a property that the reader is denied. The scan runs without the reader, so its shared
-    answer would show what the reader's own queries mask. HogQL's masking decides: the scan compiles once under the
-    rules it runs with and once with the reader's rules added, and a masked read changes the compiled query."""
-    if not reader_access.restricted_properties:
-        return False
+    """Whether a property access rule masks a property that the scan reads: one of the reader's rules, or a project
+    rule that the scan itself runs under. The shared answer would then show the reader what their own queries mask, or
+    count from masked values. HogQL's masking decides: a masked read changes the compiled query."""
     try:
         team = experiment.team
-        scan_rules = frozenset(get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk))
-        reader_rules = scan_rules | reader_access.restricted_properties
-        if reader_rules == scan_rules:
+        rules = reader_access.restricted_properties | frozenset(
+            get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk)
+        )
+        if not rules:
             return False
         now = timezone.now()
         query = _scan_query(
             experiment, get_test_accounts_filter(team, experiment.exposure_criteria), window_start=now, window_end=now
         )
-        return _compile(query, team, reader_rules) != _compile(query, team, scan_rules)
+        modifiers = create_default_modifiers_for_team(team, _SCAN_MODIFIERS)
+        database = Database.create_for(team=team, modifiers=modifiers)
+        return _compile(query, team, modifiers, database, rules) != _compile(
+            query, team, modifiers, database, frozenset()
+        )
     except Exception as error:
-        # Without an answer, the reader gets no share rather than one that might show what their rules mask.
+        # Without an answer, the reader gets no share rather than one that might show what the rules mask.
         capture_exception(error)
         return True
 
 
 def _compile(
-    query: ast.SelectQuery | ast.SelectSetQuery, team: Team, rules: frozenset[RestrictedProperty]
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    team: Team,
+    modifiers: HogQLQueryModifiers,
+    database: Database,
+    rules: frozenset[RestrictedProperty],
 ) -> tuple[str, dict[str, Any]]:
     context = HogQLContext(
         team_id=team.pk,
         team=team,
         enable_select_queries=True,
-        modifiers=create_default_modifiers_for_team(team, _SCAN_MODIFIERS),
+        modifiers=modifiers,
+        database=database,
         restricted_properties=set(rules),
     )
     sql, _ = prepare_and_print_ast(clone_expr(query), context, "clickhouse")

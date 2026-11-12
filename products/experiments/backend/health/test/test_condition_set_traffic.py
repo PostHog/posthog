@@ -207,6 +207,16 @@ class TestLoadConditionSetTraffic(BaseTest):
 
         self.assertEqual((traffic, query.call_count), (expected, 0 if expected is None else 1))
 
+    def test_a_project_rule_added_after_a_scan_withholds_the_cached_share(self) -> None:
+        cached, _ = self._load(TRAFFIC)
+        with patch(
+            "products.experiments.backend.health.condition_set_traffic.get_restricted_properties_with_group_type_index_for_team",
+            return_value={RestrictedProperty(name="$feature_flag_reason", property_type=EVENT)},
+        ):
+            traffic, query = self._load(TRAFFIC)
+
+        self.assertEqual((cached, traffic, query.call_count), (TRAFFIC, None, 0))
+
     def test_a_cohort_test_account_filter_reads_the_stored_members(self) -> None:
         cohort = Cohort.objects.create(
             team=self.team,
