@@ -8,6 +8,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../type
 import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
+    acceptsPendingWake,
     extractActionId,
     extractDistinctId,
     extractPersonId,
@@ -144,6 +145,30 @@ describe('CyclotronJobQueuePostgresV2', () => {
         it.each(cases)('%s', (_desc, overrides, expected) => {
             const invocation = { ...baseInvocation, id: uuidv4(), ...overrides } as CyclotronJobInvocation
             expect(extractActionId(invocation)).toBe(expected)
+        })
+    })
+
+    describe('acceptsPendingWake', () => {
+        const hogFlow = {
+            actions: [
+                { id: 'wait_1', type: 'wait_until_condition' },
+                { id: 'delay_1', type: 'delay' },
+                { id: 'fetch_1', type: 'function' },
+            ],
+        }
+        it.each([
+            ['a wait', { id: 'wait_1' }, true],
+            ['a wait retrying a failed cohort lookup', { id: 'wait_1', cohortLookupAttempts: 1 }, false],
+            ['a delay', { id: 'delay_1' }, false],
+            ['a function retry', { id: 'fetch_1' }, false],
+            ['an unknown step', { id: 'missing' }, false],
+        ])('parking on %s -> %s', (_name, currentAction, expected) => {
+            const invocation = {
+                ...baseInvocation,
+                hogFlow,
+                state: { currentAction },
+            } as unknown as CyclotronJobInvocation
+            expect(acceptsPendingWake(invocation)).toBe(expected)
         })
     })
 

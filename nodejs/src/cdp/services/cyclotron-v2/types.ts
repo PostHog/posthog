@@ -68,6 +68,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    wakeOnPendingWake: z.boolean().optional(),
     queueName: z.string().optional(),
     priority: z.number().int().optional(),
 })

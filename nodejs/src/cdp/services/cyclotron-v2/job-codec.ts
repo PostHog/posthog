@@ -53,11 +53,12 @@ export function encodeJob(invocation: CyclotronJobInvocation): CyclotronV2JobIni
 }
 
 type LookupColumnSource = {
+    hogFlow?: { actions?: { id: string; type: string }[] }
     person?: { id?: string }
     state?: {
         event?: { distinct_id?: string }
         personId?: string
-        currentAction?: { id?: string }
+        currentAction?: { id?: string; cohortLookupAttempts?: number }
     } | null
 }
 
@@ -72,6 +73,14 @@ export function extractPersonId(invocation: CyclotronJobInvocation): string | nu
 
 export function extractActionId(invocation: CyclotronJobInvocation): string | null {
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
+}
+
+// A wait's cohort lookup retry keeps its backoff; the stored match still applies when the retry runs.
+export function acceptsPendingWake(invocation: CyclotronJobInvocation): boolean {
+    const inv = invocation as LookupColumnSource
+    const actionId = extractActionId(invocation)
+    const action = inv.hogFlow?.actions?.find((a) => a.id === actionId)
+    return action?.type === 'wait_until_condition' && !inv.state?.currentAction?.cohortLookupAttempts
 }
 
 export function decodeJobState(row: Pick<CyclotronV2DequeuedJob, 'id' | 'state'>): SerializedJobState {

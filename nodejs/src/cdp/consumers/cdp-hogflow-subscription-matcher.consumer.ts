@@ -36,6 +36,7 @@ import {
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
+import { decodeJobState } from '../services/cyclotron-v2/job-codec'
 import { createCyclotronPool } from '../services/cyclotron-v2/pg-pool'
 import {
     hasEventOrActionTarget,
@@ -577,24 +578,63 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     // The worker's park write acts on these. A job released before this write is woken here instead.
     private async recordPendingWakes(writes: PendingWakeWrite[]): Promise<void> {
-        const sorted = [...writes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        const wakesById = new Map<string, PendingWakeWrite['wakes']>()
+        for (const w of writes) {
+            const merged = { ...wakesById.get(w.id) }
+            for (const [actionId, wake] of Object.entries(w.wakes)) {
+                if (merged[actionId]?.kind !== 'match') {
+                    merged[actionId] = wake
+                }
+            }
+            wakesById.set(w.id, merged)
+        }
+        const ids = [...wakesById.keys()].sort()
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
-            await client.query(`SELECT id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [
-                sorted.map((w) => w.id),
-            ])
+            const locked = await client.query(
+                `SELECT id, status, action_id, state, pending_wake, last_transition
+                 FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) AND status IN ('available', 'running')
+                 ORDER BY id FOR UPDATE`,
+                [ids]
+            )
+            const updateIds: string[] = []
+            const updateWakes: string[] = []
+            const updateWakeNow: boolean[] = []
+            for (const row of locked.rows) {
+                const existing = (row.pending_wake ?? {}) as Record<string, { kind: string; at: string }>
+                const dequeuedAt = new Date(row.last_transition).getTime()
+                const changed: PendingWakeWrite['wakes'] = {}
+                for (const [actionId, wake] of Object.entries(wakesById.get(row.id) ?? {})) {
+                    const current = existing[actionId]
+                    const fresh = current && new Date(current.at).getTime() >= dequeuedAt
+                    // A fresh match carries the event, which a later re-check of the same step would lose.
+                    if (fresh && (current.kind === 'match' || wake.kind === 'recheck')) {
+                        continue
+                    }
+                    changed[actionId] = wake
+                }
+                if (Object.keys(changed).length === 0) {
+                    continue
+                }
+                updateIds.push(row.id)
+                updateWakes.push(JSON.stringify(changed))
+                updateWakeNow.push(
+                    row.status === 'available' &&
+                        row.action_id in changed &&
+                        !decodeJobState(row).state?.currentAction?.cohortLookupAttempts
+                )
+            }
             const result = await client.query(
                 `UPDATE cyclotron_jobs cj
                  SET pending_wake = COALESCE(cj.pending_wake, '{}'::jsonb) || (
                          SELECT jsonb_object_agg(w.key, w.value || jsonb_build_object('at', clock_timestamp()))
                          FROM jsonb_each(u.wakes) w
                      ),
-                     scheduled = CASE WHEN cj.status = 'available' AND u.wakes ? cj.action_id
-                                      THEN LEAST(cj.scheduled, NOW()) ELSE cj.scheduled END
-                 FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS wakes) u
-                 WHERE cj.id = u.id AND cj.status IN ('available', 'running')`,
-                [sorted.map((w) => w.id), sorted.map((w) => JSON.stringify(w.wakes))]
+                     scheduled = CASE WHEN u.wake_now THEN LEAST(cj.scheduled, NOW()) ELSE cj.scheduled END
+                 FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS wakes, unnest($3::boolean[]) AS wake_now) u
+                 WHERE cj.id = u.id`,
+                [updateIds, updateWakes, updateWakeNow]
             )
             await client.query('COMMIT')
             counterHogflowMatcherPendingWakesRecorded.inc(result.rowCount ?? 0)

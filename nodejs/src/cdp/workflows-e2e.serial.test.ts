@@ -1469,6 +1469,74 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        describe('pending wakes recorded on the job row', () => {
+            const match = { kind: 'match', eventName: 'wakeup_event', eventUuid: 'event-1' }
+
+            // Parks a wait, then moves it to a queue no worker reads, so the row shows only what the matcher wrote.
+            const parkOutOfReach = async (): Promise<string> => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                    events: [eventNameFilter('wakeup_event')],
+                    max_wait_duration: '5m',
+                })
+                await triggerWorkflow(createGlobals())
+                await expectParked()
+                const [job] = await queryCyclotronJobs()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET queue_name = 'out_of_reach' WHERE id = $1`, [
+                    job.id,
+                ])
+                return job.id
+            }
+            const record = (id: string, wake: Record<string, string>): Promise<void> =>
+                (matcher as any).recordPendingWakes([{ id, wakes: { wait_condition: wake } }])
+            const rowOf = async (id: string): Promise<{ due: boolean; pending_wake: any }> =>
+                (
+                    await cyclotronPool.query(
+                        `SELECT scheduled <= now() AS due, pending_wake FROM cyclotron_jobs WHERE id = $1`,
+                        [id]
+                    )
+                ).rows[0]
+
+            it.each([
+                ['wakes a run that parked on its wait before the match landed', false, true],
+                ['keeps a wait that is retrying a failed cohort lookup on its backoff', true, false],
+            ])('%s', async (_name, cohortRetry, due) => {
+                const id = await parkOutOfReach()
+                if (cohortRetry) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET state = convert_to(jsonb_set(convert_from(state, 'UTF8')::jsonb,
+                             '{state,currentAction,cohortLookupAttempts}', '1')::text, 'UTF8') WHERE id = $1`,
+                        [id]
+                    )
+                }
+
+                await record(id, match)
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(due)
+                expect(row.pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it('keeps a recorded match when a re-check for the same step follows', async () => {
+                const id = await parkOutOfReach()
+
+                await record(id, match)
+                await record(id, { kind: 'recheck' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it('does not rewrite the row when the same wake arrives again', async () => {
+                const id = await parkOutOfReach()
+                await record(id, match)
+                const first = (await rowOf(id)).pending_wake.wait_condition.at
+
+                await record(id, match)
+
+                expect((await rowOf(id)).pending_wake.wait_condition.at).toBe(first)
+            })
+        })
+
         it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks.

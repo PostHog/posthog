@@ -519,10 +519,16 @@ export class CyclotronV2Worker {
                     // A cancel requested while this worker held the job must not
                     // sleep the full next delay before it's observed, so it
                     // wakes immediately instead.
-                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL OR ${FRESH_PENDING_WAKE} THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL OR ($5::boolean AND ${FRESH_PENDING_WAKE}) THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
                     `pending_wake = CASE WHEN ${FRESH_PENDING_WAKE} THEN jsonb_build_object(COALESCE($4::text, action_id), pending_wake -> COALESCE($4::text, action_id)) ELSE NULL END`,
                 ]
-                const params: any[] = [row.id, lockId, scheduled, options?.actionId ?? null]
+                const params: any[] = [
+                    row.id,
+                    lockId,
+                    scheduled,
+                    options?.actionId ?? null,
+                    options?.wakeOnPendingWake ?? false,
+                ]
 
                 if (options?.state !== undefined) {
                     params.push(options.state ?? null)

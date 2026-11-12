@@ -11,12 +11,12 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import { acceptsPendingWake, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
-export { extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
+export { acceptsPendingWake, extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -312,6 +312,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             await job.reschedule({
                 ...encodeStateColumns(result.invocation),
                 scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                wakeOnPendingWake: acceptsPendingWake(result.invocation),
                 queueName: result.invocation.queue,
                 priority: priorityPersistedOnlyAcrossEmailQueueTransitions(result.invocation, job.queueName),
             })
