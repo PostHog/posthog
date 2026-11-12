@@ -39,6 +39,7 @@ EXECUTION_SETTINGS = {"use_query_condition_cache": 0, "max_execution_time": 60}
 _LEADING_COMMENTS = re.compile(r"^(\s*/\*.*?\*/)+", re.DOTALL)
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?")
 _MAX_EXECUTION_TIME = re.compile(r"max_execution_time=\d+")
+_UNSAFE_IN_FILE_NAME = re.compile(r"[^A-Za-z0-9_.-]")
 _TAG = re.compile(r"replay-[0-9a-f]+-\d+-[a-z0-9]+")
 
 
@@ -329,9 +330,12 @@ def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base: 
         base_bytes = read_bytes.get(o.base_tag or "")
         head_bytes = read_bytes.get(o.head_tag or "")
         ratio = head_bytes / base_bytes if base_bytes and head_bytes is not None else None
+        file_stem = "sql/" + _UNSAFE_IN_FILE_NAME.sub("_", o.logged.query_id)
         queries.append(
             {
                 "query_id": o.logged.query_id,
+                "base_sql_file": f"{file_stem}.base.sql",
+                "head_sql_file": f"{file_stem}.head.sql",
                 "team_id": o.logged.team_id,
                 "kind": o.logged.kind,
                 "verdict": o.verdict.value,
@@ -360,6 +364,11 @@ def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base: 
 def write_report(summary: dict, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "result.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / "sql").mkdir(exist_ok=True)
+    for query in summary["queries"]:
+        if query["base_sql"] and query["head_sql"] and query["base_sql"] != query["head_sql"]:
+            (out_dir / query["base_sql_file"]).write_text(query["base_sql"])
+            (out_dir / query["head_sql_file"]).write_text(query["head_sql"])
     (out_dir / "index.html").write_text(_render_html(summary))
 
 
@@ -404,6 +413,8 @@ def _render_query(query: dict) -> str:
         "Rows": f"{query['base_rows']} base, {query['head_rows']} head",
         "Bytes read": f"{query['base_read_bytes']} base, {query['head_read_bytes']} head",
         "Error": query["error"] or "",
+        "Base SQL": query["base_sql_file"],
+        "Head SQL": query["head_sql_file"],
     }
     rows = "".join(f"<tr><th>{html.escape(k)}</th><td>{html.escape(str(v))}</td></tr>" for k, v in facts.items())
     return (

@@ -25,6 +25,10 @@ The command writes `result.json` and `index.html` to `hogql-replay-report/`.
 With the `hosthog` CLI installed it also publishes the HTML report for employees.
 Pass `--no-publish` to keep it local.
 
+For every query whose SQL changed, the report keeps both versions as files: `sql/<query ID>.base.sql` and `sql/<query ID>.head.sql`.
+`result.json` names them in `base_sql_file` and `head_sql_file`.
+Each file is complete ClickHouse SQL with its dates fixed, so you can run both and compare the rows yourself, for example with the `/query-clickhouse-via-metabase` skill.
+
 The report contains customer query text.
 Do not paste it into a pull request, an issue, or any public place.
 

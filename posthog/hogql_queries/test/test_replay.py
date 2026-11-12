@@ -193,7 +193,12 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
             )
             result = json.loads((tmp / "report" / "result.json").read_text())
             report = (tmp / "report" / "index.html").read_text()
+            query = result["queries"][0]
+            saved_base_sql = (tmp / "report" / query["base_sql_file"]).read_text()
+            saved_head_sql = (tmp / "report" / query["head_sql_file"]).read_text()
 
         assert result["counts"]["different_results"] == 1
         assert result["queries"][0]["base_rows"] == 1
+        assert saved_base_sql == prod_sql
+        assert saved_head_sql == head_sql
         assert "-" in report and "event" in report
