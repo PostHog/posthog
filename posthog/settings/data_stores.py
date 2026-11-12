@@ -796,6 +796,11 @@ CACHES["task_artifact_preview"] = {
 CACHES["transactional_email_cancel_marks"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+        "SOCKET_TIMEOUT": REDIS_SOCKET_TIMEOUT_SECONDS,
+    },
 }
 
 # Destination replay claims must read what they wrote: a replica that still serves an
