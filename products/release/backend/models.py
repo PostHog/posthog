@@ -22,6 +22,7 @@ class Release(TeamScopedRootMixin):
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
     feature_flag_ids = ArrayField(models.IntegerField(), default=list, blank=True)
+    broadcast_ids = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

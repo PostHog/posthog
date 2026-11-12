@@ -67,6 +67,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_experiment_query_debug,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
+    get_overall_variant_results,
     get_variant_results,
     split_baseline_and_test_variants,
 )
@@ -574,10 +575,13 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
         self._refuse_warehouse_sources()
-        variant_results = self._prepare_variant_results()
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = self._add_missing_variants(get_variant_results(sorted_results, columns))
 
         if self._has_breakdown(variant_results):
-            breakdown_results, variants = self._process_breakdown_results(variant_results)
+            breakdown_results = self._process_breakdown_results(variant_results)
+            overall_variant_results = self._add_missing_variants(get_overall_variant_results(sorted_results, columns))
+            variants = aggregate_variants_across_breakdowns(overall_variant_results)
         else:
             breakdown_results = None
             variants = [v for _, v in variant_results]
@@ -592,11 +596,6 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.is_precomputed = self._is_precomputed
 
         return result
-
-    def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
-        sorted_results, columns = self._evaluate_experiment_query()
-        variant_results = get_variant_results(sorted_results, columns)
-        return self._add_missing_variants(variant_results)
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
         return any(bv is not None for bv, _ in variant_results)
@@ -625,16 +624,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _process_breakdown_results(
         self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
-    ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
+    ) -> list[ExperimentBreakdownResult]:
         breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None})
 
-        breakdown_results = [
+        return [
             self._compute_breakdown_statistics(breakdown_tuple, variant_results) for breakdown_tuple in breakdown_tuples
         ]
-
-        aggregated_variants = aggregate_variants_across_breakdowns(variant_results)
-
-        return breakdown_results, aggregated_variants
 
     def _compute_breakdown_statistics(
         self,

@@ -39,6 +39,9 @@ _EREMOTEIO = getattr(errno, "EREMOTEIO", errno.EIO)
 #   with a custom `endpoint_url` (e.g. Alibaba Cloud OSS's S3-compatible API, addressed virtual-hosted
 #   per products/data_warehouse/backend/s3_proxy.py) rather than AWS's own endpoints - that path never
 #   goes through s3fs/aiobotocore, so it can't surface as one of the typed botocore exceptions below.
+# - "Failed to flush response stream" is pyarrow's S3FileSystem (the AWS SDK for C++) reporting a
+#   GetObject response body that broke off while it was being read, under the SDK's client-side
+#   INTERNAL_FAILURE code. The object is intact, so a fresh read of the same range succeeds.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -50,6 +53,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "The difference between the request time and the current time is too large.",
     "connection closed before message completed",
     "Connection timed out",
+    "Failed to flush response stream",
 )
 
 # pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
