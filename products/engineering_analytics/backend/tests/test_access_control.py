@@ -1,23 +1,10 @@
-"""Per-user warehouse RBAC on the engineering_analytics read endpoints.
-
-The curated queries run via execute_hogql_query(team=...) with no request user, and HogQL does
-not enforce per-user ACL on DataWarehouseTables. So the GitHub-source resolver is the only place
-that can honor a user's per-source warehouse access. These tests assert a non-admin user denied a
-specific GitHub source cannot read its PR/CI data through the endpoint -- neither by naming it via
-source_id nor by it being the default-oldest source -- while an allowed user still can.
-
-The curated HogQL run is stubbed to empty results so the test isolates the resolver's
-access-control decision: a resolved source yields 200, a blocked source raises
-GitHubSourceNotConnectedError -> 400. Whether the resolver lets a denied source through is exactly
-the bug under test, independent of object-storage availability for the real warehouse read.
-"""
-
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql.database.database import Database
@@ -30,6 +17,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     resolve_github_tables,
 )
+from products.engineering_analytics.backend.logic.views import ci_rows
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     connect_github_source_without_data,
@@ -37,41 +25,34 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_warehouse_table_row,
     link_schema,
 )
+from products.engineering_analytics.backend.tests.test_materialized_ci import _covered_since, _ready_views
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
-# Every curated query runs HogQL through this method; stub it to empty so a resolved source
-# returns 200 with no rows, leaving the resolver's access-control decision as the only variable.
+# Stubbed to empty results so that a resolved source returns 200 and a blocked source returns 400.
 _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.run"
-# The curated runner hands its assembled query to this; capture the principal it forwards.
 _EXECUTE_HOGQL = "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query"
-# Schema build reads this to decide whether per-table warehouse ACL is enforced.
+# The schema build reads this flag to decide whether per-table warehouse access control applies.
 _FLAG = "posthog.hogql.database.database.feature_enabled_or_false"
 
 
 @pytest.mark.ee
 class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
-    """A team with two connected GitHub sources, A (oldest) and B. ``no_access_user`` is denied
-    object access to B; ``editor_user`` keeps default access."""
-
     resource = "external_data_source"
 
     def setUp(self) -> None:
         super().setUp()
-        # Two usable GitHub sources (both endpoints synced over ORM-only tables, no object storage).
-        # A is created first, so the default-oldest path selects A.
+        # A is created first, so the default path selects A.
         connect_github_source_without_data(self.team, prefix="sourcea")
         connect_github_source_without_data(self.team, prefix="sourceb")
         self.source_a, self.source_b = ExternalDataSource.objects.order_by("created_at", "id")
-        # created_by is None on both seed sources, so no creator bypass of the deny.
+        # created_by is None on both sources, so the creator bypass does not apply to the deny.
         self._create_access_control(self.no_access_user, resource_id=str(self.source_b.id), access_level="none")
 
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/engineering_analytics/{action}/"
 
     def test_denied_user_cannot_read_source_b_via_source_id(self) -> None:
-        # The resolver must filter B out of the denied user's queryset, so naming B explicitly
-        # resolves to nothing and surfaces as GitHubSourceNotConnectedError -> 400 (not B's data).
         self.client.force_login(self.no_access_user)
         with mock.patch(_RUN_QUERY, return_value=SimpleNamespace(results=[])):
             response = self.client.get(self._url("pull_requests"), {"source_id": str(self.source_b.id)})
@@ -80,8 +61,7 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
         assert "GitHub" in response.json()["detail"]
 
     def test_denied_user_default_path_never_selects_source_b(self) -> None:
-        # Make B the only otherwise-usable source by soft-deleting A, then hit the default
-        # (no source_id) path. B is denied, so resolution finds nothing -> 400, not B's data.
+        # With A soft-deleted, B is the only source left for the default path.
         ExternalDataSource.objects.filter(pk=self.source_a.pk).update(deleted=True)
 
         self.client.force_login(self.no_access_user)
@@ -91,8 +71,6 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_allowed_user_can_read_source_b_via_source_id(self) -> None:
-        # Control: a user with default access resolves B fine, proving the fix denies B
-        # specifically rather than blocking all access.
         self.client.force_login(self.editor_user)
         with mock.patch(_RUN_QUERY, return_value=SimpleNamespace(results=[])):
             response = self.client.get(self._url("pull_requests"), {"source_id": str(self.source_b.id)})
@@ -101,8 +79,6 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
         assert response.json()["truncated"] is False
 
     def test_denied_user_cannot_enumerate_source_b_via_sources(self) -> None:
-        # The picker lists only sources the user can access; B is denied, so it must not appear --
-        # no id/repo/prefix enumeration of a restricted source, and no source_id to feed the reads.
         self.client.force_login(self.no_access_user)
         response = self.client.get(self._url("sources"))
 
@@ -160,16 +136,6 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
 
 @pytest.mark.ee
 class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
-    """Per-table warehouse ACL on the real curated read path, once hogql-warehouse-access-control is on.
-
-    #61686 makes a userless HogQL build fail closed -- every warehouse table is stripped from the schema
-    -- which is why the curated GitHub reads (historically run with no user) 500'd when the flag rolled
-    out. The fix forwards the request user into execution. These build the HogQL schema exactly as the
-    runner does (capturing whatever principal ``run`` forwards, so the guard follows the fix rather than
-    hard-coding it) and assert a member with default access keeps the GitHub tables, while a member
-    denied the backing table loses it. Schema-build only: no object storage or warehouse rows needed.
-    """
-
     resource = "warehouse_table"
 
     def setUp(self) -> None:
@@ -184,9 +150,8 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
             self.tables[schema] = table
 
     def _schema_as_runner_builds_it(self, user_access_control: UserAccessControl | None) -> tuple[Database, dict]:
-        # Capture the principal the real curated runner forwards for this access control, then rebuild the
-        # schema with it under the flag -- so this follows whatever run() passes (user / access control /
-        # bypass), not a hard-coded shape. Returns the schema and the captured kwargs.
+        # The schema is built from the kwargs that run() passes to execute_hogql_query, so the tests
+        # follow the principal the runner forwards.
         captured: dict = {}
 
         def _capture(*_args: Any, **kwargs: Any) -> SimpleNamespace:
@@ -211,8 +176,6 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         return database, captured
 
     def test_member_with_default_access_keeps_github_tables(self) -> None:
-        # A normal member (no explicit restriction) defaults to editor on the warehouse tables, so the
-        # forwarded user keeps all three GitHub tables in the schema -- the read works under the flag.
         uac = UserAccessControl(self.editor_user, self.team)
         tables = resolve_github_tables(team=self.team, user_access_control=uac)
         database, _ = self._schema_as_runner_builds_it(uac)
@@ -222,9 +185,6 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         assert tables.workflow_jobs is not None and database.has_table(tables.workflow_jobs)
 
     def test_member_denied_backing_table_cannot_query_it(self) -> None:
-        # Deny one member the workflow_runs table specifically. Forwarding the user now honors that: the
-        # denied table is stripped (so reads of it are blocked, not silently returned), while an
-        # un-denied sibling stays queryable -- the security win the bypass gave up.
         self._create_access_control(
             self.no_access_user,
             resource="warehouse_table",
@@ -239,9 +199,8 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         assert database.has_table(tables.pull_requests)
 
     def test_userless_system_read_bypasses_acl_and_keeps_tables(self) -> None:
-        # The facade documents a userless path (user_access_control=None) for system / Temporal / CLI
-        # callers. There is no principal to honor the table ACL with, so the runner bypasses it rather
-        # than fail closed and strip the tables under the flag.
+        # System callers pass user_access_control=None. No principal exists to check, so the runner
+        # bypasses the table access control.
         tables = resolve_github_tables(team=self.team)
         database, captured = self._schema_as_runner_builds_it(None)
 
@@ -249,3 +208,29 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
         assert tables.workflow_jobs is not None and database.has_table(tables.workflow_jobs)
+
+    @parameterized.expand(["allowed", "raw_table_denied", "stored_view_denied"])
+    def test_materialized_reads_preserve_raw_and_view_permissions(self, condition: str) -> None:
+        views = _ready_views(self)
+        if condition != "allowed":
+            self._create_access_control(
+                self.no_access_user,
+                resource="warehouse_table" if condition == "raw_table_denied" else "warehouse_view",
+                resource_id=str(self.tables[WORKFLOW_RUNS_SCHEMA].id)
+                if condition == "raw_table_denied"
+                else str(views[ci_rows.RUNS_VIEW_NAME].id),
+                access_level="none",
+            )
+        with (
+            mock.patch("posthoganalytics.feature_enabled", return_value=True),
+            mock.patch(_FLAG, return_value=True),
+        ):
+            reader = CuratedGitHubSource.for_team(
+                self.team, user_access_control=UserAccessControl(self.no_access_user, self.team)
+            )
+            source = reader.run_source(since=_covered_since())
+            if condition == "allowed":
+                assert ci_rows.RUNS_VIEW_NAME in source
+            else:
+                assert ci_rows.RUNS_VIEW_NAME not in source
+            assert reader.may_read_ci_tables() is (condition != "raw_table_denied")

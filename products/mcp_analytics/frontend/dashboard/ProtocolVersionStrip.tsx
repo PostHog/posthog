@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 
 import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
+import { Card, CardContent, CardHeader, CardTitle } from '@posthog/quill-primitives'
 
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
@@ -80,16 +80,16 @@ export function ProtocolVersionStrip({
     const share = (calls: number): number => (totalCalls > 0 ? (calls / totalCalls) * 100 : 0)
 
     return (
-        <LemonCard className="flex min-w-0 flex-col gap-1 bg-surface-secondary px-3 py-2" hoverEffect={false}>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h3 className="mb-0 text-sm font-bold">
+        <Card size="sm" className="min-w-0">
+            <CardHeader className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <CardTitle>
                     <SummarySpan
                         tooltip={`MCP protocol versions are named by their release date. Clients and servers agree on one for each request. ${CURRENT_PROTOCOL_VERSION} removed the initialize handshake that older versions use. Select a version to read what changed in it.`}
                         docLink={PROTOCOL_VERSIONING_URL}
                     >
                         Calls by MCP protocol version
                     </SummarySpan>
-                </h3>
+                </CardTitle>
                 <div className="flex flex-wrap gap-3 text-xs text-secondary tabular-nums" translate="no">
                     <SummarySpan
                         tooltip={`Calls on versions older than ${CURRENT_PROTOCOL_VERSION}, plus values that aren't a known version. Calls on the draft version count as current.`}
@@ -100,8 +100,8 @@ export function ProtocolVersionStrip({
                         {formatShare(share(unknownCalls))} unknown
                     </SummarySpan>
                 </div>
-            </div>
-            <div className="grid min-w-0 grid-cols-1 gap-x-8 @min-[48rem]/mcp-overview:grid-cols-2">
+            </CardHeader>
+            <CardContent className="grid min-w-0 grid-cols-1 gap-x-8 @min-[48rem]/mcp-overview:grid-cols-2">
                 {columns.map((column) => (
                     <ShareBarChart
                         key={column[0].key}
@@ -111,7 +111,7 @@ export function ProtocolVersionStrip({
                         tooltip={renderTooltip}
                     />
                 ))}
-            </div>
-        </LemonCard>
+            </CardContent>
+        </Card>
     )
 }

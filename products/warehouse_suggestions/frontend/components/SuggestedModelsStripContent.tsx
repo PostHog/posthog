@@ -8,29 +8,15 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { MaterializeSuggestionModal } from './MaterializeSuggestionModal'
-import { MaterializeSuggestionRow } from './MaterializeSuggestionRow'
 import { SavingsBannerMessage } from './SavingsBannerMessage'
-import { SuggestedModelsSection } from './SuggestedModelsSection'
+import { SuggestedModelsDialogs } from './SuggestedModelsDialogs'
 import { SuggestionsBanner } from './SuggestionsBanner'
-import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
-import { UnmaterializeSuggestionModal } from './UnmaterializeSuggestionModal'
-import { UnmaterializeSuggestionRow } from './UnmaterializeSuggestionRow'
-
-const SECTION_COPY: Record<string, { title: string; description: string }> = {
-    materialize: {
-        title: 'Materialize',
-        description: 'Store these views so reads and other refreshes can reuse their results.',
-    },
-    unmaterialize: {
-        title: 'Stop materializing',
-        description: 'These views cost more to refresh than to run on each read.',
-    },
-}
+import { WaitingSuggestionsNotice } from './WaitingSuggestionsNotice'
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
-    const { stripState, suggestionGroups, savingsSummary, status } = useValues(warehouseSuggestionsLogic)
+    const { stripState, savingsSummary, unusedViewCount, status, showWaitingNotice } =
+        useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
 
@@ -46,6 +32,9 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                 }
             />
         )
+    }
+    if (showWaitingNotice && stripState !== 'active' && stripState !== 'all_done') {
+        return <WaitingSuggestionsNotice />
     }
     if (stripState === 'warming_up') {
         const daysWithData = status?.days_with_data ?? 0
@@ -81,35 +70,11 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
             {stripState === 'active' && (
                 <SuggestionsBanner
                     icon={iconForType('data_modeling')}
-                    message={<SavingsBannerMessage summary={savingsSummary} />}
+                    message={<SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViewCount} />}
                 />
             )}
-            <SuggestionsReviewModal
-                title="Suggested models"
-                summary={<SavingsBannerMessage summary={savingsSummary} />}
-            >
-                {suggestionGroups.map(({ kind, suggestions }) => (
-                    <SuggestedModelsSection key={kind} {...SECTION_COPY[kind]}>
-                        {suggestions.map((suggestion) =>
-                            kind === 'unmaterialize' ? (
-                                <UnmaterializeSuggestionRow
-                                    key={suggestion.id}
-                                    suggestion={suggestion}
-                                    windowDays={windowDays}
-                                />
-                            ) : (
-                                <MaterializeSuggestionRow
-                                    key={suggestion.id}
-                                    suggestion={suggestion}
-                                    windowDays={windowDays}
-                                />
-                            )
-                        )}
-                    </SuggestedModelsSection>
-                ))}
-            </SuggestionsReviewModal>
-            <MaterializeSuggestionModal />
-            <UnmaterializeSuggestionModal />
+            {showWaitingNotice && <WaitingSuggestionsNotice />}
+            <SuggestedModelsDialogs />
         </>
     )
 }

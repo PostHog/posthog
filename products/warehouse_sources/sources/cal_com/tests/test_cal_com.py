@@ -264,17 +264,45 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
+            ("unauthorized", 401, False, "rejected this API key"),
+            ("forbidden", 403, False, "rejected this API key"),
+            ("rate_limited", 429, False, "try again in a few minutes"),
+            ("server_error", 500, False, "try again in a few minutes"),
+            ("bad_gateway", 502, False, "try again in a few minutes"),
+            ("bad_request", 400, False, "unexpected response"),
+            ("not_found", 404, False, "unexpected response"),
         ]
     )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        script = always(ScriptedResponse(status=status)) if status == 500 else [ScriptedResponse(status=status)]
+    def test_status_mapping(
+        self, _name: str, status: int, expected_valid: bool, expected_message_part: str | None
+    ) -> None:
+        script = (
+            always(ScriptedResponse(status=status)) if status in (429, 500, 502) else [ScriptedResponse(status=status)]
+        )
         with scripted_network(script) as network:
-            assert validate_credentials("cal_live_key") == (expected_valid, expected_message)
+            valid, message = validate_credentials("cal_live_key")
+        assert valid is expected_valid
+        if expected_message_part is None:
+            assert message is None
+        else:
+            assert message is not None
+            assert expected_message_part in message
+            assert str(status) not in message
         assert network.requests_log[0].path == "/v2/me"
 
-    def test_connection_error_is_swallowed(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))) as network:
-            assert validate_credentials("cal_live_key") == (False, "Could not connect to Cal.com")
+    @parameterized.expand(
+        [
+            ("connection_error", requests.ConnectionError("boom")),
+            ("timeout", requests.Timeout("slow")),
+        ]
+    )
+    def test_transport_failure_is_swallowed_with_a_retry_message(self, _name: str, error: Exception) -> None:
+        with scripted_network(always(error)) as network:
+            valid, message = validate_credentials("cal_live_key")
+        assert valid is False
+        assert message is not None
+        assert "Couldn't reach Cal.com" in message
+        assert "try again in a few minutes" in message
         assert {request.path for request in network.requests_log} == {"/v2/me"}
 
     @parameterized.expand([("us", "us", "https://api.cal.com/v2/me"), ("eu", "eu", "https://api.cal.eu/v2/me")])

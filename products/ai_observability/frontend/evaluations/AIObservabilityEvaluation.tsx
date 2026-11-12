@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconArrowLeft, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -11,8 +10,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -26,6 +23,7 @@ import { EvaluationLatestReport } from './components/EvaluationLatestReport'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
+import { EvaluationSceneHeader } from './components/EvaluationSceneHeader'
 import {
     formatNumericEvaluationScore,
     booleanOutputConfigError,
@@ -52,7 +50,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         evaluation,
         originalEvaluation,
         isReportableEvaluation,
-        trendInsightUrl,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
@@ -182,70 +179,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     return (
         <div className="@container/evaluation min-w-0 space-y-6 pb-8">
-            <SceneBreadcrumbBackButton />
-            {/* Header */}
-            <SceneStickyBar
-                hasSceneTitleSection={false}
-                className="flex flex-col justify-between items-start gap-4 space-y-0 @min-[64rem]/evaluation:flex-row"
-            >
-                <div className="space-y-2 min-w-0">
-                    <h1 className="text-2xl font-semibold break-words">{evaluation.name}</h1>
-                    <div className="flex flex-wrap items-center gap-2">
-                        {evaluation.status === 'error' ? (
-                            <LemonTag type="danger" icon={<IconWarning />}>
-                                Error
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                            </LemonTag>
-                        )}
-                        {unsaved && <LemonTag type="warning">Unsaved changes</LemonTag>}
-                    </div>
-                </div>
-                <div className="flex flex-wrap gap-2 max-w-full">
-                    {trendInsightUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconTrends />}
-                            to={trendInsightUrl}
-                            targetBlank
-                            data-attr="llma-evaluation-trend-insight"
-                        >
-                            Trend insight
-                        </LemonButton>
-                    ) : null}
-                    {openInPlaygroundUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlay />}
-                            to={openInPlaygroundUrl}
-                            data-attr="llma-playground-open-from-evaluation"
-                        >
-                            Open in Playground
-                        </LemonButton>
-                    ) : null}
-                    <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
-                        {unsaved ? 'Cancel' : 'Back'}
-                    </LemonButton>
-                    {showSaveAction && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Evaluation}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={evaluation.user_access_level ?? undefined}
-                        >
-                            <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                disabledReason={saveButtonDisabledReason}
-                                loading={evaluationFormSubmitting}
-                            >
-                                Save changes
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
-                </div>
-            </SceneStickyBar>
+            <EvaluationSceneHeader
+                playgroundUrl={openInPlaygroundUrl}
+                unsaved={unsaved}
+                showSaveAction={showSaveAction}
+                saveDisabledReason={saveButtonDisabledReason}
+                onSave={handleSave}
+                onCancel={handleCancel}
+            />
 
             {evaluation.status === 'error' && (
                 <LemonBanner type="error">
@@ -435,7 +376,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         label: 'Configuration',
                         'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
-                            <div className="max-w-4xl mx-auto">
+                            <div className="max-w-6xl mx-auto">
                                 <EvaluationConfigurationForm />
                                 <div className="flex justify-end mt-6">
                                     <AccessControlAction

@@ -6,6 +6,8 @@ Internal cross-module references and mock patches must target the defining submo
 directly (e.g. `posthog.models.integration.slack.SlackIntegration`), never this shim.
 """
 
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError, integration_secret_decrypt_counter
+
 from .anthropic import (
     ANTHROPIC_CLIENT_TIMEOUT_SECONDS,
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -91,10 +93,8 @@ from .model import (
     Integration,
     IntegrationModelManager,
     IntegrationQuerySet,
-    UndecryptedIntegrationSecretError,
     aget_integration_by_id,
     defer_repository_cache_fields,
-    integration_secret_decrypt_counter,
 )
 from .oauth import (
     INSTAGRAM_OAUTH_SCOPE,
@@ -140,15 +140,15 @@ from .refresh_tracking import (
     REFRESH_FAILURE_REASON_OTHER,
     REFRESH_FAILURE_REASON_RATE_LIMITED,
     REFRESH_FAILURE_REASON_UNREADABLE_SECRET,
+    REFRESH_SUCCESS_PATCH,
     REFRESH_TERMINAL_FAILURE_COUNT,
     issuing_oauth_client_ids,
+    oauth_client_patch,
     oauth_refresh_counter,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
-    record_oauth_client_used,
-    record_refresh_failure,
-    record_refresh_success,
     refresh_backoff_active,
+    refresh_failure_patch,
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
@@ -198,9 +198,9 @@ __all__ = [
     "REFRESH_FAILURE_REASON_OTHER",
     "REFRESH_FAILURE_REASON_UNREADABLE_SECRET",
     "oauth_refresh_failure_reason",
-    "record_refresh_failure",
-    "record_refresh_success",
-    "record_oauth_client_used",
+    "refresh_failure_patch",
+    "REFRESH_SUCCESS_PATCH",
+    "oauth_client_patch",
     "issuing_oauth_client_ids",
     "refresh_backoff_active",
     "CONFIG_PUSH_IDENTITY_VERIFICATION",

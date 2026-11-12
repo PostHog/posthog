@@ -214,6 +214,7 @@ export class ToolDomainExtractor {
         'complete',
         'compose',
         'copy',
+        'describe',
         'disable',
         'discard',
         'dismiss',
@@ -233,13 +234,16 @@ export class ToolDomainExtractor {
         'pause',
         'publish',
         'record',
+        'refresh',
         'rename',
         'reset',
         'restore',
         'resume',
         'revoke',
+        'save',
         'ship',
         'show',
+        'skip',
         'start',
         'suggest',
         'submit',
@@ -248,6 +252,7 @@ export class ToolDomainExtractor {
         'unarchive',
         'unfreeze',
         'upload',
+        'validate',
     ])
 
     private readonly items: ToolItem[]

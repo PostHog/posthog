@@ -20,6 +20,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     CheckFailure,
+    ControlChangeKind,
     Grouping,
     GroupingMode,
     GroupOutcome,
@@ -51,7 +52,11 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic import delivery_holds
-from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    CONFIGURATION_ROW_ALERT_ID,
+    PlatformAlertEventRow,
+    insert_events,
+)
 from products.alerts_platform.backend.models import (
     PlatformAlert,
     PlatformAlertConfiguration,
@@ -308,6 +313,7 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
+        created_by_id=c.created_by_id,
     )
 
 
@@ -357,11 +363,6 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
     }
-
-
-# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
-# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
-CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
 
 
 def _event_row(
@@ -439,8 +440,68 @@ def event_row(
     )
 
 
-def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
-    recorded = insert_events(team_id, rows)
+def shown_state(configuration: PlatformAlertConfiguration, *, now: datetime) -> PlatformAlertState:
+    """The whole alert's state as a source shows it: snoozed while its mute holds, else firing while
+    any group fires, else the ungrouped instance's, with a failing check status in its place."""
+    if configuration.snooze_until is not None and configuration.snooze_until > now:
+        return PlatformAlertState.SNOOZED
+    instances = PlatformAlert.objects.for_team(configuration.team_id).filter(configuration=configuration)
+    state: str | None
+    if instances.filter(state=PlatformAlertState.FIRING).exists():
+        state = PlatformAlertState.FIRING.value
+    else:
+        state = instances.filter(grouping_key="").values_list("state", flat=True).first()
+    return PlatformAlertState(
+        InstanceCheckState.composed(
+            grouping_key="",
+            state=state or PlatformAlertState.NOT_FIRING,
+            check_status=configuration.check_status,
+            configuration_snooze_until=None,
+        ).state
+    )
+
+
+def control_change_row(
+    configuration: PlatformAlertConfiguration,
+    kind: ControlChangeKind,
+    *,
+    previous_state: PlatformAlertState,
+    now: datetime,
+) -> PlatformAlertEventRow:
+    """The history row of a control-plane change, with the alert's state after it as it stands now."""
+    return event_row(
+        configuration,
+        alert=None,
+        # Its own prefix, so it never shares a key, and with it an insert's deduplication token,
+        # with the rows `control_plane.end_firings` writes for the same change.
+        evaluation_key=f"control-change:{kind.value}:{now.isoformat()}",
+        kind=kind.value,
+        previous_state=previous_state.value,
+        state=shown_state(configuration, now=now).value,
+        episode_started_at=None,
+        consecutive_failures=configuration.consecutive_failures,
+        now=now,
+    )
+
+
+# A request waits for this insert after its change commits, so a stalled ClickHouse costs it this
+# long at most, and the row is dropped as any failed insert is.
+_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS: Final = 5
+
+
+def record_history_after_commit(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+    """Records rows once the change they describe commits, so a rolled-back change leaves none."""
+    if rows:
+        transaction.on_commit(
+            lambda: record_history(team_id, rows, send_receive_timeout=_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS),
+            robust=True,
+        )
+
+
+def record_history(
+    team_id: int, rows: Sequence[PlatformAlertEventRow], *, send_receive_timeout: int | None = None
+) -> int:
+    recorded = insert_events(team_id, rows, send_receive_timeout=send_receive_timeout)
     if recorded < len(rows):
         # One batch holds one source's checks.
         safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
@@ -734,6 +795,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             # A source's snooze mutes the whole alert. State is left alone because a muted alert
             # keeps tracking reality.
             "snooze_until": upsert.snooze_until,
+            "created_by_id": upsert.created_by_id,
         }
         if (
             existing is None
@@ -819,6 +881,9 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+        if configuration.first_enabled_at is None:
+            configuration.first_enabled_at = now
+            update_fields.append("first_enabled_at")
     _assign_edit(configuration, edit)
     configuration.save(update_fields=update_fields)
 
@@ -829,17 +894,24 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
+    recurrence_unit: str | None,
     destinations_owner: PlatformAlertOwner,
+    created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
     configuration = PlatformAlertConfiguration(
         team_id=team_id,
         source_kind=source_kind.value,
         check_interval_minutes=check_interval_minutes,
+        recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
+        created_by_id=created_by_id,
+        first_enabled_at=now if edit.enabled else None,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.
@@ -897,7 +969,7 @@ def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: dateti
     configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
     A copy the platform owns gets nothing, because every edit already writes both of its rows.
@@ -905,6 +977,10 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
     enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
+
+    `admit_new_teams` is for a source whose parallel run covers every team. It also admits a team with
+    no enabled copy, such as one whose first alert this is, while the source runs for another team and
+    no operator switched this team off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -914,10 +990,23 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
             return
-        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists() or (
+            admit_new_teams and _admits_new_team(team_copies, upsert.source_kind.value)
+        )
         switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
+
+
+def _admits_new_team(team_copies: QuerySet[PlatformAlertConfiguration], source_kind: str) -> bool:
+    if team_copies.filter(switched_off_at__isnull=False).exists():
+        return False
+    # A switch-off of the whole source leaves no enabled copy anywhere, so this admits nothing then.
+    return (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(source_kind=source_kind, owner=PlatformAlertOwner.SOURCE, enabled=True)
+        .exists()
+    )
 
 
 def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
@@ -954,6 +1043,7 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
         datapoints_to_alarm=upsert.datapoints_to_alarm,
         cooldown_minutes=upsert.cooldown_minutes,
         schedule_restriction=upsert.schedule_restriction,
+        created_by_id=upsert.created_by_id,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )
@@ -1156,6 +1246,7 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
             raise ValueError("the platform does not own this alert, so its source resets it")
         if configuration.check_status != PlatformAlertConfiguration.CheckStatus.BROKEN:
             return None
+        previous_state = shown_state(configuration, now=at)
         cleared = configuration.consecutive_failures
         configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
         configuration.consecutive_failures = 0
@@ -1165,6 +1256,10 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
         # the next breach would find the old episode open and announce nothing.
         PlatformAlert.objects.for_team(team_id).filter(configuration=configuration).update(
             state=PlatformAlertState.NOT_FIRING.value, firing_started_at=None
+        )
+        record_history_after_commit(
+            team_id,
+            [control_change_row(configuration, ControlChangeKind.RESET, previous_state=previous_state, now=at)],
         )
     return cleared
 
@@ -1184,10 +1279,14 @@ def disable_configurations(
         # source still owns: once the platform owns an alert, its copy is the production alert, and
         # switching it off would silence real notifications rather than stop a parallel check.
         rows = PlatformAlertConfiguration.objects.unscoped().filter(
-            source_kind=source_kind, enabled=True, owner=PlatformAlertOwner.SOURCE
+            source_kind=source_kind, owner=PlatformAlertOwner.SOURCE
         )
         if team_id is not None:
             rows = rows.filter(team_id=team_id)
         if legacy_configuration_ids is not None:
             rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
-        return rows.update(enabled=False, switched_off_at=django_timezone.now())
+        at = django_timezone.now()
+        # A copy that is already disabled carries the switch-off too, so `upsert_if_running` cannot
+        # admit a switched-off team again through a new alert.
+        rows.filter(enabled=False, switched_off_at__isnull=True).update(switched_off_at=at)
+        return rows.filter(enabled=True).update(enabled=False, switched_off_at=at)

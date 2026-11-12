@@ -35,7 +35,7 @@ const gridPositions: SurveyPosition[] = [
     // SurveyPosition.BottomLeft, SurveyPosition.BottomCenter, SurveyPosition.BottomRight
 ]
 
-const positionDisplayNames: Record<SurveyPosition, string> = {
+export const positionDisplayNames: Record<SurveyPosition, string> = {
     [SurveyPosition.TopLeft]: 'Top Left',
     [SurveyPosition.TopCenter]: 'Top Center',
     [SurveyPosition.TopRight]: 'Top Right',

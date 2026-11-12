@@ -9,13 +9,14 @@ module stays pure.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from enum import StrEnum
+from dataclasses import field
 
 import structlog
 
 from posthog.dataclasses import frozen
 
-from products.stamphog.backend.logic.routing.candidates import ChangedFile, OwnerCandidate, PinReason
+from products.stamphog.backend.facade.enums import LlmSkipReason, PinReason, RoutingOwnerReason
+from products.stamphog.backend.logic.routing.candidates import ChangedFile, OwnerCandidate
 
 logger = structlog.get_logger(__name__)
 
@@ -74,18 +75,6 @@ CUT_SCHEMA: dict[str, object] = {
 CutModelCall = Callable[[str, str, Mapping[str, object]], Mapping[str, object] | None]
 
 
-class LlmSkipReason(StrEnum):
-    SINGLE_CANDIDATE = "single_candidate"
-    # Fork pull requests get the deterministic list: the author of a fork controls the whole prompt.
-    FORK = "fork"
-    NOTHING_CUTTABLE = "nothing_cuttable"
-    NO_ANSWER = "no_answer"
-    # Stamphog approved the head, so only pinned owners are requested and nothing is left to cut.
-    STAMPHOG_APPROVED = "stamphog_approved"
-    # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
-    FILES_TRUNCATED = "files_truncated"
-
-
 @frozen
 class CutPrompt:
     user_prompt: str
@@ -104,6 +93,22 @@ class RoutingDecision:
     kept: tuple[OwnerCandidate, ...]
     cut: tuple[CutOwner, ...]
     llm_skipped: LlmSkipReason | None
+    # Why the run kept or dropped each candidate, by owner. The routing run log records it.
+    reasons: Mapping[str, RoutingOwnerReason] = field(default_factory=dict)
+    # The model's reason for every owner it proposed to cut, by owner, whether or not a guard let the cut through.
+    model_reasons: Mapping[str, str] = field(default_factory=dict)
+
+
+def _guard_reason(candidate: OwnerCandidate, owners_left_out: frozenset[str]) -> RoutingOwnerReason | None:
+    """Why the guards never let the model cut this owner, or None when it may."""
+    if candidate.is_pinned:
+        # A sensitive path names the pin when an owner has both kinds, because it is the stricter one.
+        if any(pin.reason == PinReason.SENSITIVE for pin in candidate.pins):
+            return RoutingOwnerReason.SENSITIVE
+        return RoutingOwnerReason.NEW_PATH
+    if candidate.owner in owners_left_out:
+        return RoutingOwnerReason.DIFF_NOT_SEEN
+    return None
 
 
 def _strip_delimiters(text: str) -> str:
@@ -190,28 +195,44 @@ def apply_cut_guards(
     llm_skipped: LlmSkipReason | None = None,
 ) -> RoutingDecision:
     proposed = _proposed_cuts(model_output)
-    reasons = {
+    guarded = {candidate.owner: _guard_reason(candidate, owners_left_out) for candidate in candidates}
+    cuts = {
         candidate.owner: proposed[candidate.owner]
         for candidate in candidates
-        if candidate.owner in proposed and not candidate.is_pinned and candidate.owner not in owners_left_out
+        if candidate.owner in proposed and guarded[candidate.owner] is None
     }
-    if candidates and len(reasons) == len(candidates):
+    reasons = {owner: guard or RoutingOwnerReason.MODEL_KEPT for owner, guard in guarded.items()}
+    if candidates and len(cuts) == len(candidates):
         # A pull request always keeps at least one reviewer: the owner with the largest part.
         largest = max(candidates, key=lambda candidate: candidate.lines)
-        del reasons[largest.owner]
+        del cuts[largest.owner]
+        reasons[largest.owner] = RoutingOwnerReason.LARGEST_OWNER
+    reasons.update(dict.fromkeys(cuts, RoutingOwnerReason.MODEL_CUT))
     return RoutingDecision(
-        kept=tuple(candidate for candidate in candidates if candidate.owner not in reasons),
+        kept=tuple(candidate for candidate in candidates if candidate.owner not in cuts),
         cut=tuple(
-            CutOwner(candidate=candidate, reason=reasons[candidate.owner])
+            CutOwner(candidate=candidate, reason=cuts[candidate.owner])
             for candidate in candidates
-            if candidate.owner in reasons
+            if candidate.owner in cuts
         ),
         llm_skipped=llm_skipped,
+        reasons=reasons,
+        model_reasons={owner: reason for owner, reason in proposed.items() if owner in guarded},
     )
 
 
-def _keep_all(candidates: Sequence[OwnerCandidate], reason: LlmSkipReason) -> RoutingDecision:
-    return RoutingDecision(kept=tuple(candidates), cut=(), llm_skipped=reason)
+def _keep_all(
+    candidates: Sequence[OwnerCandidate], reason: LlmSkipReason, owners_left_out: frozenset[str] = frozenset()
+) -> RoutingDecision:
+    return RoutingDecision(
+        kept=tuple(candidates),
+        cut=(),
+        llm_skipped=reason,
+        reasons={
+            candidate.owner: _guard_reason(candidate, owners_left_out) or RoutingOwnerReason.CUT_SKIPPED
+            for candidate in candidates
+        },
+    )
 
 
 def decide_cuts(
@@ -231,13 +252,8 @@ def decide_cuts(
     if is_fork:
         return _keep_all(candidates, LlmSkipReason.FORK)
     prompt = build_cut_prompt(title=title, description=description, candidates=candidates)
-    cuttable = [
-        candidate
-        for candidate in candidates
-        if not candidate.is_pinned and candidate.owner not in prompt.owners_left_out
-    ]
-    if not cuttable:
-        return _keep_all(candidates, LlmSkipReason.NOTHING_CUTTABLE)
+    if all(_guard_reason(candidate, prompt.owners_left_out) for candidate in candidates):
+        return _keep_all(candidates, LlmSkipReason.NOTHING_CUTTABLE, prompt.owners_left_out)
 
     try:
         model_output = call_model(CUT_SYSTEM_PROMPT, prompt.user_prompt, CUT_SCHEMA)
@@ -247,12 +263,3 @@ def decide_cuts(
     if model_output is None:
         return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
     return apply_cut_guards(candidates=candidates, model_output=model_output, owners_left_out=prompt.owners_left_out)
-
-
-def keep_pinned(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
-    """The owners of sensitive and new paths only, for a head that stamphog approved."""
-    return RoutingDecision(
-        kept=tuple(candidate for candidate in candidates if candidate.is_pinned),
-        cut=(),
-        llm_skipped=LlmSkipReason.STAMPHOG_APPROVED,
-    )

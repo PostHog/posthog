@@ -11,7 +11,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("data_modeling", "0001_squash_2026_09_07_initial"),
-        ("data_tools", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

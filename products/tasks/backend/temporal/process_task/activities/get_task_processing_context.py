@@ -32,7 +32,6 @@ from products.tasks.backend.constants import (
     PI_ACP_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
-    STORE_SKILLS_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -69,7 +68,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
-from products.tasks.backend.logic.services.store_skills import resolve_store_skills
+from products.tasks.backend.logic.services.store_skills import disabled_store_skills_state, resolve_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_generation
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
@@ -240,6 +239,11 @@ class TaskProcessingContext:
         that carries ``contents: read`` and nothing else.
         """
         return (self.state or {}).get("github_read_access") is True
+
+    @property
+    def github_token_scope(self) -> Literal["read", "push"] | None:
+        scope = (self.state or {}).get("github_token_scope")
+        return scope if scope in ("read", "push") else None
 
     @property
     def sandbox_environment_id(self) -> str | None:
@@ -931,7 +935,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             task_run = TaskRun.objects.select_related(
                 "task__created_by",
                 "task__team",
-                "task__github_integration",
                 "task__github_user_integration",
             ).get(id=run_id)
             posthoganalytics.tag("origin_product", task_run.task.origin_product)
@@ -1079,18 +1082,19 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
+    store_skills_updates: dict[str, Any] | None
     try:
         if not include_live_context or state.get("disable_skills") is True:
-            store_skills: list[dict[str, Any]] | None = []
-            state[STORE_SKILLS_STATE_KEY] = []
+            store_skills_updates = disabled_store_skills_state()
+            state.update(store_skills_updates)
         else:
             with StepTimer("store_skills"):
-                store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+                store_skills_updates = resolve_store_skills_state(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
-        store_skills = None
-    if store_skills is not None:
-        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+        store_skills_updates = None
+    if store_skills_updates is not None:
+        state_updates.update(store_skills_updates)
     # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []

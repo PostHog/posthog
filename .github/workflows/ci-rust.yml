@@ -79,6 +79,7 @@ jobs:
                         - '.github/scripts/rust_test_shards.py'
                         - '.github/scripts/resolve-changed-files.sh'
                         - '.github/actions/setup-uv/**'
+                        - '.github/actions/setup-python-cached/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
@@ -92,6 +93,8 @@ jobs:
                         # The rust mirror of the out-of-band domain list has a parity test
                         # against the shared json.
                         - 'posthog/security/crosslang/**'
+                        # The rust mirror of the AI event limits has a parity test against the shared json.
+                        - 'products/ai_observability/shared/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'
@@ -214,9 +217,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -344,10 +349,17 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            - name: Resolve Python version
+              id: python-version
+              run: |
+                  version=$(python3 -c 'import tomllib; print(tomllib.load(open("../pyproject.toml", "rb"))["project"]["requires-python"].removeprefix("=="))')
+                  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
-                  python-version-file: 'pyproject.toml'
+                  python-version: ${{ steps.python-version.outputs.version }}
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -566,7 +578,7 @@ jobs:
         # changes, so unrelated rust PRs skip the job entirely.
         if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 25
+        timeout-minutes: 35
         permissions:
             contents: read
         env:
@@ -581,6 +593,18 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                      products/
+                      docker/
+                      .github/actions/
+                      bin/ci-wait-for-docker
+                      bin/wait-for-docker
+                      docker-compose.base.yml
+                      docker-compose.dev.yml
+                      docker-compose.profiles.yml
+                  sparse-checkout-cone-mode: false
 
             - name: Log in to Docker Hub
               continue-on-error: true
@@ -590,14 +614,15 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Start Postgres, Kafka, and etcd
+            # kafka-secondary is a second, empty cluster for the cross-cluster changelog tests.
+            - name: Start Postgres, two Kafka clusters, and etcd
               env:
                   COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
-                  COMPOSE_PROFILES: etcd
+                  COMPOSE_PROFILES: etcd,personhog-secondary
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
-                  ../bin/ci-wait-for-docker launch --down db kafka etcd
-                  ../bin/ci-wait-for-docker wait --only db kafka etcd
+                  ../bin/ci-wait-for-docker launch --down db kafka kafka-secondary etcd
+                  ../bin/ci-wait-for-docker wait --only db kafka kafka-secondary etcd
 
                   echo "127.0.0.1 db kafka" | sudo tee -a /etc/hosts
 
@@ -635,6 +660,16 @@ jobs:
             # they run here rather than in the plain test job.
             - name: Test the harness verification logic
               run: cargo test -p personhog-test-harness -- --include-ignored
+
+            # The leader warming, pruning, recovering and sealing a changelog generation
+            # on another cluster, against the second broker only this job
+            # starts. Elsewhere these tests run their single-cluster cases.
+            - name: Test the leader across two Kafka clusters
+              env:
+                  PERSONHOG_TEST_SECONDARY_KAFKA: 127.0.0.1:29092
+              run: >-
+                  cargo test -p personhog-leader --features test-support
+                  --test warming_integration --test fencing_integration --test integration
 
             - name: Run the e2e gate
               run: |
@@ -788,11 +823,23 @@ jobs:
                     --migrate-after 8s --migrate-to-partitions 4 \
                     --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
 
+            # A migration onto the second cluster: the leaders seal the old
+            # topic on the first and produce on the second, and the writer
+            # exits once it drains the old topic and is restarted onto the
+            # new cluster, as its pod would be. The gate fails if it never does.
+            - name: Run the e2e gate migrating the changelog onto another cluster
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 200 --concurrency 10 --duration 30s \
+                    --migrate-after 10s --migrate-to-partitions 8 \
+                    --migrate-to-kafka-hosts 127.0.0.1:29092
+
             - name: Dump service logs on failure
               if: failure()
               run: |
                   docker ps -a || true
                   docker logs --tail=200 rust-kafka-1 || true
+                  docker logs --tail=200 rust-kafka-secondary-1 || true
                   docker logs --tail=200 rust-etcd-1 || true
 
             - name: Upload harness logs on failure
@@ -845,9 +892,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -862,6 +911,9 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
+            - name: Check format
+              run: cargo fmt -- --check
+
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
@@ -875,9 +927,6 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Check format
-              run: cargo fmt -- --check
-
             - name: Run clippy
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
@@ -890,15 +939,46 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
+            - name: Restore cargo-binstall archive
+              id: binstall-cache
+              continue-on-error: true
+              timeout-minutes: 1
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+                  key: cargo-binstall-1.26.2-linux-x64-v1
+
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              env:
+                  BINSTALL_ARCHIVE: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+              run: |
+                  set -euo pipefail
+                  checksum=9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5
+                  if ! echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check --status; then
+                      curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                          -o "$BINSTALL_ARCHIVE" \
+                          https://github.com/cargo-bins/cargo-binstall/releases/download/v1.26.2/cargo-binstall-x86_64-unknown-linux-musl.tgz
+                  fi
+                  echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check
+                  mkdir -p "$CARGO_HOME/bin"
+                  tar -xzf "$BINSTALL_ARCHIVE" -C "$CARGO_HOME/bin" cargo-binstall
+                  "$CARGO_HOME/bin/cargo-binstall" -V
+
+            - name: Save cargo-binstall archive
+              if: steps.binstall-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+              continue-on-error: true
+              timeout-minutes: 1
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+                  key: cargo-binstall-1.26.2-linux-x64-v1
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
               # (which records cargo-shear as installed) but not the binary itself, so
               # without --force binstall short-circuits ("already installed") and the
               # next step fails with `error: no such command: shear`.
-              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
+              run: cargo binstall --no-confirm --force --locked cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear

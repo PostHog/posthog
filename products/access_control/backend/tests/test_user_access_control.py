@@ -1227,16 +1227,25 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         access_level = uac.specific_access_level_for_object(self.dashboard)
         assert access_level is None
 
-    def test_returns_none_for_unsupported_model(self):
-        """Test that returns None for unsupported models"""
-
-        class UnsupportedModel:
-            def __init__(self):
+    @parameterized.expand(
+        [
+            ("specific_access_level_for_object", lambda uac, obj: uac.specific_access_level_for_object(obj)),
+            ("access_level_for_object", lambda uac, obj: uac.access_level_for_object(obj)),
+            ("check_access_level_for_object", lambda uac, obj: uac.check_access_level_for_object(obj, "viewer")),
+            (
+                "check_can_modify_access_levels_for_object",
+                lambda uac, obj: uac.check_can_modify_access_levels_for_object(obj),
+            ),
+        ]
+    )
+    def test_raises_for_an_object_that_is_not_a_model(self, _name, call):
+        class DashboardContract:
+            def __init__(self, created_by_id: int):
                 self.id = 1
+                self.created_by_id = created_by_id
 
-        unsupported_obj = UnsupportedModel()
-        access_level = self.user_access_control.specific_access_level_for_object(unsupported_obj)  # type: ignore
-        assert access_level is None
+        with pytest.raises(TypeError, match="ObjectAccessRef"):
+            call(self.user_access_control, DashboardContract(created_by_id=self.user.id))
 
     def test_member_specific_access_control(self):
         """Test that member-specific access controls are detected"""

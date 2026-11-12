@@ -136,18 +136,22 @@ def _extensive_body(
     return body
 
 
-def _flatten_extensive_call(call: dict[str, Any], row_keys: tuple[str, ...]) -> dict[str, Any]:
+def _flatten_extensive_call(
+    call: dict[str, Any], row_keys: tuple[str, ...], row_columns: Optional[dict[str, str]] = None
+) -> dict[str, Any]:
     """Lift the `metaData` block of an extensive call row to the top level.
 
     `/v2/calls/extensive` nests the core call fields under `metaData` and returns the requested
     enrichment blocks as siblings. Flattening `metaData` up keeps `id` and `started` available at
     the top level for primary-key merge and datetime partitioning, while preserving each
-    enrichment block as a nested column.
+    enrichment block as a nested column, renamed through `row_columns` where its key clashes with
+    a `metaData` field.
     """
     meta = call.get("metaData") or {}
     flattened = dict(meta)
+    columns = row_columns or {}
     for key in row_keys:
-        flattened[key] = call.get(key)
+        flattened[columns.get(key, key)] = call.get(key)
     return flattened
 
 
@@ -341,7 +345,8 @@ def _iter_call_rows(
                 json_body=_extensive_body(config, window_start, window_end, cursor),
             )
             rows = [
-                _flatten_extensive_call(row, config.extensive_row_keys) for row in data.get(config.response_key, [])
+                _flatten_extensive_call(row, config.extensive_row_keys, config.extensive_row_columns)
+                for row in data.get(config.response_key, [])
             ]
         else:
             params: dict[str, Any] = {

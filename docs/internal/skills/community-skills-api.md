@@ -160,6 +160,10 @@ After a conflict, retrieve the skill again and require new consent before anothe
   against the publisher's PostHog account, so the PR body presents it as a handle the publisher gave.
 - Bundled files are text only. `CommunitySkillFile.content` is a `TextField` and the renderer takes
   `str`, so a skill referencing an image or other binary asset cannot round-trip through the catalog.
+- Community publishing also checks the smaller limits in `PostHog/community-skills/scripts/build_registry.py`: at most 256 KiB (262,144 bytes) per bundled file and 1 MiB (1,048,576 bytes) for the body plus bundled files.
+  The total counts the UTF-8 body after normalizing line endings and trimming surrounding whitespace, plus each bundled file's UTF-8 bytes. YAML frontmatter is excluded, and the per-file limit does not apply to the body.
+  The store's existing body and file-count limits still apply. The separate 5,000,000-byte limit on the encoded GitHub tree request includes frontmatter, file paths, and JSON escaping.
+  An oversized skill returns `400` before acquiring a GitHub publisher or writing a branch.
 - Template skills publish their normalized `metadata.variables` schema (and no other store metadata).
   Publishing checks that the template installs with only its defaults: every `{{ variable }}` in
   `SKILL.md` or a bundled file is declared, and the defaults and rendered output fit the install

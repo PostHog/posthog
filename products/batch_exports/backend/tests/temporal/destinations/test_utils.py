@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 
+from products.batch_exports.backend.service import BatchExportEventsModel, BatchExportPersonsModel
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3InsertInputs, get_s3_key_from_inputs
 from products.batch_exports.backend.temporal.destinations.utils import (
     get_manifest_key,
@@ -252,6 +253,32 @@ def test_get_object_key(inputs, expected):
         include_file_number=inputs.max_file_size_mb is not None,
     )
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "prefix,batch_export_model,expected_prefix",
+    [
+        ("posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}", None, "posthog-events/2023-01-02/03:04:05"),
+        (
+            "posthog-{table}/{hour}:{minute}:{second}/{year}-{month}-{day}",
+            BatchExportPersonsModel(),
+            "posthog-persons/03:04:05/2023-01-02",
+        ),
+        ("posthog-{table}/{hour}:{minute}:{second}", BatchExportEventsModel(), "posthog-events/03:04:05"),
+        ("posthog/{year}-{month}-{day}/{hour}:{minute}:{second}", None, "posthog/2023-01-02/03:04:05"),
+        ("{year}-{month}-{day}", BatchExportPersonsModel(), "2023-01-02"),
+    ],
+)
+def test_get_object_key_fills_prefix_template_variables(prefix, batch_export_model, expected_prefix):
+    result = get_object_key(
+        prefix=prefix,
+        data_interval_start="2023-01-02T02:04:05+00:00",
+        data_interval_end="2023-01-02T03:04:05+00:00",
+        batch_export_model=batch_export_model,
+        file_format="JSONLines",
+    )
+
+    assert result == f"{expected_prefix}/2023-01-02T02:04:05+00:00-2023-01-02T03:04:05+00:00.jsonl"
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,15 @@ import type { ReactElement } from 'react'
 
 import { ReportScreen } from '@/features/report/ReportScreen'
 import { reportOpenSourceParam } from '@/features/report/reportAnalytics'
+import { reportLinkFromParams, routeParam } from '@/features/report/reportLinkScope'
 
 export default function ReportRoute(): ReactElement {
-    const { id, from } = useLocalSearchParams<{ id: string; from?: string }>()
-    return <ReportScreen reportId={id ?? ''} from={reportOpenSourceParam(from)} />
+    const params = useLocalSearchParams()
+    return (
+        <ReportScreen
+            reportId={routeParam(params.id) ?? ''}
+            from={reportOpenSourceParam(params.from)}
+            link={reportLinkFromParams(params)}
+        />
+    )
 }

@@ -2,9 +2,11 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
+import json
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -15,23 +17,36 @@ import requests
 import structlog
 from prometheus_client import Counter, Histogram
 
+from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
+    prepare_transactional_email_attachment_uploads,
     send_accepted_transactional_email,
     send_transactional_email as run_transactional_workflow,
 )
 
 from products.messaging.backend.facade.contracts import (
+    AttachmentNotUploaded,
+    AttachmentsRefused,
+    AttachmentUploadRequest,
+    AttachmentUploadSlot,
+    AttachmentUploadTarget,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
+    EmailAttachment,
+    EmailTracking,
+    FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
     InvalidIdempotencyKey,
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    MessageTooLarge,
+    NamedSenderNotVerified,
+    PresentAttachment,
     QueuedEmail,
     QuotaLimited,
     RecipientSuppressed,
@@ -41,15 +56,19 @@ from products.messaging.backend.facade.contracts import (
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
+    SensitiveTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
+    UploadQuotaExceeded,
 )
-from products.messaging.backend.models import MessageCategory, MessageTemplate, TransactionalEmailKey
+from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
+from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
@@ -174,6 +193,39 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
     ),
 }
 
+FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
+    "workflow_shape_not_supported": (
+        "This email's workflow can't send files, so PostHog didn't send the email.",
+        "A send with files needs a workflow with a trigger, one transactional email step, then an exit.",
+        "Send files through a workflow that has a trigger, then one transactional email step, then an exit, or "
+        "send this email without files.",
+    ),
+    "workflow_can_wait": (
+        "This email's workflow can hold a send, so PostHog didn't send the email with its files.",
+        "A step or a sending rate limit in this workflow can hold the send, so its files could expire before the "
+        "email goes out.",
+        "Send files through a workflow whose transactional email step follows the trigger directly and has no "
+        "sending rate limit, or send this email without files.",
+    ),
+    "email_render_limit_exceeded": (
+        "PostHog couldn't check the size of this email with its files, so it didn't send it.",
+        "Rendering this email's template went over a limit on time or length, so the size of the email with its "
+        "files couldn't be checked.",
+        "Simplify the email's template, or send this email without files.",
+    ),
+    "utm_value_too_long": (
+        "A UTM value in this email's workflow is too long, so PostHog didn't send the email with its files.",
+        "A UTM value is longer than 1,000 characters, so the size of this email with its files couldn't be checked.",
+        "Shorten each UTM value of the email step to 1,000 characters or fewer, or send this email without files.",
+    ),
+    "email_body_too_many_tags": (
+        "This email's template has too many Liquid tags, so PostHog didn't send the email with its files.",
+        "The email step has more than 10,000 Liquid tags, so the size of this email with its files couldn't be "
+        "checked.",
+        "Use 10,000 Liquid tags or fewer in the email step, or send this email without files.",
+    ),
+}
+
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
@@ -225,8 +277,8 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
         config = IntegrationManager.email.credentials.get(team_id, integration_id).config or {}
     except IntegrationNotFound:
         config = {}
-    domain = (config.get("domain") or (config.get("email") or "").partition("@")[2]).lower()
-    if domain and address.partition("@")[2].lower() != domain:
+    domain = (config.get("domain") or email_domain(config.get("email") or "") or "").lower()
+    if domain and (email_domain(address) or "").lower() != domain:
         return f"Use an address on {domain}, the domain this sender is verified for."
     return None
 
@@ -400,9 +452,14 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
-def _code_email_workflow_id(team_id: int, key: str) -> UUID:
+def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
     template = _template_for_key(team_id, key)
     if template is not None:
+        if sensitive is False and template.sensitive:
+            raise SensitiveTemplate(
+                "This email's template is marked sensitive, so `sensitive` can't be false. "
+                "Leave `sensitive` out, or unmark the template."
+            )
         return _transactional_workflow_id(team_id, template)
     hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
@@ -436,8 +493,16 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
                 "reuse it for every recipient."
             )
         hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
-        keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
+        key_id = str(keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id).id)
+        transaction.on_commit(lambda: _queue_source_detection(team_id, key_id), robust=True)
         return hog_flow_id
+
+
+def _queue_source_detection(team_id: int, key_id: str) -> None:
+    # After commit and local-only, so a send never waits on the flag service while it holds the team's key lock.
+    # Publishing only while the flag is on keeps the task off the queue until workers that know it are live.
+    if source_detection_enabled(team_id, only_locally=True):
+        detect_code_email_source_task.apply_async(args=(team_id, key_id), retry=False)
 
 
 def _lock_team_keys(team_id: int) -> None:
@@ -445,6 +510,18 @@ def _lock_team_keys(team_id: int) -> None:
         cursor.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"]
         )
+
+
+def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
+    _, claimed = FirstCodeSend.objects.for_team(team_id).get_or_create(defaults={"team_id": team_id})
+    if not claimed:
+        return
+    captured = False
+    try:
+        captured = capture()
+    finally:
+        if not captured:
+            FirstCodeSend.objects.for_team(team_id).delete()
 
 
 def require_code_email_access(
@@ -501,15 +578,15 @@ def send_code_email(
     distinct_id: str | None,
     idempotency_key: str | None = None,
 ) -> QueuedEmail:
-    _check_send_request(to, idempotency_key)
+    _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send = _accepted_send(team.id, email)
-        hog_flow_id = _code_email_workflow_id(team.id, email.key)
+        hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
-def _check_send_request(to: str, idempotency_key: str | None) -> None:
+def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
     if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
         raise InvalidIdempotencyKey(
             "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
@@ -517,6 +594,8 @@ def _check_send_request(to: str, idempotency_key: str | None) -> None:
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
+    if any("{" in address or "}" in address for address in copies):
+        raise InvalidRecipient("A `cc` or `bcc` address can't contain { or }.")
 
 
 def _send_payload(
@@ -540,11 +619,39 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
+        "tracking": _accepted_tracking(email.tracking),
     }
+    if email.sensitive is not None:
+        accepted["sensitive"] = email.sensitive
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
+    if email.cc:
+        accepted["cc"] = list(email.cc)
+    if email.bcc:
+        accepted["bcc"] = list(email.bcc)
+    if email.attachments:
+        accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted
+
+
+def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
+    accepted = {"captureEngagement": tracking.engagement}
+    if not tracking.opens:
+        accepted["opens"] = False
+    if tracking.clicks is not None:
+        accepted["clicks"] = tracking.clicks
+    return accepted
+
+
+def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
+    return _without_empty(
+        {
+            "sha256": attachment.sha256,
+            "filename": attachment.filename,
+            "content_type": attachment.content_type,
+            "content_id": attachment.content_id,
+        }
+    )
 
 
 def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
@@ -557,7 +664,7 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
         ) from e
     except TransactionalEmailSenderUnavailable as e:
         if address:
-            raise SenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
+            raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
     return {"integrationId": sender_id, "email": email, "name": name}
 
@@ -589,13 +696,27 @@ def _queue(
     _observe_cdp_call(time.monotonic() - started_at)
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if (payload.get("send") or {}).get("attachments") and (
+        attachment_refusal := _attachment_refusal(refusal_code, answer)
+    ):
+        raise attachment_refusal
     if response.status_code == 413:
         raise ContentTooLarge(
             "The email is larger than PostHog can send. Make its content or data smaller, and link to "
             "large images and files instead of embedding them."
         )
     if response.status_code != 202:
-        refusal_code = _refusal_code(response)
+        unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
+        if unknown_field is not None:
+            logger.warning(
+                "transactional_email_field_not_accepted",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                field=unknown_field,
+            )
+            raise FieldNotAccepted(unknown_field)
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
             refusal = PIPELINE_REFUSALS["invalid_request"]
@@ -610,16 +731,144 @@ def _queue(
         if refusal is None:
             raise DeliveryUnavailable()
         error_class, message = refusal
-        raise error_class(message)
+        error = error_class(message)
+        error.attachment_bytes = _attachment_bytes(answer)
+        raise error
 
-    body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    return QueuedEmail(
+        message_id=str(answer["invocation_id"]),
+        replayed=bool(answer.get("replayed", False)),
+        attachment_bytes=_attachment_bytes(answer),
+    )
 
 
-def _refusal_code(response: requests.Response) -> str | None:
+def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:
+    sha256 = answer.get("sha256") if isinstance(answer.get("sha256"), str) else None
+    error: TransactionalEmailError
+    if refusal_code == "field_not_accepted":
+        error = FieldNotAccepted("attachments")
+    elif refusal_code == "attachment_not_uploaded":
+        error = AttachmentNotUploaded(sha256)
+    elif refusal_code == "message_too_large":
+        error = MessageTooLarge(sha256)
+    elif refusal_code is not None and refusal_code in FILES_REFUSALS:
+        message, why, fix = FILES_REFUSALS[refusal_code]
+        error = AttachmentsRefused(
+            refusal_code, message, why=_explanation(answer, "reason") or why, fix=_explanation(answer, "fix") or fix
+        )
+    else:
+        return None
+    error.attachment_bytes = _attachment_bytes(answer)
+    return error
+
+
+def _explanation(answer: dict[str, Any], key: str) -> str | None:
+    value = answer.get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _attachment_bytes(answer: dict[str, Any]) -> int | None:
+    total = answer.get("attachment_bytes")
+    return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
+
+
+def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
+    try:
+        issues = json.loads(error or "")
+    except ValueError:
+        return None
+    for issue in issues if isinstance(issues, list) else []:
+        if not isinstance(issue, dict) or issue.get("code") != "unrecognized_keys":
+            continue
+        if issue.get("path") == ["send", "tracking"]:
+            return "tracking"
+        if issue.get("path") == ["send"]:
+            keys = issue.get("keys")
+            if isinstance(keys, list) and keys and isinstance(keys[0], str):
+                return keys[0]
+    return None
+
+
+def _answer(response: requests.Response) -> dict[str, Any]:
     try:
         body = response.json()
     except ValueError:
-        return None
-    code = body.get("error") if isinstance(body, dict) else None
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _refusal_code(answer: dict[str, Any]) -> str | None:
+    code = answer.get("error")
     return code if isinstance(code, str) else None
+
+
+def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadRequest]) -> list[AttachmentUploadSlot]:
+    payload = {"files": [{"sha256": file.sha256, "size": file.size} for file in files]}
+    try:
+        response = prepare_transactional_email_attachment_uploads(team.id, payload)
+    except Exception as e:
+        logger.exception("transactional_email_attachment_uploads_failed", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if response.status_code == 200:
+        return _answered_slots(team, files, response)
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if refusal_code == "field_not_accepted":
+        raise FieldNotAccepted("attachments")
+    if refusal_code == "message_too_large":
+        sha256 = answer.get("sha256")
+        raise MessageTooLarge(sha256 if isinstance(sha256, str) else None)
+    if refusal_code == "upload_quota_exceeded":
+        raise UploadQuotaExceeded("This project uploaded as many file bytes as it can today.")
+    if response.status_code != 503:
+        logger.error(
+            "transactional_email_attachment_uploads_rejected",
+            team_id=team.id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+        )
+    if refusal_code == "invalid_request":
+        raise InvalidRequest("The email pipeline refused this file list.")
+    raise DeliveryUnavailable()
+
+
+def _answered_slots(
+    team: Team, files: Sequence[AttachmentUploadRequest], response: requests.Response
+) -> list[AttachmentUploadSlot]:
+    try:
+        slots = [_upload_slot(slot) for slot in response.json()["files"]]
+    except (ValueError, KeyError, TypeError) as e:
+        logger.exception("transactional_email_attachment_uploads_unreadable", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if [slot.sha256 for slot in slots] != [file.sha256 for file in files]:
+        logger.error("transactional_email_attachment_uploads_mismatched", team_id=team.id)
+        raise DeliveryUnavailable()
+    return slots
+
+
+def _upload_slot(slot: dict[str, Any]) -> AttachmentUploadSlot:
+    if slot["status"] == "present":
+        return PresentAttachment(sha256=slot["sha256"], expires_at=datetime.fromisoformat(slot["expires_at"]))
+    if slot["status"] != "upload":
+        raise ValueError(f"Unknown attachment upload status: {slot['status']}")
+    return AttachmentUploadTarget(
+        sha256=_text(slot, "sha256"),
+        url=_text(slot, "url"),
+        method=_text(slot, "method"),
+        headers=_text_map(slot, "headers"),
+        url_expires_at=datetime.fromisoformat(slot["url_expires_at"]),
+    )
+
+
+def _text(slot: dict[str, Any], key: str) -> str:
+    value = slot[key]
+    if not isinstance(value, str):
+        raise TypeError(f"Attachment upload `{key}` is not a string")
+    return value
+
+
+def _text_map(slot: dict[str, Any], key: str) -> dict[str, str]:
+    value = slot[key]
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise TypeError(f"Attachment upload `{key}` is not a map of strings")
+    return value

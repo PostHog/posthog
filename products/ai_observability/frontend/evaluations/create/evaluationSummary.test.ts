@@ -1,5 +1,5 @@
 import type { EvaluationConditionSet, EvaluationConfig } from '../types'
-import { reportText, triggerText } from './evaluationSummary'
+import { reportText, settleSummary, triggerText } from './evaluationSummary'
 
 const evaluation = (overrides: Partial<EvaluationConfig>): EvaluationConfig =>
     ({
@@ -45,11 +45,52 @@ describe('evaluation sentence parts', () => {
         { name: 'off', input: { enabled: false, frequency: 'scheduled' }, expected: 'never' },
         { name: 'scheduled', input: { enabled: true, frequency: 'scheduled' }, expected: 'weekly' },
         {
-            name: 'by result count',
+            name: 'by result count, at most daily',
             input: { enabled: true, frequency: 'every_n' },
-            expected: 'every 100 results',
+            expected: 'every 100 results, at most once a day',
+        },
+        {
+            name: 'by result count, at most hourly',
+            input: { enabled: true, frequency: 'every_n', cooldownMinutes: 60 },
+            expected: 'every 100 results, at most once an hour',
+        },
+        {
+            name: 'by result count, a custom gap',
+            input: { enabled: true, frequency: 'every_n', cooldownMinutes: 360 },
+            expected: 'every 100 results, at most once every 6 hours',
+        },
+        {
+            name: 'by result count, a gap saved in minutes through the API',
+            input: { enabled: true, frequency: 'every_n', cooldownMinutes: 90 },
+            expected: 'every 100 results, at most once every 90 minutes',
         },
     ])('reports: $name', ({ input, expected }) => {
-        expect(reportText({ scheduleCadence: 'weekly', triggerThreshold: 100, ...input })).toEqual(expected)
+        expect(
+            reportText({ scheduleCadence: 'weekly', triggerThreshold: 100, cooldownMinutes: 1440, ...input })
+        ).toEqual(expected)
+    })
+
+    test.each([
+        { name: 'a generation runs at once', input: evaluation({ target: 'generation' }), expected: null },
+        {
+            name: 'a trace waits a fixed delay by default',
+            input: evaluation({ target: 'trace', target_config: {} }),
+            expected: 'It runs 30 minutes after the first matching generation.',
+        },
+        {
+            name: 'a session waits for quiet by default',
+            input: evaluation({ target: 'session', target_config: {} }),
+            expected: 'It runs once the session has been quiet for 1 hour, or 1 day after it starts.',
+        },
+        {
+            name: 'a stored quiet period wins over the default',
+            input: evaluation({
+                target: 'trace',
+                target_config: { strategy: 'inactivity', quiet_period_seconds: 120, max_age_seconds: 3600 },
+            } as Partial<EvaluationConfig>),
+            expected: 'It runs once the trace has been quiet for 2 minutes, or 1 hour after it starts.',
+        },
+    ])('timing: $name', ({ input, expected }) => {
+        expect(settleSummary(input)?.replace(/\u00a0/g, ' ') ?? null).toEqual(expected)
     })
 })

@@ -1,9 +1,10 @@
 import { NextFunction, Request, Response } from 'ultimate-express'
 
-import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '~/cdp/utils/jwt-utils'
+import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt, parseJwtKeys } from '~/cdp/utils/jwt-utils'
 import { logger } from '~/common/utils/logger'
 
-import { RecordingApiRole } from './types'
+import { RecordingApiMetrics } from './metrics'
+import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, RecordingApiRole } from './types'
 
 /**
  * Authorization for recording-api routes.
@@ -17,6 +18,8 @@ export type RecordingApiOp = 'read' | 'delete' | 'write'
 
 // jsonwebtoken tolerates up to this many seconds of clock skew between minter and verifier.
 const CLOCK_TOLERANCE_SECONDS = 30
+
+const MIN_BLOCKS_SECRET_BYTES = 32
 
 export interface RecordingApiAuthOptions {
     // Comma-separated keys (newest first) for zero-downtime rotation. Empty disables JWT auth (dev only).
@@ -61,11 +64,21 @@ function verifyBearer(
         })
         return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined
     } catch (err) {
-        logger.warn('Recording API JWT verification failed', {
-            audience,
-            reason: err instanceof Error ? err.name : 'unknown',
-        })
+        const reason = err instanceof Error ? err.name : 'unknown'
+        RecordingApiMetrics.incrementJwtVerificationFailure(audience, reason)
+        // Anyone on the internet can send a bad browser token, so only a failed service token is worth a log line.
+        if (audience !== PosthogJwtAudience.REPLAY_BLOCKS) {
+            logger.warn('Recording API JWT verification failed', { audience, reason })
+        }
         return undefined
+    }
+}
+
+// The dev keys are public in this repo, so anyone could sign with them. A deployed pod refuses them outright. The local and
+// E2E containers run the production image with the dev keys, so they are not deployed.
+function refuseDevKey(secret: string, devKey: string, name: string): void {
+    if (parseJwtKeys(secret || '').includes(devKey)) {
+        throw new Error(`recording-api refuses the public dev ${name} on a deployed environment`)
     }
 }
 
@@ -74,7 +87,14 @@ function verifyBearer(
  * middleware below lets every request through. Uses the same key parsing as the verifier so a
  * malformed-but-truthy value (e.g. ',') counts as "no JWT configured".
  */
-export function assertRecordingApiAuthConfigured(opts: { isProd: boolean; jwtSecret: string }): void {
+export function assertRecordingApiAuthConfigured(opts: {
+    isProd: boolean
+    deployed?: boolean
+    jwtSecret: string
+}): void {
+    if (opts.deployed) {
+        refuseDevKey(opts.jwtSecret, DEV_RECORDING_API_JWT_SECRET, 'RECORDING_API_JWT_SECRET')
+    }
     if (hasJwtKeys(opts.jwtSecret || '')) {
         return
     }
@@ -95,11 +115,19 @@ export function assertRecordingApiAuthConfigured(opts: { isProd: boolean; jwtSec
 export function assertRecordingApiRoleAuthConfigured(opts: {
     role: RecordingApiRole
     isProd: boolean
+    deployed?: boolean
     blocksJwtSecret: string
     jwtSecret: string
 }): void {
     if (opts.role !== 'internal' && opts.isProd && !hasJwtKeys(opts.blocksJwtSecret || '')) {
         throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
+    }
+    if (opts.role !== 'internal' && opts.deployed) {
+        refuseDevKey(opts.blocksJwtSecret, DEV_RECORDING_API_BLOCKS_JWT_SECRET, 'RECORDING_API_BLOCKS_JWT_SECRET')
+        // jsonwebtoken accepts an HMAC key of any length, and a short one can be guessed offline from one token.
+        if (parseJwtKeys(opts.blocksJwtSecret || '').some((key) => Buffer.byteLength(key) < MIN_BLOCKS_SECRET_BYTES)) {
+            throw new Error(`RECORDING_API_BLOCKS_JWT_SECRET keys must be at least ${MIN_BLOCKS_SECRET_BYTES} bytes`)
+        }
     }
     if (opts.role !== 'public') {
         assertRecordingApiAuthConfigured(opts)

@@ -8,7 +8,12 @@ from django.conf import settings
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, Query
-from posthog.dags.apply_deleted_mask import DeletedMaskPartition, apply_deleted_mask_job
+from posthog.dags.apply_deleted_mask import (
+    DeletedMaskPartition,
+    PartitionRowCounts,
+    _partitions_due,
+    apply_deleted_mask_job,
+)
 from posthog.models.deletion_targets import EVENTS_TARGETS, resolve_placements
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 
@@ -124,3 +129,20 @@ def _find_and_apply(cluster: ClickhouseCluster) -> None:
     }
     for table, partition in before:
         assert after[(table, partition)] == before[(table, partition)] - removed[table][partition]
+
+
+def test_a_month_due_on_one_shard_is_found_with_the_rows_of_every_shard() -> None:
+    counts_by_shard = {
+        1: {
+            MOSTLY_DELETED: PartitionRowCounts(physical_rows=100, live_rows=50),
+            FEW_DELETED: PartitionRowCounts(physical_rows=100, live_rows=99),
+        },
+        2: {
+            MOSTLY_DELETED: PartitionRowCounts(physical_rows=100, live_rows=100),
+            FEW_DELETED: PartitionRowCounts(physical_rows=100, live_rows=95),
+        },
+    }
+
+    assert _partitions_due(counts_by_shard, min_deleted_ratio=0.1) == [
+        DeletedMaskPartition(partition=MOSTLY_DELETED, physical_rows=200, deleted_rows=50)
+    ]

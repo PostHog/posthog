@@ -294,6 +294,7 @@ class ListOutputSerializer(serializers.Serializer):
         choices=BatchExportRunStatus.choices,
         help_text="Current status of the file download batch export run.",
     )
+    created_at = serializers.DateTimeField(help_text="When the file download batch export run was created.")
 
 
 class RetrieveBasicOutputSerializer(serializers.Serializer):
@@ -318,26 +319,6 @@ class RetrieveFailedOutputSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(choices=["Failed", "FailedRetryable", "FailedBilling", "Terminated", "TimedOut"])
     error = serializers.CharField()
-
-
-class RetrieveOutputSerializer(serializers.Serializer):
-    """Retrieve serializer with all fields optional except status.
-
-    The actual conditional shape is described by the polymorphic schema in
-    @extend_schema. This serializer exists as a runtime/fallback type.
-    """
-
-    status = serializers.ChoiceField(choices=BatchExportRunStatus.choices)
-    error = serializers.CharField(required=False)
-    files = serializers.ListField(
-        child=serializers.UUIDField(),
-        required=False,
-    )
-    records_completed = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Number of rows this run exported.",
-    )
 
 
 class TooManyConcurrentFileDownloads(APIException):
@@ -370,6 +351,8 @@ def _to_file_download_request(validated_data: dict[str, Any]) -> contracts.FileD
 class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
     path_parameters = {"pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run.")}
     scope_object = "batch_export"
+    # batch_export is not an access-control resource, so no rule names one run.
+    records_have_object_access_rules = False
     serializer_class = FileDownloadBatchExportOnDemandSerializer
     pagination_class = FacadeLimitOffsetPagination
     log_source = "batch_exports"
@@ -387,18 +370,11 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
             return [BatchExportsCountRowsBurstRateThrottle(), BatchExportsCountRowsSustainedRateThrottle()]
         return super().get_throttles()
 
-    def dangerously_get_object(self) -> contracts.FileDownloadRun:
-        # The mixin's get_object() reads through a queryset, which this view does not have, so the
-        # run is read through the facade instead. That skips the mixin's team filter and object
-        # permission check, so both happen here: the facade filters by team, and
-        # check_object_permissions runs on the contract. `logs` reads the run through here too.
-        run_id = self.kwargs["pk"]
+    def read_object(self) -> contracts.FileDownloadRun:
         try:
-            run = batch_exports_api.get_file_download_run(self.team_id, run_id)
+            return batch_exports_api.get_file_download_run(self.team_id, self.kwargs["pk"])
         except contracts.FileDownloadNotFoundError as e:
             raise NotFound(*e.args) from e
-        self.check_object_permissions(self.request, run)
-        return run
 
     def list(self, request, *args, **kwargs) -> response.Response:
         return facade_page_response(

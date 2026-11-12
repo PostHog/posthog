@@ -603,6 +603,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.InboxUsageQuery]: {
+        name: 'Inbox usage',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
         icon: IconPieChart,
@@ -676,6 +681,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPProtocolVersionBreakdownQuery]: {
         name: 'MCP protocol version breakdown',
         description: 'MCP tool-call activity grouped by negotiated protocol revision.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPDashboardQuery]: {
+        name: 'MCP dashboard',
+        description: 'Every section of the MCP Analytics dashboard in one request.',
         icon: IconPieChart,
         inMenu: false,
     },

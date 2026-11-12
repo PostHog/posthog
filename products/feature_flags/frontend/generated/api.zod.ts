@@ -139,7 +139,7 @@ export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @_
     flag_evaluations_mode: zod
         .union([zod.literal(0), zod.literal(1), zod.literal(2)])
         .describe(
-            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
         ),
     team_ids: zod
         .array(zod.number())
@@ -1074,6 +1074,26 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
+ *
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved or the request comes from a task
+ * sandbox, and 409 when an analysis is already running.
+ */
+export const featureFlagsAnalyzeCodeCreateBodyRepositoryMax = 255
+
+export const FeatureFlagsAnalyzeCodeCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(featureFlagsAnalyzeCodeCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to analyze, as `organization\/repository`. It must be connected to the project's GitHub integration. Omit it to use the repository the last analysis used, the environment's default flag cleanup repository, or the only connected repository."
+        ),
+})
+
+/**
  * Disable a feature flag.
  *
  * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
@@ -1119,6 +1139,27 @@ export const FeatureFlagsEnableCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
+        ),
+})
+
+/**
+ * Open a draft pull request that removes this stale flag's checks from the code.
+ *
+ * An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+ * opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+ * when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+ * `cleanup` on `code_analysis`), 403 when AI data processing is not approved or the request comes from a
+ * task sandbox, and 409 when a cleanup pull request is still being opened.
+ */
+export const featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax = 400
+
+export const FeatureFlagsOpenCleanupPrCreateBody = /* @__PURE__ */ zod.object({
+    keep_outcome: zod
+        .string()
+        .max(featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax)
+        .nullish()
+        .describe(
+            'Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. Omit it to keep `cleanup.suggested_outcome`.'
         ),
 })
 
@@ -1232,6 +1273,58 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
+})
+
+/**
+ * Restore a past version of a feature flag.
+ *
+ * Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+ * what they were at `version_number`. Read that version first with the versions endpoint to see
+ * what will change. The flag's key, its enabled state, and its archived state stay as they are,
+ * as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+ * version, so it can be undone by restoring the version before it.
+ *
+ * Send the flag's current `version`. A change after that version is refused with 409. An
+ * approval policy that gates the change opens a change request instead. A restore to a version
+ * that matches the current configuration writes nothing and returns the flag.
+ */
+export const featureFlagsVersionsRestoreCreateBodyAskRollbackReasonDefault = false
+export const featureFlagsVersionsRestoreCreateBodyRollbackReasonNoteMax = 1000
+
+export const featureFlagsVersionsRestoreCreateBodyVersionMin = 0
+
+export const FeatureFlagsVersionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    ask_rollback_reason: zod
+        .boolean()
+        .default(featureFlagsVersionsRestoreCreateBodyAskRollbackReasonDefault)
+        .describe(
+            "When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag."
+        ),
+    rollback_reason: zod
+        .union([
+            zod
+                .enum(['errors', 'metrics', 'planned', 'wrong_configuration', 'other'])
+                .describe(
+                    '\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.\n\n\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other"
+        ),
+    rollback_reason_note: zod
+        .string()
+        .max(featureFlagsVersionsRestoreCreateBodyRollbackReasonNoteMax)
+        .nullish()
+        .describe('A free-text note for `rollback_reason`. Requires `rollback_reason`.'),
+    version: zod
+        .number()
+        .min(featureFlagsVersionsRestoreCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            "The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0."
+        ),
 })
 
 /**

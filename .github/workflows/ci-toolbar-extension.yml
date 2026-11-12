@@ -1,7 +1,7 @@
 name: Toolbar extension
 
-# Builds the toolbar browser extension and uploads the Chrome and Firefox zips as a run artifact, so a reviewer can
-# install the build from a PR. The workflow never publishes to a browser store.
+# Builds the toolbar browser extension and uploads the Chrome zip as a run artifact, so a reviewer can install the
+# build from a PR. The workflow never publishes to the Chrome Web Store.
 
 on:
     pull_request:

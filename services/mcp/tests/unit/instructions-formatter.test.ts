@@ -38,6 +38,7 @@ describe('InstructionsFormatter', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
+            expect(result.indexOf('If the target project is ambiguous')).toBe(0)
             expect(result).toContain(ENV_POINTER)
             expect(result).toContain('- dashboard')
             expect(result).toContain('- feature-flag')
@@ -177,10 +178,12 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('buildExecToolDescription', () => {
-        it('renders just the exec tool blurb, no other sections', () => {
+        it('renders project scope before the exec tool blurb', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription()
             expect(result).toContain('Using the `posthog` tool')
+            expect(result).toContain('use the explicit target or active project without reconfirming it')
+            expect(result.indexOf('If the target project is ambiguous')).toBe(0)
             expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
@@ -207,7 +210,7 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### PostHog knowledge sources')
         })
 
-        it('loads skills before checking business knowledge, repositories, and docs', () => {
+        it('clarifies project scope before skills, business knowledge, repositories, and docs', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription({
                 skillsEnabled: true,
@@ -216,7 +219,10 @@ describe('InstructionsFormatter', () => {
                 businessKnowledgeRepoSearchEnabled: true,
             })
 
-            expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
+            expect(result.indexOf('If the target project is ambiguous')).toBe(0)
+            expect(result).toContain('After any needed project clarification')
+            expect(result).toContain('SKILLS FIRST')
+            expect(result.indexOf('SKILLS FIRST')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
             expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(
                 result.indexOf('`call business-knowledge-repositories-search <json_input>`')
             )
@@ -310,6 +316,40 @@ describe('InstructionsFormatter', () => {
             ]) {
                 expect(rendered.includes('use Replay Vision instead of SQL over the replay tables')).toBe(expected)
                 expect(rendered.includes('{replay_vision}')).toBe(false)
+            }
+        })
+    })
+
+    describe('inbox-first guidance', () => {
+        it.each([
+            { name: 'tools mode', exec: false, claim: true, list: 'the `inbox-reports-list` tool' },
+            { name: 'exec mode', exec: true, claim: true, list: '`call inbox-reports-list <json_input>`' },
+            {
+                name: 'exec mode without claim',
+                exec: true,
+                claim: false,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+        ])('renders the section in $name', ({ exec, claim, list }) => {
+            const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: claim }
+            const formatter = new InstructionsFormatter()
+            const rendered = exec ? formatter.buildExecCommandReference(ctx) : formatter.buildToolsInstructions(ctx)
+
+            expect(rendered).toContain('### Existing Inbox reports')
+            expect(rendered).toContain(`Look for a report with ${list}`)
+            expect(rendered).toContain('`suppression_source` is `safety_judge`')
+            expect(rendered.includes('inbox-reports-claim')).toBe(claim)
+            expect(rendered).not.toMatch(/\{inbox_/)
+        })
+
+        it('omits the section when it is not enabled', () => {
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions(fullCtx),
+                formatter.buildExecCommandReference(fullCtx),
+                formatter.buildExecToolDescription({ skillsEnabled: true, docsSearchEnabled: true }),
+            ]) {
+                expect(rendered).not.toContain('Existing Inbox reports')
             }
         })
     })

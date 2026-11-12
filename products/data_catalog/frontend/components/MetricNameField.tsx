@@ -6,7 +6,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { sqlNameFromDisplayName } from '../common'
+import { sqlNameAfterDisplayNameChange, sqlNameFromDisplayName } from '../common'
 
 export interface MetricNameValue {
     display_name: string
@@ -38,10 +38,9 @@ export function MetricNameField({
     const showSqlNameInput = editingSqlName || !!sqlNameError || cannotDeriveSqlName
 
     const changeDisplayName = (nextDisplayName: string): void => {
-        const followsDisplayName = sqlName === automaticSqlName
         onChange({
             display_name: nextDisplayName,
-            name: followsDisplayName ? sqlNameFromDisplayName(nextDisplayName) : sqlName,
+            name: sqlNameAfterDisplayNameChange(displayName, sqlName, nextDisplayName),
         })
     }
 

@@ -72,6 +72,23 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
+For context-dependent UI fragments, `ui-customization-describe` returns the selected context's layout JSON Schema
+and default layout. The schema comes from the same validator used when saving. Its descriptions include rules
+that JSON Schema cannot enforce, such as limits across sections and unique list sources. Agents can use this
+read-only tool to plan alternatives, then read the person's saved layout before replacing it. Schema discovery
+uses the same feature flag and project access checks as reading a customization; saving still validates every layout.
+
+For the Analytics sidebar, keep customization focused on navigation. Apply specific requests directly. For a general
+redesign, ask which destinations matter and which existing sections to keep. Check built-in lists before adding
+shortcuts, since the saved layout contains list references rather than their resolved items. Reuse existing navigation,
+avoid duplicate destinations, and add live metrics only when explicitly requested. Layout limits are ceilings, not targets.
+
+For a general redesign, use `activity-summary-get` when available to suggest a few destinations based on the current
+person's recent work, repeated object opens, and product pages. Explain each suggestion briefly, and give their stated
+goal priority over inferred interests. The summary has no exact date-range filter and can be stale, not ready, or
+unavailable. Fall back to resolved Pinned and Recents items or ask what matters now. The summary does not resolve those
+lists or authorize removing sections or adding metrics. Apply specific requests without fetching activity first.
+
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
@@ -337,6 +354,8 @@ This check does not change mode selection. Cursor still defaults to tools mode, 
 
 ## Claude web and desktop exec schema budget
 
+The server's tool instructions resolve an ambiguous target project before skill or tool discovery. An explicit target or an unambiguous active project needs no confirmation. Project clarification comes before the skill-first workflow; once the target is clear, the agent discovers and loads the relevant skills.
+
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
 Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
 Everything else belongs in the `learn` catalog: Claude web and desktop guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
@@ -419,6 +438,24 @@ Explicit date ranges are unchanged; a start date without an end date still ends 
 This also applies to the organization usage/spend time-series endpoints and CSV exports.
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
+
+The project-scoped `inbox-usage-get` tool reads `GET /api/projects/:team_id/signals/usage/?month=YYYY-MM` with `signal_usage:read`.
+Its sources include signal processing, research, and downstream implementation attributed to each report's current triggering signal; its scouts include execution costs even when no report is produced.
+Those breakdowns are additive and retain missing attribution in a null-source bucket.
+Finalized spend is grouped by UTC calendar month, with unsettled work created in that month reported separately.
+The endpoint uses `InboxUsageQueryRunner`, with a five-minute cache per canonical project and month; `as_of` identifies when the returned totals were computed.
+Source attribution uses one bulk HogQL aggregate, retaining spend when signal metadata is missing or the report is deleted.
+Report metadata reads are restricted to the reports referenced by receipts in the selected range.
+The endpoint converts `month` to an explicit UTC `DateRange`; the runner resolves it with the shared `QueryDateRange` class.
+The generic query API accepts `{"kind": "InboxUsageQuery", "dateRange": {"date_from": "2026-11-01", "date_to": "2026-12-01", "explicitDate": true}}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
+Direct queries require `dateRange` and support standard relative dates. Bounds use UTC; `date_to` is exclusive. Use `explicitDate: true` to preserve exact end timestamps.
+Usage history starts on October 1, 2026, at 00:00 UTC. All-time queries start there; ranges crossing the cutoff are clipped, and earlier months are rejected. SQL spend records use the same cutoff on finalized_at, or created_at for unsettled work.
+Direct queries must target the canonical parent project; the usage endpoint resolves child environments after checking parent-project access.
+The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
+Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.
+Report details expose associated scout-run costs separately because one run can contribute to several reports.
+The tool shares the `self-driving-usage-display` flag with the usage UI.
+Deploy the backend route before the MCP tool wherever this shared flag is already enabled, since MCP and Django deploy separately.
 
 The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
 Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.
@@ -729,7 +766,7 @@ Product teams own their definitions and control which operations are exposed as 
    - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
    - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
 
-   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
+   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`. The token also binds a fingerprint of the tool's input schema. During a deploy, an executor built with a different schema refuses the confirmation, so it never sends a request without the arguments it doesn't know, and the agent runs prepare again. The executor also validates the stashed args against its own schema, which catches a rule, such as a `.refine` check, that the fingerprint can't see. It skips the args that prepare filled from the active project or organization, which the generator lists in `resolvedArgs`.
 
    The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
 

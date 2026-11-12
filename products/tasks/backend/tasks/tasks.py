@@ -95,6 +95,24 @@ def deliver_comment_slack_dms(
     )
 
 
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+def schedule_task_run_gateway_usage(*, run_id: str, team_id: int) -> None:
+    from products.tasks.backend.logic.services.gateway_usage import (  # noqa: PLC0415 — keeps temporalio off the celery import path
+        schedule_gateway_usage,
+    )
+
+    schedule_gateway_usage(run_id=UUID(run_id), team_id=team_id)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def sweep_queued_gateway_usage() -> None:
+    from products.tasks.backend.logic.services.gateway_usage import (  # noqa: PLC0415 — keeps temporalio off the celery import path
+        sweep_queued_gateway_requests,
+    )
+
+    sweep_queued_gateway_requests()
+
+
 # No retries: the wake is best-effort by design, and the parked step has its own deadline.
 @shared_task(ignore_result=True)
 def resume_workflow_step_for_run_deferred(run_id: str) -> None:
@@ -110,3 +128,18 @@ def notify_slack_thread_pr_closed(run_id: str, pr_url: str, merged: bool = False
 @shared_task(ignore_result=True)
 def settle_overdue_sandbox_compute_task() -> None:
     settle_overdue_sandbox_compute(timezone.now())
+
+
+# No retries: selection reads whatever figures are stored, and the next selection past the refresh
+# interval enqueues the refresh again.
+@shared_task(ignore_result=True, soft_time_limit=600, time_limit=660)
+def refresh_repository_activity(
+    *, team_id: int, integration_id: int | None = None, user_integration_id: str | None = None
+) -> None:
+    from products.tasks.backend.logic.repo_selection.activity import (  # noqa: PLC0415 - avoids the facade/task import cycle
+        refresh_repository_activity_for_source,
+    )
+
+    refresh_repository_activity_for_source(
+        team_id=team_id, integration_id=integration_id, user_integration_id=user_integration_id
+    )

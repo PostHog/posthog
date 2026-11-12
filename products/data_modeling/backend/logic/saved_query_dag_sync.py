@@ -13,7 +13,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
-from products.data_modeling.backend.facade.contracts import Dependent
+from products.data_modeling.backend.facade.contracts import Dependent, HasDependentsError, _nameless_refusal
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.saved_query_reads import saved_query_node_ids
@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+
+SYSTEM_TABLE_ORIGIN = "posthog"
+MANAGED_VIEW_ORIGIN = "managed_view"
 
 
 def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
@@ -90,7 +93,7 @@ def resolve_dependency_to_node(
 
     Resolution order:
     1. PostHog system table (events, persons, etc.)
-    2. SavedQuery view or matview
+    2. SavedQuery view or matview, or a TABLE node for a product's in-memory view
     3. DataWarehouse table (postgres, stripe, etc.)
 
     Raises UnknownParentError if the dependency cannot be resolved.
@@ -108,9 +111,11 @@ def resolve_dependency_to_node(
         # batch widens that window. A view renamed or deleted since then is an unresolvable name,
         # which `on_unresolved` gets to rule on, not a failure that costs every other dependency.
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
-        if saved_query is None:
+        if saved_query is not None:
+            return _saved_query_node(team, dag, dependency_name, saved_query)
+        if not _is_in_memory_view(table):
             raise UnknownParentError(dependency_name, "")
-        return _saved_query_node(team, dag, dependency_name, saved_query)
+        return _source_table_node(team, dag, dependency_name, MANAGED_VIEW_ORIGIN)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -150,14 +155,22 @@ def resolve_dependency_to_node(
             node.save(update_fields=["properties", "updated_at"])
         return node
     # system table
+    return _source_table_node(team, dag, dependency_name, SYSTEM_TABLE_ORIGIN)
+
+
+def _is_in_memory_view(table: HogQLSavedQuery) -> bool:
+    return type(table) is not HogQLSavedQuery
+
+
+def _source_table_node(team: "Team", dag: DAG, name: str, origin: str) -> Node:
     node, _ = Node.objects.get_or_create(
         team=team,
         dag=dag,
-        name=dependency_name,
+        name=name,
         type=NodeType.TABLE,
-        defaults={"properties": {"origin": "posthog"}},
+        defaults={"properties": {"origin": origin}},
     )
-    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
+    properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": origin}
     properties.pop("warehouse_table_id", None)
     if node.properties != properties:
         node.properties = properties
@@ -391,40 +404,6 @@ def adopt_saved_query_without_edges(team_id: int, saved_query_id: UUID, error: s
         node = Node.objects.select_for_update().get(pk=node.pk)
         node.mark_lineage_sync_failed(error)
         node.save(update_fields=["properties"])
-
-
-def _nameless_refusal(view_name: str) -> str:
-    return f"Can't delete {view_name} yet. Something else reads from it. Update or delete it first."
-
-
-class HasDependentsError(Exception):
-    """Raised when attempting to delete a saved query that has dependents.
-
-    Names no dependent. Only a caller that has filtered `dependents` through the reader's access
-    may name one, so a caller that logs or renders `str(err)` cannot disclose one by accident.
-    """
-
-    def __init__(
-        self,
-        view_name: str,
-        dependents: tuple[Dependent, ...] = (),
-        fallback_node_id: str | None = None,
-    ) -> None:
-        super().__init__(_nameless_refusal(view_name))
-        self.view_name = view_name
-        self.dependents = dependents
-        self.fallback_node_id = fallback_node_id
-
-
-class MissingDagNodeError(Exception):
-    """Raised when a saved query on a v2 team has no node to schedule through.
-
-    On v2 the node is the unit of execution: the DAG run materializes nodes, so a saved query
-    with no node is not reachable by any schedule. Without this the query would be left claiming
-    to be materialized while nothing refreshes it.
-    """
-
-    pass
 
 
 def _nodes_standing_for(saved_query: "DataWarehouseSavedQuery") -> QuerySet[Node]:

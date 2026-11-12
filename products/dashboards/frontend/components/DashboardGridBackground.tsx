@@ -6,6 +6,7 @@ interface DashboardGridBackgroundProps {
     cols: number
     rowHeight: number
     margin: [number, number]
+    /** Draws whole rows up to this height. Without it, the background fills its positioned parent as the grid grows. */
     height?: number
 }
 
@@ -25,11 +26,11 @@ export function DashboardGridBackground({
         containerPadding: [0, 0],
     })
     const rowCount = height ? Math.ceil((height + gapY) / (cellHeight + gapY)) : 10
-    const totalHeight = rowCount * (cellHeight + gapY) - gapY
+    const totalHeight = height === undefined ? '100%' : rowCount * (cellHeight + gapY) - gapY
 
     return (
         <svg
-            className="absolute top-0 left-0 pointer-events-none"
+            className="DashboardGridBackground absolute top-0 left-0 pointer-events-none"
             width={width}
             height={totalHeight}
             aria-hidden="true"

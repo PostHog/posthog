@@ -58,4 +58,4 @@ jobs:
                   }
 
             - name: Run tests
-              run: cd livestream && go test -v
+              run: cd livestream && go test -v ./...

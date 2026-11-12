@@ -11,6 +11,7 @@ first: it takes the trained insights from their stored state, longest overdue fi
 keep them current. The train pass then takes the other due insights in the `pick_order` order. An insight
 whose model is due for a soft retrain goes to the train pass first. When the train pass does not pick it,
 the score pass scores it with the old model, so the train budget does not decide the score coverage.
+The first score walk leaves a share of the score cap for these stale models, so ready picks cannot take every slot.
 
 The CPU limits of `spend.py` apply before the query budgets: a walk leaves out the insights of a team over its
 daily CPU limit, and every insight of a pass that the fleet limit stops.
@@ -73,7 +74,8 @@ from products.signals.backend.anomaly_scores.selection import (
 )
 from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
-from products.signals.backend.models import AnomalyScoringDueInsight, SignalTeamConfig
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
+from products.signals.backend.models import AnomalyScoringDueInsight, SignalSourceConfig, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
@@ -99,6 +101,14 @@ TOO_EXPENSIVE_COOLDOWNS = (
 )
 # The count outlives the longest step, so the visit after it still knows the count.
 _TOO_EXPENSIVE_COUNT_TTL = TOO_EXPENSIVE_COOLDOWNS[-1] + datetime.timedelta(days=7)
+# An empty insight saves no model and stays due for a train step, so only this cooldown limits its retries.
+EMPTY_TRAIN_COOLDOWNS = (
+    SKIP_COOLDOWN,
+    datetime.timedelta(days=3),
+    datetime.timedelta(days=7),
+)
+# The count outlives the longest cooldown, which is the bucket of the longest interval.
+_EMPTY_TRAIN_COUNT_TTL = datetime.timedelta(days=45)
 # A query counter lives a little longer than its clock hour, so a tick at the end of the hour still reads it.
 # A lost counter lets the scorer spend at most one more hour of budget.
 _BUDGET_TTL = datetime.timedelta(minutes=70)
@@ -124,6 +134,12 @@ _MAX_AT_CAPACITY_TEAMS = 2
 _TEAM_LOADED_TTL = datetime.timedelta(days=1)
 # The most due rows that one plan reads. Far more than the picks of one tick.
 _MAX_DUE_ROWS = 5000
+# The refresh keeps the due time that a never-scored row got when it joined the list, so never-scored rows are
+# mostly the oldest due rows. They get at most this many of the rows that one plan reads. Without this limit, a train
+# backlog larger than the read fills every plan, and no scored row reaches the score pass.
+_MAX_NEVER_SCORED_DUE_ROWS = _MAX_DUE_ROWS // 2
+# The score pass keeps one in this many of its slots for stale models, so ready picks cannot take every slot.
+_STALE_SCORE_SHARE = 4
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
 _UNSCORED_DISPLAYS = sorted(
     display.value for display in {*NON_TIME_SERIES_DISPLAY_TYPES, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE}
@@ -177,6 +193,8 @@ class InsightPick:
     run: ScoringRun | None = None
     # Consecutive too-expensive visits before this pick.
     too_expensive: int = 0
+    # Consecutive train picks with no series before this pick.
+    empty_train: int = 0
 
 
 @frozen
@@ -201,6 +219,9 @@ class Selection:
     picked_train: int = 0
     # Score pass picks that score with a model due for a soft retrain.
     scored_stale_model: int = 0
+    # Due insights with a stale model that the train pass did not pick. More than `scored_stale_model` means
+    # the score pass had no slot or budget for them.
+    stale_candidates: int = 0
     # Due train candidates that the train pass did not pick: soft ones still score with a stale model, hard ones do not.
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
@@ -217,6 +238,8 @@ class Selection:
     enrolled_organizations: int = 0
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
+    # Insights in a cooldown after a train pick with no series.
+    empty_backoff: int = 0
     # Due rows of the stored due list, the time since the oldest of them became due, and the time since the
     # oldest refresh of a row. None when the tick does not plan from the due list.
     due_insights: int | None = None
@@ -260,8 +283,13 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     """The teams that `config.covers_team` enrolls, in a fixed number of queries, less the teams over their event quota."""
     if not config.enabled:
         return []
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    with_source = SignalSourceConfig.objects.filter(
+        source_product=source_product, source_type=source_type, enabled=True
+    ).values("team_id")
     teams = (
-        Team.objects.exclude(id__in=config.skip_team_ids)
+        Team.objects.filter(id__in=with_source)
+        .exclude(id__in=config.skip_team_ids)
         .exclude(organization_id__in=config.deny_organization_ids)
         .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
     )
@@ -272,12 +300,11 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
             listed = listed.filter(id__in=config.allow_team_ids)
         enrolled.update(listed.values_list("id", flat=True))
     if config.self_driving_organization_percentage > 0:
-        from products.signals.backend.facade.api import (
-            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+        enrolled.update(
+            team_id
+            for team_id, organization_id in teams.values_list("id", "organization_id")
+            if in_rollout(config, organization_id)
         )
-
-        with_source = teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
-        enrolled.update(team_id for team_id, organization_id in with_source if in_rollout(config, organization_id))
     if not enrolled:
         return []
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
@@ -286,7 +313,7 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
 
 
 def turned_off_in_settings(team: Team) -> bool:
-    """Whether the project turned anomaly scoring off in its self-driving settings. A team without a config row is on."""
+    """Whether the project turned anomaly scoring off in its Product analytics source. A team without a config row is on."""
     return SignalTeamConfig.objects.filter(team_id=team.id, anomaly_scoring_enabled=False).exists()
 
 
@@ -444,14 +471,18 @@ def parse_watermarks(value: Any) -> dict[str, datetime.datetime]:
 
 
 def load_due_list(team_ids: Collection[int], intervals: tuple[IntervalType, ...], now: datetime.datetime) -> DueList:
-    """The due rows of the teams, longest overdue first, in a fixed number of queries."""
+    """The due rows of the teams, longest overdue first, in a fixed number of queries.
+
+    Never-scored rows and scored rows are read apart, so that the train backlog cannot crowd out the score pass.
+    """
     scope = AnomalyScoringDueInsight.all_teams.filter(team_id__in=list(team_ids))
     summary = scope.aggregate(rows=Count("id"), oldest_refresh=Min("refreshed_at"))
-    rows = list(
-        scope.filter(next_due_at__lte=now, interval__in=[interval.value for interval in intervals]).order_by(
-            "next_due_at", "insight_id"
-        )[:_MAX_DUE_ROWS]
+    due = scope.filter(next_due_at__lte=now, interval__in=[interval.value for interval in intervals]).order_by(
+        "next_due_at", "insight_id"
     )
+    never_scored = list(due.filter(series_scored_through={})[:_MAX_NEVER_SCORED_DUE_ROWS])
+    scored = list(due.exclude(series_scored_through={})[: _MAX_DUE_ROWS - len(never_scored)])
+    rows = sorted([*never_scored, *scored], key=lambda row: (row.next_due_at, row.insight_id))
     oldest_refresh = summary["oldest_refresh"]
     return DueList(
         insights=[
@@ -517,6 +548,45 @@ def mark_too_expensive(insight_id: int, previous: int) -> int:
 
 def reset_too_expensive(insight_id: int) -> None:
     cache.delete(_too_expensive_key(insight_id))
+
+
+def _empty_train_key(insight_id: int) -> str:
+    return f"signals:anomaly_scores:empty_train:{insight_id}"
+
+
+def empty_train_counts(insight_ids: list[int]) -> dict[int, int]:
+    """Consecutive train picks with no series, per insight. An insight with no such pick is not in the result."""
+    if not insight_ids:
+        return {}
+    found = cache.get_many([_empty_train_key(insight_id) for insight_id in insight_ids])
+    return {
+        insight_id: int(found[_empty_train_key(insight_id)])
+        for insight_id in insight_ids
+        if _empty_train_key(insight_id) in found
+    }
+
+
+def empty_train_cooldown(count: int, interval: IntervalType | None, now: datetime.datetime) -> datetime.timedelta:
+    step = EMPTY_TRAIN_COOLDOWNS[min(count, len(EMPTY_TRAIN_COOLDOWNS)) - 1]
+    if interval is None:
+        return step
+    # A month is a relativedelta, so add it to a date to get its length. No new bucket can complete sooner.
+    return max(step, now + interval_spec(interval).period - now)
+
+
+def mark_empty_train(
+    insight_id: int, previous: int, interval: IntervalType | None, now: datetime.datetime
+) -> tuple[int, datetime.timedelta]:
+    """Count one more train pick with no series, and start its cooldown. Returns the new count and the cooldown."""
+    count = previous + 1
+    cooldown = empty_train_cooldown(count, interval, now)
+    cache.set(_empty_train_key(insight_id), count, timeout=int(_EMPTY_TRAIN_COUNT_TTL.total_seconds()))
+    mark_attempted(insight_id, cooldown)
+    return count, cooldown
+
+
+def reset_empty_train(insight_id: int) -> None:
+    cache.delete(_empty_train_key(insight_id))
 
 
 def _team_loaded_key(team_id: int) -> str:
@@ -769,6 +839,7 @@ def select_insights(
     }
     cooling = _cooling_down([insight.insight_id for insight in insights])
     too_expensive = too_expensive_counts([insight.insight_id for insight in insights])
+    empty_train = empty_train_counts([insight.insight_id for insight in insights])
     active_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
     team_ids = {insight_id: insight.team_id for insight_id, insight in active_by_id.items()}
 
@@ -811,7 +882,8 @@ def select_insights(
     if config.train_score_split:
         score_pass = _score_order(active_by_id, teams, config, now)
         score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
-        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
+        stale_reserve = min(len(stale_order_ids), _stale_reserve(score_cap))
+        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap - stale_reserve)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
         # edited insight there still reaches the train pass while the train budget has room.
         plans_for(score_order_ids[:score_cap])
@@ -875,9 +947,10 @@ def select_insights(
     stale_picked: dict[int, RunPlan] = {}
     stale_skipped = 0
     stale_cap = score_cap - len(score_picked)
+    stale_candidates = [insight_id for insight_id in stale_order_ids if insight_id not in train_picked]
     if config.train_score_split and stale_cap > 0:
         stale_picked, stale_skipped = walk(
-            [insight_id for insight_id in stale_order_ids if insight_id not in train_picked],
+            stale_candidates,
             ScoringRun.SCORE,
             stale_cap,
             lambda insight_ids: {
@@ -897,6 +970,7 @@ def select_insights(
             query_cost=plan.queries,
             run=plan.run,
             too_expensive=too_expensive.get(insight_id, 0),
+            empty_train=empty_train.get(insight_id, 0),
         )
         for insight_id, plan in [*score_picked.items(), *train_picked.items()]
     ]
@@ -907,6 +981,7 @@ def select_insights(
         picked_score=len(score_picked),
         picked_train=len(train_picked),
         scored_stale_model=len(stale_picked),
+        stale_candidates=len(stale_candidates),
         train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
         train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
         active=active,
@@ -917,6 +992,7 @@ def select_insights(
         enrolled_teams=len(teams),
         enrolled_organizations=len({team.organization_id for team in teams.values()}),
         long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
+        empty_backoff=sum(insight_id in empty_train for insight_id in cooling),
         due_insights=None if due_list is None else len(due_list.insights),
         oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
         oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
@@ -929,6 +1005,11 @@ def select_insights(
             score_skipped=cpu_skipped[ScoringRun.SCORE],
         ),
     )
+
+
+def _stale_reserve(score_cap: int) -> int:
+    """The score pass slots that ready picks leave for stale models. A cap of one slot keeps it for ready picks."""
+    return max(1, score_cap // _STALE_SCORE_SHARE) if score_cap > 1 else 0
 
 
 def _as_score_step(plan: RunPlan) -> RunPlan:

@@ -26,7 +26,7 @@ jest.mock('./cdp-base.consumer', () => {
 })
 
 jest.mock('pg', () => {
-    const Pool = jest.fn()
+    const Pool = jest.fn(() => ({ on: jest.fn() }))
     return { Pool }
 })
 
@@ -1753,6 +1753,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             person_id: null,
             flow_version: 1,
             goal: { events: [eventBytecode('wuc_cancelled')] },
+            created_at: new Date('2026-11-01T09:15:00Z'),
             ...overrides,
         })
 
@@ -1764,7 +1765,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([cancelledEvent()])
 
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(2)
             expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
                 expect.objectContaining({
                     team_id: 1,
@@ -1775,6 +1776,17 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }),
                 'hog_flow'
             )
+            const byStart = matcher.queueAppMetricMock.mock.calls
+                .map(([metric]) => metric)
+                .find((metric) => metric.metric_name === 'conversion_by_start')
+            expect(byStart).toMatchObject({
+                team_id: 1,
+                app_source_id: 'flow-1',
+                instance_id: 'flow-1',
+                count: 1,
+                app_source_version: { id: 'flow-1', version: 1 },
+            })
+            expect(byStart.timestamp.toUTC().toISO()).toEqual('2026-11-01T09:15:00.000Z')
             expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
                 expect.objectContaining({
                     event: '$workflows_conversion',
@@ -1798,7 +1810,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([cancelledEvent()])
 
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(2)
             expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
                 expect.objectContaining({ properties: expect.objectContaining({ $workflow_run_id: 'run-2' }) })
             )
@@ -1813,6 +1825,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
                 expect.objectContaining({ app_source_id: 'batch-1', metric_name: 'conversion' }),
+                'hog_flow'
+            )
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'batch-1', metric_name: 'conversion_by_start' }),
                 'hog_flow'
             )
         })
@@ -1835,7 +1851,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }),
             ])
 
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(2)
             // No billable event: a person-triggered run has no distinct_id, and a person-property
             // change carries none, so there is nothing to attribute a capture event to. The metric
             // counts, but anything reading conversions off the event stream misses these.
@@ -2175,6 +2191,134 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
+        })
+    })
+
+    describe('person wakes the matcher cannot decide', () => {
+        // event.properties.plan == 'growth' - reads the event, which a person wake does not carry.
+        const READS_EVENT_FILTERS = {
+            bytecode: ['_H', 1, 32, 'growth', 32, 'plan', 32, 'properties', 1, 2, 11],
+            properties: [{ key: 'plan', type: 'event', value: 'growth', operator: 'exact' }],
+        }
+        const READS_PERSON_FILTERS = {
+            bytecode: personPropertyBytecode('plan', 'growth'),
+            properties: [{ key: 'plan', type: 'person', value: 'growth', operator: 'exact' }],
+        }
+        const READS_EVENT_AND_PERSON_FILTERS = {
+            bytecode: READS_EVENT_FILTERS.bytecode,
+            properties: [...READS_EVENT_FILTERS.properties, ...READS_PERSON_FILTERS.properties],
+        }
+        // variables.tier == 'gold'
+        const READS_VARIABLE_FILTERS = {
+            bytecode: ['_H', 1, 32, 'gold', 32, 'tier', 32, 'variables', 1, 2, 11],
+            properties: [{ key: 'tier', type: 'workflow_variable', value: 'gold', operator: 'exact' }],
+        }
+
+        const parkOn = (filters: Record<string, any>): void => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: null,
+                    person_id: 'person-uuid-1',
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: { max_wait_duration: '5m', condition: { filters } },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+        }
+
+        const personWake = (): HogFunctionInvocationGlobals =>
+            makeGlobals({
+                event: { ...makeGlobals({}).event, event: '$person_updated', distinct_id: '', properties: {} },
+                person: { id: 'person-uuid-1', properties: { plan: 'growth' }, name: '', url: '' },
+            })
+
+        it('wakes a wait whose condition reads the person and the event, and leaves the decision to the worker', async () => {
+            // The synthetic person event carries no properties, so evaluating here would read the
+            // condition as false and strand the wait until its ceiling.
+            parkOn(READS_EVENT_AND_PERSON_FILTERS)
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.recheckWake).toBe(true)
+            // Not a forced match: eventMatched would advance the run without evaluating the condition.
+            expect(written.state.currentAction.eventMatched).toBeUndefined()
+        })
+
+        it('wakes a wait whose condition selects an event and reads the person', async () => {
+            // The synthetic person event never matches the selector, so only the worker can decide.
+            parkOn({
+                ...READS_PERSON_FILTERS,
+                events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
+            })
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.recheckWake).toBe(true)
+        })
+
+        it('still decides a person-only condition itself', async () => {
+            // The matcher holds the person, so it evaluates and tags a real match.
+            parkOn(READS_PERSON_FILTERS)
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.eventMatched).toBe(true)
+            expect(written.state.currentAction.recheckWake).toBeUndefined()
+        })
+
+        it.each([
+            ['the event', READS_EVENT_FILTERS],
+            ['a workflow variable', READS_VARIABLE_FILTERS],
+            ['an action', { bytecode: READS_EVENT_FILTERS.bytecode, actions: [{ id: 7, type: 'actions', order: 0 }] }],
+        ])('does not wake a wait whose condition reads only %s on a person change', async (_, filters) => {
+            // Nothing in the condition can change with the person, so a wake would only re-park.
+            parkOn(filters)
+
+            await matcher.runWake([personWake()], 'person')
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+        })
+
+        it('does not wake on the events stream, where the real event is present', async () => {
+            parkOn(READS_EVENT_FILTERS)
+
+            await matcher.runWake([
+                makeGlobals({ event: { ...makeGlobals({}).event, properties: { plan: 'starter' } } }),
+            ])
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
     })
 

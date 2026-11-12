@@ -5,7 +5,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceReviewStatusApi } from '../../generated/api.schemas'
-import { decodeIdSegment } from './adapter/testFixtures'
+import { traceReviewsLazyLoaderLogic } from '../../traceReviews/traceReviewsLazyLoaderLogic'
+import type { TraceReview } from '../../traceReviews/types'
+import { decodeIdSegment } from './testFixtures'
 import { traceReviewLogic } from './traceReviewLogic'
 
 const REVIEW_URL = '/api/projects/:team_id/ai_observability/traces/:id/review/'
@@ -16,6 +18,21 @@ const QUEUED: TraceReviewStatusApi = {
     queue: { id: 'q1', name: 'Support QA', itemId: 'i1' },
 }
 const NOTHING: TraceReviewStatusApi = { review: null, queue: null }
+
+function savedReview(traceId: string): TraceReview {
+    return {
+        id: 'r1',
+        trace_id: traceId,
+        trace_url: '',
+        comment: null,
+        created_at: '2026-09-01T10:00:00Z',
+        updated_at: null,
+        created_by: null,
+        reviewed_by: null,
+        scores: [],
+        team: 1,
+    }
+}
 
 describe('traceReviewLogic', () => {
     let statuses: Record<string, TraceReviewStatusApi>
@@ -102,5 +119,20 @@ describe('traceReviewLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadReviewStatusFailure'])
         expect(logic.values.reviewStatus).toEqual(QUEUED)
         expect(logic.values.reviewStatusFailed).toBe(true)
+    })
+
+    it.each([
+        [
+            'a saved review',
+            (traceId: string) => traceReviewsLazyLoaderLogic.actions.setTraceReview(savedReview(traceId)),
+        ],
+        ['a removed review', (traceId: string) => traceReviewsLazyLoaderLogic.actions.setTraceAsUnreviewed(traceId)],
+    ])('reloads the status after %s in the review cache for its own trace only', async (_name, change) => {
+        const review = traceReviewLogic({ traceId: 'trace-1' })
+        review.mount()
+        await expectLogic(review).toDispatchActions(['loadReviewStatusSuccess'])
+
+        await expectLogic(review, () => change('trace-2')).toNotHaveDispatchedActions(['loadReviewStatus'])
+        await expectLogic(review, () => change('trace-1')).toDispatchActions(['loadReviewStatus'])
     })
 })

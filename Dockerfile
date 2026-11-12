@@ -27,7 +27,7 @@
 # ---------------------------------------------------------
 #
 # Digest-pinned because the runtime stage copies its `node` binary out of this stage.
-FROM node:26.13.0-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS node-base
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -44,7 +44,7 @@ ENV COREPACK_ENABLE_NETWORK=0
 # ---------------------------------------------------------
 #
 # Only the package.json files, so a product source change does not rerun the frontend pnpm install.
-FROM node:26.13.0-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS product-manifests
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS product-manifests
 COPY products/ /tmp/products/
 RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$manifest" "/manifests/products/$manifest"; done
 
@@ -87,7 +87,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:26.13.0-bookworm-slim AS sourcemap-upload
+FROM node:26.13.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -347,6 +347,12 @@ RUN apt-get update && \
     # psutil is not installed, so joblib's loky kills worker process trees with pgrep.
     # Operators also need ps to find a PID for py-spy.
     "procps" \
+    # The base image digest freezes its tzdata. HogQL prints datetime constants as local time in
+    # the team's timezone, and ClickHouse resolves them with its own tz rules. When a zone's rules
+    # change and this image lags, both sides disagree on the UTC offset and queries shift their
+    # time bounds. Listing tzdata here upgrades it to the newest Debian release whenever this
+    # layer is rebuilt. A cached layer keeps the tzdata it was built with.
+    "tzdata" \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -407,6 +413,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 COPY --chown=posthog:posthog ./bin ./bin/
 # Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
 COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
+COPY --chown=posthog:posthog ./rust/persons_migrations_hobby ./rust/persons_migrations_hobby/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/

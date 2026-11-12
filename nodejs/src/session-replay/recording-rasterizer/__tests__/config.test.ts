@@ -27,19 +27,39 @@ describe('config', () => {
             expect(parseList(text)).toEqual(expected)
         })
 
-        it('filters empty fallback keys from config', async () => {
-            const originalFallbackKeys = process.env.TEMPORAL_FALLBACK_SECRET_KEYS
-            process.env.TEMPORAL_FALLBACK_SECRET_KEYS = 'a,,b,'
+        it.each([
+            {
+                name: 'filters empty fallback keys',
+                env: { TEMPORAL_SECRET_KEY: 'temporal-key', TEMPORAL_FALLBACK_SECRET_KEYS: 'a,,b,' },
+                secretKey: 'temporal-key',
+                fallbackKeys: ['a', 'b'],
+            },
+            {
+                name: 'does not use SECRET_KEY as a codec key',
+                env: { SECRET_KEY: 'app-secret-key' },
+                secretKey: undefined,
+                fallbackKeys: [],
+            },
+        ])('$name', async ({ env, secretKey, fallbackKeys }) => {
+            const names = ['SECRET_KEY', 'TEMPORAL_SECRET_KEY', 'TEMPORAL_FALLBACK_SECRET_KEYS']
+            const original = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+            for (const name of names) {
+                delete process.env[name]
+            }
+            Object.assign(process.env, env)
 
             try {
                 jest.resetModules()
                 const { config } = await import('~/session-replay/recording-rasterizer/config.js')
-                expect(config.fallbackKeys).toEqual(['a', 'b'])
+                expect(config.secretKey).toBe(secretKey)
+                expect(config.fallbackKeys).toEqual(fallbackKeys)
             } finally {
-                if (originalFallbackKeys === undefined) {
-                    delete process.env.TEMPORAL_FALLBACK_SECRET_KEYS
-                } else {
-                    process.env.TEMPORAL_FALLBACK_SECRET_KEYS = originalFallbackKeys
+                for (const name of names) {
+                    if (original[name] === undefined) {
+                        delete process.env[name]
+                    } else {
+                        process.env[name] = original[name]
+                    }
                 }
                 jest.resetModules()
             }

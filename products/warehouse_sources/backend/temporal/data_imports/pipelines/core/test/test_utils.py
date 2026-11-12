@@ -116,17 +116,26 @@ def test_table_from_py_list_keeps_the_key_order_of_the_rows():
     assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
 
 
-def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
+@pytest.mark.parametrize(
+    "masked_columns,shows_cells",
+    [
+        pytest.param(None, True, id="unmasked"),
+        pytest.param(["Revenue"], False, id="masked_column_hides_its_cells"),
+    ],
+)
+def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error(
+    masked_columns: list[str] | None, shows_cells: bool
+):
     with pytest.raises(TypeError) as exc_info:
-        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
+        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}], masked_columns=masked_columns)
 
     message = str(exc_info.value)
     # Preserves the original phrase so source non-retryable matching still fires
     assert "must be real number, not str" in message
-    # Names the column and shows the offending text and blank cells
+    # Names the column, and shows the offending text and blank cells unless the column is masked
     assert "revenue" in message
-    assert "N/A" in message
-    assert "<blank>" in message
+    assert ("N/A" in message) is shows_cells
+    assert ("<blank>" in message) is shows_cells
     # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
     # guidance instead of retrying the same non-numeric cells forever, on every source.
     assert [key for key in Any_Source_Errors if key in message]

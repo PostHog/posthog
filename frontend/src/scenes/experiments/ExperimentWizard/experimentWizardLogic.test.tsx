@@ -13,6 +13,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
+import {
+    type ExperimentMetric,
+    type ExperimentMetricSource,
+    ExperimentMetricType,
+    type ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeMathType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext, type FeatureFlagType } from '~/types'
 
@@ -106,6 +114,16 @@ const apiMocks = {
         '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
     },
 }
+
+const warehouseExposure = (
+    overrides: Partial<ExperimentWarehouseNativeExposureConfig> = {}
+): ExperimentWarehouseNativeExposureConfig => ({
+    kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+    connection_id: 'connection-1',
+    unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+    query: 'SELECT customer_id AS entity_id, variant, assigned_at AS timestamp FROM billing.assignments',
+    ...overrides,
+})
 
 describe('experimentWizardLogic', () => {
     describe('feature flag input flow', () => {
@@ -630,6 +648,63 @@ describe('experimentWizardLogic', () => {
             })
         })
 
+        it('blocks the save while a warehouse-native exposure is unfinished, and reports the exposure source once', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExposureCriteria({ exposure_config: warehouseExposure({ connection_id: '' }) })
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardExposureSourceSelected('warehouse_native'),
+            ])
+            // The stepper stays clean until the user leaves the step, but the save is blocked right away
+            expect(logic.values.stepValidationErrors.analytics).toEqual([])
+            expect(logic.values.saveDisabledReason).toBe('Select a BigQuery connection')
+
+            logic.actions.markStepDeparted('analytics')
+            expect(logic.values.stepValidationErrors.analytics).toEqual(['Select a BigQuery connection'])
+
+            // Filling in the exposure keeps the same source, so it is not a new selection
+            await expectLogic(logic, () => {
+                logic.actions.setExposureCriteria({ exposure_config: warehouseExposure() })
+            }).toNotHaveDispatchedActions(['reportExperimentWizardExposureSourceSelected'])
+            expect(logic.values.stepValidationErrors.analytics).toEqual([])
+            expect(logic.values.saveDisabledReason).toBeUndefined()
+        })
+
+        it('blocks the save while a shared metric cannot run with the exposure', () => {
+            const sharedMetric = (source: ExperimentMetricSource): ExperimentMetric =>
+                ({
+                    kind: NodeKind.ExperimentMetric,
+                    uuid: 'shared-1',
+                    metric_type: ExperimentMetricType.MEAN,
+                    source,
+                    isSharedMetric: true,
+                    sharedMetricId: 7,
+                }) as ExperimentMetric
+            const exposure = warehouseExposure()
+            const sharedWarehouseMetric = sharedMetric({
+                kind: NodeKind.ExperimentWarehouseNativeNode,
+                connection_id: exposure.connection_id,
+                unit: exposure.unit,
+                query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+                math: ExperimentWarehouseNativeMathType.TotalCount,
+            })
+            logic.actions.setExposureCriteria({ exposure_config: exposure })
+
+            // The draft keeps shared metrics outside `experiment`, so they are easy to leave out of the check
+            createLogic.actions.setSharedMetrics({
+                primary: [],
+                secondary: [sharedMetric({ kind: NodeKind.EventsNode, event: '$pageview' })],
+            })
+            expect(logic.values.metricDataSources).toEqual({ warehouseNative: false, posthog: true })
+            expect(logic.values.saveDisabledReason).toMatch(/only works with warehouse-native metrics/)
+
+            createLogic.actions.setSharedMetrics({ primary: [sharedWarehouseMetric], secondary: [] })
+            expect(logic.values.saveDisabledReason).toBeUndefined()
+
+            // An exposure edit moves the draft's own metrics, but a shared metric keeps its connection
+            logic.actions.setExposureCriteria({ exposure_config: warehouseExposure({ connection_id: 'connection-2' }) })
+            expect(logic.values.saveDisabledReason).toMatch(/shared metric uses another connection/)
+        })
+
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {
             // Experiment has empty name and key — errors hidden until departure
             expect(logic.values.stepValidationErrors.about).toEqual([])
@@ -727,6 +802,52 @@ describe('experimentWizardLogic', () => {
             })
             // Flag config no longer travels through the deprecated parameters keys.
             expect(capturedPayload.parameters).not.toHaveProperty('feature_flag_variants')
+        })
+
+        it('saves warehouse-native metrics on the connection and unit of the exposure as last edited', async () => {
+            createLogic.actions.setExperimentValue('name', 'Ship it')
+            createLogic.actions.setExperimentValue('feature_flag_key', 'ship-it')
+            logic.actions.validateFeatureFlagKey('ship-it')
+            await waitFor(() => {
+                expect(createLogic.values.featureFlagKeyValidation).toMatchObject({ valid: true })
+            })
+            const exposure = warehouseExposure()
+            logic.actions.setExposureCriteria({ exposure_config: exposure })
+            logic.actions.setExperiment({
+                ...createLogic.values.experiment,
+                metrics: [
+                    {
+                        kind: NodeKind.ExperimentMetric,
+                        uuid: 'metric-1',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: {
+                            kind: NodeKind.ExperimentWarehouseNativeNode,
+                            connection_id: exposure.connection_id,
+                            unit: exposure.unit,
+                            query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+                            math: ExperimentWarehouseNativeMathType.TotalCount,
+                        },
+                    },
+                ],
+            })
+            // The metric was added first. The exposure then moves to another connection and unit.
+            const editedExposure = warehouseExposure({
+                connection_id: 'connection-2',
+                unit: { unit_type: 'account', id_namespace: 'crm_account_id' },
+            })
+            logic.actions.setExposureCriteria({ exposure_config: editedExposure })
+
+            logic.actions.saveExperiment()
+            await waitFor(() => {
+                expect(capturedPayload).not.toBeNull()
+            })
+
+            expect(capturedPayload.exposure_criteria.exposure_config).toEqual(editedExposure)
+            expect(capturedPayload.metrics[0].source).toMatchObject({
+                connection_id: 'connection-2',
+                unit: { unit_type: 'account', id_namespace: 'crm_account_id' },
+                query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+            })
         })
     })
 

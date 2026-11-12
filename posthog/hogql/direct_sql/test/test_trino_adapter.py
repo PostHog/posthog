@@ -175,7 +175,7 @@ def test_validate_source_config_accepts_the_teams_managed_warehouse() -> None:
         patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=[(None, None, None, None, ("10.1.0.1", 0))]),
         patch(f"{_MIXINS_MODULE}._managed_warehouse_organization_id", return_value="org-1"),
         patch(
-            "products.managed_warehouse.backend.managed_ingress.get_managed_warehouse_target",
+            "products.managed_warehouse.backend.facade.api.get_managed_warehouse_target",
             return_value=ManagedWarehouseTarget(host=host, ports=frozenset({443})),
         ),
     ):

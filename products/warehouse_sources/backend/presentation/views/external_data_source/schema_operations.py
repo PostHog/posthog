@@ -21,6 +21,7 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -49,6 +50,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 )
 
 from . import base, credential_store, helpers
+from .source_type_field import resolve_known_source_key
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -124,6 +126,16 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_null=True,
         allow_empty=True,
         help_text="Columns to sync. Null means sync all columns.",
+    )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text=(
+            "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. "
+            "Any change starts a full resync of the table."
+        ),
     )
     row_filters = RowFiltersField(
         required=False,
@@ -357,7 +369,10 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if source_type is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Missing required parameter: source_type"},
+                data={
+                    "message": "Missing required parameter: source_type. "
+                    "Use external-data-sources-wizard to list the valid source types."
+                },
             )
 
         secret_ref_response = credential_store._unresolved_secret_ref_response(request.data)
@@ -365,27 +380,32 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
+
+        # A `credential_id` references connection details stored for this user via the connect flow.
+        # Discovery only reads the stored secrets: the credential stays so `setup` or `create` can still use it.
+        # `.items()` keeps scalar values when a form-encoded body arrives as a QueryDict.
+        resolved = self._resolve_stored_credential(source_type, dict(request.data.items()))
+        if resolved.error_response is not None:
+            return resolved.error_response
+        payload = resolved.payload
+
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
-        is_valid, errors = source.validate_config(request.data)
+        is_valid, errors = source.validate_config(payload)
         if not is_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Invalid source config: {', '.join(errors)}"},
             )
-        source_config: Config = source.parse_config(request.data)
+        source_config: Config = source.parse_config(payload)
 
-        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        access_method = payload.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
@@ -438,10 +458,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             endpoint_permissions = {schema.name: None for schema in schemas}
 
-        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
-        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
-        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
-        cdc_enabled = base.is_cdc_enabled_for_team(self.team)
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
@@ -453,7 +469,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "cdc_available": schema.supports_cdc,
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
@@ -466,7 +482,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [
-                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    {
+                        "field": col_name,
+                        "label": col_name,
+                        "type": col_type,
+                        "nullable": nullable,
+                        "sensitivity": classify_column_sensitivity(col_name, col_type),
+                    }
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
@@ -567,6 +589,18 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         serializer.is_valid(raise_exception=True)
 
         schema_updates: list[dict[str, Any]] = serializer.validated_data["schemas"]
+        # Built once: the context builds the team's HogQL database.
+        serializer_context = self.get_serializer_context()
+        updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
+        return Response(
+            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _apply_schema_updates(
+        self, source: ExternalDataSource, schema_updates: list[dict[str, Any]], serializer_context: dict[str, Any]
+    ) -> list[ExternalDataSchema]:
+        """Save each schema update in its own transaction, then run its Temporal schedule changes."""
         schema_ids = [schema_update["id"] for schema_update in schema_updates]
 
         if len(set(schema_ids)) != len(schema_ids):
@@ -593,7 +627,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         )
         only_validation_errors = True
 
-        serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
         # Each deferred action is paired with its schema so a post-commit failure can be attributed.
         post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
@@ -689,7 +722,4 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if post_commit_error is not None:
             raise post_commit_error
 
-        return Response(
-            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
-            status=status.HTTP_200_OK,
-        )
+        return updated_schemas

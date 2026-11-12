@@ -26,7 +26,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
-from .constants import MARKETING_SPILL_AFTER_BYTES
+from .constants import MARKETING_SPILL_AFTER_BYTES, MAX_TOUCHPOINTS_PER_PERSON
 from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import ResponseType
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
@@ -40,17 +40,9 @@ PERSON_ARRAYS_CTE = "person_arrays"
 # make the array shorter than it.
 PERSON_CONVERSION_COUNT = "conversion_count"
 
-# Ceiling on how many sessions of one person can earn credit. Bots and shared devices would otherwise
-# fan out touchpoints x conversions far enough to dominate the query. Touchpoints are sorted before
-# truncating and the *most recent* are kept, because only touches within a lookback window of a
-# conversion can be credited and conversions sit at the end of the range. Keeping the oldest instead
-# would strand a heavy person's conversions with no eligible touchpoint at all, dropping them from the
-# table; this way they keep their credit, and only first touch becomes approximate for such a person.
-MAX_TOUCHPOINTS_PER_PERSON = 500
-
-# The same ceiling for the other side of the fan-out. Without it, a person with many conversions
+# MAX_TOUCHPOINTS_PER_PERSON for the other side of the fan-out. Without it, a person with many conversions
 # multiplies the two downstream ARRAY JOINs by an unbounded factor, which is the shape that makes the
-# query run out of memory. The most recent are kept for the mirror of the reason above: a conversion
+# query run out of memory. The most recent are kept for the mirror of the touchpoint reason: a conversion
 # is credited by touchpoints that precede it, and the recent ones are those with touchpoints still in
 # the collected window.
 MAX_CONVERSIONS_PER_PERSON = 500
