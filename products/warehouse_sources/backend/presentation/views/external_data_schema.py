@@ -615,6 +615,7 @@ def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str
 def live_query_unavailable_reason(
     *,
     source_serves_live_queries: bool,
+    engine_supports_live_tables: bool,
     has_row_filters: bool,
     has_masked_columns: bool,
     has_column_metadata: bool,
@@ -626,6 +627,8 @@ def live_query_unavailable_reason(
     """
     if not source_serves_live_queries:
         return "Live queries are only available on synced sources that have live queries turned on."
+    if not engine_supports_live_tables:
+        return "Unsynced tables can't be queried live on this type of source yet."
     if has_row_filters:
         return "Tables with row filters can't be queried live, because a live query reads every row."
     if has_masked_columns:
@@ -638,8 +641,10 @@ def live_query_unavailable_reason(
 def schema_live_query_unavailable_reason(
     schema: ExternalDataSchema, *, row_filters: object, masked_columns: object
 ) -> str | None:
-    # Function-local: the capability module pulls the direct-SQL drivers.
+    # Function-local: these modules pull the direct-SQL drivers and engine helpers.
     from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    from products.data_warehouse.backend.facade.direct_query import LIVE_TABLE_ENGINES  # noqa: PLC0415
 
     source = schema.source
     metadata = schema.schema_metadata
@@ -647,6 +652,7 @@ def schema_live_query_unavailable_reason(
         source_serves_live_queries=(
             source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_direct_capable(source)
         ),
+        engine_supports_live_tables=source.direct_engine in LIVE_TABLE_ENGINES,
         has_row_filters=bool(row_filters),
         has_masked_columns=bool(masked_columns),
         has_column_metadata=isinstance(metadata, dict) and bool(metadata.get("columns")),

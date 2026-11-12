@@ -106,6 +106,10 @@ def live_only_access_ref(schema_row: ExternalDataSchema) -> ObjectAccessRef:
     )
 
 
+# Keep in sync with the engine branches in build_direct_table_for_schema.
+LIVE_TABLE_ENGINES = frozenset({"postgres", "mysql", "redshift", "snowflake", "clickhouse", "motherduck"})
+
+
 def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "ExternalDataSource") -> DirectSQLTable | None:
     """Build the live-query table for one schema row of a dual-mode source.
 

@@ -5907,6 +5907,7 @@ class TestLiveQueryUnavailableReason(SimpleTestCase):
         [
             ("allowed", {}, None),
             ("source_without_live_queries", {"source_serves_live_queries": False}, "live queries turned on"),
+            ("engine_without_live_tables", {"engine_supports_live_tables": False}, "type of source"),
             ("row_filters", {"has_row_filters": True}, "row filters"),
             ("masked_columns", {"has_masked_columns": True}, "masked columns"),
             ("no_column_metadata", {"has_column_metadata": False}, "Pull new schemas"),
@@ -5915,6 +5916,7 @@ class TestLiveQueryUnavailableReason(SimpleTestCase):
     def test_live_query_unavailable_reason(self, _name: str, overrides: dict[str, bool], expected: str | None) -> None:
         inputs = {
             "source_serves_live_queries": True,
+            "engine_supports_live_tables": True,
             "has_row_filters": False,
             "has_masked_columns": False,
             "has_column_metadata": True,
@@ -5930,10 +5932,16 @@ class TestLiveQueryUnavailableReason(SimpleTestCase):
 
 
 class TestExternalDataSchemaLiveQuery(APIBaseTest):
-    def _create(self, *, direct_query_enabled: bool = True, **schema_fields: Any) -> ExternalDataSchema:
+    def _create(
+        self,
+        *,
+        direct_query_enabled: bool = True,
+        source_type: str = ExternalDataSourceType.POSTGRES,
+        **schema_fields: Any,
+    ) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceType.POSTGRES,
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             direct_query_enabled=direct_query_enabled,
             job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
@@ -5947,9 +5955,17 @@ class TestExternalDataSchemaLiveQuery(APIBaseTest):
             **schema_fields,
         )
 
-    @parameterized.expand([("live_queries_on", True, 200), ("live_queries_off", False, 400)])
-    def test_patch_live_query_enabled(self, _name: str, direct_query_enabled: bool, expected_status: int) -> None:
-        schema = self._create(direct_query_enabled=direct_query_enabled)
+    @parameterized.expand(
+        [
+            ("live_queries_on", True, ExternalDataSourceType.POSTGRES, 200),
+            ("live_queries_off", False, ExternalDataSourceType.POSTGRES, 400),
+            ("engine_without_live_tables", True, ExternalDataSourceType.TRINO, 400),
+        ]
+    )
+    def test_patch_live_query_enabled(
+        self, _name: str, direct_query_enabled: bool, source_type: str, expected_status: int
+    ) -> None:
+        schema = self._create(direct_query_enabled=direct_query_enabled, source_type=source_type)
         url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
 
         response = self.client.patch(url, data={"live_query_enabled": True})
