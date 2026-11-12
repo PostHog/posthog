@@ -35,7 +35,7 @@ npx @posthog/hog setup                                              # run once w
 `hog upgrade` refuses to run with `--skip-ssl-verification` or `HOG_SKIP_SSL_VERIFICATION`, because the manifest is the only check on what it installs.
 On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.old.exe` and the next run deletes it.
 
-hog reads the latest release from `https://releases.posthog.com/hog/stable/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder. After a failed request it waits an hour before it asks again. With TLS verification off it doesn't check at all.
+hog reads the latest release from `https://releases.posthog.com/hog/latest/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder. After a failed request it waits an hour before it asks again. With TLS verification off it doesn't check at all.
 
 - A person at a terminal sees one line on stderr after the output when hog is a minor version or more behind, or when the latest release came out more than 30 days after this build. A few patch releases within a month show nothing.
 - Agents, pipes, `-o json`, CI, npx and runs from source never see that line.

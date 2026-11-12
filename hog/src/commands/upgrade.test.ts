@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
 import type { Manifest } from '@/updates/manifest'
 
-const STABLE = 'https://releases.posthog.com/hog/stable/manifest.json'
+const LATEST = 'https://releases.posthog.com/hog/latest/manifest.json'
 const AGENT = { CLAUDECODE: '1' }
 // The fake clock starts on 2026-01-01.
 const BUILT = '2025-12-20T00:00:00.000Z'
@@ -29,7 +29,6 @@ function manifest(version: string, publishedAt: string, extra: Partial<Manifest>
         name: 'hog',
         version,
         tag: `hog/v${version}`,
-        prerelease: version.includes('-'),
         publishedAt,
         buildDate: publishedAt,
         baseUrl: `https://releases.posthog.com/hog/v${version}/`,
@@ -41,7 +40,7 @@ function manifest(version: string, publishedAt: string, extra: Partial<Manifest>
 
 function release(latest: Manifest | null, archive: Uint8Array = ARCHIVE): FakeRuntimeOptions['respond'] {
     return (url) => {
-        if (latest && (url === STABLE || url.endsWith(`/v${latest.version}/manifest.json`))) {
+        if (latest && (url === LATEST || url.endsWith(`/v${latest.version}/manifest.json`))) {
             return { status: 200, body: latest }
         }
         if (latest && url === `${latest.baseUrl}hog-linux-x64.tar.gz`) {
@@ -120,8 +119,8 @@ describe('update notice', () => {
             respond: release(manifest('0.2.0', BUILT)),
         })
 
-        expect(failed.requests.filter((request) => request.url === STABLE)).toHaveLength(1)
-        expect(next.requests.filter((request) => request.url === STABLE)).toHaveLength(0)
+        expect(failed.requests.filter((request) => request.url === LATEST)).toHaveLength(1)
+        expect(next.requests.filter((request) => request.url === LATEST)).toHaveLength(0)
     })
 
     test.each([
@@ -151,8 +150,8 @@ describe('update notice', () => {
 
         const second = await runHog(['config', 'schema'], { ...PERSON, files: first.files, respond: release(null) })
 
-        expect(first.requests.filter((request) => request.url === STABLE)).toHaveLength(1)
-        expect(second.requests.filter((request) => request.url === STABLE)).toHaveLength(0)
+        expect(first.requests.filter((request) => request.url === LATEST)).toHaveLength(1)
+        expect(second.requests.filter((request) => request.url === LATEST)).toHaveLength(0)
         expect(second.stderr).toContain('hog 0.2.0 is out')
     })
 
@@ -257,7 +256,7 @@ describe('setup on an outdated hog', () => {
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.requests.filter((request) => request.url === STABLE)).toHaveLength(0)
+        expect(result.requests.filter((request) => request.url === LATEST)).toHaveLength(0)
     })
 })
 
