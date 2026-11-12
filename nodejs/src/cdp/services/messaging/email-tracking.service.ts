@@ -28,7 +28,8 @@ import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
+import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -206,6 +207,8 @@ const isJavascriptHref = (href: string): boolean => {
     return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
+export const openPixelTag = (pixelUrl: string): string => `<img src="${pixelUrl}" style="display: none;" />`
+
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
@@ -270,7 +273,7 @@ export const addTrackingToEmail = (
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
     })
 
-    html = html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
+    html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
 
     return html
 }

@@ -58,7 +58,13 @@ function AddToNotebookItem(): JSX.Element {
     )
 }
 
-export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: LemonMenuItems }): JSX.Element {
+export function QuillPlayerActionsMenu({
+    extraItems = [],
+    filled = false,
+}: {
+    extraItems?: LemonMenuItems
+    filled?: boolean
+}): JSX.Element {
     const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
@@ -130,7 +136,14 @@ export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: Lemon
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger
-                    render={<Button size="icon-sm" aria-label="More actions" data-attr="player-meta-more-menu" />}
+                    render={
+                        <Button
+                            size={filled ? 'icon' : 'icon-sm'}
+                            variant={filled ? 'secondary' : 'default'}
+                            aria-label="More actions"
+                            data-attr="player-meta-more-menu"
+                        />
+                    }
                 >
                     <IconEllipsis />
                 </DropdownMenuTrigger>

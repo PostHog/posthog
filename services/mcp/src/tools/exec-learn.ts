@@ -2,6 +2,7 @@ import type { ProjectSkillCatalog, ProjectSkillList } from '@/skills/project-ski
 import {
     fitLearnOutput,
     formatLearnSearchResults,
+    learnCommands,
     LearnLookupError,
     type LearnSearchResult,
     MAX_GLOBAL_SKILLS,
@@ -398,7 +399,7 @@ export class ExecLearnCatalog {
     ): Promise<{ content: string; invocation: SkillInvocation }> {
         const content =
             skill.source === 'posthog'
-                ? this.requirePostHogSkills().read(skill.name, path, skill.identifier, this.command)
+                ? this.requirePostHogSkills().read(skill.name, path, skill.identifier, learnCommands(this.command))
                 : await this.requireProjectSkills().read(skill.name, path)
         return {
             content,
@@ -409,7 +410,13 @@ export class ExecLearnCatalog {
     private async searchSkillFile(skill: QualifiedSkill, path: string, query: string): Promise<string> {
         const content =
             skill.source === 'posthog'
-                ? this.requirePostHogSkills().searchFile(skill.name, path, query, skill.identifier, this.command)
+                ? this.requirePostHogSkills().searchFile(
+                      skill.name,
+                      path,
+                      query,
+                      skill.identifier,
+                      learnCommands(this.command)
+                  )
                 : await this.requireProjectSkills().searchFile(skill.name, path, query)
         this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: 'file_search' })
         return content
@@ -418,7 +425,14 @@ export class ExecLearnCatalog {
     private async readSkillLines(skill: QualifiedSkill, path: string, start: number, end: number): Promise<string> {
         const content =
             skill.source === 'posthog'
-                ? this.requirePostHogSkills().readLines(skill.name, path, start, end, skill.identifier, this.command)
+                ? this.requirePostHogSkills().readLines(
+                      skill.name,
+                      path,
+                      start,
+                      end,
+                      skill.identifier,
+                      learnCommands(this.command)
+                  )
                 : await this.requireProjectSkills().readLines(skill.name, path, start, end)
         this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: 'file_lines' })
         return content

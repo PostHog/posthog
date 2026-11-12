@@ -5847,22 +5847,52 @@ class TestExternalDataSource(APIBaseTest):
             # Frontend sends null when the user leaves the PK selector empty — backend falls
             # back to the source-detected primary key so sync-time detection is not the only
             # line of defense.
-            ("fallback_to_detected", None, ["id"], ["id"]),
+            ("fallback_to_detected", "incremental", None, ["id"], ["id"]),
             # User explicitly overrides — caller value wins, detected is ignored.
-            ("explicit_wins_over_detected", ["custom_pk"], ["id"], ["custom_pk"]),
+            ("explicit_wins_over_detected", "incremental", ["custom_pk"], ["id"], ["custom_pk"]),
             # Nothing detected and nothing provided, but the table has an `id` column, which is
             # what resolution falls back to — so the key is omitted here and found at sync time.
-            ("both_absent_omits_key", None, None, None),
+            ("both_absent_omits_key", "incremental", None, None, None),
+            ("xmin_fallback_to_detected", "xmin", None, ["id"], ["id"]),
+            ("xmin_ignores_caller_key", "xmin", ["custom_pk"], ["id"], ["id"]),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_create_postgres_incremental_primary_key_fallback(
+    def test_create_postgres_primary_key_fallback(
         self,
         _name: str,
+        sync_type: str,
         payload_primary_keys: list[str] | None,
         detected_primary_keys: list[str] | None,
         expected_persisted: list[str] | None,
         mock_get_source,
+    ):
+        response = self._create_postgres_source_with_primary_key(
+            mock_get_source, sync_type, payload_primary_keys, detected_primary_keys
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        if expected_persisted is None:
+            assert "primary_key_columns" not in schema.sync_type_config
+        else:
+            assert schema.sync_type_config["primary_key_columns"] == expected_persisted
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_rejects_non_list_primary_key(self, mock_get_source):
+        # A stored string would later split into one key per character.
+        response = self._create_postgres_source_with_primary_key(mock_get_source, "incremental", "id", ["id"])
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "must be a list" in response.json()["message"]
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+
+    def _create_postgres_source_with_primary_key(
+        self,
+        mock_get_source,
+        sync_type: str,
+        payload_primary_keys: list[str] | str | None,
+        detected_primary_keys: list[str] | None,
     ):
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
@@ -5899,7 +5929,7 @@ class TestExternalDataSource(APIBaseTest):
             ),
         ]
 
-        response = self.client.post(
+        return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
@@ -5914,7 +5944,7 @@ class TestExternalDataSource(APIBaseTest):
                         {
                             "name": "events",
                             "should_sync": True,
-                            "sync_type": "incremental",
+                            "sync_type": sync_type,
                             "incremental_field": "updated_at",
                             "incremental_field_type": "timestamp",
                             "primary_key_columns": payload_primary_keys,
@@ -5923,13 +5953,6 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
         )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.content
-        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
-        if expected_persisted is None:
-            assert "primary_key_columns" not in schema.sync_type_config
-        else:
-            assert schema.sync_type_config["primary_key_columns"] == expected_persisted
 
     @parameterized.expand(
         [
