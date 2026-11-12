@@ -61,12 +61,21 @@ describe('EmailSuppressionService', () => {
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
         })
 
+        const batch = Array.from({ length: SES_NOTIFICATIONS_PER_BATCH }, (_, i) => `event-${i}`)
+
         it.each<[string, (string | undefined)[], number, boolean]>([
             ['below threshold — 2 consecutive bounces stay unsuppressed', ['a', 'b'], 2, false],
             ['at threshold — the 3rd consecutive bounce flips suppressed', ['a', 'b', 'c'], 3, true],
             ['a redelivered bounce counts once', ['a', 'b', 'b', 'b'], 2, false],
             ['a replayed batch counts each bounce once', ['a', 'b', 'a', 'b'], 2, false],
             ['bounces without an event id each count', [undefined, undefined, undefined], 3, true],
+            ['a replayed full batch counts each bounce once', [...batch, ...batch], SES_NOTIFICATIONS_PER_BATCH, true],
+            [
+                'a bounce older than the last batch of ids counts again',
+                [...batch, 'event-new', batch[0]],
+                SES_NOTIFICATIONS_PER_BATCH + 2,
+                true,
+            ],
         ])('%s', async (_label, eventIds, expectedCount, expectedSuppressed) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'flaky@example.com'
@@ -80,18 +89,6 @@ describe('EmailSuppressionService', () => {
                 suppressed: expectedSuppressed,
                 deleted: false,
             })
-        })
-
-        it('a replayed full batch of bounces for one address counts each once', async () => {
-            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'busy@example.com'
-            const eventIds = Array.from({ length: SES_NOTIFICATIONS_PER_BATCH }, (_, i) => `event-${i}`)
-
-            for (const eventId of [...eventIds, ...eventIds]) {
-                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId })
-            }
-
-            expect(await readRow(email)).toMatchObject({ transient_bounce_count: SES_NOTIFICATIONS_PER_BATCH })
         })
     })
 
