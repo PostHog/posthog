@@ -6,11 +6,14 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
+    KEYWORD_MAX_LENGTH,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     BrandKind,
     BrandSource,
     BrandStatus,
+    CheckFrequency,
+    CheckMode,
 )
 
 
@@ -170,6 +173,20 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         max_length=64, help_text="Answer engine: claude-web-search, openai-web-search, exa-answer."
     )
     model = models.CharField(max_length=128, help_text="Engine model that answered.")
+    # db_default so existing rows read as web-search checks without a table rewrite.
+    mode = models.CharField(
+        max_length=32,
+        choices=CheckMode.choices,
+        default=CheckMode.WEB_SEARCH.value,
+        db_default=CheckMode.WEB_SEARCH.value,
+        help_text="How the engine answered: 'web_search' with its search tool, 'no_search' from training data alone.",
+    )
+    mode_config = models.JSONField(
+        default=dict,
+        db_default={},
+        blank=True,
+        help_text="Settings the mode ran with that do not change what kind of answer it is, such as a locale.",
+    )
 
     check_failed = models.BooleanField(
         default=False,
@@ -283,3 +300,60 @@ class AEOBrand(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
 
     def __str__(self) -> str:
         return f"[{self.kind}] {self.domain}"
+
+
+class AEOEngineSetting(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
+    """
+    Whether a project runs one answer engine, and how often. A project with no row for an
+    engine gets that engine's default, so only the engines someone changed have rows.
+    """
+
+    # db_constraint=False for the same reason as AEOPrompt. No index of its own: the unique (team, engine) index leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+
+    engine = models.CharField(max_length=64, help_text="Engine id, for example 'claude-web-search'.")
+    enabled = models.BooleanField(help_text="Whether the daily run checks prompts on this engine.")
+    frequency = models.CharField(
+        max_length=32,
+        choices=CheckFrequency.choices,
+        default=CheckFrequency.DAILY.value,
+        help_text="How often each prompt gets a check from this engine.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_aeo_engine_setting"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "engine"], name="aeo_engine_setting_unique_team_engine"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.engine} ({'on' if self.enabled else 'off'}, {self.frequency})"
+
+
+class AEOKeyword(TeamScopedRootMixin, UUIDModel):
+    """
+    One keyword in the team's keyword list. The list belongs to the project, not to a prompt:
+    each keyword is measured across every check, in the prompts, the engines' searches and the answers.
+    """
+
+    # db_constraint=False for the same reason as AEOPrompt. No index of its own: the unique (team, keyword) index leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+    keyword = models.CharField(
+        max_length=KEYWORD_MAX_LENGTH,
+        help_text="The keyword, lowercased, trimmed and with whitespace collapsed. Matched as a phrase, case ignored.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the keyword was added.")
+
+    class Meta:
+        db_table = "posthog_aeo_keyword"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "keyword"], name="aeo_keyword_unique_team_keyword"),
+        ]
+
+    def __str__(self) -> str:
+        return self.keyword

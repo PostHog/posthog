@@ -177,3 +177,16 @@ class NotebookMarkdownMigrationTool(ConsoleTool):
                 ),
             )
         ]
+
+
+# The old page fetched its stats/ and run/ JSON endpoints itself, so a bookmark of one lands on the tool page.
+for old_path in (
+    "admin/notebook-markdown-migration/",
+    "admin/notebook-markdown-migration/stats/",
+    "admin/notebook-markdown-migration/run/",
+):
+    console.register_moved_page(
+        old_path=old_path,
+        title="Markdown notebook migration",
+        url="/admin/console/tools/notebook-markdown-migration/",
+    )

@@ -200,10 +200,7 @@ def resolve_team_github_integration(
             for adapter in (
                 GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
             )
-            if not (
-                adapter.integration.repository_cache_updated_at is not None
-                and adapter.integration.repository_cache == []
-            )
+            if not adapter.repository_cache_confirmed_empty()
         ),
         None,
     )

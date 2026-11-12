@@ -36,7 +36,7 @@ from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
 from posthog.integrations.backend.patching import changed_fields
-from posthog.integrations.contracts import IntegrationPatch
+from posthog.integrations.contracts import IntegrationPatch, RepositoryCache
 from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
@@ -313,9 +313,13 @@ class GitHubIntegrationBase:
         installation_id = self.github_installation_id
         if installation_id:
             return f"installation:{installation_id}"
+        return self._row_identity()
+
+    def _row_identity(self) -> str:
         # Integration and UserIntegration are separate tables with independent primary keys, so the
         # row id alone names two different rows.
-        return f"{type(self.integration).__name__}:{self.integration.id}"
+        table = "UserIntegration" if self.is_user_integration else "Integration"
+        return f"{table}:{self.integration.id}"
 
     # --- App-level JWT authentication ---
 
@@ -401,18 +405,22 @@ class GitHubIntegrationBase:
         being deleted via the ``exclude_*`` params so it is not counted against itself.
         """
         # Local imports: both model modules import this module at load time.
-        from posthog.models.integration import Integration
+        from posthog.integrations import IntegrationManager, IntegrationNotFound
         from posthog.models.user_integration import UserIntegration
 
-        team_qs = Integration.objects.filter(kind="github", integration_id=installation_id)
+        team_rows = IntegrationManager.github.oauth.count_by_external_id(installation_id)
         if exclude_team_integration_id is not None:
-            team_qs = team_qs.exclude(id=exclude_team_integration_id)
+            try:
+                IntegrationManager.github.oauth.get_by_external_id(installation_id, exclude_team_integration_id)
+                team_rows -= 1
+            except IntegrationNotFound:
+                pass
 
         user_qs = UserIntegration.objects.filter(kind="github", integration_id=installation_id)
         if exclude_user_integration_id is not None:
             user_qs = user_qs.exclude(id=exclude_user_integration_id)
 
-        return team_qs.count() + user_qs.count()
+        return team_rows + user_qs.count()
 
     @staticmethod
     def installation_reference_counts(
@@ -428,7 +436,7 @@ class GitHubIntegrationBase:
         deletes the personal rows sharing it.
         """
         # Local imports: both model modules import this module at load time.
-        from posthog.models.integration import Integration
+        from posthog.integrations import IntegrationManager
         from posthog.models.user_integration import UserIntegration
 
         ids = {installation_id for installation_id in installation_ids if installation_id}
@@ -436,12 +444,10 @@ class GitHubIntegrationBase:
         if not ids:
             return counts
 
-        models: list[type[Integration] | type[UserIntegration]] = [Integration]
+        counts.update(IntegrationManager.github.oauth.count_by_external_ids(ids))
         if include_personal:
-            models.append(UserIntegration)
-        for model in models:
             grouped = (
-                model.objects.filter(kind="github", integration_id__in=ids)
+                UserIntegration.objects.filter(kind="github", integration_id__in=ids)
                 .values("integration_id")
                 .annotate(count=Count("id"))
             )
@@ -805,7 +811,7 @@ class GitHubIntegrationBase:
         # against the App-wide quota. Claim the row for the duration of the call so only the first
         # of the burst goes out. A cache outage falls back to the cooldown alone rather than
         # blocking the heal.
-        claim_key = f"github_account_name_heal:{type(self.integration).__name__}:{self.integration.pk}"
+        claim_key = f"github_account_name_heal:{self._row_identity()}"
         if not safe_cache_add(claim_key, True, GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS):
             return False
         try:
@@ -3023,9 +3029,28 @@ class GitHubIntegrationBase:
 
     # --- Cached repository operations ---
 
+    def _repository_cache(self) -> RepositoryCache:
+        """The repository list stored for the row. This base reads the `UserIntegration` row.
+
+        `GitHubIntegration` reads the team row through the integrations SDK.
+        """
+        return RepositoryCache(
+            repositories=self.integration.repository_cache,
+            updated_at=self.integration.repository_cache_updated_at,
+        )
+
+    def _store_repository_cache(self, repositories: list[dict] | None, updated_at: datetime) -> None:
+        """Store a repository list fetch. `repositories=None` keeps the stored list."""
+        update_fields = ["repository_cache_updated_at"]
+        if repositories is not None:
+            self.integration.repository_cache = repositories
+            update_fields.insert(0, "repository_cache")
+        self.integration.repository_cache_updated_at = updated_at
+        self.integration.save(update_fields=update_fields)
+
     def _get_stored_repository_list(self) -> list[dict] | None:
         """Repositories persisted on the integration row."""
-        cached = self.integration.repository_cache
+        cached = self._repository_cache().repositories
         if not isinstance(cached, list):
             return None
         return [
@@ -3042,8 +3067,13 @@ class GitHubIntegrationBase:
             and isinstance(repo.get("full_name"), str)
         ]
 
+    def repository_cache_confirmed_empty(self) -> bool:
+        """True when a fetched repository list holds no repository."""
+        cache = self._repository_cache()
+        return cache.updated_at is not None and cache.repositories == []
+
     def repository_cache_is_stale(self) -> bool:
-        updated_at = self.integration.repository_cache_updated_at
+        updated_at = self._repository_cache().updated_at
         if updated_at is None:
             return True
         return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
@@ -3052,7 +3082,7 @@ class GitHubIntegrationBase:
         self, min_refresh_interval_seconds: int | None = None, *, priority: Priority | None = None
     ) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
-        updated_at = self.integration.repository_cache_updated_at
+        updated_at = self._repository_cache().updated_at
         if (
             min_refresh_interval_seconds is not None
             and cached_repositories is not None
@@ -3062,13 +3092,7 @@ class GitHubIntegrationBase:
             return cached_repositories
 
         repositories = self.list_all_repositories(priority=priority)
-        refreshed_at = timezone.now()
-        update_fields = ["repository_cache_updated_at"]
-        if repositories != cached_repositories:
-            self.integration.repository_cache = repositories
-            update_fields.insert(0, "repository_cache")
-        self.integration.repository_cache_updated_at = refreshed_at
-        self.integration.save(update_fields=update_fields)
+        self._store_repository_cache(repositories if repositories != cached_repositories else None, timezone.now())
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
@@ -3083,7 +3107,7 @@ class GitHubIntegrationBase:
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
         cached_repositories = self._get_stored_repository_list()
-        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
+        has_cached_snapshot = self._repository_cache().updated_at is not None
         should_refresh = cached_repositories is None or self.repository_cache_is_stale()
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
@@ -3118,7 +3142,7 @@ class GitHubIntegrationBase:
 
     def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
-        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
+        has_cached_snapshot = self._repository_cache().updated_at is not None
         # `allow_refresh=False` keeps this a pure cache read — no live GitHub sync, no token refresh,
         # no DB write — for callers on a latency-sensitive path that accept a stale snapshot.
         should_refresh = allow_refresh and (cached_repositories is None or self.repository_cache_is_stale())
@@ -3242,7 +3266,13 @@ class GitHubIntegrationBase:
         from posthog.tasks.integrations import refresh_github_branch_cache  # noqa: PLC0415
 
         try:
-            refresh_github_branch_cache.delay(str(self.integration.id), repo, self.is_user_integration, lock_token)
+            refresh_github_branch_cache.delay(
+                str(self.integration.id),
+                repo,
+                self.is_user_integration,
+                lock_token,
+                None if self.is_user_integration else self.integration.team_id,
+            )
         except Exception:
             self.release_branch_refresh_lock(repo, lock_token)
             logger.warning(

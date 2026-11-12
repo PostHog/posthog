@@ -22,6 +22,10 @@ function App() {
 
 For RTL apps, wrap with `DirectionProvider` (re-exported from Base UI) — directional pieces (Collapsible chevrons, menu alignment) read it via `useDirection`.
 
+Every workspace package that imports a quill package lists that exact package in its own `package.json` `dependencies`, for example `"@posthog/quill": "workspace:*"` in `products/<name>/package.json`.
+pnpm links only the packages a workspace declares, so an undeclared import fails in Vite with `Failed to resolve import`, even when another quill package is declared there.
+Run `pnpm install` after you add one, and commit the `pnpm-lock.yaml` change with it.
+
 ---
 
 ## The `render` prop
@@ -328,6 +332,10 @@ Grouped fields with fieldset:
 `InputGroupInput`'s `placeholder` also takes a node, for a hint with markup or motion that a native placeholder can't hold.
 The node covers the input's own box with the input's padding, so it starts where the caret sits whatever the addons do, and hides once the input has a value.
 It is visual only, so give the input an `aria-label`.
+
+A rich text editor works as the control too: put its `contenteditable` element (TipTap's `EditorContent`, for example) where the input would go.
+The group draws its focus ring around it, and a click on an addon's empty space focuses it, the same as for an input.
+The editor's own padding and height are the caller's, because the group's control padding only reaches `InputGroupInput` and `InputGroupTextarea`.
 
 ```tsx
 <InputGroupInput

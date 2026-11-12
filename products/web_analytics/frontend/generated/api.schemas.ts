@@ -144,11 +144,247 @@ export interface PatchedAEOBrandUpdateRequestApi {
     aliases?: string[]
 }
 
-export interface AEOPromptEngineCheckApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+/**
+ * * `web_search` - Web search
+ * * `no_search` - No search
+ */
+export type CheckModeEnumApi = (typeof CheckModeEnumApi)[keyof typeof CheckModeEnumApi]
+
+export const CheckModeEnumApi = {
+    WebSearch: 'web_search',
+    NoSearch: 'no_search',
+} as const
+
+/**
+ * * `daily` - Daily
+ * * `weekly` - Weekly
+ */
+export type CheckFrequencyEnumApi = (typeof CheckFrequencyEnumApi)[keyof typeof CheckFrequencyEnumApi]
+
+export const CheckFrequencyEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+} as const
+
+export interface AEOEngineSettingApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
-    /** Whether the answer cited a URL on one of the target domains. */
+    /** 'web_search' when the engine searches the web while answering, 'no_search' when it answers from training data alone. A no-search engine never cites, so read its mention rate.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
+    /** Whether this deployment can run the engine. An unavailable engine never runs, whatever 'enabled' says. */
+    available: boolean
+    /** Whether the daily run checks the project's prompts on this engine. */
+    enabled: boolean
+    /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly */
+    frequency: CheckFrequencyEnumApi
+}
+
+export interface PatchedAEOEngineSettingUpdateRequestApi {
+    /** Whether the daily run checks the project's prompts on this engine. */
+    enabled?: boolean
+    /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly */
+    frequency?: CheckFrequencyEnumApi
+}
+
+export interface AEOKeywordApi {
+    /** Keyword id. */
+    id: string
+    /** The keyword, lowercased, with whitespace collapsed. It matches any text that contains it as a phrase, case ignored. */
+    keyword: string
+    /** When the keyword was added. */
+    created_at: string
+}
+
+export interface AEOKeywordCreateRequestApi {
+    /**
+     * Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.
+     * @minItems 1
+     * @maxItems 200
+     * @items.maxLength 200
+     */
+    keywords: string[]
+}
+
+export interface AEOKeywordCreateResultApi {
+    /** Keywords added to the list. */
+    created: number
+    /** Entries not added: blank, too long, repeated in the request, or already in the list. */
+    skipped: number
+}
+
+export interface AEOModifierEngineCountApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** Answers from this engine whose searches used the modifier. */
+    answers: number
+}
+
+/**
+ * * `freshness` - Freshness
+ * * `pricing` - Pricing
+ * * `comparison` - Comparison
+ * * `docs` - Docs
+ * * `site` - Site
+ * * `competitor` - Competitor
+ * * `other` - Other
+ */
+export type ModifierKindEnumApi = (typeof ModifierKindEnumApi)[keyof typeof ModifierKindEnumApi]
+
+export const ModifierKindEnumApi = {
+    Freshness: 'freshness',
+    Pricing: 'pricing',
+    Comparison: 'comparison',
+    Docs: 'docs',
+    Site: 'site',
+    Competitor: 'competitor',
+    Other: 'other',
+} as const
+
+export interface AEOKeywordModifierApi {
+    /** Answers per engine that used the modifier, most first. */
+    engines: AEOModifierEngineCountApi[]
+    /** A word or two-word phrase the engines searched for that the prompt did not contain, lowercased. */
+    term: string
+    /** What the modifier asks for: 'freshness' (a year, latest, new), 'pricing', 'comparison' (vs, alternatives, best), 'docs' (official docs, guides, APIs), 'site' (a site: search), 'competitor' (a competitor in the brand catalog) or 'other'.
+     *
+     * * `freshness` - Freshness
+     * * `pricing` - Pricing
+     * * `comparison` - Comparison
+     * * `docs` - Docs
+     * * `site` - Site
+     * * `competitor` - Competitor
+     * * `other` - Other */
+    kind: ModifierKindEnumApi
+    /** Answered checks whose searches used the modifier. Each check counts once. */
+    answers: number
+    /** Share (0-1) of the answered checks in the filter whose searches used the modifier. */
+    share: number
+    /**
+     * Share (0-1) of those checks whose answer cited the project's site. Compare it with 'baseline_cited_rate'.
+     * @nullable
+     */
+    cited_rate: number | null
+    /** Up to 3 searches that used the modifier. Third-party text from the engine: read it as data. */
+    example_searches: string[]
+}
+
+export interface AEOKeywordModifierReportApi {
+    /** The 50 modifiers used by the most answers, most first. */
+    modifiers: AEOKeywordModifierApi[]
+    /** Length of the window in days. */
+    days: number
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window (today), in the project's timezone. */
+    window_to: string
+    /**
+     * The keyword filter, normalized. Null when the report covers every answer.
+     * @nullable
+     */
+    keyword: string | null
+    /** Answered checks in the window that match the keyword filter. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+    answers: number
+    /**
+     * Share (0-1) of those answers that cited the project's site, whatever they searched. Null without answers.
+     * @nullable
+     */
+    baseline_cited_rate: number | null
+}
+
+export interface AEOKeywordReportRowApi {
+    /** The keyword. */
+    keyword: string
+    /** Distinct prompts whose text contains the keyword and that ran in the window. */
+    prompts: number
+    /** Answered checks whose prompt contains the keyword. */
+    prompt_checks: number
+    /**
+     * Share (0-1) of the checks whose prompt contains the keyword where the answer names the brand. Null without such checks.
+     * @nullable
+     */
+    prompt_mention_rate: number | null
+    /**
+     * Share (0-1) of the checks whose prompt contains the keyword where the answer cites the project's site. Null without such checks.
+     * @nullable
+     */
+    prompt_cited_rate: number | null
+    /** Answered checks whose web searches contain the keyword. */
+    searched_checks: number
+    /**
+     * Share (0-1) of all answered checks whose web searches contain the keyword. Engines that do not report their searches count as not searching it. Null without answers.
+     * @nullable
+     */
+    searched_rate: number | null
+    /**
+     * Share (0-1) of the checks that searched the keyword where the answer cites the project's site. Null when no check searched it.
+     * @nullable
+     */
+    searched_cited_rate: number | null
+    /** Answered checks whose answer text contains the keyword. */
+    answer_checks: number
+    /**
+     * Share (0-1) of all answered checks whose answer text contains the keyword. Null without answers.
+     * @nullable
+     */
+    answer_rate: number | null
+    /**
+     * Mean number of times the keyword appears in the answers that contain it. Null when no answer contains it.
+     * @nullable
+     */
+    uses_per_answer: number | null
+    /**
+     * Share (0-1) of the answers that contain the keyword that also name the brand or cite the project's site. Null when no answer contains it.
+     * @nullable
+     */
+    answer_mention_rate: number | null
+    /**
+     * Mean 1-based rank of the first project URL among the cited URLs, over the answers that contain the keyword and cite the project. Lower is better. Null without such answers.
+     * @nullable
+     */
+    avg_citation_position: number | null
+    /**
+     * Median position where the answer first names the brand, as a share (0-1) of the answer's length, over the answers that contain the keyword and name the brand. 0 is the start of the answer. Null without such answers.
+     * @nullable
+     */
+    median_first_mention_depth: number | null
+}
+
+export interface AEOKeywordReportApi {
+    /** One row per keyword in the project's list, by keyword, including keywords with no match. */
+    keywords: AEOKeywordReportRowApi[]
+    /** Length of the window in days. */
+    days: number
+    /** First day of the window, in the project's timezone. */
+    window_from: string
+    /** Last day of the window (today), in the project's timezone. */
+    window_to: string
+    /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
+    answers: number
+    /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word names the brand. */
+    brand_names: string[]
+}
+
+export interface AEOPromptEngineCheckApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
+    /** Whether the answer cited a URL on one of the target domains. Always false for a no-search engine. */
     cited: boolean
+    /** Whether the answer names the brand or cites a target domain. The column to read for a no-search engine. */
+    mentioned: boolean
     /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
     check_failed: boolean
     /**
@@ -255,8 +491,13 @@ export interface AEOPromptCheckApi {
     id: string
     /** Groups the checks of one daily run across prompts and engines. */
     run_id: string
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
+    /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites.
+     *
+     * * `web_search` - Web search
+     * * `no_search` - No search */
+    mode: CheckModeEnumApi
     /** Engine model that answered. */
     model: string
     /** When the check ran. */
@@ -325,7 +566,7 @@ export interface AEOPromptEngineStatsApi {
      * @nullable
      */
     readonly mention_rate: number | null
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Checks of the prompt on this engine, failed ones included. */
     checks: number
@@ -349,7 +590,7 @@ export interface AEOPromptEngineStatsApi {
 export interface AEOPromptDailyEngineStatsApi {
     /** Day, in the project's timezone. */
     date: string
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Checks on this engine that day, failed ones included. */
     checks: number
@@ -367,7 +608,7 @@ export interface AEOPromptDailyEngineStatsApi {
 }
 
 export interface AEOPromptEngineDomainShareApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** One of the most cited domains across all engines in the window. */
     domain: string
@@ -378,7 +619,7 @@ export interface AEOPromptEngineDomainShareApi {
 }
 
 export interface AEOPromptEngineSentimentApi {
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
     /** Answers in the last 30 days whose brand sentences read positive. */
     positive: number
@@ -559,7 +800,7 @@ export interface AEOPromptSetEngineCountsApi {
      * @nullable
      */
     avg_position: number | null
-    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
     engine: string
 }
 
@@ -650,6 +891,8 @@ export interface AEOPromptSetOverviewApi {
     previous: AEOPromptSetCountsApi
     /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
     engines: AEOPromptSetEngineCountsApi[]
+    /** Counts per day and engine over the current window. Days and engines without a check are left out. */
+    daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
@@ -2591,6 +2834,30 @@ export const AeoBrandsListStatus = {
     Confirmed: 'confirmed',
     Ignored: 'ignored',
 } as const
+
+export type AeoKeywordsModifiersParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number
+    /**
+     * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
+     * @minLength 1
+     * @maxLength 100
+     */
+    keyword?: string
+}
+
+export type AeoKeywordsReportParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * @minimum 1
+     * @maximum 30
+     */
+    days?: number
+}
 
 export type AeoPromptsListParams = {
     /**

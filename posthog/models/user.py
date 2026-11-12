@@ -1,4 +1,4 @@
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import cached_property
@@ -496,7 +496,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             )
         )
         for integration in team_github_integrations:
-            if isinstance(integration.config, dict):
+            if isinstance(integration.config, Mapping):
                 login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)

@@ -95,6 +95,7 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
     github = GitHubIntegration(integration, source="job_logs", priority=Priority.BATCH)
     if github.access_token_expired():
         github.refresh_access_token()
+    integration = github.integration
     if not integration.access_token:
         raise ValueError(f"No GitHub access token for integration {integration_id}")
     return (

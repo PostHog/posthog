@@ -13,6 +13,7 @@ export const SUPPORTED_IMAGE_MEDIA_TYPES = [
     'image/jpeg',
     'image/gif',
     'image/webp',
+    'image/avif',
     'image/svg+xml',
 ] as const
 
@@ -64,6 +65,9 @@ const decoderFactories: Record<string, () => Transform> = {
     br: createBrotliDecompress,
     zstd: createZstdDecompress,
 }
+
+/** The longest signature `imageBytesMatchMediaType` and `isFontFile` read, which is WebP's. */
+export const SIGNATURE_BYTES = 12
 
 function parseContentEncodings(contentEncoding: string | undefined): string[] {
     if (contentEncoding === undefined) {
@@ -177,9 +181,35 @@ export function imageBytesMatchMediaType(bytes: Buffer, contentType: SupportedIm
         }
         case 'image/webp':
             return bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+        case 'image/avif':
+            return isStillAvif(bytes)
         case 'image/svg+xml':
             return isSvgDocument(bytes)
     }
+}
+
+const MAX_FTYP_BYTES = 256
+
+/** Must agree with `avif_header` in `replay-core-v4/src/scan/images.rs`. `canStartWith` relies on the major brand fitting in `SIGNATURE_BYTES`. */
+function isStillAvif(bytes: Buffer): boolean {
+    if (bytes.length < 8 || bytes.toString('latin1', 4, 8) !== 'ftyp') {
+        return false
+    }
+    const ftypSize = bytes.readUInt32BE(0)
+    if (ftypSize > MAX_FTYP_BYTES) {
+        return false
+    }
+    const ftypEnd = Math.min(Math.max(ftypSize, 8), bytes.length)
+    const brandAt = (offset: number): string => bytes.toString('latin1', offset, offset + 4)
+    if (ftypEnd < 12 || brandAt(8) !== 'avif') {
+        return false
+    }
+    for (let offset = 16; offset + 4 <= ftypEnd; offset += 4) {
+        if (brandAt(offset) === 'avis') {
+            return false
+        }
+    }
+    return true
 }
 
 /** A prolog longer than this is not read, so a body of comments cannot make the check scan the whole image. */
@@ -259,7 +289,7 @@ function isSvgDocument(bytes: Buffer): boolean {
 /** WOFF2, WOFF, OpenType with CFF outlines, TrueType (two signatures) and a TrueType or OpenType collection. */
 const FONT_SIGNATURES = ['wOF2', 'wOFF', 'OTTO', '\x00\x01\x00\x00', 'true', 'ttcf']
 
-function isFontFile(bytes: Buffer): boolean {
+export function isFontFile(bytes: Buffer): boolean {
     return FONT_SIGNATURES.includes(bytes.toString('latin1', 0, 4))
 }
 

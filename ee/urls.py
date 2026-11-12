@@ -10,7 +10,6 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
-from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.oauth2 import admin_oauth2_callback
 from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
 from posthog.api.sso import saml_metadata_view
@@ -73,82 +72,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
-        path(
-            "admin/redisvalues",
-            MovedToConsole.page_redirect("Redis values", "/admin/console/tools/redis-values/"),
-            name="redis_values",
-        ),
-        path(
-            "admin/redis/edit-ttl",
-            MovedToConsole.page_redirect("Editing a Redis TTL", "/admin/console/tools/redis-values/set-ttl/"),
-            name="redis_edit_ttl",
-        ),
-        # The old page took the key in a POST body, so a bookmark carries no key and none lands in the new URL.
-        path(
-            "admin/apikeysearch",
-            MovedToConsole.page_redirect("API key search", "/admin/console/tools/api-key-search/"),
-            name="api_key_search",
-        ),
-        path(
-            "admin/resave-cohorts/",
-            MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
-            name="resave-cohorts",
-        ),
-        path(
-            "admin/distinct-id-usage/",
-            MovedToConsole.page_redirect("Distinct ID usage", "/admin/console/tools/distinct-id-usage/"),
-            name="distinct-id-usage",
-        ),
-        path(
-            "admin/events-retention/",
-            MovedToConsole.page_redirect("Events retention", "/admin/console/tools/events-retention/"),
-            name="events-retention",
-        ),
-        path(
-            "admin/tophog/",
-            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
-            name="tophog-dashboard",
-        ),
-        path(
-            "admin/tophog/restrictions/",
-            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
-            name="tophog-restrictions",
-        ),
-        path(
-            "admin/health-checks/",
-            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/"),
-            name="health-checks",
-        ),
-        path(
-            "admin/health-checks/<str:kind>/",
-            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
-            name="health-check-trigger",
-        ),
-        path(
-            "admin/health-checks/<str:kind>/runs/",
-            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
-            name="health-check-runs",
-        ),
-        path(
-            "admin/notebook-markdown-migration/",
-            MovedToConsole.page_redirect(
-                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
-            ),
-            name="notebook-markdown-migration",
-        ),
-        # The old page fetched these JSON endpoints itself, so a bookmark of one lands on the tool page.
-        path(
-            "admin/notebook-markdown-migration/stats/",
-            MovedToConsole.page_redirect(
-                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
-            ),
-        ),
-        path(
-            "admin/notebook-markdown-migration/run/",
-            MovedToConsole.page_redirect(
-                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
-            ),
-        ),
         path(
             "admin/logout/",
             impersonated_session_logout,
