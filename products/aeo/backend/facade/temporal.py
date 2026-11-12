@@ -1,5 +1,5 @@
-"""Temporal workflows and activities this product registers on the evals queue, which is the
-only worker image that carries the sentiment model."""
+"""Temporal workflows and activities this product registers on the AEO queue. Its worker runs the
+LLM analytics image, the only one that carries the sentiment model."""
 
 from products.aeo.backend.temporal.brand_sentiment import ACTIVITIES, WORKFLOWS
 

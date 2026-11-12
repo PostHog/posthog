@@ -209,4 +209,4 @@ def test_runner_starts_the_sentiment_workflow_only_when_enabled_and_recording(
         start = connect.return_value.start_workflow
         start.assert_called_once()
         assert start.call_args.kwargs["id"] == f"aeo-brand-sentiment-{team.id}-{summary.run_id}"
-        assert start.call_args.kwargs["task_queue"] == settings.LLMA_EVALS_TASK_QUEUE
+        assert start.call_args.kwargs["task_queue"] == settings.AEO_TASK_QUEUE
