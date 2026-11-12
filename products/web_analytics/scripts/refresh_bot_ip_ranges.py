@@ -16,8 +16,8 @@ user-triggered-fetchers.json: those ranges are Google Cloud egress that third
 parties can run arbitrary workloads (including VPNs and proxies serving real
 users) behind, so matching them would misclassify human traffic.
 
-Anthropic publishes no crawler IP list (only API egress IPs) — its crawlers
-are covered by UA patterns and Web Bot Auth signature agents instead.
+Anthropic publishes one list for ClaudeBot, Claude-User and Claude-SearchBot
+together, so its ranges carry a single label.
 
 Usage, from the repo root:
     python products/web_analytics/scripts/refresh_bot_ip_ranges.py
@@ -49,14 +49,22 @@ PROVIDERS: dict[str, str] = {
     "PERPLEXITYBOT_NETWORKS": "https://www.perplexity.com/perplexitybot.json",
     "PERPLEXITY_USER_NETWORKS": "https://www.perplexity.com/perplexity-user.json",
     "AHREFSBOT_NETWORKS": "https://api.ahrefs.com/v3/public/crawler-ip-ranges",
+    "ANTHROPIC_CLAUDE_NETWORKS": "https://claude.com/crawling/bots.json",
+    "COMMON_CRAWL_CCBOT_NETWORKS": "https://index.commoncrawl.org/ccbot.json",
+    "DUCKASSISTBOT_NETWORKS": "https://duckduckgo.com/duckassistbot.json",
+    "GOOGLE_USER_TRIGGERED_AGENT_NETWORKS": "https://developers.google.com/static/crawling/ipranges/user-triggered-agents.json",
 }
+
+# Some operators reject the default Python-urllib user agent, so the script names itself.
+USER_AGENT = "posthog-bot-ip-refresh/1.0 (+https://github.com/PostHog/posthog)"
 
 OUTPUT_PATH = Path(__file__).resolve().parents[1] / "backend" / "hogql_queries" / "bot_ip_networks.py"
 
 
 def fetch_networks(url: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected (urls come from the hardcoded PROVIDERS constant, never user input)
-    with urllib.request.urlopen(url, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30) as response:
         data = json.load(response)
     prefixes = data.get("prefixes")
     if not prefixes:
