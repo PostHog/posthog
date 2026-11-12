@@ -20,9 +20,11 @@ const VALKEY_TIMEOUT_MS = 1000
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
-const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
-// Lengthens the replay window only while the key still holds this run's queued record, and never shortens it.
-const REPLAY_UNTIL_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] and cjson.decode(v).queued then if redis.call('PTTL', KEYS[1]) < tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return 1 end return 0`
+// It keeps a longer window that a reschedule set while this write waited or retried.
+const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
+// Lengthens the window only while the key still holds this run, and never shortens it. The run may
+// still be pending here, when its completion waits for the store.
+const REPLAY_UNTIL_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then if redis.call('PTTL', KEYS[1]) < tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return 1 end return 0`
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
 const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000

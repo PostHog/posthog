@@ -4509,8 +4509,21 @@ describe('CDP API', () => {
 
             const HOUR_MS = DAY_MS / 24
             it.each([
-                ['a send accepted to go out now and moved 30 days ahead', undefined, 29.9, 31 * DAY_MS - HOUR_MS, true],
+                [
+                    'a send accepted to go out now and moved 30 days ahead, an hour before then',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                ],
                 ['a send scheduled a day ahead and moved 30 days ahead', 1, 29.9, 31 * DAY_MS - HOUR_MS, true],
+                [
+                    'a send accepted to go out now and moved 30 days ahead, an hour after then',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS + HOUR_MS,
+                    false,
+                ],
                 ['a send accepted to go out now and never moved', undefined, null, DAY_MS + HOUR_MS, false],
             ])(
                 'replays a retry of %s only until a day after the latest time it can be due',
@@ -4562,6 +4575,54 @@ describe('CDP API', () => {
                     }
                 }
             )
+
+            it('moves a send with an idempotency key while the key store is down', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                const valkey = keys['valkey']!
+                const scope = `scope-${new UUIDT().toString()}`
+                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                const failedWrites = async (): Promise<number> =>
+                    (
+                        await (register.getSingleMetric('cdp_hogflow_idempotency_operations_total') as Counter).get()
+                    ).values.find(
+                        (v) =>
+                            v.labels.scope === scope &&
+                            v.labels.operation === 'replay_until' &&
+                            v.labels.outcome === 'failed'
+                    )?.value ?? 0
+                try {
+                    const first = await send(
+                        hogFlow.id,
+                        { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                        { ...body, scheduled_at: inDays(2), idempotency_key: `key-${scope}` }
+                    )
+                    expect(first.status).toEqual(202)
+                    const messageId = first.body.invocation_id
+                    const scheduledAt = inDays(3)
+
+                    const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+                    let moved: supertest.Response
+                    try {
+                        moved = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                    } finally {
+                        outage.mockRestore()
+                    }
+
+                    expect(moved.status).toEqual(200)
+                    expect(moved.body).toEqual({ id: messageId, status: 'scheduled', scheduled_at: scheduledAt })
+                    expect(await scheduledTime(messageId)).toEqual(scheduledAt)
+                    expect(emailStatusRows().at(-1)).toEqual(
+                        expect.objectContaining({
+                            message_id: messageId,
+                            status: 'scheduled',
+                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                        })
+                    )
+                    expect(await failedWrites()).toEqual(1)
+                } finally {
+                    api['transactionalEmailIdempotencyKeys'] = keys
+                }
+            })
 
             it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
                 const messageId = await scheduleSend()
