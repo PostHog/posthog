@@ -19,9 +19,9 @@ inbox-reports-set-state
 ```
 
 - `state: "resolved"` marks the requested work done, and is terminal — a recurrence starts a fresh
-  report rather than reopening this one. Allowed from `ready` / `pending_input`, or from a
-  `suppressed` report that held one of those when archived; anything else returns `409`. **Only
-  resolve work that has actually landed.** A fix shipping as a PR resolves itself on merge (see
+  report rather than reopening this one. Allowed from `ready`, `pending_input`, `failed`, `monitoring` or `closed`,
+  or from a `suppressed` report that held one of those when archived; anything else returns `409`. **Only
+  resolve work that has actually landed.** A fix shipping as a PR resolves itself on merge, or enters `monitoring` (see
   [Implementation step 4](implementation.md#step-4--open-the-pr-and-attach-it)); resolve by hand only where the webhook can never reach — a skill-body edit, a config
   change, a `NO_REPO` report. Record `dismissal_reason: "fixed_outside_posthog"` for that (the fix
   landed without a pull request); use `pr_merged` when a pull request with the fix was merged but
@@ -32,7 +32,7 @@ inbox-reports-set-state
   into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
 - `dismissal_reason` must be one of the server-validated canonical codes — `already_fixed`,
   `report_unclear`, `analysis_wrong`, `wrong_assignee`, `wrong_repo`, `wontfix_intentional`,
-  `wontfix_irrelevant`, `fixed_outside_posthog`, `no_action_needed`, `pr_merged`, `other` — an
+  `wontfix_irrelevant`, `fixed_outside_posthog`, `verified_manually`, `no_action_needed`, `pr_merged`, `other` — an
   unlisted value returns `400`. Reach for `other` plus a
   `dismissal_note` for anything that doesn't fit a specific code. `dismissal_note` is free-form
   (≤ 4000 chars). Both persist as a DISMISSAL
@@ -75,3 +75,27 @@ inbox-reports-set-state
   processed independently, so the call returns `200` even on partial failure — an id whose
   transition isn't allowed comes back as `skipped` (the single-report `409`) while the rest go
   through. Inspect the per-id outcomes rather than assuming the whole batch succeeded.
+
+## Monitoring
+
+Where the organization has Monitoring on, a report whose fix shipped is verified before it resolves.
+Its follow-up checks measure whether the fix worked over a fixed window that starts when the fix ships.
+Without open follow-up checks, the report resolves directly.
+
+- A report enters `monitoring` when its linked PRs complete with at least one merged.
+  `inbox-reports-set-state` with `state: "monitoring"` does the same for a fix that landed without a linked PR.
+- The checks' verdicts decide the outcome: all passing resolves the report, and a failure closes it.
+  When the evidence is inconclusive, an assessment reads it and decides.
+- A `closed` report did not show that the fix worked.
+  A linked follow-up report researches why.
+- Read progress with `inbox-reports-list` (`view: "monitoring"`, then each row's `monitoring_summary`)
+  and with `inbox-report-checks-list` (each check's `monitoring_timing`).
+  Interim readings and verdicts are `check_observation` and `check_result` entries in `inbox-report-artefacts-list`.
+- To end verification by hand, resolve the report with `verified_manually`, `no_action_needed` or `already_fixed`,
+  and say in `dismissal_note` what you checked. This stops the remaining checks.
+- `state: "ready"` reopens a report in `monitoring` or `closed`, keeping its research, pull requests and checks.
+  Completing the implementation again starts a new Monitoring period only if the report still has open follow-up checks.
+  A report reopened from `closed` has none, because closing ends every check, so its next completion resolves it without verification.
+  Tell the user before promising that a new fix will be verified.
+- To measure a check better, replace it with a metric check through `inbox-report-checks-replace`.
+  Replacing a check during Monitoring restarts the period for every open check.
