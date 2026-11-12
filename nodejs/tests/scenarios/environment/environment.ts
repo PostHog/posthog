@@ -7,7 +7,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
-import { FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
@@ -49,7 +49,7 @@ export type Action =
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
 
-export type Actuation = { observed(released?: AbortSignal): Promise<boolean>; release(): Promise<void> }
+export type Actuation = FaultHold
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
