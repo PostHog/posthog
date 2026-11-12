@@ -60,22 +60,21 @@ tools:
             credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in
             the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the
             'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list').
-            Stored credentials work once, expire 24 hours after the user stores them, and are deleted when the source
-            is created. A failed call does not use them up. The credential must be stored for the same source_type you
-            pass here, or the call fails with 'credential_source_type_mismatch'. For an already-connected OAuth
-            integration (for example the user's Google Ads account) pass the integration id instead. The key name is
-            different for every source, so do not guess it: call 'external-data-sources-wizard' with the source_type
-            and use the name of the field whose type is 'oauth'. Examples: Hubspot uses 'hubspot_integration_id',
-            GoogleAds uses 'google_ads_integration_id', MetaAds uses 'meta_ads_integration_id', for example
+            Stored credentials work once, expire 24 hours after the user stores them, and are deleted when the source is
+            created. A failed call does not use them up. The credential must be stored for the same source_type you pass
+            here, or the call fails with 'credential_source_type_mismatch'. For an already-connected OAuth integration
+            (for example the user's Google Ads account) pass the integration id instead. The key name is different for
+            every source, so do not guess it: call 'external-data-sources-wizard' with the source_type and use the name
+            of the field whose type is 'oauth'. Examples: Hubspot uses 'hubspot_integration_id', GoogleAds uses
+            'google_ads_integration_id', MetaAds uses 'meta_ads_integration_id', for example
             {'google_ads_integration_id': 45}. A missing or misnamed key fails with 'invalid_config' and the message
             names the field. Every 400 response carries a 'message' with the fix and, for most causes, a stable 'code'
             such as 'credential_expired', 'credential_not_found', 'invalid_config', 'credential_validation_failed',
             'duplicate_source' or 'no_tables_found'. When the code is 'credential_expired', ask the user to open a new
-            connect link. NOTE: this enables EVERY
-            discovered table — ideal for small fixed schemas (Stripe, Zendesk) but on a large production database (a
-            Postgres/MySQL/BigQuery/Snowflake with many tables) it syncs them all, which can be costly and noisy. When
-            the user wants only specific tables, or non-default sync types per table, use 'external-data-sources-create'
-            instead.
+            connect link. NOTE: this enables EVERY discovered table — ideal for small fixed schemas (Stripe, Zendesk)
+            but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many tables) it syncs them all,
+            which can be costly and noisy. When the user wants only specific tables, or non-default sync types per
+            table, use 'external-data-sources-create' instead.
         exclude_params:
             - client_secret
             - account_id
