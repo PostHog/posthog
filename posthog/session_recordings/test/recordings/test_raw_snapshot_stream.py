@@ -28,8 +28,8 @@ class TestRawSnapshotStream(SimpleTestCase):
         async def fetch_block(key: str, *_args: Any, **_kwargs: Any) -> bytes:
             index = int(key.removeprefix("key"))
             line = b'["window",{"block":%d}]' % index
-            # Storage ends some blocks with a newline and some without one.
-            return line + b"\n" if index % 2 else line
+            stored_with_trailing_newline = index % 2 == 1
+            return line + b"\n" if stored_with_trailing_newline else line
 
         mock_storage = MagicMock()
         mock_storage.fetch_block = AsyncMock(side_effect=fetch_block)

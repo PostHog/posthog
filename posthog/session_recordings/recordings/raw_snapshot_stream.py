@@ -16,8 +16,7 @@ RAW_SNAPSHOT_STREAM_BATCH_SIZE = 20
 
 
 def is_raw_snapshot_stream_enabled(team_id: int) -> bool:
-    # Team ids repeat across deployments, so a team condition also names the deployment. A condition on the distinct id
-    # cannot be evaluated locally, so team_id is sent as a property for team targeting.
+    # The same targeting properties as is_direct_blocks_enabled, which explains them.
     person_properties: dict[str, str | int] = {"team_id": team_id}
     if settings.CLOUD_DEPLOYMENT:
         person_properties["cloud_deployment"] = settings.CLOUD_DEPLOYMENT
@@ -63,8 +62,7 @@ class RawSnapshotStream:
                 for index in range(1, len(self._batches)):
                     yield await self._fetch_batch(client, index)
         except Exception as e:
-            # The status is already sent, so the error must reach the server and close the connection early. A
-            # stream that ended normally here would look like a complete recording.
+            # The status is already sent, so re-raise: a stream that ends normally looks like a complete recording.
             capture_exception(
                 e, {"location": "raw_snapshot_stream", "session_id": self._session_id, "team_id": self._team_id}
             )

@@ -946,14 +946,12 @@ class _RawSnapshotStreamRateThrottle(_TierAwareReplayThrottle):
         return raw_snapshot_stream_rates()
 
     def allow_request(self, request: Request, view: APIView) -> bool:
-        # The other replay throttles limit only personal API keys. A stream reads a whole recording in one request,
-        # so this one limits every caller.
+        # A stream reads a whole recording, so this limits every caller and not only personal API keys.
         self._apply_tier_rates_for_view(view)
         return self._allow_request_internal(request, view, personal_api_key_only=False)
 
     def get_cache_key(self, request: Request, view: APIView) -> str:
-        # The inherited key puts every caller without a personal API key in one bucket per project, where one
-        # caller can use up the quota of all the others.
+        # The inherited key gives all callers without a personal API key one shared bucket per project.
         ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
@@ -1863,8 +1861,7 @@ class SessionRecordingViewSet(
         session_id = str(recording.session_id)
 
         try:
-            # Not list_blocks: it reports a failed recording-api call as an empty listing, which would turn an outage
-            # into a 404 for a recording that exists. It also caches, and a cached listing hides a deletion.
+            # Not list_blocks, which turns a failed recording-api call into an empty listing, and so into a 404.
             blocks = async_to_sync(fetch_blocks_from_recording_api)(session_id, self.team_id)
             if not blocks:
                 raise exceptions.NotFound("Recording not found")
