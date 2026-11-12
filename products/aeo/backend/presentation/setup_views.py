@@ -39,7 +39,7 @@ SETUP_DESCRIPTION = (
     "prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they "
     "are turned on. A step the project already covers is skipped: an own brand exists, "
     f"{SETUP_ENOUGH_PROMPTS} or more unarchived prompts, {SETUP_ENOUGH_KEYWORDS} or more keywords, or any check "
-    "already recorded. With engines, the chosen engines are turned on and the other available ones off before the "
+    "already recorded. With engines, the chosen engines are turned on and every other one off before the "
     "job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few "
     "minutes. Running it again only fills the gaps."
 )
@@ -121,8 +121,9 @@ class AEOSetupRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=64, help_text="An engine id from GET aeo_setup/context/."),
         required=False,
         max_length=20,
-        help_text="The engines to track, by id. Every other engine is turned off before any run. At least one must "
-        "be available. Leave it out to keep the current engine settings.",
+        help_text="The engines to track, by id. Every other engine is turned off before any run. An engine that is "
+        "not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. "
+        "Leave it out to keep the current engine settings.",
     )
     run_first_check = serializers.BooleanField(
         required=False,

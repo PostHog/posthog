@@ -1208,7 +1208,7 @@ export interface AEOSetupRequestApi {
      */
     description?: string
     /**
-     * The engines to track, by id. Every other engine is turned off before any run. At least one must be available. Leave it out to keep the current engine settings.
+     * The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.
      * @maxItems 20
      * @items.maxLength 64
      */
