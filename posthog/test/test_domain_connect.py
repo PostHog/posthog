@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import dns.resolver
 from cryptography.hazmat.primitives import hashes as crypto_hashes
 from cryptography.hazmat.primitives.asymmetric import (
     padding as asym_padding,
@@ -16,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import (
 )
 from parameterized import parameterized
 
+from posthog import domain_connect
 from posthog.domain_connect import (
     DOMAIN_CONNECT_PROVIDERS,
     build_sync_apply_url,
@@ -244,3 +246,30 @@ class TestTemplateResolverAlignment(BaseTest):
         self.assertEqual(resolved.host, "ph")
         if template.get("hostRequired"):
             self.assertTrue(resolved.host, "hostRequired template but resolver returned empty host")
+
+
+class TestOutOfBandDomainsAreNotLookedUp(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("discovery", "_lookup_domain_connect_endpoint", None),
+            ("dmarc_absence", "_dmarc_absence_confirmed", False),
+        ]
+    )
+    def test_a_listed_domain_is_refused(self, _name: str, function_name: str, expected: object) -> None:
+        function = getattr(domain_connect, function_name)
+        with (
+            patch.object(domain_connect, "is_cloud", return_value=True),
+            patch.object(domain_connect.dns.resolver, "resolve") as resolve,
+        ):
+            self.assertEqual(function("abc.oast.live"), expected)
+
+        resolve.assert_not_called()
+
+    def test_off_cloud_the_lookup_still_runs(self) -> None:
+        with (
+            patch.object(domain_connect, "is_cloud", return_value=False),
+            patch.object(domain_connect.dns.resolver, "resolve", side_effect=dns.resolver.NXDOMAIN) as resolve,
+        ):
+            self.assertIsNone(domain_connect._lookup_domain_connect_endpoint("abc.oast.live"))
+
+        resolve.assert_called_once()

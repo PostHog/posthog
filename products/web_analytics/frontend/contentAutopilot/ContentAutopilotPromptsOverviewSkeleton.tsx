@@ -1,27 +1,24 @@
-import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
-const KPI_CARDS = 5
+import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
+
+const KPI_CARDS = 4
 
 const TileSkeleton = ({
     title,
     bodyClassName,
     skeletonClassName = 'h-full w-full',
     withInsightButton = false,
-    withFooter = false,
 }: {
     title: string
     bodyClassName: string
     skeletonClassName?: string
     withInsightButton?: boolean
-    withFooter?: boolean
 }): JSX.Element => (
-    <PagePerformanceCard
-        className="min-w-0"
-        footer={withFooter ? <LemonSkeleton className="h-4 w-64 max-w-full" /> : undefined}
-    >
+    <PagePerformanceCard className="min-w-0">
         <PagePerformanceCardHeader
             title={title}
             // The loaded query tiles put a small "Open as insight" LemonButton here, which sets the header height.
@@ -43,26 +40,31 @@ export const ContentAutopilotPromptsOverviewSkeleton = (): JSX.Element => (
             <LemonSkeleton className="h-5 w-56" />
             <LemonSkeleton className="h-3 w-96 max-w-full" />
         </div>
-        <div className="grid grid-cols-2 @3xl/prompts-overview:grid-cols-3 @7xl/prompts-overview:grid-cols-5 gap-3">
+        <ContentAutopilotStatStrip
+            className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
+            data-attr="content-autopilot-prompts-overview-kpis-loading"
+        >
             {Array.from({ length: KPI_CARDS }, (_, index) => (
-                <LemonCard key={index} hoverEffect={false} className="p-3 flex flex-col gap-1 min-w-0">
+                <div key={index} className="p-3 flex flex-col gap-1 min-w-0">
                     <LemonSkeleton className="h-4 w-24" />
                     <LemonSkeleton className="h-8 w-16" />
                     <LemonSkeleton className="h-4 w-20" />
-                </LemonCard>
+                </div>
             ))}
-        </div>
-        <TileSkeleton title="Cited as a source over time" bodyClassName="h-72 p-2" withInsightButton withFooter />
+        </ContentAutopilotStatStrip>
+        <TileSkeleton title="Share of answers that cite you" bodyClassName="h-72 p-2" withInsightButton />
         <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
+            <TileSkeleton title="By engine" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
             <TileSkeleton title="Mentions by topic" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
+        </div>
+        <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
             <TileSkeleton
                 title="Sites the engines cite most"
                 bodyClassName="p-3"
                 skeletonClassName="h-48 w-full"
                 withInsightButton
-                withFooter
             />
+            <TileSkeleton title="What the engines searched for" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
         </div>
-        <TileSkeleton title="What the engines searched for" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
     </section>
 )

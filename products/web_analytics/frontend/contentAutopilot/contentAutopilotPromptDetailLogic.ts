@@ -31,20 +31,24 @@ import {
     PromptConsensusMatrix,
     PromptReportKpis,
     PromptSentimentSummary,
-    PromptVisibilityMetric,
+    PromptOutcomeMetric,
     promptConsensusMatrix,
     promptReportKpis,
     promptSentimentSummary,
+    statsWindowDates,
 } from './promptReport'
 import {
     PromptReportWindow,
     promptCitationsQuery,
     promptSearchesQuery,
     promptSentimentQuery,
+    promptOutcomeQuery,
     promptSourcesQuery,
-    promptVisibilityQuery,
 } from './promptReportQueries'
 import { promptEditPatch, sortEngines } from './utils'
+import { type AnswerOutcomeChart, answerOutcomeChart } from './visibilityChart'
+
+export type PromptReportTab = 'overview' | 'answers' | 'sources' | 'sentiment' | 'searches' | 'history'
 
 export const PROMPT_CHECKS_PAGE_SIZE = 10
 
@@ -74,6 +78,7 @@ export interface contentAutopilotPromptDetailLogicValues {
     promptLoading: boolean
     promptSaving: boolean
     reportKpis: PromptReportKpis | null
+    reportTab: PromptReportTab
     reportWindow: PromptReportWindow | null
     searchesQuery: DataTableNode | null
     selectedCheck: AEOPromptCheckApi | null
@@ -87,7 +92,8 @@ export interface contentAutopilotPromptDetailLogicValues {
     versions: AEOPromptVersionApi[] | null
     versionsFailed: boolean
     versionsLoading: boolean
-    visibilityMetric: PromptVisibilityMetric
+    visibilityChart: AnswerOutcomeChart | null
+    visibilityMetric: PromptOutcomeMetric
     visibilityQuery: DataVisualizationNode | null
 }
 
@@ -248,8 +254,11 @@ export interface contentAutopilotPromptDetailLogicActions {
     setPromptEditing: (editing: boolean) => {
         editing: boolean
     }
-    setVisibilityMetric: (metric: PromptVisibilityMetric) => {
-        metric: PromptVisibilityMetric
+    setReportTab: (tab: PromptReportTab) => {
+        tab: PromptReportTab
+    }
+    setVisibilityMetric: (metric: PromptOutcomeMetric) => {
+        metric: PromptOutcomeMetric
     }
 }
 
@@ -268,9 +277,13 @@ export interface contentAutopilotPromptDetailLogicMeta {
         consensusMatrix: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptConsensusMatrix | null
         sentimentSummary: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptSentimentSummary | null
         reportWindow: (promptId: string | null, stats: AEOPromptStatsApi | null) => PromptReportWindow | null
+        visibilityChart: (
+            stats: AEOPromptStatsApi | null,
+            visibilityMetric: PromptOutcomeMetric
+        ) => AnswerOutcomeChart | null
         visibilityQuery: (
             reportWindow: PromptReportWindow | null,
-            visibilityMetric: PromptVisibilityMetric
+            visibilityMetric: PromptOutcomeMetric
         ) => DataVisualizationNode | null
         sourcesQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
         citationsQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
@@ -317,7 +330,8 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         selectEngine: (engine: string) => ({ engine }),
         selectCheck: (check: AEOPromptCheckApi) => ({ check }),
         setChecksPage: (page: number) => ({ page }),
-        setVisibilityMetric: (metric: PromptVisibilityMetric) => ({ metric }),
+        setVisibilityMetric: (metric: PromptOutcomeMetric) => ({ metric }),
+        setReportTab: (tab: PromptReportTab) => ({ tab }),
     }),
     loaders(({ values }) => ({
         prompt: [
@@ -472,10 +486,19 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             },
         ],
         visibilityMetric: [
-            'cited' as PromptVisibilityMetric,
+            'cited' as PromptOutcomeMetric,
             {
                 openPromptDetail: () => 'cited',
                 setVisibilityMetric: (_, { metric }) => metric,
+            },
+        ],
+        reportTab: [
+            'overview' as PromptReportTab,
+            {
+                openPromptDetail: () => 'overview',
+                setReportTab: (_, { tab }) => tab,
+                // Picking a check in the history shows its answer.
+                selectCheck: () => 'answers',
             },
         ],
         detailError: [
@@ -548,10 +571,15 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             (promptId: string | null, stats: AEOPromptStatsApi | null): PromptReportWindow | null =>
                 promptId && stats ? { promptId, from: stats.daily_from, brandNames: stats.brand_names } : null,
         ],
+        visibilityChart: [
+            (s) => [s.stats, s.visibilityMetric],
+            (stats: AEOPromptStatsApi | null, visibilityMetric: PromptOutcomeMetric): AnswerOutcomeChart | null =>
+                stats ? answerOutcomeChart(stats.daily, statsWindowDates(stats), visibilityMetric) : null,
+        ],
         visibilityQuery: [
             (s) => [s.reportWindow, s.visibilityMetric],
-            (reportWindow: PromptReportWindow | null, visibilityMetric: PromptVisibilityMetric) =>
-                reportWindow ? promptVisibilityQuery(reportWindow, visibilityMetric) : null,
+            (reportWindow: PromptReportWindow | null, visibilityMetric: PromptOutcomeMetric) =>
+                reportWindow ? promptOutcomeQuery(reportWindow, visibilityMetric) : null,
         ],
         sourcesQuery: [
             (s) => [s.reportWindow],
