@@ -829,6 +829,18 @@ describe('EmailService', () => {
             it.each([
                 ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its scheduled time when it was scheduled',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                    },
+                    30_000,
+                    60_000,
+                ],
                 // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',

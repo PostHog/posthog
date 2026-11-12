@@ -12,7 +12,7 @@ import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService } from '../messaging/email-status.service'
+import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -30,18 +30,32 @@ import {
 } from './transactional-email'
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
+const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
+const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
-    send: AcceptedSend | undefined
+    send: AcceptedSend | undefined,
+    scheduledAt: Date | null
 ): string => {
-    const templateRequest = [hogFlowId, to, distinct_id, variables]
-    return IdempotencyKeys.fingerprint(
-        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
-    )
+    const request: unknown[] = [hogFlowId, to, distinct_id, variables]
+    if (send) {
+        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
+    }
+    if (scheduledAt) {
+        request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
+    }
+    return IdempotencyKeys.fingerprint(request)
+}
+
+const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void => {
+    logger.warn('⚠️', 'Transactional email telemetry flush failed', {
+        error: error instanceof Error ? error.message : String(error),
+        invocation_id: invocationId,
+    })
 }
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
@@ -85,7 +99,12 @@ export type SendFiles = {
 }
 
 export type TransactionalSendResult =
-    | { outcome: 'queued' | 'replayed'; invocationId: string; replyFields: Record<string, number> }
+    | {
+          outcome: 'queued' | 'replayed'
+          invocationId: string
+          scheduledAt: string | null
+          replyFields: Record<string, number>
+      }
     | { outcome: TransactionalSendRefusal }
     | { refused: SendRefusal | { status: 400; body: Extract<FilesWorkflowShape, { refused: unknown }>['refused'] } }
 
@@ -101,10 +120,11 @@ export class TransactionalSends {
     ): Promise<TransactionalSendResult> {
         const { idempotencyKeys } = this.deps
         const { to, idempotency_key: idempotencyKey, send } = request
+        const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
 
         stages.start('build')
         const invocation = this.buildInvocation(team, hogFlow, request, send)
-        const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send)
+        const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {
                 stages.start('idempotency')
@@ -119,6 +139,7 @@ export class TransactionalSends {
                     return {
                         outcome: 'replayed',
                         invocationId: reservation.invocationId,
+                        scheduledAt: reservation.scheduledAt ?? null,
                         replyFields: { ...NO_ATTACHMENTS, ...reservation.replayFields },
                     }
                 case 'in_flight':
@@ -129,6 +150,14 @@ export class TransactionalSends {
                     return { outcome: 'idempotency_unavailable' }
             }
         }
+        const tooFarAhead =
+            requestedAt !== null &&
+            requestedAt.getTime() > uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS
+        const scheduledAt = !tooFarAhead && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt : null
+        if (scheduledAt) {
+            invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
+            invocation.state.scheduledAt = scheduledAt.toISOString()
+        }
         const { shape } = files
         if (shape && 'refused' in shape) {
             await releaseKey()
@@ -137,7 +166,9 @@ export class TransactionalSends {
         let attachmentTotals = NO_ATTACHMENTS
         try {
             stages.start('checks')
-            const refusal = await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
+            const refusal = tooFarAhead
+                ? 'invalid_scheduled_at'
+                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
             if (refusal) {
                 await releaseKey()
                 return { outcome: refusal }
@@ -153,7 +184,8 @@ export class TransactionalSends {
                         contentId: ref.content_id,
                     })),
                     (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
-                    files.deadline
+                    files.deadline,
+                    scheduledAt ?? undefined
                 )
                 if ('refused' in accepted) {
                     await releaseKey()
@@ -180,27 +212,39 @@ export class TransactionalSends {
         }
         if (idempotencyKey) {
             stages.start('idempotency')
-            await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id, attachmentTotals)
+            await idempotencyKeys.markQueued(
+                team.id,
+                idempotencyKey,
+                fingerprint,
+                invocation.id,
+                attachmentTotals,
+                scheduledAt?.toISOString()
+            )
         }
         stages.start('metrics_flush')
-        this.deps.emailStatus.queue({
+        this.writeStatus({
             teamId: team.id,
             messageId: invocation.id,
-            status: 'queued',
+            status: scheduledAt ? 'scheduled' : 'queued',
             recipient: to,
             functionId: hogFlow.id,
+            scheduledAt: scheduledAt ?? undefined,
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
-        const warnTelemetryFlushFailed = (error: unknown) =>
-            logger.warn('⚠️', 'Transactional email telemetry flush failed', {
-                error: error instanceof Error ? error.message : String(error),
-                invocation_id: invocation.id,
-            })
-        void this.deps.emailStatus.flush().catch(warnTelemetryFlushFailed)
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
-        void produced.catch(warnTelemetryFlushFailed)
+        void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
 
-        return { outcome: 'queued', invocationId: invocation.id, replyFields: attachmentTotals }
+        return {
+            outcome: 'queued',
+            invocationId: invocation.id,
+            scheduledAt: scheduledAt?.toISOString() ?? null,
+            replyFields: attachmentTotals,
+        }
+    }
+
+    private writeStatus(update: EmailStatusUpdate & { status: 'queued' | 'scheduled' }): void {
+        this.deps.emailStatus.queue(update)
+        void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
     }
 
     private buildInvocation(

@@ -59,6 +59,7 @@ import { getDefaultCdpConfig } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { CyclotronV2Worker } from './services/cyclotron-v2'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import {
     ATTACHMENT_CONTENT_ID_MAX_LENGTH,
@@ -67,6 +68,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
 import {
     ATTACHMENT_LIFETIME_MS,
@@ -2351,6 +2353,9 @@ describe('CDP API', () => {
             payload: Record<string, unknown>
         ) => supertest(app).post(`/api/projects/${team.id}/hog_flows/${flowId}/${route}`).set(headers).send(payload)
 
+        const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
+        const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
+
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
@@ -2382,6 +2387,7 @@ describe('CDP API', () => {
             expect(res.body).toEqual({
                 status: 'queued',
                 invocation_id: expect.any(String),
+                scheduled_at: null,
                 replayed: false,
                 attachment_count: 0,
                 attachment_bytes: 0,
@@ -2581,6 +2587,39 @@ describe('CDP API', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
             })
 
+            it('returns the first scheduled send for a retry that names the same time in another offset', async () => {
+                const scheduledAt = new Date(Date.now() + 2 * DAY_MS)
+                scheduledAt.setUTCMilliseconds(0)
+                const inBerlin = new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000)
+                    .toISOString()
+                    .replace('.000Z', '+02:00')
+
+                const first = await sendKeyedOn('transactional_email', {
+                    ...body,
+                    scheduled_at: scheduledAt.toISOString(),
+                })
+                const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inBerlin })
+
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toEqual({ ...first.body, replayed: true })
+                const scheduledRow = expect.objectContaining({
+                    message_id: first.body.invocation_id,
+                    status: 'scheduled',
+                    recipient: body.to,
+                    scheduled_at: toClickHouseTime(scheduledAt),
+                })
+                expect(emailStatusRows()).toEqual([scheduledRow])
+            })
+
+            it('frees the key when the scheduled time is too far ahead', async () => {
+                const tooFar = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(31) })
+                const retry = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(2) })
+
+                expect(tooFar.status).toEqual(400)
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toMatchObject({ status: 'scheduled', replayed: false })
+            })
+
             it('refuses a keyed send when no idempotency store is configured', async () => {
                 const keys = api['transactionalEmailIdempotencyKeys']
                 api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, 'transactional-email')
@@ -2593,6 +2632,148 @@ describe('CDP API', () => {
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }
+            })
+        })
+
+        describe('with a scheduled_at', () => {
+            let queue: CyclotronJobQueuePostgresV2
+            let cyclotron: Pool
+
+            beforeAll(async () => {
+                queue = new CyclotronJobQueuePostgresV2(100, hub)
+                await queue.startAsProducer()
+                cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            })
+
+            afterAll(async () => {
+                await queue.stopProducer()
+                await cyclotron.end()
+            })
+
+            beforeEach(async () => {
+                await cyclotron.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                api['hogflowQueue'] = queue
+            })
+
+            const storedJob = async (id: string) =>
+                (await cyclotron.query('SELECT scheduled, priority, state FROM cyclotron_jobs WHERE id = $1', [id]))
+                    .rows[0]
+
+            const idsAnEmailWorkerClaims = async (): Promise<string[]> => {
+                const worker = new CyclotronV2Worker({
+                    pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                    queueName: 'email',
+                    batchMaxSize: 100,
+                    pollDelayMs: 10,
+                    includeEmptyBatches: true,
+                })
+                let claimed: string[] = []
+                await new Promise<void>((resolve, reject) => {
+                    worker
+                        // eslint-disable-next-line @typescript-eslint/require-await
+                        .connect(async (batch) => {
+                            claimed = batch.map((job) => job.id)
+                            resolve()
+                        })
+                        .catch(reject)
+                })
+                await worker.disconnect()
+                return claimed
+            }
+
+            const sendAt = (route: 'transactional_email' | 'transactional_email/send', scheduledAt: string) =>
+                sendOn(
+                    route,
+                    hogFlow.id,
+                    { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` },
+                    {
+                        ...(route === 'transactional_email' ? body : { ...body, send: codeSend }),
+                        scheduled_at: scheduledAt,
+                    }
+                )
+
+            it.each(['transactional_email', 'transactional_email/send'] as const)(
+                'parks a send on %s until its time on the fast lane',
+                async (route) => {
+                    const scheduledAt = new Date(Date.now() + 30 * DAY_MS).toISOString()
+
+                    const res = await sendAt(route, scheduledAt)
+
+                    expect(res.status).toEqual(202)
+                    expect(res.body).toEqual({
+                        status: 'scheduled',
+                        invocation_id: expect.any(String),
+                        scheduled_at: scheduledAt,
+                        replayed: false,
+                        attachment_count: 0,
+                        attachment_bytes: 0,
+                    })
+                    const job = await storedJob(res.body.invocation_id)
+                    expect(new Date(job.scheduled).toISOString()).toEqual(scheduledAt)
+                    expect(job.priority).toEqual(0)
+                    expect(parseJSON(job.state.toString())).toMatchObject({ state: { scheduledAt } })
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
+                    expect(emailStatusRows()).toEqual([
+                        expect.objectContaining({
+                            message_id: res.body.invocation_id,
+                            status: 'scheduled',
+                            recipient: body.to,
+                            function_id: hogFlow.id,
+                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                        }),
+                    ])
+                }
+            )
+
+            it.each([
+                ['another scheduled time', inDays(2), inDays(3)],
+                ['a scheduled time added', undefined, inDays(2)],
+            ])('rejects the key for a retry with %s and keeps only the first job', async (_desc, first, retry) => {
+                const idempotency_key = `key-${new UUIDT().toString()}`
+                const sendKeyedAt = (scheduledAt: string | undefined) =>
+                    sendOn(
+                        'transactional_email/send',
+                        hogFlow.id,
+                        { Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, hogFlow.id)}` },
+                        { ...body, send: codeSend, idempotency_key, ...(scheduledAt && { scheduled_at: scheduledAt }) }
+                    )
+                const accepted = await sendKeyedAt(first)
+
+                const res = await sendKeyedAt(retry)
+
+                expect(res.status).toEqual(422)
+                expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                const emailJobs = await cyclotron.query(`SELECT id FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                expect(emailJobs.rows.map((row) => row.id)).toEqual([accepted.body.invocation_id])
+            })
+
+            it('sends at once when the time has passed', async () => {
+                const res = await sendAt('transactional_email', new Date(Date.now() - 60_000).toISOString())
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toMatchObject({ status: 'queued', scheduled_at: null })
+                expect(await idsAnEmailWorkerClaims()).toEqual([res.body.invocation_id])
+                expect(emailStatusRows()).toEqual([expect.objectContaining({ status: 'queued' })])
+            })
+
+            it.each([
+                ['more than 30 days ahead', inDays(30.01), 'invalid_scheduled_at'],
+                ['without an offset', '2026-12-01T09:00:00', 'invalid_request'],
+                ['that is not a time', 'tomorrow', 'invalid_request'],
+            ])('refuses a time %s and queues nothing', async (_desc, scheduledAt, outcome) => {
+                const before = await outcomeCount(outcome)
+
+                const res = await sendAt('transactional_email/send', scheduledAt)
+
+                expect(res.status).toEqual(400)
+                expect(await outcomeCount(outcome)).toEqual(before + 1)
+                if (outcome === 'invalid_scheduled_at') {
+                    expect(res.body).toEqual({ error: 'invalid_scheduled_at', reason: 'too_far' })
+                }
+                expect(
+                    (await cyclotron.query(`SELECT 1 FROM cyclotron_jobs WHERE queue_name = 'email'`)).rowCount
+                ).toEqual(0)
+                expect(emailStatusRows()).toEqual([])
             })
         })
 
@@ -3043,6 +3224,7 @@ describe('CDP API', () => {
                 expect(res.body).toEqual({
                     status: 'queued',
                     invocation_id: expect.any(String),
+                    scheduled_at: null,
                     replayed: false,
                     attachment_count: 2,
                     attachment_bytes: invoice.bytes.length + receipt.bytes.length,
@@ -3115,6 +3297,29 @@ describe('CDP API', () => {
                     await ses.close()
                 }
             })
+
+            it.each([
+                ['goes out now', undefined, false],
+                ['is scheduled past the time its files expire', inDays(15), true],
+            ])(
+                'keeps the files of a send that %s until a week after it is due',
+                async (_desc, scheduledAt, renewed) => {
+                    const file = await uploadAttachment(team.id, {})
+                    bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
+
+                    const res = await sendOnFilesApi({
+                        ...body,
+                        idempotency_key: newKey(),
+                        send: { ...codeSend, attachments: [reference(file)] },
+                        ...(scheduledAt && { scheduled_at: scheduledAt }),
+                    })
+
+                    expect(res.status).toBe(202)
+                    expect(bucket.copied.filter((path) => path.endsWith(`/${file.metadata.sha256}`))).toHaveLength(
+                        renewed ? 1 : 0
+                    )
+                }
+            )
 
             it.each([
                 ['the same files', () => [reference(invoice)], 202],

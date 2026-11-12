@@ -222,6 +222,7 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
+    scheduled_at: z.string().datetime({ offset: true }).optional(),
 })
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
@@ -252,6 +253,7 @@ export type TransactionalSendRefusal =
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_unreachable'
+    | 'invalid_scheduled_at'
 
 export type TransactionalEmailOutcome =
     | 'queued'
