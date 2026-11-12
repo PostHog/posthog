@@ -27,6 +27,7 @@ import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
@@ -2073,6 +2074,7 @@ describe('EmailService', () => {
                         new KafkaProducerRegistry<CdpProducerName>({
                             [WARPSTREAM_INGESTION_PRODUCER]: statusProducer,
                             [WARPSTREAM_CYCLOTRON_PRODUCER]: statusProducer,
+                            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: statusProducer,
                             [WAREHOUSE_PRODUCER]: statusProducer,
                         }),
                         cdpConfig

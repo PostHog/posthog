@@ -9,6 +9,7 @@ import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
@@ -29,6 +30,7 @@ function buildTestCdpProducerRegistry(
     return new KafkaProducerRegistry<CdpProducerName>({
         [WARPSTREAM_INGESTION_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CYCLOTRON_PRODUCER]: kafkaProducer,
+        [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: kafkaProducer,
         [WAREHOUSE_PRODUCER]: kafkaProducer,
     })
 }

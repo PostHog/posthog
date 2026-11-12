@@ -3,6 +3,8 @@ import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-re
 import {
     WAREHOUSE_PRODUCER,
     WAREHOUSE_PRODUCER_CONFIG_MAP,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
     WARPSTREAM_INGESTION_PRODUCER,
@@ -18,11 +20,13 @@ import {
  *   batch hogflow request enqueue. Distinct env-var prefix from the legacy
  *   `KAFKA_CDP_PRODUCER_*` so output routing is decoupled from the cyclotron
  *   job queue's own producer.
+ * - `WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER` — the same cluster, for the intake topics.
  * - `WAREHOUSE_PRODUCER` — dedicated cluster for warehouse source webhooks.
  */
 export function createCdpProducerRegistry(kafkaClientRack: string | undefined) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)
         .register(WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP)
         .register(WARPSTREAM_CYCLOTRON_PRODUCER, WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP)
+        .register(WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER, WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP)
         .register(WAREHOUSE_PRODUCER, WAREHOUSE_PRODUCER_CONFIG_MAP)
 }
