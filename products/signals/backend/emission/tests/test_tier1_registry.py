@@ -126,18 +126,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
     (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
     (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
-    # Tier-2 code, secret and cloud security scanners
-    (ExternalDataSourceType.SONARCLOUD, "issues", "sonarcloud", "scanner_finding"),
-    (ExternalDataSourceType.CHECKMARX, "scan_results", "checkmarx", "scanner_finding"),
-    (ExternalDataSourceType.VERACODE, "findings", "veracode", "scanner_finding"),
-    (ExternalDataSourceType.VERACODE, "sca_findings", "veracode_sca", "scanner_finding"),
-    (ExternalDataSourceType.SEMGREP, "sca_findings", "semgrep_sca", "scanner_finding"),
-    (ExternalDataSourceType.GITGUARDIAN, "secret_incidents", "gitguardian", "scanner_finding"),
-    (ExternalDataSourceType.INFISICAL, "secret_scanning_findings", "infisical", "scanner_finding"),
-    (ExternalDataSourceType.AWSMACIE, "findings", "aws_macie", "scanner_finding"),
-    (ExternalDataSourceType.SENTINELONE, "threats", "sentinelone", "scanner_finding"),
-    (ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", "jfrog_xray", "scanner_finding"),
-    (ExternalDataSourceType.DYNATRACE, "security_problems", "dynatrace_security", "scanner_finding"),
+    # GitHub security alerts
+    (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

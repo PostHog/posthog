@@ -224,18 +224,10 @@ class SignalSourceProduct(StrEnum):
     AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
     APPSIGNAL = "appsignal"
     CURSOR = "cursor"
-    # Tier-2 code, secret and cloud security scanners
-    SONARCLOUD = "sonarcloud"
-    CHECKMARX = "checkmarx"
-    VERACODE = "veracode"
-    VERACODE_SCA = "veracode_sca"
-    SEMGREP_SCA = "semgrep_sca"
-    GITGUARDIAN = "gitguardian"
-    INFISICAL = "infisical"
-    AWS_MACIE = "aws_macie"
-    SENTINELONE = "sentinelone"
-    JFROG_XRAY = "jfrog_xray"
-    DYNATRACE_SECURITY = "dynatrace_security"
+    # GitHub security alerts, one product per table so each has its own toggle
+    GITHUB_DEPENDABOT = "github_dependabot"
+    GITHUB_CODE_SCANNING = "github_code_scanning"
+    GITHUB_SECRET_SCANNING = "github_secret_scanning"
 
 
 class SignalSourceType(StrEnum):
@@ -390,17 +382,9 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
     SignalSourceProduct.APPSIGNAL: "AppSignal",
     SignalSourceProduct.CURSOR: "Cursor",
-    SignalSourceProduct.SONARCLOUD: "SonarCloud",
-    SignalSourceProduct.CHECKMARX: "Checkmarx",
-    SignalSourceProduct.VERACODE: "Veracode",
-    SignalSourceProduct.VERACODE_SCA: "Veracode SCA",
-    SignalSourceProduct.SEMGREP_SCA: "Semgrep Supply Chain",
-    SignalSourceProduct.GITGUARDIAN: "GitGuardian",
-    SignalSourceProduct.INFISICAL: "Infisical",
-    SignalSourceProduct.AWS_MACIE: "AWS Macie",
-    SignalSourceProduct.SENTINELONE: "SentinelOne",
-    SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
-    SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
+    SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
+    SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
+    SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
 }
 
 
