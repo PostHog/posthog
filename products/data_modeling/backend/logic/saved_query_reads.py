@@ -1,5 +1,7 @@
 """Contract-shaped reads of saved queries for consumers outside this product."""
 
+import json
+import hashlib
 from collections.abc import Collection, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -15,7 +17,7 @@ from posthog.hogql.parser import parse_select
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.uuidt import UUIDT
 
-from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
+from ..facade.contracts import MaterializedQuerySnapshot, SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.data_modeling_job import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -26,6 +28,7 @@ from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
 from .incremental import get_incremental_config
+from .node_frequency import get_declared_target, scheduled_cadences_by_node
 from .node_suspension import query_fingerprint
 from .saved_query_freshness import saved_query_materialized_at
 from .tier_run_report import MATERIALIZING_TYPES
@@ -82,6 +85,52 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
         team_id=saved_query.team_id,
         name=saved_query.name,
         last_run_at=saved_query_materialized_at(saved_query),
+    )
+
+
+def get_materialized_query_snapshot(team_id: int, view_id: UUID, job_id: UUID) -> MaterializedQuerySnapshot:
+    # Warehouse consumers import this module while the warehouse facade is still loading.
+    from products.warehouse_sources.backend.facade import api as warehouse_api  # noqa: PLC0415
+
+    view = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=view_id).exclude(deleted=True).first()
+    if view is None or not view.is_materialized or view.table_id is None:
+        raise ValueError("The source must be a materialized view in this project")
+    table = warehouse_api.get_queryable_table(view.table_id, team_id)
+    if table is None:
+        raise ValueError("The materialized source table is unavailable in this project")
+    if view.is_test or view.expires_at is not None or view.sync_frequency_interval is not None:
+        raise ValueError("The source must be permanent with scheduled refreshes disabled")
+    nodes = list(Node.objects.filter(team_id=team_id, saved_query_id=view_id))
+    cadences = scheduled_cadences_by_node(team_id, [node.dag_id for node in nodes])
+    if any(get_declared_target(node) is not None or cadences.get(str(node.id)) is not None for node in nodes):
+        raise ValueError("Disable scheduled source refreshes before loading the snapshot")
+    job = (
+        DataModelingJob.objects.filter(team_id=team_id, saved_query_id=view_id, engine=DataModelingJobEngine.CLICKHOUSE)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if job is None or job.id != job_id or job.status != DataModelingJobStatus.COMPLETED:
+        raise ValueError("The source build changed or is incomplete. Verify the snapshot before continuing")
+    revision = hashlib.sha256(
+        json.dumps(
+            {
+                "query": view.query,
+                "name": view.name,
+                "table": str(view.table_id),
+                "columns": view.columns,
+                "url": table.url_pattern,
+                "queryable_folder": table.queryable_folder,
+                "credential_id": str(table.credential_id),
+                "format": table.format,
+                "table_columns": table.columns,
+                "job": str(job.id),
+            },
+            sort_keys=True,
+            default=str,
+        ).encode()
+    ).hexdigest()
+    return MaterializedQuerySnapshot(
+        view_id=view.id, job_id=job.id, name=view.name, revision=revision, rows_materialized=job.rows_materialized
     )
 
 

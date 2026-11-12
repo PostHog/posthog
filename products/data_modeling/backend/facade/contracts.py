@@ -51,6 +51,15 @@ class SavedQuerySummary:
     last_run_at: datetime | None
 
 
+@frozen
+class MaterializedQuerySnapshot:
+    view_id: UUID
+    job_id: UUID
+    name: str
+    revision: str
+    rows_materialized: int
+
+
 @dataclass(frozen=True)
 class SavedQueryDefinition:
     """A saved query with its HogQL and whether its DAG node materializes."""

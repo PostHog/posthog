@@ -25,6 +25,11 @@ from products.customer_analytics.backend.temporal.membership_backfill import (
     prepare_membership_backfill_activity,
     sync_membership_page_activity,
 )
+from products.customer_analytics.backend.temporal.membership_snapshot_backfill import (
+    MembershipSnapshotBackfillWorkflow,
+    load_membership_snapshot_activity,
+    prepare_membership_snapshot_activity,
+)
 from products.customer_analytics.backend.temporal.ownership_claims import (
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
@@ -35,6 +40,7 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
 WORKFLOWS = [
     MembershipBackfillWorkflow,
     MembershipCoordinatorWorkflow,
+    MembershipSnapshotBackfillWorkflow,
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationWorkflow,
     CalendarSyncCoordinatorWorkflow,
@@ -49,6 +55,8 @@ ACTIVITIES = [
     sync_membership_page_activity,
     observe_membership_backfill_activity,
     prepare_membership_backfill_activity,
+    prepare_membership_snapshot_activity,
+    load_membership_snapshot_activity,
     account_track_rule_collect_configs_activity,
     account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,
