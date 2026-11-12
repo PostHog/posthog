@@ -11,7 +11,7 @@ class EmailHardBounce(models.Model):
     Instance-global list of email addresses that do not exist. A hard bounce that proves the address does
     not exist adds it, whichever team sent the email. Every team's sends skip a listed address, except a
     team that removed the address from its own suppression list. A later successful delivery from any team
-    proves the address exists, and deletes the row.
+    proves the address exists. It sets `last_delivered_at`, and the entry stops blocking until a newer bounce.
 
     An entry only holds for as long as the address has been bouncing, from 1 day up to 14 days after its last
     bounce. After that the next send tries the address again, and a new bounce renews the entry with a longer
@@ -24,6 +24,8 @@ class EmailHardBounce(models.Model):
     email = models.CharField(max_length=512, primary_key=True)
     first_bounced_at = models.DateTimeField()
     last_bounced_at = models.DateTimeField()
+    # The newest successful delivery to the address. A bounce older than it, processed late, does not block the address.
+    last_delivered_at = models.DateTimeField(null=True)
 
     class Meta:
         db_table = "posthog_emailhardbounce"
