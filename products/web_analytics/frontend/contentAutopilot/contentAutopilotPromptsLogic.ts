@@ -170,7 +170,7 @@ export interface contentAutopilotPromptsLogicMeta {
         promptEngines: (
             prompts: PaginatedAEOPromptListApi | null,
             engines: AEOEngineSettingApi[] | null,
-            filters: any,
+            filters: AiVisibilityFilters,
             needsImprovement: boolean
         ) => string[]
     }

@@ -218,7 +218,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             branded: 'non_branded',
             engine: 'claude-web-search',
         })
-        for (const source of [logic.values.citationQuery?.source, logic.values.sourcesQuery?.source]) {
+        for (const source of [logic.values.visibilityQuery?.source, logic.values.sourcesQuery?.source]) {
             expect((source as HogQLQuery).query).toContain('engine = {engine}')
             expect((source as HogQLQuery).query).not.toContain('prompt_topic')
             expect((source as HogQLQuery).values).toMatchObject({ engine: 'claude-web-search' })
