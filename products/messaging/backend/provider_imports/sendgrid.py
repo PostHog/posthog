@@ -39,6 +39,7 @@ from products.messaging.backend.provider_imports.base import (
     UnknownImportStep,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.sendgrid_templates import ConvertedSendGridTemplate, convert_version
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -781,7 +782,7 @@ def _single_send_sender(
     if integration is None:
         return None, (f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",)
     return (
-        {"integrationId": integration.id, "email": address, "name": str(sender.get("from_name") or "")},
+        {"integrationId": integration.id, "email": address, "name": literal_liquid(str(sender.get("from_name") or ""))},
         () if integration.config.get("verified") else (f"{address} isn't verified in PostHog yet.",),
     )
 
@@ -790,7 +791,7 @@ def _single_send_reply_to(config: dict[str, Any], senders: Mapping[int, dict[str
     sender_id = config.get("sender_id")
     sender = senders.get(sender_id) if isinstance(sender_id, int) else None
     reply_to = str((sender or {}).get("reply_to") or "")
-    return "" if reply_to.lower() == str((sender or {}).get("from_email") or "").lower() else reply_to
+    return "" if reply_to.lower() == str((sender or {}).get("from_email") or "").lower() else literal_liquid(reply_to)
 
 
 def _single_send_category(team_id: int, config: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
