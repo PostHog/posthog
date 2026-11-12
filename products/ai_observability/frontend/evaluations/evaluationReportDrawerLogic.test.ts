@@ -78,7 +78,10 @@ describe('evaluationReportDrawerLogic', () => {
                 },
             },
             post: {
-                '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/generate/': [202, {}],
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/generate/': [
+                    202,
+                    { requested_at: '2026-11-10T12:00:00+00:00' },
+                ],
             },
         })
         initKeaTests()
@@ -199,7 +202,7 @@ describe('evaluationReportDrawerLogic', () => {
 
             jest.advanceTimersByTime(30 * 60_000 + 15_000)
             jest.useRealTimers()
-            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
+            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
             expect(runsLogic.values.waitingForNewReportSince).toBeNull()
         } finally {
             jest.useRealTimers()
@@ -221,10 +224,14 @@ describe('evaluationReportDrawerLogic', () => {
             jest.advanceTimersByTime(31 * 60_000)
             setHidden(false)
             jest.advanceTimersByTime(0)
-            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
+            // The last fetch runs to completion before the wait ends.
+            jest.useRealTimers()
+            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
             expect(runsLogic.values.waitingForNewReportSince).toBeNull()
 
+            jest.useFakeTimers()
             jest.advanceTimersByTime(60_000)
+            jest.useRealTimers()
             await expectLogic(runsLogic).toNotHaveDispatchedActions(['loadNewestReportRuns'])
         } finally {
             setHidden(false)
@@ -232,29 +239,51 @@ describe('evaluationReportDrawerLogic', () => {
         }
     })
 
-    it('holds "Generate now" until the report history has loaded', async () => {
+    it('waits from the server request time, not the loaded list, so an older report never ends the wait', async () => {
         const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
         runsLogic.mount()
-        await expectLogic(runsLogic).toDispatchActions(['loadReportsSuccess', 'loadReportRuns'])
-        expect(runsLogic.values.reportHistoryReady).toBe(false)
+        // Pressed before the history loads, so the list is still empty.
+        runsLogic.actions.generateReport(REPORT.id)
+        await expectLogic(runsLogic).toDispatchActions(['generateReportSuccess', 'loadNewestReportRunsSuccess'])
 
-        await expectLogic(runsLogic).toDispatchActions(['loadReportRunsSuccess'])
-        expect(runsLogic.values.reportHistoryReady).toBe(true)
+        expect(runsLogic.values.reportRuns.map((r) => r.id)).toContain('run-3')
+        expect(runsLogic.values.waitingForNewReportSince).toBe('2026-11-10T12:00:00+00:00')
+        runsLogic.actions.stopWaitingForNewReport()
     })
 
-    it('keeps paging older after new reports arrive at the front', async () => {
+    it('keeps paging older when a page returns only reports already loaded', async () => {
         await mountWithRuns()
         const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
-        runsPages['0'] = { results: [run('run-4', '2026-11-11T00:00:00Z'), ...FIRST_PAGE], next: 'more' }
-        runsPages['3'] = { results: SECOND_PAGE, next: null }
-        delete runsPages['2']
+        // Two reports landed on the server, so the page after the first one repeats what is loaded.
+        runsPages['2'] = { results: FIRST_PAGE, next: 'more' }
+        runsPages['4'] = { results: SECOND_PAGE, next: null }
 
+        runsLogic.actions.loadOlderReportRuns()
+        await expectLogic(runsLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
+        runsLogic.actions.loadOlderReportRuns()
+        await expectLogic(runsLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
+
+        expect(runsLogic.values.reportRuns.map((r) => r.id)).toEqual(['run-3', 'run-2', 'run-1'])
+    })
+
+    it('does not skip the oldest report when a new one arrives between paging and polling', async () => {
+        await mountWithRuns()
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
+        const newest = run('run-4', '2026-11-11T00:00:00Z')
+        const oldest = run('run-0', '2026-11-07T00:00:00Z')
+        // run-4 lands before anyone polls: the server list is now run-4, run-3, run-2, run-1, run-0.
+        runsPages['2'] = { results: [run('run-2', '2026-11-09T00:00:00Z'), SECOND_PAGE[0]], next: 'more' }
+        runsPages['4'] = { results: [oldest], next: null }
+        runsPages['0'] = { results: [newest, ...FIRST_PAGE], next: 'more' }
+
+        runsLogic.actions.loadOlderReportRuns()
+        await expectLogic(runsLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
         runsLogic.actions.loadNewestReportRuns(REPORT.id)
         await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess'])
         runsLogic.actions.loadOlderReportRuns()
         await expectLogic(runsLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
 
-        expect(runsLogic.values.reportRuns.map((r) => r.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1'])
+        expect(runsLogic.values.reportRuns.map((r) => r.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1', 'run-0'])
     })
 
     it('steps older past the loaded page by loading the next one', async () => {

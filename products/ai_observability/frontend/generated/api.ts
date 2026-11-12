@@ -59,6 +59,7 @@ import type {
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationDirectoryApi,
     EvaluationReportApi,
+    EvaluationReportGenerateResponseApi,
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
@@ -2520,11 +2521,14 @@ export const llmAnalyticsEvaluationReportsGenerateCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsEvaluationReportsGenerateCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
+): Promise<EvaluationReportGenerateResponseApi> => {
+    return apiMutator<EvaluationReportGenerateResponseApi>(
+        getLlmAnalyticsEvaluationReportsGenerateCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getLlmAnalyticsEvaluationReportsRunsListUrl = (

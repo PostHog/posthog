@@ -4537,6 +4537,11 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly created_at?: string
 }
 
+export interface EvaluationReportGenerateResponseApi {
+    /** Server time of the request. The new report is the first run created after it. */
+    requested_at: string
+}
+
 export interface EvaluationReportSectionApi {
     /** Agent-generated section heading. */
     title?: string
@@ -4711,7 +4716,7 @@ export interface EvaluationReportMetricsApi {
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
     /**
-     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
+     * Pass percentage excluding N/A. Null when no results passed or failed.
      * @nullable
      */
     pass_rate?: number | null

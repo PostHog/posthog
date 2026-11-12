@@ -509,6 +509,8 @@ class TestEvaluationReportApi(APIBaseTest):
         response = self.client.post(f"{self.base_url}{report.id}/generate/")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # The page waits for the first run created after this server time.
+        self.assertIsNotNone(dt.datetime.fromisoformat(response.json()["requested_at"]).tzinfo)
 
     @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
     def test_generate_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:

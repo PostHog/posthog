@@ -15,6 +15,11 @@ export interface EvaluationReportRunsLogicProps {
 }
 
 export const REPORT_RUNS_PAGE_SIZE = 20
+
+// The server writes the two timestamps in different ISO formats, so compare them as times rather than strings.
+function createdAfter(run: EvaluationReportRun, since: string): boolean {
+    return new Date(run.created_at).getTime() > new Date(since).getTime()
+}
 const NEW_REPORT_POLL_INTERVAL_MS = 15_000
 // A manual report usually lands within a few minutes, but an agent retry can take it past half an hour.
 const NEW_REPORT_POLL_TIMEOUT_MS = 30 * 60_000
@@ -26,13 +31,12 @@ export interface evaluationReportRunsLogicValues {
     activeReport: EvaluationReport | null // evaluationReportLogic
     reportsLoading: boolean // evaluationReportLogic
     currentTeamId: number | null // teamLogic
-    generateResult: null
+    generateResult: string | null
     generateResultLoading: boolean
     hasOlderReportRuns: boolean
     isWritingReport: boolean
     nextOlderOffset: number
     olderReportRunsLoadFailed: boolean
-    reportHistoryReady: boolean
     reportRuns: EvaluationReportRun[]
     reportRunsLoadFailed: boolean
     reportRunsLoading: boolean
@@ -57,10 +61,10 @@ export interface evaluationReportRunsLogicActions {
         errorObject?: any
     }
     generateReportSuccess: (
-        generateResult: null,
+        generateResult: string,
         payload?: string
     ) => {
-        generateResult: null
+        generateResult: string
         payload?: string
     }
     loadNewestReportRuns: (reportId: string) => string
@@ -126,12 +130,6 @@ export interface evaluationReportRunsLogicActions {
 export interface evaluationReportRunsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        reportHistoryReady: (
-            reportsLoading: boolean,
-            reportRunsLoading: boolean,
-            reportRunsLoadFailed: boolean,
-            reportRuns: EvaluationReportRunApi[]
-        ) => boolean
         isWritingReport: (generateResultLoading: boolean, waitingForNewReportSince: string | null) => boolean
     }
 }
@@ -195,7 +193,7 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                     return [...values.reportRuns, ...results.filter((run) => !loadedIds.has(run.id))]
                 },
                 // Puts new reports in front and refreshes the ones it sees again, so polling keeps older pages.
-                loadNewestReportRuns: async (reportId: string) => {
+                loadNewestReportRuns: async (reportId: string, breakpoint) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
                     let response
                     try {
@@ -206,26 +204,27 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                             { signal: cache.pollAbort?.signal }
                         )
                     } catch {
-                        // A missed poll is retried 15 seconds later, so it keeps the list instead of raising a toast.
+                        // Stops quietly when the page has gone. Otherwise a missed poll keeps the list, since the next
+                        // one runs 15 seconds later.
+                        breakpoint()
                         return values.reportRuns
                     }
                     const fresh = response?.results ?? []
                     const freshById = new Map(fresh.map((run) => [run.id, run]))
                     const loadedIds = new Set(values.reportRuns.map((run) => run.id))
                     const added = fresh.filter((run) => !loadedIds.has(run.id))
-                    // New runs push the older ones down a page, so the next older page starts that much later.
-                    actions.setNextOlderOffset(values.nextOlderOffset + added.length)
                     return [...added, ...values.reportRuns.map((run) => freshById.get(run.id) ?? run)]
                 },
             },
         ],
+        // The server's time for the request. The new report is the first run created after it.
         generateResult: [
-            null as null,
+            null as string | null,
             {
                 generateReport: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
-                    await llmAnalyticsEvaluationReportsGenerateCreate(teamId.toString(), reportId)
-                    return null
+                    const response = await llmAnalyticsEvaluationReportsGenerateCreate(teamId.toString(), reportId)
+                    return response?.requested_at ?? null
                 },
             },
         ],
@@ -260,8 +259,8 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
                 loadReportRuns: () => false,
             },
         ],
-        // The newest report's creation time when "Generate now" was pressed. A newer report ends the wait. The server
-        // stamps both, so a browser clock that runs ahead can't hide the new one.
+        // When "Generate now" was accepted, by the server's clock, so a browser clock that runs ahead can't hide the
+        // new report. The first run created after it ends the wait.
         waitingForNewReportSince: [
             null as string | null,
             {
@@ -271,16 +270,6 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
         ],
     }),
     selectors({
-        // The baseline for "Generate now" is the newest loaded report, so it needs the history first.
-        reportHistoryReady: [
-            (s) => [s.reportsLoading, s.reportRunsLoading, s.reportRunsLoadFailed, s.reportRuns],
-            (
-                reportsLoading: boolean,
-                reportRunsLoading: boolean,
-                reportRunsLoadFailed: boolean,
-                reportRuns: EvaluationReportRun[]
-            ): boolean => !reportsLoading && !reportRunsLoadFailed && !(reportRunsLoading && reportRuns.length === 0),
-        ],
         isWritingReport: [
             (s) => [s.generateResultLoading, s.waitingForNewReportSince],
             (generateResultLoading: boolean, waitingForNewReportSince: string | null): boolean =>
@@ -297,30 +286,29 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
         generateReport: () => {
             evaluationReportTracking.generateRequested()
         },
-        generateReportSuccess: ({ payload: reportId }) => {
-            if (!reportId) {
+        generateReportSuccess: ({ generateResult: requestedAt, payload: reportId }) => {
+            if (!reportId || !requestedAt) {
                 return
             }
-            const since = values.reportRuns[0]?.created_at ?? ''
-            actions.startWaitingForNewReport(since)
+            actions.startWaitingForNewReport(requestedAt)
             const deadline = Date.now() + NEW_REPORT_POLL_TIMEOUT_MS
+            cache.finalCheck = false
             // The setup runs again when a hidden tab comes back. Every check is scheduled, never run inside the
             // setup, so giving up can dispose this registration once it exists.
             cache.disposables.add(() => {
                 const check = (): void => {
+                    if (Date.now() > deadline) {
+                        // Stop polling, then let one last fetch finish before deciding whether the report arrived.
+                        cache.disposables.dispose(NEW_REPORT_POLL)
+                        cache.pollAbort = null
+                        cache.finalCheck = true
+                        actions.loadNewestReportRuns(reportId)
+                        return
+                    }
                     // One poll at a time, so a slow endpoint doesn't pile up requests.
                     if (!values.reportRunsLoading) {
                         cache.pollAbort = new AbortController()
                         actions.loadNewestReportRuns(reportId)
-                    }
-                    if (Date.now() > deadline) {
-                        const arrived = values.reportRuns.some((run) => run.created_at > since)
-                        actions.stopWaitingForNewReport()
-                        if (!arrived) {
-                            lemonToast.info(
-                                'The new report is taking longer than usual. Refresh the page later to see it.'
-                            )
-                        }
                     }
                 }
                 const first = setTimeout(check, 0)
@@ -334,14 +322,20 @@ export const evaluationReportRunsLogic = kea<evaluationReportRunsLogicType>([
         },
         loadNewestReportRunsSuccess: ({ reportRuns }) => {
             const since = values.waitingForNewReportSince
+            if (since === null) {
+                return
+            }
+            const newRuns = reportRuns.filter((run) => createdAfter(run, since))
+            if (cache.finalCheck) {
+                cache.finalCheck = false
+                actions.stopWaitingForNewReport()
+                if (newRuns.length === 0) {
+                    lemonToast.info('The new report is taking longer than usual. Refresh the page later to see it.')
+                }
+                return
+            }
             // Pending means delivery hasn't run, and failed can still be retried, so neither ends the wait.
-            if (
-                since !== null &&
-                reportRuns.some(
-                    (run) =>
-                        run.created_at > since && run.delivery_status !== 'pending' && run.delivery_status !== 'failed'
-                )
-            ) {
+            if (newRuns.some((run) => run.delivery_status !== 'pending' && run.delivery_status !== 'failed')) {
                 actions.stopWaitingForNewReport()
             }
         },

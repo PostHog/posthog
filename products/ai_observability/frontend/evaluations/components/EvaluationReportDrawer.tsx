@@ -49,7 +49,7 @@ export function EvaluationReportDrawer({
     const { searchParams } = useValues(router)
     const traceOpen = !!searchParams.trace
     const { activeReport } = useValues(evaluationReportLogic({ evaluationId }))
-    const { isWritingReport: isWriting, reportHistoryReady } = useValues(evaluationReportRunsLogic({ evaluationId }))
+    const { isWritingReport: isWriting } = useValues(evaluationReportRunsLogic({ evaluationId }))
     const { generateReport } = useActions(evaluationReportRunsLogic({ evaluationId }))
     const { mainContentRect } = useValues(panelLayoutLogic)
 
@@ -107,12 +107,7 @@ export function EvaluationReportDrawer({
                     onCopyLink={() => void copyToClipboard(window.location.href, 'link to this report')}
                     onGenerate={activeReport && !isWriting ? () => generateReport(activeReport.id) : null}
                     generateDisabledReason={
-                        generateDisabledReason ??
-                        (isWriting
-                            ? 'A new report is being written'
-                            : reportHistoryReady
-                              ? undefined
-                              : 'Waiting for the report history to load')
+                        generateDisabledReason ?? (isWriting ? 'A new report is being written' : undefined)
                     }
                     onClose={close}
                 />

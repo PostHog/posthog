@@ -60,6 +60,12 @@ def default_schedule_anchor() -> dt.datetime:
     return timezone.now().replace(minute=0, second=0, microsecond=0)
 
 
+class EvaluationReportGenerateResponseSerializer(serializers.Serializer):
+    requested_at = serializers.DateTimeField(
+        help_text="Server time of the request. The new report is the first run created after it."
+    )
+
+
 class EvaluationReportListQuerySerializer(serializers.Serializer):
     evaluation = serializers.UUIDField(
         required=False,
@@ -475,7 +481,7 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
+        help_text="Pass percentage excluding N/A. Null when no results passed or failed.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,
@@ -803,7 +809,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         serializer = EvaluationReportRunSerializer(queryset, many=True)
         return Response(serializer.data)
 
-    @extend_schema(request=None, responses={202: None})
+    @extend_schema(request=None, responses={202: EvaluationReportGenerateResponseSerializer})
     @action(detail=True, methods=["post"], url_path="generate", required_scopes=["evaluation:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
@@ -827,9 +833,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        requested_at = dt.datetime.now(tz=dt.UTC)
+        accepted = Response({"requested_at": requested_at.isoformat()}, status=status.HTTP_202_ACCEPTED)
         # Stable workflow ID windowed to the minute: if a user smashes the button, Temporal
         # rejects the duplicate start (WorkflowAlreadyStarted) and we treat that as success.
-        workflow_id = f"eval-report-manual-{report.id}-{dt.datetime.now(tz=dt.UTC).strftime('%Y%m%dT%H%M')}"
+        workflow_id = f"eval-report-manual-{report.id}-{requested_at.strftime('%Y%m%dT%H%M')}"
         try:
             client = sync_connect()
             # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
@@ -848,11 +856,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                     report_id=str(report.id),
                     workflow_id=workflow_id,
                 )
-                return Response(status=status.HTTP_202_ACCEPTED)
+                return accepted
             logger.exception("Failed to trigger evaluation report generation", report_id=str(report.id))
             return Response(
                 {"error": "Failed to trigger report generation"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response(status=status.HTTP_202_ACCEPTED)
+        return accepted
