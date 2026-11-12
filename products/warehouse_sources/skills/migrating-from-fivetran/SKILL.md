@@ -109,22 +109,31 @@ project yet. Tell the user that and stop.
    names it `schema.table`), or a name from `unmatched_tables`. End the report with the credentials the user needs,
    one line per connection.
 
-   **Cost.** Offer an estimate of what the kept connections cost in PostHog. Fivetran's API returns no row counts, so
-   the user supplies monthly active rows (MAR). Call `warehouse-migration-cost-estimate` with an empty `usage` to get
-   `usage_query`, then offer two ways and let the user pick:
+   **Cost.** Offer an estimate of what the kept connections cost in PostHog. If the user declines, skip this. Fivetran's
+   API returns no row counts, so the user supplies monthly active rows (MAR). Call `warehouse-migration-cost-estimate`
+   with an empty `usage` to get `usage_query`, then offer two ways and let the user pick:
    - Run `usage_query` on the Fivetran Platform Connector's `INCREMENTAL_MAR` table in their warehouse, and paste the
-     result back. If you have a tool that queries that warehouse, such as a Snowflake or BigQuery MCP server the user
-     connected, you may run the query yourself after the user agrees. Run only that read-only query. The Fivetran MCP
-     cannot run it, because it only calls Fivetran's REST API.
+     result back. Replace `<fivetran_platform_schema>` with the schema that connector writes to, and ask the user when
+     you do not know it. On BigQuery, write the date filter as `DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 3
+MONTH)` and `DATE_TRUNC(CURRENT_DATE(), MONTH)`. If you have a tool that queries that warehouse, such as a
+     Snowflake or BigQuery MCP server the user connected, you may run the query yourself after the user agrees. Run
+     only that read-only query. The Fivetran MCP cannot run it, because it only calls Fivetran's REST API.
    - Give the monthly MAR of each connection from the Usage tab in Fivetran.
 
-   Send the numbers as `usage`: one entry per row of the query result, or per connection without `table_name`. Read
-   out the total rows and cost per month, then each connection's rows, cost and `confidence`. Read the `notes` of
-   every `estimated` connection. For an `unknown` one, say no usage was reported and give no number. Say that syncs in
-   a source's first `free_first_sync_days` days are free, so the first full sync usually costs nothing, and that the
-   price is PostHog's list price without discounts, credits or rows the project already syncs. Check every
-   `unmatched_usage` entry with the user: its name matched no connection. If the user wants no estimate, go on
-   without one.
+   Send the numbers as `usage`: one entry per row of the query result, or one per connection without `table_name`.
+   When the query returns more than a few hundred rows, or more than 10,000, which the tool refuses, roll it up per
+   connection: drop `schema_name` and `table_name` from the `SELECT` and the `GROUP BY`. The estimate is then
+   `estimated`. Send everything in one call, because the price of each call follows its own total. Pass the table
+   choices the user confirmed as `table_overrides`, each with its `item_id`, so the estimate prices the tables apply
+   creates. Ask for the estimate again after the user changes them.
+
+   Read out the total rows and cost per month, then each connection's rows, cost and `confidence`. Read the `notes` of
+   every `estimated` connection. For an `unknown` one, say no usage was reported and give no number. If
+   `monthly_cost_usd` is null, PostHog could not read its prices: give the rows only and say the price is unavailable.
+   Say that syncs in a source's first `free_first_sync_days` days are free, so the first full sync usually costs
+   nothing, and that the price is PostHog's list price without discounts, credits or rows the project already syncs.
+   Check every `unmatched_usage` entry with the user. Its name matched no connection, or matched two in different
+   destinations: send it again with the `destination_id` from the query.
 
 3. **Ask one decision at a time.** A decision that changes the result blocks the step it belongs to: where the data
    goes, which table pairs hold, which connections move. Ask one such question, wait for the answer, then ask the

@@ -5,6 +5,36 @@
             "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
             "type": "string"
         },
+        "table_overrides": {
+            "description": "The table choices the user confirmed for apply, so the estimate prices the tables apply creates. Same shape as apply's `table_overrides`, with the item each one belongs to.",
+            "items": {
+                "properties": {
+                    "item_id": {
+                        "description": "The migration item the table belongs to.",
+                        "type": "string"
+                    },
+                    "posthog_table": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The PostHog table to sync it as. Null leaves the table out."
+                    },
+                    "vendor_table": {
+                        "description": "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`.",
+                        "type": "string"
+                    }
+                },
+                "required": ["vendor_table", "posthog_table", "item_id"],
+                "type": "object"
+            },
+            "maxItems": 10000,
+            "type": "array"
+        },
         "usage": {
             "description": "Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.",
             "items": {
@@ -28,6 +58,7 @@
                     },
                     "monthly_rows": {
                         "description": "Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.",
+                        "maximum": 2147483647,
                         "minimum": 0,
                         "type": "number"
                     },

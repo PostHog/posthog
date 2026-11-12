@@ -1030,6 +1030,9 @@ const warehouseMigrationCostEstimate = (): ToolBase<
         if (params.usage !== undefined) {
             body['usage'] = params.usage
         }
+        if (params.table_overrides !== undefined) {
+            body['table_overrides'] = params.table_overrides
+        }
         const result = await context.api.request<Schemas.WarehouseMigrationCostEstimate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/cost_estimate/`,
