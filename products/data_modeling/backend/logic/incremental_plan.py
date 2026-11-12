@@ -6,30 +6,17 @@ Each engine keeps its own watermark, so the same decision runs once per engine w
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
+from products.data_modeling.backend.facade.contracts import WritePlan
 from products.data_modeling.backend.logic.incremental import (
-    IncrementalConfig,
     definition_fingerprint,
     get_incremental_config,
     get_incremental_state,
     window_start,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class WritePlan:
-    """Whether this run rebuilds the table or updates it, and why. The reason is surfaced on the
-    job so an unexpectedly expensive run explains itself."""
-
-    incremental: bool
-    reason: str
-    since: Any = None
-    fingerprint: str | None = None
-    config: IncrementalConfig | None = None
 
 
 def resolve_write_plan(team_id: int, saved_query_id: UUID | str, *, scope: str | None = None) -> WritePlan:

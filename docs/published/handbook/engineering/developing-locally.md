@@ -280,6 +280,10 @@ Then start the stack again with `hogli up`.
 **ClickHouse "get_mempolicy" warning**
 You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. This is harmless and can be ignored. To verify ClickHouse started properly, run `docker exec -it posthog-clickhouse-1 bash` then `clickhouse-client --query "SELECT 1"`.
 
+**ClickHouse system log tables missing locally**
+The dev stack mounts `docker/clickhouse/config.d/dev-system-logs.xml`, which turns off `query_views_log`, `metric_log` and `asynchronous_metric_log` to keep an idle ClickHouse quiet. `query_log`, `query_thread_log`, `text_log` and `trace_log` stay on.
+To profile with the other tables, remove the `dev-system-logs.xml` line from the `clickhouse` volumes in `docker-compose.dev.yml` and run `hogli up` again.
+
 **Database migration errors**
 If you see `fe_sendauth: no password supplied`, set `DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog` and ensure containers are running. On ARM machines, you may also hit `psycopg2` errors – see [this comment](https://github.com/psycopg/psycopg2/issues/1216#issuecomment-820556849) for fixes.
 

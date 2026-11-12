@@ -12,8 +12,9 @@ MANUAL_CASE_LIMIT = 1000
 class TestDinoEndpoint:
     name: str
     path: str
-    primary_keys: tuple[str, ...]
+    primary_keys: tuple[str, ...] | None
     page_size: int = 100
+    data_selector: str = "data"
     params: dict[str, Any] = field(default_factory=dict)
     fanout: DependentEndpointConfig | None = None
     incremental_fields: list[Any] = field(default_factory=list)
@@ -53,9 +54,24 @@ ENDPOINTS = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    # Rolling-window aggregates with no row id: each sync replaces the table with the 90-day snapshot.
+    "specs": TestDinoEndpoint(
+        name="specs",
+        path="specs",
+        primary_keys=None,
+        params={"days": 90, "sortBy": "fileName", "order": "asc"},
+    ),
+    "test_cases": TestDinoEndpoint(
+        name="test_cases",
+        path="test-case-explorer",
+        primary_keys=None,
+        page_size=50,
+        data_selector="data.testCases",
+        params={"days": 90, "sortBy": "suite_file_path", "order": "asc"},
+    ),
 }
 
-PAGED_ENDPOINTS = {"test_runs", "manual_runs"}
+PAGED_ENDPOINTS = {"test_runs", "manual_runs", "specs", "test_cases"}
 
 INVALID_TOKEN = "TestDino rejected the token. Create a personal access token in User Settings > Personal Access Tokens."
 PROJECT_ACCESS_ERROR = "TestDino could not access this project. Check the project ID and the projects allowed by your personal access token."

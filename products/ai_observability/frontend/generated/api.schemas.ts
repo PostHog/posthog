@@ -1429,79 +1429,6 @@ export interface OfflineHistoryPageApi {
     results: OfflineHistoryPointApi[]
 }
 
-export type TraceApiNodeIdsByAlias = { [key: string]: string }
-
-export interface TracePersonApi {
-    distinctId: string
-    label: string
-}
-
-export interface TraceNodeStatsApi {
-    costUsd: number | null
-    inputTokens: number | null
-    outputTokens: number | null
-    cacheReadTokens: number | null
-    cacheWriteTokens: number | null
-    latencyMs: number | null
-}
-
-export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
-
-export const TraceNodeKindEnumApi = {
-    Trace: 'trace',
-    Span: 'span',
-    Generation: 'generation',
-    Embedding: 'embedding',
-} as const
-
-export interface TraceNodeApi {
-    id: string
-    kind: TraceNodeKindEnumApi
-    name: string
-    /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
-    label: string
-    model: string | null
-    stats: TraceNodeStatsApi
-    hasError: boolean
-    children: TraceNodeApi[]
-}
-
-export interface TraceTimelineRowApi {
-    id: string
-    kind: TraceNodeKindEnumApi
-    name: string
-    depth: number
-    startMs: number
-    durationMs: number | null
-    hasError: boolean
-}
-
-export interface TraceGitApi {
-    /** The git branch checked out when the trace ran. */
-    branch: string
-    /** The repository as owner/name, or null when the branch's event has none. */
-    repo: string | null
-}
-
-export interface TraceApi {
-    id: string
-    name: string | null
-    createdAt: string
-    sessionId: string | null
-    person: TracePersonApi | null
-    totals: TraceNodeStatsApi
-    hasError: boolean
-    errorCount: number
-    tree: TraceNodeApi[]
-    timeline: TraceTimelineRowApi[]
-    totalMs: number
-    threadNodeIds: string[]
-    defaultNodeId: string
-    nodeIdsByAlias: TraceApiNodeIdsByAlias
-    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
-    git: TraceGitApi | null
-}
-
 export interface TraceClusterApi {
     /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
     runId: string
@@ -1610,6 +1537,79 @@ export interface TraceExportApi {
     expiresAfter: string | null
     /** Why the export failed, null unless status is failed. */
     exception: string | null
+}
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
+    label: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
+export type TraceApiNodeIdsByAlias = { [key: string]: string }
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
+    defaultNodeId: string
+    nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
 }
 
 export interface TraceNodeIOKeysApi {
@@ -1888,6 +1888,87 @@ export interface TraceNodeDetailApi {
     content: TraceNodeContentApi
 }
 
+/**
+ * The step's input value as ingested, or an empty object when it has none.
+ */
+export type TraceNodeDatasetItemApiInput = { [key: string]: unknown } | unknown[] | string | number | boolean
+
+/**
+ * The step's output value as ingested, or null when it has none.
+ */
+export type TraceNodeDatasetItemApiSourceOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
+ * The step's custom event properties, without `$` names. Empty for the root.
+ */
+export type TraceNodeDatasetItemApiMetadata = { [key: string]: unknown }
+
+export interface TraceNodeDatasetItemApi {
+    /** An id that identifies the step among dataset items: the event's uuid, or the trace id for the root. */
+    clientItemId: string
+    /** The id of the trace the step belongs to. */
+    sourceTraceId: string
+    /** The step's event uuid, or the trace id for the root. */
+    sourceEventId: string
+    /** When the trace happened, as given by the timestamp hint. */
+    sourceTimestamp: string
+    /** The step's input value as ingested, or an empty object when it has none. */
+    input: TraceNodeDatasetItemApiInput
+    /** The step's output value as ingested, or null when it has none. */
+    sourceOutput: TraceNodeDatasetItemApiSourceOutput
+    /** The step's custom event properties, without `$` names. Empty for the root. */
+    metadata: TraceNodeDatasetItemApiMetadata
+}
+
+export interface TraceNodeParserTestRequestApi {
+    /**
+     * The parser recipe to test, as raw YAML in the custom parser DSL.
+     * @maxLength 100000
+     */
+    source: string
+}
+
+export type TraceParserTestErrorSourceEnumApi =
+    (typeof TraceParserTestErrorSourceEnumApi)[keyof typeof TraceParserTestErrorSourceEnumApi]
+
+export const TraceParserTestErrorSourceEnumApi = {
+    ExistingRecipes: 'existing_recipes',
+    Candidate: 'candidate',
+} as const
+
+export interface TraceParserTestErrorApi {
+    /** Whose parsers failed on the side: the project's saved ones, so the side fails with or without the parser under test, or the parser under test. */
+    source: TraceParserTestErrorSourceEnumApi
+    /** Why the parsers stopped, such as running out of time or work budget. */
+    message: string
+}
+
+export interface TraceParserTestSideApi {
+    /** The side has content that the project's saved parsers leave unparsed, so it renders as raw JSON or as one message holding its JSON. */
+    neededFixing: boolean
+    /** The side needed fixing, and the parser under test makes it recognized. */
+    fixed: boolean
+    /** The project's saved parsers parse the side, and with the parser under test added it is no longer parsed, for example because the parser uses up the time the side needed. */
+    broken: boolean
+    /** Set when parsing the side failed instead of finishing. */
+    error: TraceParserTestErrorApi | null
+}
+
+export interface TraceNodeParserTestApi {
+    /** The node's input and output as they would render with the parser under test saved. */
+    content: TraceNodeContentApi
+    input: TraceParserTestSideApi
+    output: TraceParserTestSideApi
+    /** At least one side needed fixing, the parser under test fixes every side that did, and it breaks no side. Nothing is saved either way. */
+    passed: boolean
+}
+
 export interface TracePullRequestApi {
     /** The owner of the pull request's repository. */
     repoOwner: string
@@ -1997,6 +2078,8 @@ export interface TraceSummaryFailureApi {
     reason: TraceSummaryFailureReasonEnumApi
     /** Why the summary failed, ready to show to the user. */
     message: string
+    /** Whether a new request could succeed; false when it would fail the same way. */
+    retryable: boolean
 }
 
 export interface TraceSummaryApi {
@@ -3455,6 +3538,110 @@ export interface EvaluationsOverviewApi {
     passRateOverview: PassRateOverviewApi
 }
 
+export type PreviewConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * A trigger condition set, as on an evaluation. The id is optional here.
+ */
+export interface PreviewConditionApi {
+    /**
+     * Identifier of this condition set, if any.
+     * @maxLength 100
+     */
+    id?: string
+    /**
+     * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters (event or person) that scope which generations match this condition set. */
+    properties?: PreviewConditionApiPropertiesItem[]
+}
+
+/**
+ * * `fixed_window` - Fixed window
+ * * `inactivity` - Inactivity
+ */
+export type PreviewSettleStrategyEnumApi =
+    (typeof PreviewSettleStrategyEnumApi)[keyof typeof PreviewSettleStrategyEnumApi]
+
+export const PreviewSettleStrategyEnumApi = {
+    FixedWindow: 'fixed_window',
+    Inactivity: 'inactivity',
+} as const
+
+/**
+ * The evaluation's own `target_config` works here, so a client sends it as it is.
+ */
+export interface TestHogTargetConfigApi {
+    /** The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.
+     *
+     * * `fixed_window` - Fixed window
+     * * `inactivity` - Inactivity */
+    strategy?: PreviewSettleStrategyEnumApi
+    /**
+     * Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.
+     * @minimum 10
+     * @maximum 604800
+     */
+    window_seconds?: number
+    /**
+     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
+}
+
+/**
+ * What a preview samples from: the unsaved evaluation's conditions and target.
+ */
+export interface EvaluationSampleTrafficRequestApi {
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: PreviewConditionApi[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
+    /**
+     * How many units to return, 5 by default. Sessions return at most 3, the number a session test covers.
+     * @minimum 1
+     * @maximum 10
+     */
+    count?: number
+}
+
+export interface EvaluationSampleTrafficItemApi {
+    /** Generation event UUID, trace ID, or session ID, matching `target`. */
+    sample_id: string
+    /** Type of unit: generation, trace, or session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    sample_type: EvaluationTargetEnumApi
+    /**
+     * Trace to open for this unit. For a session, its most recent trace. Null when the unit has none.
+     * @nullable
+     */
+    trace_id: string | null
+    /** When the unit's latest generation happened. */
+    timestamp: string
+    /** First 200 characters of the last user message in the unit's latest generation. */
+    input_preview: string
+    /** First 200 characters of the last assistant message in the unit's latest generation. */
+    output_preview: string
+}
+
+export interface EvaluationSampleTrafficResponseApi {
+    results: EvaluationSampleTrafficItemApi[]
+}
+
 export type TestHogRequestApiOutputConfigOptionsItem = {
     /**
      * Stable category key.
@@ -3542,8 +3729,6 @@ export type TestHogRequestApiOutputConfig = {
     passing_rule?: TestHogRequestApiOutputConfigPassingRule
 }
 
-export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
-
 /**
  * * `boolean` - Boolean (Pass/Fail)
  * * `numeric` - Numeric
@@ -3558,22 +3743,20 @@ export const HogEvaluationOutputTypeEnumApi = {
     Categorical: 'categorical',
 } as const
 
-export interface TestHogTargetConfigApi {
-    /**
-     * Aggregation window for trace samples, in seconds.
-     * @minimum 10
-     * @maximum 7200
-     */
-    window_seconds?: number
-    /**
-     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
-     * @minimum 10
-     * @maximum 86400
-     */
-    quiet_period_seconds?: number
-}
-
+/**
+ * What a preview samples from: the unsaved evaluation's conditions and target.
+ */
 export interface TestHogRequestApi {
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: PreviewConditionApi[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
     /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
      *
      * * `boolean` - Boolean (Pass/Fail)
@@ -3595,17 +3778,28 @@ export interface TestHogRequestApi {
     sample_count?: number
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Optional trigger conditions to filter which events are sampled. */
-    conditions?: TestHogRequestApiConditionsItem[]
-    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
-     *
-     * * `generation` - Generation
-     * * `trace` - Trace
-     * * `session` - Session */
-    target?: EvaluationTargetEnumApi
-    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
-    target_config?: TestHogTargetConfigApi
+    /**
+     * Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, matching `target`. Up to 10, and only units from the last 7 days. Conditions and sampling are ignored for pinned units, and unknown IDs are skipped. A session target tests at most 3 sessions.
+     * @maxItems 10
+     * @items.maxLength 400
+     */
+    sample_ids?: string[]
 }
+
+/**
+ * * `pass` - Pass
+ * * `fail` - Fail
+ * * `na` - Not applicable
+ * * `error` - Error
+ */
+export type PreviewOutcomeEnumApi = (typeof PreviewOutcomeEnumApi)[keyof typeof PreviewOutcomeEnumApi]
+
+export const PreviewOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Na: 'na',
+    Error: 'error',
+} as const
 
 export interface TestHogResultItemApi {
     /**
@@ -3655,12 +3849,190 @@ export interface TestHogResultItemApi {
      * @nullable
      */
     error: string | null
+    /** How the evaluation's passing rule grades this result: pass, fail, na for a not-applicable result, or error. Null when there is no rule to grade it, such as a score with no passing rule.
+     *
+     * * `pass` - Pass
+     * * `fail` - Fail
+     * * `na` - Not applicable
+     * * `error` - Error */
+    outcome: PreviewOutcomeEnumApi | null
 }
 
 export interface TestHogResponseApi {
     results: TestHogResultItemApi[]
     /** Optional message, e.g. when no recent events were found. */
     message?: string
+}
+
+/**
+ * Same as on an evaluation: {prompt, judge_method}.
+ */
+export type EvaluationTestOnSampleRequestApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
+      }
+    | {
+          /**
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
+           * @minLength 1
+           */
+          source: string
+      }
+    | {
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
+          source?: 'user_messages'
+      }
+
+export type EvaluationTestOnSampleRequestApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type EvaluationTestOnSampleRequestApiOutputConfigSelectionMode =
+    (typeof EvaluationTestOnSampleRequestApiOutputConfigSelectionMode)[keyof typeof EvaluationTestOnSampleRequestApiOutputConfigSelectionMode]
+
+export const EvaluationTestOnSampleRequestApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationTestOnSampleRequestApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules.
+ */
+export type EvaluationTestOnSampleRequestApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
+     */
+    options?: EvaluationTestOnSampleRequestApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationTestOnSampleRequestApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+    passing_rule?: EvaluationTestOnSampleRequestApiOutputConfigPassingRule
+}
+
+/**
+ * * `llm_judge` - LLM as a judge
+ */
+export type TestOnSampleEvaluationTypeEnumApi =
+    (typeof TestOnSampleEvaluationTypeEnumApi)[keyof typeof TestOnSampleEvaluationTypeEnumApi]
+
+export const TestOnSampleEvaluationTypeEnumApi = {
+    LlmJudge: 'llm_judge',
+} as const
+
+/**
+ * What a preview samples from: the unsaved evaluation's conditions and target.
+ */
+export interface EvaluationTestOnSampleRequestApi {
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: PreviewConditionApi[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
+    /** 'llm_judge' runs the judge, or the decision model, on your own provider key.
+     *
+     * * `llm_judge` - LLM as a judge */
+    evaluation_type: TestOnSampleEvaluationTypeEnumApi
+    /** Same as on an evaluation: {prompt, judge_method}. */
+    evaluation_config: EvaluationTestOnSampleRequestApiEvaluationConfig
+    /** Provider and model for an llm_judge, as on an evaluation. Required for llm_judge. */
+    model_configuration?: ModelConfigurationApi | null
+    /** Expected output: boolean, numeric, or categorical.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical
+     * * `sentiment` - Sentiment */
+    output_type?: OutputTypeEnumApi
+    /** Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules. */
+    output_config?: EvaluationTestOnSampleRequestApiOutputConfig
+    /**
+     * Test exactly these units instead of sampling, up to 3: generation event UUIDs, trace IDs, or session IDs, matching `target`. Conditions are ignored for pinned units, and unknown IDs are skipped.
+     * @maxItems 3
+     * @items.maxLength 400
+     */
+    sample_ids?: string[]
 }
 
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
@@ -4006,7 +4378,7 @@ export interface EvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -4082,7 +4454,7 @@ export interface EvaluationReportUpdateApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -4149,7 +4521,7 @@ export interface PatchedEvaluationReportUpdateApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -6129,13 +6501,6 @@ export const AiObservabilityOfflineScorersHistoryListTagMatch = {
     All: 'all',
 } as const
 
-export type AiObservabilityTracesRetrieveParams = {
-    /**
-     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
-     */
-    timestamp_hint?: string
-}
-
 export type AiObservabilityTracesClustersRetrieveParams = {
     /**
      * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
@@ -6176,6 +6541,20 @@ export type AiObservabilityTracesNodesRetrieveParams = {
     timestamp_hint?: string
 }
 
+export type AiObservabilityTracesNodesDatasetItemRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint: string
+}
+
+export type AiObservabilityTracesNodesParserTestCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
 export type AiObservabilityTracesNodesRawRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
@@ -6204,6 +6583,13 @@ export type AiObservabilityTracesSearchRetrieveParams = {
 }
 
 export type AiObservabilityTracesSummaryCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

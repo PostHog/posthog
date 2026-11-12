@@ -20,6 +20,7 @@ export interface ObservationsSection {
     count: number
     hasObservations: boolean
     content: ReactNode
+    action?: ReactNode
 }
 
 export function WatchPanelSections({
@@ -30,7 +31,8 @@ export function WatchPanelSections({
     debug: boolean
 }): JSX.Element {
     const { watchPanelOpenSections, watchPanelFocusRequest } = useValues(playerSettingsLogic)
-    const { setWatchPanelOpenSections, setWatchDebugDock, clearWatchPanelFocus } = useActions(playerSettingsLogic)
+    const { setWatchPanelOpenSections, openWatchPanelSection, setWatchDebugDock, clearWatchPanelFocus } =
+        useActions(playerSettingsLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
@@ -40,10 +42,16 @@ export function WatchPanelSections({
         ...(observations ? (['observations'] as const) : []),
         ...(debug ? (['debug'] as const) : []),
     ]
-    const open = watchPanelOpenSections.filter((section) => shown.includes(section))
+    const stored = watchPanelOpenSections[watchPanelOpenSections.length - 1]
+    const fallback: WatchPanelSection = observations ? 'observations' : 'overview'
+    const open: WatchPanelSection[] = stored ? [shown.includes(stored) ? stored : fallback] : []
     const onOpenChange = (value: unknown[]): void => {
-        const hidden = watchPanelOpenSections.filter((section) => !shown.includes(section))
-        setWatchPanelOpenSections([...hidden, ...(value as WatchPanelSection[])])
+        const [opened] = value as WatchPanelSection[]
+        if (opened) {
+            openWatchPanelSection(opened)
+        } else {
+            setWatchPanelOpenSections([])
+        }
     }
 
     const debugTabs = debugTabKeys(linkedIssuesAvailable)
@@ -59,7 +67,7 @@ export function WatchPanelSections({
     }, [watchPanelFocusRequest, clearWatchPanelFocus])
 
     return (
-        <Accordion multiple value={open} onValueChange={onOpenChange} data-attr="watch-panel-sections">
+        <Accordion value={open} onValueChange={onOpenChange} data-attr="watch-panel-sections">
             <AccordionItem
                 value="overview"
                 className={ITEM_CLASS}
@@ -80,18 +88,23 @@ export function WatchPanelSections({
             {observations && (
                 <AccordionItem
                     value="observations"
-                    className={ITEM_CLASS}
                     ref={(el) => {
                         itemRefs.current.observations = el
                     }}
                 >
-                    <AccordionTrigger data-attr="watch-panel-section-observations">
-                        <span className="flex items-center gap-1.5">
-                            <IconSparkles />
-                            Observations
-                            {observations.count > 0 && <Badge>{observations.count}</Badge>}
-                        </span>
-                    </AccordionTrigger>
+                    <div className="flex items-center gap-1 [&>h3]:m-0 [&>h3]:min-w-0 [&>h3]:flex-1 [&>h3]:font-[inherit]">
+                        <AccordionTrigger
+                            className="min-w-0 [&>span]:min-w-0 [&>span]:flex-1"
+                            data-attr="watch-panel-section-observations"
+                        >
+                            <span className="flex items-center gap-1.5 min-w-0">
+                                <IconSparkles className="shrink-0" />
+                                <span className="truncate">Replay Vision observations</span>
+                                {observations.count > 0 && <Badge className="shrink-0">{observations.count}</Badge>}
+                            </span>
+                        </AccordionTrigger>
+                        {observations.action && <div className="shrink-0 pr-2">{observations.action}</div>}
+                    </div>
                     <AccordionContent>{observations.content}</AccordionContent>
                 </AccordionItem>
             )}

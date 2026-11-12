@@ -17,7 +17,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.query_stats import record
 
-from products.dashboards.backend.api.query_sharing import DashboardQuerySharingParamsSerializer
+from products.dashboards.backend.presentation.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
 from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
 from products.dashboards.backend.query_sharing_stream import (

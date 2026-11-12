@@ -491,15 +491,13 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (test name, source_cdc_enabled, team_ff_enabled, expected_cdc_available)
-            ("source_enabled_team_enabled", True, True, True),
-            ("source_enabled_team_disabled", True, False, None),
-            ("source_disabled_team_enabled", False, True, None),
-            ("source_disabled_team_disabled", False, False, None),
+            # (test name, source_cdc_enabled, expected_cdc_available)
+            ("source_enabled", True, True),
+            ("source_disabled", False, None),
         ]
     )
     def test_incremental_fields_cdc_available_gating(
-        self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
+        self, _name: str, source_cdc_enabled: bool, expected_cdc_available
     ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -542,10 +540,6 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=team_ff_enabled,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -1460,10 +1454,6 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
-            mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
@@ -1525,10 +1515,6 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
@@ -1592,27 +1578,47 @@ class TestExternalDataSchema(APIBaseTest):
         # xmin never sets CDC state.
         assert "cdc_mode" not in schema.sync_type_config
 
-    def test_update_schema_to_xmin_rejected_without_primary_key(self):
+    @parameterized.expand(
+        [
+            ("switch_to_xmin_rejected", ExternalDataSchema.SyncType.FULL_REFRESH, status.HTTP_400_BAD_REQUEST),
+            # A table saved as xmin before its first sync has no key yet; the sync resolves one.
+            ("enable_keyless_xmin_accepted", ExternalDataSchema.SyncType.XMIN, status.HTTP_200_OK),
+        ]
+    )
+    def test_update_schema_to_xmin_without_primary_key(self, _name: str, current_sync_type: str, expected_status: int):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
             team=self.team,
             source=source,
             should_sync=False,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type=current_sync_type,
             sync_type_config={},
         )
 
-        with self._xmin_discovery_patch():
+        with (
+            self._xmin_discovery_patch(),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin"},
+                data={"sync_type": "xmin", "should_sync": True},
             )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "primary key" in str(response.json()).lower()
+        assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
-        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "primary key" in str(response.json()).lower()
+            assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        else:
+            assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+            assert schema.should_sync
 
     @parameterized.expand(
         [
@@ -1637,14 +1643,10 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-            return_value=True,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": sync_type, "primary_key_columns": ["id"]},
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": sync_type, "primary_key_columns": ["id"]},
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_message in str(response.json()).lower()
@@ -1833,10 +1835,6 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -2162,7 +2160,14 @@ class TestExternalDataSchema(APIBaseTest):
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
         assert schema.full_refresh_time_of_day == expected_time
 
-    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
+    @parameterized.expand(
+        [
+            ("toggle_only", {"should_sync": True}),
+            # The settings page resends the sync type on every save.
+            ("with_sync_type", {"sync_type": "cdc", "should_sync": True}),
+        ]
+    )
+    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self, _name: str, data: dict[str, Any]):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
         source = ExternalDataSource.objects.create(
@@ -2181,7 +2186,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"should_sync": True},
+            data=data,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -3330,10 +3335,6 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
-            mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ) as mock_add_table,
             mock.patch(
@@ -3411,7 +3412,6 @@ class TestUpdateExternalDataSchema:
     def _patch_cdc_switch(add_table_side_effect: BaseException | None = None) -> contextlib.ExitStack:
         stack = contextlib.ExitStack()
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
-        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.external_data_workflow_exists", return_value=False))
         stack.enter_context(mock.patch(f"{views}.sync_external_data_job_workflow"))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
@@ -3880,7 +3880,6 @@ class TestUpdateExternalDataSchema:
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
         data_imports = "products.warehouse_sources.backend.temporal.data_imports"
         facade = "products.data_warehouse.backend.facade.api"
-        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
         stack.enter_context(mock.patch(f"{facade}.trigger_cdc_extraction_schedule", return_value=True))
         stack.enter_context(mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"))
@@ -4066,10 +4065,6 @@ class TestUpdateExternalDataSchema:
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ),
