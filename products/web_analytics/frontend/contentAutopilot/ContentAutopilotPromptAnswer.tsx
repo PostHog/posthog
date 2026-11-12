@@ -45,11 +45,15 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
             {shownCheck ? (
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                        <ContentAutopilotCheckResult
-                            cited={shownCheck.cited}
-                            checkFailed={shownCheck.check_failed}
-                            position={shownCheck.target_best_position}
-                        />
+                        {shownCheck.mode === 'no_search' && !shownCheck.check_failed ? (
+                            <LemonTag type="muted">No search</LemonTag>
+                        ) : (
+                            <ContentAutopilotCheckResult
+                                cited={shownCheck.cited}
+                                checkFailed={shownCheck.check_failed}
+                                position={shownCheck.target_best_position}
+                            />
+                        )}
                         <span>
                             {selectedCheck ? 'Older answer' : 'Latest answer'} from {engineLabel(shownCheck.engine)},{' '}
                             <TZLabel time={shownCheck.created_at} />

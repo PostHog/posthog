@@ -24,16 +24,20 @@ import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
-import { draftableOpportunity, engineLabel, promptSearches } from './utils'
+import { draftableOpportunity, engineLabel, isNoSearchEngine, promptSearches } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
     if (!check) {
         return <span className="text-muted whitespace-nowrap">-</span>
+    }
+    if (check.mode === 'no_search') {
+        return <ContentAutopilotMentionResultTag mentioned={check.mentioned} checkFailed={check.check_failed} />
     }
     return (
         <ContentAutopilotCheckResult
@@ -289,7 +293,9 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         },
                         ...promptEngines.map((engine) => ({
                             title: <ContentAutopilotEngineLabel engine={engine} />,
-                            tooltip: `Whether ${engineLabel(engine)}'s last answer linked to a page on your site.`,
+                            tooltip: isNoSearchEngine(engine)
+                                ? `Whether ${engineLabel(engine)}'s last answer named your brand. It answers without searching the web, so it never links to your site.`
+                                : `Whether ${engineLabel(engine)}'s last answer linked to a page on your site.`,
                             key: `engine-${engine}`,
                             render: (_: unknown, prompt: AEOPromptApi) => checkTag(prompt, engine),
                         })),

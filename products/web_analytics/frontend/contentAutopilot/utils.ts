@@ -21,9 +21,16 @@ export const ENGINE_LABELS: Record<string, string> = {
     'exa-answer': 'Exa',
     'gemini-google-search': 'Gemini',
     'perplexity-web-search': 'Perplexity',
+    'claude-no-search': 'Claude (no search)',
+    'openai-no-search': 'ChatGPT (no search)',
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
+
+/** Engines that answer from training data alone. They never cite, so their columns show mentions. */
+const NO_SEARCH_ENGINES = new Set(['claude-no-search', 'openai-no-search'])
+
+export const isNoSearchEngine = (engine: string): boolean => NO_SEARCH_ENGINES.has(engine)
 
 // Matched on the id's prefix, so a new engine from the same assistant (a no-search variant, say) gets
 // its mark and color without an entry here.
@@ -46,7 +53,7 @@ export const engineColor = (engine: string): string | undefined => {
     if (!lab) {
         return undefined
     }
-    return AI_LAB_SHADES[lab][engine.includes('search') ? MAIN_LAB_SHADE : MAIN_LAB_SHADE - 1]
+    return AI_LAB_SHADES[lab][isNoSearchEngine(engine) ? MAIN_LAB_SHADE - 1 : MAIN_LAB_SHADE]
 }
 
 export interface PromptSearches {

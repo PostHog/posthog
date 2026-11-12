@@ -34,9 +34,10 @@ export const PROMPT_SOURCE_COLUMNS = ['domain', 'answers', 'share_of_answers', '
 export const PROMPT_CITATION_COLUMNS = ['url', 'answers', 'share_of_answers', 'is_target'] as const
 export const PROMPT_SEARCH_COLUMNS = ['query', 'searches', 'engines'] as const
 
-// Every query is answered checks inside the window, for one prompt or for the whole set. The prompt id and the
-// window start travel as placeholder values, so the HogQL text never embeds user data.
-const SET_WHERE = 'created_at >= toDateTime({window_start}) AND NOT check_failed'
+// Every query is answered web-search checks inside the window, for one prompt or for the whole set. No-search checks
+// never cite, so they would pull every citation share down. The prompt id and the window start travel as placeholder
+// values, so the HogQL text never embeds user data.
+const SET_WHERE = "created_at >= toDateTime({window_start}) AND NOT check_failed AND mode = 'web_search'"
 const WHERE = `prompt_id = {prompt_id} AND ${SET_WHERE}`
 
 const answered = (where: string): string => `(SELECT count() FROM system.aeo_citation_checks WHERE ${where})`

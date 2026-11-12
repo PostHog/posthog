@@ -264,7 +264,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     latest_checks: [
         {
             engine: 'claude-web-search',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 1,
             search_queries: [
@@ -275,7 +277,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'openai-web-search',
+            mode: 'web_search',
             cited: false,
+            mentioned: false,
             check_failed: false,
             target_best_position: null,
             search_queries: ['best open source product analytics for startups 2026'],
@@ -283,9 +287,21 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'exa-answer',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 3,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'claude-no-search',
+            mode: 'no_search',
+            cited: false,
+            mentioned: true,
+            check_failed: false,
+            target_best_position: null,
             search_queries: [],
             checked_at: '2026-09-29T09:00:00Z',
         },
@@ -301,7 +317,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: ['funnel analysis without SQL breakdown by country'],
@@ -309,7 +327,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'openai-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: true,
                 target_best_position: null,
                 search_queries: [],
@@ -317,7 +337,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'gemini-google-search',
+                mode: 'web_search',
                 cited: true,
+                mentioned: true,
                 check_failed: false,
                 target_best_position: 2,
                 search_queries: [],
@@ -344,7 +366,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'exa-answer',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -363,7 +387,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -403,6 +429,7 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     id: '00000000-0000-4000-8000-000000000401',
     run_id: '00000000-0000-4000-8000-000000000501',
     engine: 'claude-web-search',
+    mode: 'web_search',
     model: 'example-model-large',
     created_at: '2026-09-29T09:00:00Z',
     cited: true,
