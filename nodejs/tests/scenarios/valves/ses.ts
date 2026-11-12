@@ -47,19 +47,16 @@ async function edgeFault(
     }
     return {
         observed: async () => {
-            const deadline = Date.now() + faultObservedWithinMs
-            while (!signal.aborted) {
-                const count = await unlessAborted(applied(), signal)
+            const within = AbortSignal.any([signal, AbortSignal.timeout(faultObservedWithinMs)])
+            while (!within.aborted) {
+                const count = await unlessAborted(applied(), within)
                 if (count === undefined) {
                     return false
                 }
                 if (count > 0) {
                     return true
                 }
-                if (Date.now() >= deadline) {
-                    return false
-                }
-                await sleep(pollMs, undefined, { signal }).catch(() => undefined)
+                await sleep(pollMs, undefined, { signal: within }).catch(() => undefined)
             }
             return false
         },
