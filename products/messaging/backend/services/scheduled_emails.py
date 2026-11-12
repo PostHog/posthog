@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.utils.dateparse import parse_datetime
 
 import requests
@@ -26,6 +26,8 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.services.transactional_email_status import get_email_status, queued_at
 
 logger = structlog.get_logger(__name__)
+
+_cancel_marks = caches["transactional_email_cancel_marks"]
 
 _CANCEL_MARK_TTL = timedelta(hours=1)
 _STATUS_LAG = timedelta(minutes=5)
@@ -87,11 +89,11 @@ def _cancel_mark_key(team_id: int, message_id: UUID) -> str:
 
 
 def _mark_canceled(team_id: int, message_id: UUID) -> None:
-    _write_cancel_mark(cache.set, team_id, message_id, _CancelMark.CANCELED)
+    _write_cancel_mark(_cancel_marks.set, team_id, message_id, _CancelMark.CANCELED)
 
 
 def _mark_attempted_unless_canceled(team_id: int, message_id: UUID) -> None:
-    _write_cancel_mark(cache.add, team_id, message_id, _CancelMark.ATTEMPTED)
+    _write_cancel_mark(_cancel_marks.add, team_id, message_id, _CancelMark.ATTEMPTED)
 
 
 def _write_cancel_mark(write: _CacheWrite, team_id: int, message_id: UUID, mark: _CancelMark) -> None:
@@ -105,7 +107,7 @@ def _write_cancel_mark(write: _CacheWrite, team_id: int, message_id: UUID, mark:
 
 def _read_cancel_mark(team_id: int, message_id: UUID) -> _CancelMark | None:
     try:
-        mark = cache.get(_cancel_mark_key(team_id, message_id))
+        mark = _cancel_marks.get(_cancel_mark_key(team_id, message_id))
     except Exception:
         logger.exception("transactional_email_cancel_mark_read_failed", team_id=team_id, message_id=str(message_id))
         return None
