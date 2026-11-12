@@ -909,64 +909,34 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it.each<
-                [string, Record<string, unknown>, Record<string, string[]>, boolean, boolean, Record<string, string>]
-            >([
+            it.each<[string, Record<string, unknown>, Record<string, string[]>, boolean, Record<string, string>]>([
                 [
                     'a template send',
                     { template_uuid: 'template-1' },
-                    { ph_template_tags: ['true'], ph_template_id: ['template-1'] },
-                    true,
+                    { ph_template_id: ['template-1'] },
                     true,
                     { $email_template_id: 'template-1' },
                 ],
                 [
                     'a template send whose step was pointed at another template before the bounce',
                     { template_uuid: 'template-2' },
-                    { ph_template_tags: ['true'], ph_template_id: ['template-1'] },
-                    true,
+                    { ph_template_id: ['template-1'] },
                     true,
                     { $email_template_id: 'template-1' },
                 ],
                 [
                     'a code send by key',
                     { template_key: 'welcome' },
-                    { ph_template_tags: ['true'], ph_template_key: ['welcome'] },
-                    true,
+                    { ph_template_key: ['welcome'] },
                     true,
                     { $email_template_key: 'welcome' },
                 ],
-                [
-                    'a code send whose key SES could not carry, after its step moved to another key',
-                    { template_key: 'another_key' },
-                    { ph_template_tags: ['true'] },
-                    true,
-                    true,
-                    {},
-                ],
-                [
-                    'a template send from a version that did not tag it',
-                    { template_uuid: 'template-1' },
-                    {},
-                    true,
-                    true,
-                    { $email_template_id: 'template-1' },
-                ],
-                [
-                    'a template send by a team outside the template tags allowlist',
-                    { template_uuid: 'template-2' },
-                    {},
-                    true,
-                    false,
-                    {},
-                ],
-                ['a transactional workflow saved without a name', {}, {}, true, true, {}],
-                ['a workflow email made from a template', { template_uuid: 'template-1' }, {}, false, true, {}],
+                ['a template send that carried no template tags', { template_uuid: 'template-1' }, {}, true, {}],
+                ['a transactional workflow saved without a name', {}, {}, true, {}],
+                ['a workflow email made from a template', { template_uuid: 'template-1' }, {}, false, {}],
             ])(
                 'names the email on the bounced event of %s',
-                async (_name, emailConfig, sentTags, transactional, allowlisted, identity) => {
-                    hub.CDP_EMAIL_TEMPLATE_TAGS_TEAMS = allowlisted ? String(team.id) : ''
-                    consumer = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub))
+                async (_name, emailConfig, sentTags, transactional, identity) => {
                     const hogFlow = await insertHogFlow(
                         hub.postgres,
                         new FixtureHogFlowBuilder()
