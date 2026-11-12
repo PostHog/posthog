@@ -175,6 +175,8 @@ describe('credential redaction', () => {
         { name: 'a status code in a JSON log line', input: '{"event": "request_finished", "code": 302}' },
         { name: 'a status code in a key-value log line', input: 'event=request_finished code=500 request=GET' },
         { name: 'a status code attribute', input: { code: 404 } },
+        { name: 'a status code attribute stored as text', input: { code: '404' } },
+        { name: 'a quoted status code', input: '{"event": "request_finished", "code": "302"}' },
     ])('keeps $name', ({ input }) => {
         expect(redactCredentials(input)).toEqual(input)
     })
@@ -184,6 +186,14 @@ describe('credential redaction', () => {
         { input: 'verification code: 123456', expected: 'verification code: [REDACTED]' },
         { input: 'verification code=4821 sent', expected: 'verification code=[REDACTED] sent' },
         { input: { code: 4821 }, expected: { code: '[REDACTED]' } },
+        { input: `/callback?code=4/${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
+        { input: `/callback?code=4%2F${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
+        { input: '/callback?state=1&code=302', expected: '/callback?state=1&code=[REDACTED]' },
+        { input: `code=12.${OTHER_SECRET} next=1`, expected: 'code=[REDACTED] next=1' },
+        { input: `code="12 ${OTHER_SECRET}"`, expected: 'code="[REDACTED]"' },
+        { input: { code: `4/${OTHER_SECRET}` }, expected: { code: '[REDACTED]' } },
+        { input: { code: [302, OTHER_SECRET] }, expected: { code: '[REDACTED]' } },
+        { input: { code: { toString: 'text' } }, expected: { code: '[REDACTED]' } },
         { input: { code: OTHER_SECRET }, expected: { code: '[REDACTED]' } },
         { input: `Code: 60. failed with token=${OTHER_SECRET}`, expected: 'Code: 60. failed with token=[REDACTED]' },
     ])('still masks a code that is not a short number: $input', ({ input, expected }) => {
