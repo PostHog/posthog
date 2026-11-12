@@ -29,7 +29,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
+import { getAppContext, getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -236,8 +236,17 @@ export const accountFilterTestAccountsStorage = localStorageSlot(
     z.boolean()
 )
 
+// Same order as filterTestAccountsDefaultsLogic. App context, not teamLogic, because reducers call this.
 const getDefaultFilterTestAccounts = (): boolean => {
-    return accountFilterTestAccountsStorage.get() ?? localStorage.getItem('default_filter_test_accounts') === 'true'
+    const account = accountFilterTestAccountsStorage.get()
+    if (account !== null) {
+        return account
+    }
+    const stored = localStorage.getItem('default_filter_test_accounts')
+    if (stored !== null) {
+        return stored === 'true'
+    }
+    return getAppContext()?.current_team?.test_account_filters_default_checked ?? false
 }
 
 const getAccountFilterTestAccounts = (): boolean | undefined => {
