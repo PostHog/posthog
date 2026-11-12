@@ -337,18 +337,13 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                     FailureCause::Fault
                 };
                 self.record_failed(request, cause, failure.messages.len());
-                let requeued = state.on_request_failed(
+                state.on_request_failed(
                     now,
                     &self.workers.candidates(),
                     request,
                     cause,
                     failure.messages,
-                );
-                // The worker stream takes no new send until the failed
-                // messages are requeued. Released before this action's
-                // sends, which can go to the same stream.
-                drop(failure.fence_guard);
-                requeued
+                )
             }
             Event::Wakeup => state.on_wakeup(now, &self.workers.candidates()),
         };
@@ -519,7 +514,7 @@ mod tests {
     use crate::batcher::test_support::{message, offsets};
     use crate::batcher::worker_assigner::{WorkerAssigner, WorkerInFlight};
     use crate::routing::{Router, RoutingStrategy};
-    use crate::transport::{FenceGuard, TransportError};
+    use crate::transport::TransportError;
 
     const FAULT_DELAY: Duration = Duration::from_millis(200);
     const BUSY_DELAY: Duration = Duration::from_millis(20);
@@ -531,14 +526,12 @@ mod tests {
         offsets: Vec<i64>,
         replay: bool,
         soft_budget: Option<Duration>,
-        fence_released: Option<bool>,
         reply: oneshot::Sender<Result<SendOutcome, SendError>>,
     }
 
     struct FakeSender {
         assignment_epoch: AssignmentEpoch,
         sent: Mutex<Vec<Sent>>,
-        fence: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
     }
 
     impl RequestSender for FakeSender {
@@ -552,19 +545,12 @@ mod tests {
             messages: Vec<SerializedKafkaMessage>,
             options: SendOptions,
         ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
-            let fence_released = self
-                .fence
-                .lock()
-                .unwrap()
-                .as_mut()
-                .map(|released| released.try_recv().is_ok());
             let (reply, response) = oneshot::channel();
             self.sent.lock().unwrap().push(Sent {
                 worker: worker.clone(),
                 offsets: offsets(&messages),
                 replay: options.replay,
                 soft_budget: options.soft_budget,
-                fence_released,
                 reply,
             });
             async move { response.await.expect("the test replies to every send") }.boxed()
@@ -663,7 +649,6 @@ mod tests {
             let sender = Arc::new(FakeSender {
                 assignment_epoch: AssignmentEpoch::new(),
                 sent: Mutex::new(Vec::new()),
-                fence: Mutex::new(None),
             });
             let (driver, outputs) =
                 StateMachineDriver::new(state, fake_workers.clone(), Arc::clone(&sender), recorder);
@@ -752,7 +737,7 @@ mod tests {
         }
     }
 
-    fn busy(sent: &Sent, fence_guard: Option<FenceGuard>) -> SendError {
+    fn busy(sent: &Sent) -> SendError {
         SendError {
             error: TransportError::WorkerStreamBusy("test"),
             messages: sent
@@ -760,7 +745,6 @@ mod tests {
                 .iter()
                 .map(|&offset| message("a", 0, offset))
                 .collect(),
-            fence_guard,
         }
     }
 
@@ -830,7 +814,7 @@ mod tests {
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
-        let failure = busy(&send, None);
+        let failure = busy(&send);
         send.reply.send(Err(failure)).unwrap();
         settle().await;
         assert!(h.take_sent().is_empty());
@@ -858,31 +842,10 @@ mod tests {
             .send(Err(SendError {
                 error: TransportError::WorkerStreamFailed("test"),
                 messages: vec![message("a", 0, 1)],
-                fence_guard: None,
             }))
             .unwrap();
         settle().await;
         assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), true)]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_sends_fence_is_released_before_the_next_send_to_its_worker() {
-        let h = Harness::new(&["w"], 1);
-        h.submit(vec![run("a", &[1]), run("b", &[2])]);
-        settle().await;
-        let send = h.take_sent().pop().unwrap();
-        assert_eq!(send.offsets, vec![1], "b waits for the only slot");
-
-        let (release, released) = mpsc::unbounded_channel();
-        *h.sender.fence.lock().unwrap() = Some(released);
-        let failure = busy(&send, Some(FenceGuard::new(release)));
-        send.reply.send(Err(failure)).unwrap();
-        settle().await;
-
-        let next = h.take_sent();
-        assert_eq!(next.len(), 1);
-        assert_eq!(next[0].offsets, vec![2]);
-        assert_eq!(next[0].fence_released, Some(true));
     }
 
     #[tokio::test(start_paused = true)]
@@ -1077,7 +1040,7 @@ mod tests {
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
-        let failure = busy(&send, None);
+        let failure = busy(&send);
         send.reply.send(Err(failure)).unwrap();
         settle().await;
         tokio::time::advance(BUSY_DELAY).await;
