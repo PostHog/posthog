@@ -855,7 +855,7 @@ jobs:
                   gh release create "$RELEASE_TAG" "$assets"/* \
                       --target "$RELEASE_COMMIT" --latest=false "${prerelease[@]}" \
                       --title "hog $VERSION" \
-                      --notes "hog $VERSION. Install it with \`curl -fsSL https://releases.posthog.com/hog/install.sh | sh\`. hog/CHANGELOG.md lists the changes."
+                      --notes "hog $VERSION. hog/README.md describes how to install it, and hog/CHANGELOG.md lists the changes."
 
             # Through the contents API, which signs the commit as the App. The tap has one formula and
             # no channels, so only the latest release moves it.
