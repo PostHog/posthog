@@ -118,7 +118,7 @@ describe('statusOf', () => {
                 exits: [exited(EMAIL_WORKER, 20)],
             },
             'failed',
-            `${EMAIL_WORKER} exited (SIGKILL) without a valve causing it`,
+            `${EMAIL_WORKER} exited (SIGKILL) without a valve causing it; role.kill on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
         ],
         [
             'a dependency went away',
