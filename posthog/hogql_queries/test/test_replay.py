@@ -149,7 +149,42 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
         head = replay.execute_on_clickhouse(head_sql, self.team.pk, "replay-a-0-head")
 
         assert base.error is None
-        assert base != head
+        assert not replay.results_match(base, head)
+
+    @parameterized.expand(
+        [
+            ("same", [(1, "a")], [(1, "a")], True),
+            ("reordered", [(1,), (2,)], [(2,), (1,)], True),
+            ("duplicate_count", [(1,), (1,)], [(1,)], False),
+            ("float_noise", [(0.1 + 0.2,)], [(0.3,)], True),
+            ("float_change", [(0.30,)], [(0.31,)], False),
+            ("nan", [(float("nan"),)], [(float("nan"),)], True),
+            ("null_is_not_zero", [(None,)], [(0,)], False),
+            ("nested", [([1, (2.0, None)],)], [([1, (2.0, None)],)], True),
+            ("both_empty", [], [], True),
+        ]
+    )
+    def test_rows_match(self, _name, base_rows, head_rows, expected):
+        base = RunResult(row_count=len(base_rows), rows=tuple(base_rows))
+        head = RunResult(row_count=len(head_rows), rows=tuple(head_rows))
+
+        assert replay.results_match(base, head) is expected
+
+    def test_row_differences_name_the_rows_on_each_side(self):
+        base_only, head_only = replay.row_differences([(1, "a"), (2, "b")], [(1, "a"), (2, "c"), (3, "d")])
+
+        assert base_only == [(2, "b")]
+        assert head_only == [(2, "c"), (3, "d")]
+
+    def test_results_over_the_row_cap_are_still_compared(self):
+        with patch.object(replay, "ROW_CAP", 2):
+            base = replay.execute_on_clickhouse("SELECT number FROM numbers(5)", self.team.pk, "replay-a-0-base")
+            same = replay.execute_on_clickhouse("SELECT number FROM numbers(5)", self.team.pk, "replay-a-0-base2")
+            head = replay.execute_on_clickhouse("SELECT number + 1 FROM numbers(5)", self.team.pk, "replay-a-0-head")
+
+        assert base.rows is None
+        assert replay.results_match(base, same)
+        assert not replay.results_match(base, head)
 
     def test_compile_does_not_run_statements_sent_outside_hogql(self):
         query = {"kind": "HogQLQuery", "query": "select 1"}
@@ -196,9 +231,13 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
             query = result["queries"][0]
             saved_base_sql = (tmp / "report" / query["base_sql_file"]).read_text()
             saved_head_sql = (tmp / "report" / query["head_sql_file"]).read_text()
+            differences = json.loads((tmp / "report" / query["differences_file"]).read_text())
 
         assert result["counts"]["different_results"] == 1
         assert result["queries"][0]["base_rows"] == 1
         assert saved_base_sql == prod_sql
         assert saved_head_sql == head_sql
+        assert differences["only_in_base"] == [["a", 2]]
+        assert differences["only_in_head"] == [["b", 1]]
+        assert "Rows only in head" in report
         assert "-" in report and "event" in report

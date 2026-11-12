@@ -63,5 +63,5 @@ class Command(BaseCommand):
         summary = replay.summarize(
             outcomes, replay.load_read_bytes(run_id), options["base_label"], options["head_label"]
         )
-        replay.write_report(summary, options["out_dir"])
+        replay.write_report(summary, outcomes, options["out_dir"])
         self.stdout.write(f"{summary['counts']} regressions={summary['regressions']}")

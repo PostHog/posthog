@@ -1,6 +1,7 @@
 import re
 import html
 import json
+import math
 import uuid
 import difflib
 import dataclasses
@@ -34,6 +35,8 @@ SAMPLE_SETTINGS = {"max_execution_time": 120}
 _LOGGED = "type = 'QueryFinish' AND is_initial_query AND lc_query__kind != '' AND team_id > 0"
 MAX_EXECUTED = 200
 REGRESSION_FACTOR = 1.5
+ROW_CAP = 10_000
+DIFFERENCES_SHOWN = 20
 EXECUTION_SETTINGS = {"use_query_condition_cache": 0, "max_execution_time": 60}
 
 _LEADING_COMMENTS = re.compile(r"^(\s*/\*.*?\*/)+", re.DOTALL)
@@ -70,11 +73,15 @@ class CompiledQuery:
     error: str | None = None
 
 
+Row = tuple[Any, ...]
+
+
 @frozen
 class RunResult:
     row_count: int | None = None
     fingerprint: int | None = None
     columns: tuple[tuple[str, str], ...] = ()
+    rows: tuple[Row, ...] | None = None
     error: str | None = None
 
 
@@ -87,6 +94,9 @@ class Outcome:
     error: str | None = None
     base_rows: int | None = None
     head_rows: int | None = None
+    columns: tuple[tuple[str, str], ...] = ()
+    base_only: tuple[Row, ...] = ()
+    head_only: tuple[Row, ...] = ()
     base_tag: str | None = None
     head_tag: str | None = None
 
@@ -222,20 +232,56 @@ def normalize_sql(sql: str) -> str:
 
 
 def execute_on_clickhouse(sql: str, team_id: int, tag: str) -> RunResult:
+    def run(wrapped: str) -> list[Row]:
+        with tags_context(client_query_id=tag, team_id=team_id):
+            return sync_execute(
+                wrapped, settings=EXECUTION_SETTINGS, workload=Workload.OFFLINE, team_id=team_id, readonly=True
+            )
+
     try:
         described = sync_execute(f"DESCRIBE ({sql})", workload=Workload.OFFLINE, team_id=team_id, readonly=True)
-        with tags_context(client_query_id=tag, team_id=team_id):
-            rows = sync_execute(
-                f"SELECT count(), sum(cityHash64(toString(tuple(*)))) FROM ({sql})",
-                settings=EXECUTION_SETTINGS,
-                workload=Workload.OFFLINE,
-                team_id=team_id,
-                readonly=True,
-            )
+        columns = tuple((row[0], row[1]) for row in described)
+        rows = run(f"SELECT * FROM ({sql}) LIMIT {ROW_CAP + 1}")
+        if len(rows) <= ROW_CAP:
+            return RunResult(row_count=len(rows), columns=columns, rows=tuple(tuple(row) for row in rows))
+        row_count, fingerprint = run(f"SELECT count(), sum(cityHash64(toString(tuple(*)))) FROM ({sql})")[0]
     except Exception as e:
         return RunResult(error=repr(e))
-    columns = tuple((row[0], row[1]) for row in described)
-    return RunResult(row_count=rows[0][0], fingerprint=rows[0][1], columns=columns)
+    return RunResult(row_count=row_count, fingerprint=fingerprint, columns=columns)
+
+
+def results_match(a: RunResult, b: RunResult) -> bool:
+    if a.error or b.error or a.columns != b.columns:
+        return False
+    if a.rows is not None and b.rows is not None:
+        return not any(row_differences(a.rows, b.rows))
+    return a.rows is None and b.rows is None and (a.row_count, a.fingerprint) == (b.row_count, b.fingerprint)
+
+
+def row_differences(base: Sequence[Row], head: Sequence[Row]) -> tuple[list[Row], list[Row]]:
+    base_keys = Counter(_row_key(row) for row in base)
+    head_keys = Counter(_row_key(row) for row in head)
+    return _rows_beyond(base, head_keys), _rows_beyond(head, base_keys)
+
+
+def _rows_beyond(rows: Sequence[Row], other: Counter[str]) -> list[Row]:
+    remaining = Counter(other)
+    extra: list[Row] = []
+    for row in rows:
+        key = _row_key(row)
+        if remaining[key]:
+            remaining[key] -= 1
+        else:
+            extra.append(row)
+    return extra
+
+
+def _row_key(value: Any) -> str:
+    if isinstance(value, float):
+        return "nan" if math.isnan(value) else f"{value:.9g}"
+    if isinstance(value, (list, tuple)):
+        return "(" + ",".join(_row_key(item) for item in value) + ")"
+    return repr(value)
 
 
 def load_read_bytes(run_id: str) -> dict[str, int]:
@@ -314,14 +360,23 @@ def _judge(
     if first.error:
         return outcome(Verdict.NOT_RUN, error=first.error)
     second = execute(base_sql, logged.team_id, f"{tag}-base2")
-    if second != first:
+    if not results_match(first, second):
         return outcome(Verdict.UNSTABLE, error=second.error, base_rows=first.row_count)
     result = execute(head_sql, logged.team_id, head_tag)
     tags = {"base_rows": first.row_count, "base_tag": base_tag, "head_tag": head_tag}
     if result.error:
         return outcome(Verdict.HEAD_ONLY_ERROR, error=result.error, **tags)
-    verdict = Verdict.SAME_RESULTS if result == first else Verdict.DIFFERENT_RESULTS
-    return outcome(verdict, head_rows=result.row_count, **tags)
+    if results_match(first, result):
+        return outcome(Verdict.SAME_RESULTS, head_rows=result.row_count, **tags)
+    base_only, head_only = row_differences(first.rows or (), result.rows or ())
+    return outcome(
+        Verdict.DIFFERENT_RESULTS,
+        head_rows=result.row_count,
+        columns=result.columns,
+        base_only=tuple(base_only[:DIFFERENCES_SHOWN]),
+        head_only=tuple(head_only[:DIFFERENCES_SHOWN]),
+        **tags,
+    )
 
 
 def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base: str, head: str) -> dict:
@@ -336,6 +391,7 @@ def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base: 
                 "query_id": o.logged.query_id,
                 "base_sql_file": f"{file_stem}.base.sql",
                 "head_sql_file": f"{file_stem}.head.sql",
+                "differences_file": f"{file_stem}.differences.json",
                 "team_id": o.logged.team_id,
                 "kind": o.logged.kind,
                 "verdict": o.verdict.value,
@@ -361,28 +417,35 @@ def summarize(outcomes: Sequence[Outcome], read_bytes: Mapping[str, int], base: 
     }
 
 
-def write_report(summary: dict, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
+def write_report(summary: dict, outcomes: Sequence[Outcome], out_dir: Path) -> None:
+    (out_dir / "sql").mkdir(parents=True, exist_ok=True)
     (out_dir / "result.json").write_text(json.dumps(summary, indent=2))
-    (out_dir / "sql").mkdir(exist_ok=True)
-    for query in summary["queries"]:
-        if query["base_sql"] and query["head_sql"] and query["base_sql"] != query["head_sql"]:
-            (out_dir / query["base_sql_file"]).write_text(query["base_sql"])
-            (out_dir / query["head_sql_file"]).write_text(query["head_sql"])
-    (out_dir / "index.html").write_text(_render_html(summary))
+    (out_dir / "index.html").write_text(_render_html(summary, outcomes))
+    for query, outcome in zip(summary["queries"], outcomes):
+        if outcome.base_sql and outcome.head_sql and outcome.base_sql != outcome.head_sql:
+            (out_dir / query["base_sql_file"]).write_text(outcome.base_sql)
+            (out_dir / query["head_sql_file"]).write_text(outcome.head_sql)
+        if outcome.verdict == Verdict.DIFFERENT_RESULTS:
+            differences = {
+                "columns": outcome.columns,
+                "only_in_base": outcome.base_only,
+                "only_in_head": outcome.head_only,
+            }
+            (out_dir / query["differences_file"]).write_text(json.dumps(differences, indent=2, default=str))
 
 
-def _render_html(summary: dict) -> str:
+def _render_html(summary: dict, outcomes: Sequence[Outcome]) -> str:
     def cell(value: object) -> str:
         return f"<td>{html.escape(str(value))}</td>"
 
     counts = "".join(f"<tr>{cell(verdict)}{cell(count)}</tr>" for verdict, count in summary["counts"].items())
     interesting = [
-        q
-        for q in summary["queries"]
+        (q, o)
+        for q, o in zip(summary["queries"], outcomes)
         if q["verdict"] in (Verdict.DIFFERENT_RESULTS, Verdict.HEAD_ONLY_ERROR) or q["regression"]
     ]
-    other = [q for q in summary["queries"] if q not in interesting and q["verdict"] != Verdict.IDENTICAL_SQL]
+    shown = {q["query_id"] for q, _ in interesting}
+    other = [q for q in summary["queries"] if q["query_id"] not in shown and q["verdict"] != Verdict.IDENTICAL_SQL]
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>HogQL replay</title>
 <style>body{{font-family:sans-serif;margin:2rem}}pre{{background:#f4f4f4;padding:1rem;overflow-x:auto}}
@@ -393,14 +456,14 @@ Queries with identical SQL were not run. Changes to how a query runner shapes it
 <table><tr><th>Verdict</th><th>Queries</th></tr>{counts}
 <tr>{cell("Reads over " + str(REGRESSION_FACTOR) + " times the bytes")}{cell(summary["regressions"])}</tr></table>
 <h2>Changed results, new errors, and higher cost</h2>
-{"".join(_render_query(q) for q in interesting) or "<p>None.</p>"}
+{"".join(_render_query(q, o) for q, o in interesting) or "<p>None.</p>"}
 <h2>Not judged</h2>
 <table><tr><th>Query ID</th><th>Team</th><th>Kind</th><th>Verdict</th><th>Reason</th></tr>
 {"".join(f"<tr>{cell(q['query_id'])}{cell(q['team_id'])}{cell(q['kind'])}{cell(q['verdict'])}{cell(q['error'] or '')}</tr>" for q in other)}
 </table></body></html>"""
 
 
-def _render_query(query: dict) -> str:
+def _render_query(query: dict, outcome: Outcome) -> str:
     diff = "\n".join(
         difflib.unified_diff(
             (query["base_sql"] or "").splitlines(), (query["head_sql"] or "").splitlines(), "base", "head", lineterm=""
@@ -419,5 +482,15 @@ def _render_query(query: dict) -> str:
     rows = "".join(f"<tr><th>{html.escape(k)}</th><td>{html.escape(str(v))}</td></tr>" for k, v in facts.items())
     return (
         f"<h3>{html.escape(query['query_id'])}</h3><table>{rows}</table>"
+        f"{_render_rows('Rows only in base', outcome.columns, outcome.base_only)}"
+        f"{_render_rows('Rows only in head', outcome.columns, outcome.head_only)}"
         f"<pre>{html.escape(query['query'])}</pre><pre>{html.escape(diff)}</pre>"
     )
+
+
+def _render_rows(title: str, columns: Sequence[tuple[str, str]], rows: Sequence[Row]) -> str:
+    if not rows:
+        return ""
+    header = "".join(f"<th>{html.escape(name)}</th>" for name, _ in columns)
+    body = "".join("<tr>" + "".join(f"<td>{html.escape(str(value))}</td>" for value in row) + "</tr>" for row in rows)
+    return f"<h4>{html.escape(title)} (first {DIFFERENCES_SHOWN})</h4><table><tr>{header}</tr>{body}</table>"

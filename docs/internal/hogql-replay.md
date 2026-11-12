@@ -29,7 +29,10 @@ For every query whose SQL changed, the report keeps both versions as files: `sql
 `result.json` names them in `base_sql_file` and `head_sql_file`.
 Each file is complete ClickHouse SQL with its dates fixed, so you can run both and compare the rows yourself, for example with the `/query-clickhouse-via-metabase` skill.
 
-The report contains customer query text.
+For a `different_results` query the report shows the first 20 rows that are only in the base and only in the head.
+The same rows are in `sql/<query ID>.differences.json`, not in `result.json`.
+
+The report contains customer query text and result rows.
 Do not paste it into a pull request, an issue, or any public place.
 
 ## Verdicts
@@ -54,7 +57,7 @@ The pull request image tag moves with every push, so check that the head image i
 - Changes to how a query runner shapes its response in Python. Only ClickHouse rows are compared.
 - Query runners that send more than one statement to ClickHouse. These show as `could_not_model`.
 - Requests that sent more than one statement in production, and queries logged without a client query ID. These are left out of the sample.
-- Row order. Results are compared as a set of rows with a row count.
+- Row order. Rows are compared without regard to order, and duplicates count.
 - The EU region.
 
 ## How it works
@@ -63,4 +66,6 @@ The management command `hogql_replay` has three actions, and `hogli replay:hogql
 
 1. `sample` reads query IDs or a sample from `query_log_archive`.
 2. `compile` runs in both pods. It builds each query through its query runner at the time the query originally ran, and records the SQL without sending it to ClickHouse.
-3. `run` runs in the base pod. It runs the base SQL twice and the head SQL once, compares row count and a hash of the rows, and reads the bytes each run read from the query log.
+3. `run` runs in the base pod. It runs the base SQL twice and the head SQL once, compares the columns and the rows, and reads the bytes each run read from the query log.
+   Floats match to 9 significant digits.
+   A result over 10,000 rows is compared by row count and a hash of the rows.
