@@ -1649,6 +1649,27 @@ class TestReplayVisionLifecycleTools(BaseTest):
 
         assert artifact["error"] == "invalid_filters"
 
+    @parameterized.expand([("count", False), ("cohort", True)])
+    def test_impact_leaves_out_observations_from_an_unreadable_experiment(self, _name: str, create_cohort: bool):
+        scanner = self._scanner()
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="restricted",
+            distinct_id="person-restricted",
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_snapshot={"experiment_targeting": {"experiment_id": 999_999}},
+            scanner_result={"model_output": {"verdict": "no"}},
+        )
+
+        content, artifact = async_to_sync(self._tool(AnalyzeReplayVisionImpactTool)._arun_impl)(
+            scanner_id=str(scanner.id), verdict="no", create_cohort=create_cohort
+        )
+
+        assert artifact["affected_sessions"] == 0
+        assert "cohort_id" not in artifact
+
     def _monitor_with_observations(self) -> ReplayScanner:
         scanner = self._scanner()
         outcomes = [

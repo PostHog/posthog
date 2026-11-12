@@ -2155,13 +2155,21 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
     ) -> tuple[str, dict[str, Any]]:
         # Cohort creation writes, so it needs editor; counting alone needs only viewer.
         scanner = self._scanner_for(scanner_id, "editor" if create_cohort else "viewer")
-        if scanner is None:
+        if scanner is None or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        # Row-level too: a retargeted scanner keeps observations from experiments the user can't view.
+        readable = accessible_observations(self.user_access_control, self._team.id, ReplayObservation.objects.all())
         # Raises on filter/scanner-type mismatches the description invites Max to try, and the messages
         # are written for a person, so hand them back instead of crashing the turn.
         try:
             impact = compute_scanner_impact(
-                scanner, window_days, verdict=verdict, tag=tag, min_score=min_score, max_score=max_score
+                scanner,
+                window_days,
+                verdict=verdict,
+                tag=tag,
+                min_score=min_score,
+                max_score=max_score,
+                observations=readable,
             )
         except ValueError as exc:
             return str(exc), {"error": "invalid_filters"}
@@ -2183,7 +2191,14 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
             return f"{content} Saving them as a cohort needs cohort edit access.", artifact
         try:
             cohort, members = create_affected_cohort(
-                scanner, self._user, window_days, verdict=verdict, tag=tag, min_score=min_score, max_score=max_score
+                scanner,
+                self._user,
+                window_days,
+                verdict=verdict,
+                tag=tag,
+                min_score=min_score,
+                max_score=max_score,
+                observations=readable,
             )
         except ValueError as exc:
             return f"{content} Couldn't build a cohort: {exc}", artifact
