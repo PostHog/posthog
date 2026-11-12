@@ -84,6 +84,7 @@ When agent output (`-o json`) changed, show that too.
 
 - Copy the mockup from a real run, such as `pnpm --filter @posthog/hog hog <command>` or `cargo run --manifest-path cli/Cargo.toml -- <command>`. Write one by hand only for a state you can't reach locally, and say which.
 - Put each in a `console` code block that starts with the command, and give the exit code when it isn't 0.
+- Every new error code, and every case a review fix adds or changes, gets its mockup in the same push.
 - Reviewers judge wording, order and hints from the mockup, so they don't have to check out the branch to see what users get.
 
 ## Before you report done
