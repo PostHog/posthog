@@ -1,4 +1,4 @@
-import { HogError } from '@/core/errors'
+import { failureText, HogError } from '@/core/errors'
 import type { PostHogApi } from '@/posthog/api'
 
 import { createEndpoint, createInsightVariable, updateEndpoint } from './api'
@@ -127,7 +127,8 @@ export function pushScopes(items: PushItem[], variables: InsightVariable[]): str
 export async function applyPush(
     api: PostHogApi,
     items: PushItem[],
-    variables: InsightVariable[]
+    variables: InsightVariable[],
+    isCI: boolean
 ): Promise<PushOutcome[]> {
     const known = new Map(variables.map((variable) => [variable.code_name, variable]))
     const outcomes: PushOutcome[] = []
@@ -169,7 +170,7 @@ export async function applyPush(
                 name: item.name,
                 path: item.path,
                 status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
+                error: failureText(error, isCI),
             })
         }
     }

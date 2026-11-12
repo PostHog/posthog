@@ -1177,9 +1177,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         instead of passing secrets inline. Only credentials the requesting user stored resolve —
         ids are listable within a team, so without the owner check any member could consume a
         teammate's stashed secrets into a source they control. Returns the (possibly merged)
-        payload, the resolved credential (which the caller deletes once consumed — stored
-        credentials are single-use), and a 400 Response to return as-is on a lookup miss or
-        source-type mismatch.
+        payload, the resolved credential (which a caller that creates a source deletes once
+        consumed — stored credentials are single-use; read-only discovery leaves it in place),
+        and a 400 Response to return as-is on a lookup miss or source-type mismatch.
         """
         credential_id = payload.pop("credential_id", None)
         if credential_id is None:
@@ -1194,7 +1194,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 credential=None,
                 error_response=Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
+                    data={
+                        "message": f"Stored credential '{credential_id}' not found or expired. "
+                        "List your valid stored credentials with data-warehouse-stored-credentials-list."
+                    },
                 ),
             )
         if credential.source_type != source_type:
@@ -1205,7 +1208,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.source_type}', not '{source_type}'"
+                        f"'{credential.source_type}', not '{source_type}'. "
+                        f"Pass source_type '{credential.source_type}' with this credential."
                     },
                 ),
             )

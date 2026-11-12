@@ -10423,6 +10423,7 @@ export namespace Schemas {
      * * `edit_release_conditions` - Edit Release Conditions
      * * `end_experiment` - End Experiment
      * * `freeze_exposure` - Freeze Exposure
+     * * `move_start_date` - Move Start Date
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -10434,7 +10435,8 @@ export namespace Schemas {
         | "edit_exposure_criteria"
         | "edit_release_conditions"
         | "end_experiment"
-        | "freeze_exposure";
+        | "freeze_exposure"
+        | "move_start_date";
     /**
      * * `flag_state` - Flag State
      * * `flag_shared` - Flag Shared
@@ -10622,6 +10624,27 @@ export namespace Schemas {
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10645,7 +10668,28 @@ export namespace Schemas {
         | "flag_active"
         | "flag_deleted"
         | "flag_rolled_out"
-        | "shipped_variant";
+        | "shipped_variant"
+        | "flag_last_called_at"
+        | "since_start_hours"
+        | "daily_calculation_ends_at"
+        | "metric_name"
+        | "metric_role"
+        | "ratio_side"
+        | "sample_count"
+        | "planned_sample_count"
+        | "data_hours"
+        | "variant"
+        | "difference_percentage"
+        | "detectable_difference_percentage"
+        | "significant"
+        | "forced_condition_count"
+        | "matched_count"
+        | "variant_matched_count"
+        | "forced_count"
+        | "forced_percentage"
+        | "traffic_since_at"
+        | "changed_at"
+        | "before_exposure";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10681,6 +10725,27 @@ export namespace Schemas {
          * * `flag_deleted` - Whether the feature flag is deleted
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10714,6 +10779,27 @@ export namespace Schemas {
          * * `flag_deleted` - Whether the feature flag is deleted
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10798,6 +10884,10 @@ export namespace Schemas {
          * How the check decides. The same for every experiment and every status. Null for a check without a numeric rule.
          */
         rule: ExperimentHealthCheckRule | null;
+        /**
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         */
+        rows: Array<Record<string, string | number | boolean | null>>;
     };
     export type ExperimentHealthReleaseCondition = {
         /**
@@ -10907,6 +10997,15 @@ export namespace Schemas {
          */
         feature_flag_key: string;
         feature_flag: MinimalFeatureFlag & unknown;
+        /**
+         * Full experiment representation for the detail, create, and update endpoints.
+         *
+         * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+         * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+         * fields, and refreshes stale action names while serializing. The list endpoint uses the
+         * leaner ``ExperimentBasicSerializer`` instead.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
@@ -11432,6 +11531,10 @@ export namespace Schemas {
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
         feature_flag?: ExperimentFeatureFlagInput | undefined;
+        /**
+         * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -12361,6 +12464,7 @@ export namespace Schemas {
      * * `conditional_branch` - conditional_branch
      * * `random_cohort_branch` - random_cohort_branch
      * * `exit` - exit
+     * * `email_sandbox` - email_sandbox
      */
     export type HogFlowActionTypeEnum =
         | "trigger"
@@ -12373,7 +12477,8 @@ export namespace Schemas {
         | "wait_until_time_window"
         | "conditional_branch"
         | "random_cohort_branch"
-        | "exit";
+        | "exit"
+        | "email_sandbox";
     export type HogFlowAction = {
         /**
          * Unique node ID within the workflow.
@@ -12389,7 +12494,7 @@ export namespace Schemas {
         updated_at?: number | undefined;
         filters?: (HogFunctionFilters | null) | undefined;
         /**
-         * One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+         * One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit | email_sandbox.
          *
          * * `trigger` - trigger
          * * `function` - function
@@ -12402,10 +12507,11 @@ export namespace Schemas {
          * * `conditional_branch` - conditional_branch
          * * `random_cohort_branch` - random_cohort_branch
          * * `exit` - exit
+         * * `email_sandbox` - email_sandbox
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from PostHog's shared sandbox sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -16045,6 +16151,7 @@ export namespace Schemas {
         end_date: string | null;
         feature_flag_key: string;
         feature_flag: ExperimentFeatureFlagInput;
+        feature_flag_rule_id: string | null;
         holdout: ExperimentHoldout & unknown;
         holdout_id: number | null;
         exposure_cohort: number | null;
