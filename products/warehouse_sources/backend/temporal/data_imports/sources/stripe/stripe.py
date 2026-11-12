@@ -14,7 +14,6 @@ import stripe as stripe_lib
 import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
-from prometheus_client import Counter
 from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
@@ -146,13 +145,6 @@ NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
 # The same checkpoint also fires after this much time, because 5000 parents at one API call each can
 # take long enough that a worker shutdown waits on the sweep instead of handing it off.
 NESTED_SWEEP_CHECKPOINT_SECONDS = 60.0
-
-# Each skipped run ends as a success with no rows, so the run status alone does not show the skip.
-WEBHOOK_UNREGISTERED_SKIPS = Counter(
-    "warehouse_stripe_webhook_unregistered_skips_total",
-    "Stripe syncs skipped because the table uses webhook sync and the source has no enabled webhook.",
-    labelnames=["endpoint"],
-)
 
 # An incremental read that is far behind stops after this long, and the run completes. Import
 # workers restart often, and a run that a restart interrupts loses its rows, so a longer read
@@ -1098,7 +1090,6 @@ def get_rows(
         or isinstance(resource, StripeNestedResource)
     ):
         if skip_full_listing:
-            WEBHOOK_UNREGISTERED_SKIPS.labels(endpoint=endpoint).inc()
             logger.warning(
                 f"Stripe: skipped the {endpoint} sync. This table uses webhook sync, but the source has no "
                 "active webhook. Set up the webhook on the source's Webhook tab, or change the table to a "

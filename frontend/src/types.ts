@@ -6670,8 +6670,6 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * failure is current. A later run that succeeds, or fails for another reason, clears it.
      */
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
-    /** Whether this table uses webhook sync past its initial sync, but its source has no enabled webhook. */
-    webhook_not_registered?: boolean
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

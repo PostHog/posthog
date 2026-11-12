@@ -113,16 +113,6 @@ const schemaStatusDisplay = (
     schema: ExternalDataSourceSchema,
     status: ExternalDataSchemaStatus
 ): SchemaStatusDisplay => {
-    // Stripe skips these syncs and other sources poll instead, so "Completed" alone would hide that
-    // the table gets no webhook updates.
-    if (status === ExternalDataSchemaStatus.Completed && schema.webhook_not_registered) {
-        return {
-            type: 'warning',
-            label: 'Completed, no webhook',
-            tooltip:
-                'This table uses webhook sync, but the source has no active webhook, so the table gets no webhook updates. For some sources, such as Stripe, the table stops updating. Set up the webhook on the Webhook tab, or change the sync method.',
-        }
-    }
     // An empty table after a completed sync usually means a row filter that matches nothing, a missing
     // permission, or an empty source. An incremental sync that finds no new rows still leaves rows in
     // the table, so it doesn't trigger this.

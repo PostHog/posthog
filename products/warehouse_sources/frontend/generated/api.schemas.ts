@@ -523,8 +523,6 @@ export interface ExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
-    /** Whether this table uses webhook sync, has finished its initial sync, and its source has no enabled webhook. Such a table gets no webhook updates: Stripe skips its scheduled syncs, so the table stops updating, and other sources poll the API instead. Set up the webhook on the source, or change `sync_type`. */
-    readonly webhook_not_registered: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -729,8 +727,6 @@ export interface PatchedExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
-    /** Whether this table uses webhook sync, has finished its initial sync, and its source has no enabled webhook. Such a table gets no webhook updates: Stripe skips its scheduled syncs, so the table stops updating, and other sources poll the API instead. Set up the webhook on the source, or change `sync_type`. */
-    readonly webhook_not_registered?: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable

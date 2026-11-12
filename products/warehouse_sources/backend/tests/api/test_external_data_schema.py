@@ -32,7 +32,6 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.redis import get_client
 from posthog.temporal.common.schedule import create_schedule, describe_schedule
 
-from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import Edge, Node
 from products.data_warehouse.backend.facade.api import (
     DIRECT_POSTGRES_URL_PATTERN,
@@ -5139,64 +5138,6 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
             rows = view.get_serializer(schemas, many=True, context={"include_columns": False}).data
 
         assert {row["id"]: row["table_id"] for row in rows} == expected
-
-    @parameterized.expand(
-        [
-            ("no_webhook", "webhook", True, None, True),
-            ("disabled_webhook", "webhook", True, False, True),
-            ("enabled_webhook", "webhook", True, True, False),
-            ("initial_sync_pending", "webhook", False, None, False),
-            ("not_webhook_sync", "incremental", True, None, False),
-        ]
-    )
-    def test_webhook_not_registered(
-        self, _name: str, sync_type: str, initial_sync_complete: bool, webhook_enabled: bool | None, expected: bool
-    ) -> None:
-        source, _ = self._create()
-        ExternalDataSchema.objects.filter(source=source).delete()
-        for name in ("Customer", "Invoice"):
-            ExternalDataSchema.objects.create(
-                name=name,
-                team=self.team,
-                source=source,
-                should_sync=True,
-                sync_type=sync_type,
-                initial_sync_complete=initial_sync_complete,
-            )
-        if webhook_enabled is not None:
-            HogFunction.objects.create(
-                team=self.team,
-                type="warehouse_source_webhook",
-                hog="return event",
-                enabled=webhook_enabled,
-                inputs_schema=[{"key": "source_id", "type": "string"}],
-                inputs={"source_id": {"value": str(source.pk)}},
-            )
-
-        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
-
-        assert [row["webhook_not_registered"] for row in listed] == [expected, expected]
-
-    def test_webhook_not_registered_looks_up_each_source_once(self) -> None:
-        source, _ = self._create()
-        schemas = [
-            ExternalDataSchema.objects.create(
-                name=name,
-                team=self.team,
-                source=source,
-                should_sync=True,
-                sync_type="webhook",
-                initial_sync_complete=True,
-            )
-            for name in ("Customer", "Invoice", "Charge")
-        ]
-        view = ExternalDataSchemaViewset()
-        view.team_id = self.team.pk
-
-        with self.assertNumQueries(1):
-            rows = view.get_serializer(schemas, many=True, context={"include_columns": False}).data
-
-        assert all(row["webhook_not_registered"] for row in rows)
 
     def test_list_omits_source_summary(self):
         self._create()

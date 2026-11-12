@@ -26,7 +26,6 @@ from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.cdp.backend.facade.models import HogFunction
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -152,7 +151,6 @@ def source_syncs_on_demand(source_type: str) -> bool:
 
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
-WEBHOOK_REGISTERED_BY_SOURCE_CONTEXT_KEY = "webhook_registered_by_source"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -707,15 +705,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
-    webhook_not_registered = serializers.SerializerMethodField(
-        read_only=True,
-        help_text=(
-            "Whether this table uses webhook sync, has finished its initial sync, and its source has no "
-            "enabled webhook. Such a table gets no webhook updates: Stripe skips its scheduled syncs, so the "
-            "table stops updating, and other sources poll the API instead. Set up the webhook on the source, "
-            "or change `sync_type`."
-        ),
-    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -815,7 +804,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "primary_key_columns",
             "cdc_table_mode",
             "incremental_sync_blocked",
-            "webhook_not_registered",
             "enabled_columns",
             "row_filters",
             "row_filter_columns",
@@ -839,7 +827,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "status",
             "pending_self_managed_table",
             "incremental_sync_blocked",
-            "webhook_not_registered",
             "next_full_refresh_at",
             "description",
             "row_filter_columns",
@@ -1028,22 +1015,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
-
-    def get_webhook_not_registered(self, schema: ExternalDataSchema) -> bool:
-        if not (schema.is_webhook and schema.initial_sync_complete and schema.should_sync):
-            return False
-        # A list serializes many schemas of the same source, so look each source up only once.
-        cache: dict[str, bool] = self.context.setdefault(WEBHOOK_REGISTERED_BY_SOURCE_CONTEXT_KEY, {})
-        source_id = str(schema.source_id)
-        if source_id not in cache:
-            cache[source_id] = HogFunction.objects.filter(
-                team_id=schema.team_id,
-                type="warehouse_source_webhook",
-                enabled=True,
-                deleted=False,
-                inputs__source_id__value=source_id,
-            ).exists()
-        return not cache[source_id]
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
