@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
+use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::outputs::PreparedEvent;
 use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 use crate::v1::analytics::context::Context as AnalyticsContext;
@@ -594,7 +595,7 @@ pub struct TestStateBuilder {
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
-    ai_max_event_bytes: u64,
+    ai_max_event_bytes: AiEventSizeCaps,
     legacy_property_splice: bool,
 }
 
@@ -621,7 +622,7 @@ impl TestStateBuilder {
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
             legacy_property_splice: true,
-            ai_max_event_bytes: 0,
+            ai_max_event_bytes: AiEventSizeCaps::from(0),
         }
     }
 
@@ -714,8 +715,8 @@ impl TestStateBuilder {
     }
 
     /// Set the per-event AI ceiling (defaults to `0`, which disables it).
-    pub fn with_ai_max_event_bytes(mut self, bytes: u64) -> Self {
-        self.ai_max_event_bytes = bytes;
+    pub fn with_ai_max_event_bytes(mut self, caps: impl Into<AiEventSizeCaps>) -> Self {
+        self.ai_max_event_bytes = caps.into();
         self
     }
 
@@ -807,7 +808,7 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_max_event_bytes: self.ai_max_event_bytes,
+            ai_max_event_bytes: self.ai_max_event_bytes.clone(),
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,

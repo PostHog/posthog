@@ -33,9 +33,8 @@ Authentication is a `Bearer <token>` Authorization header, validated before any 
 ### Size limits
 
 - Event part: 32KB (`MAX_EVENT_SIZE`).
-- Event + properties combined: `AI_MAX_EVENT_BYTES` (default 8 MiB), the same per-event ceiling every AI path applies.
-  An `override_ai_max_event_bytes` event restriction raises it for one token to one of the override options in `products/ai_observability/shared/crosslang/ai_event_limits.json` (24 MB or 48 MB).
-  Capture never raises it above that file's ceiling (`AI_MAX_EVENT_BYTES_CEILING`) or what the Kafka producer accepts, and never lowers it below the default.
+- Event + properties combined: `AI_MAX_EVENT_BYTES` (default 8 MiB), the same per-event cap every AI path applies.
+  `AI_MAX_EVENT_BYTES_BY_TOKEN` raises it for listed project tokens to 24 MB or 48 MB (comma-separated `token=bytes`), never above the shared ceiling or what the Kafka producer accepts. Invalid entries are logged and skipped.
 - Request body: 110% of `AI_MAX_SUM_OF_PARTS_BYTES` (default 25MB), enforced by the router's body limit and the streaming body reader.
 
 ### Compression

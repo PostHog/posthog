@@ -2,7 +2,7 @@ import json
 
 from posthog.test.base import BaseTest
 
-from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
 
@@ -12,10 +12,6 @@ from posthog.models.event_ingestion_restriction_config import (
     RestrictionType,
 )
 from posthog.redis import get_client
-
-from products.ai_observability.backend.facade.limits import get_ai_event_limits
-
-AI_MAX_EVENT_BYTES_OVERRIDE = get_ai_event_limits().max_event_bytes_overrides[0]
 
 
 class TestEventIngestionRestrictionConfig(BaseTest):
@@ -1032,60 +1028,3 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         drop_data = json.loads(self.redis_client.get(drop_config.get_redis_key()) or b"[]")
         self.assertEqual(len(drop_data), 1)
         self.assertEqual(drop_data[0]["index"], 0)
-
-    def test_override_ai_max_event_bytes_is_written_in_the_entry_format_capture_reads(self):
-        config = EventIngestionRestrictionConfig.objects.create(
-            token="phc_big_sender",
-            restriction_type=RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES,
-            args={"max_event_bytes": AI_MAX_EVENT_BYTES_OVERRIDE},
-            pipelines=["ai"],
-        )
-
-        redis_data = self.redis_client.get(config.get_redis_key())
-        self.assertEqual(
-            config.get_redis_key(), f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES}"
-        )
-        self.assertEqual(
-            json.loads(redis_data if redis_data is not None else b"[]"),
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "phc_big_sender",
-                    "pipelines": ["ai"],
-                    "distinct_ids": [],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": {"max_event_bytes": AI_MAX_EVENT_BYTES_OVERRIDE},
-                }
-            ],
-        )
-
-    @parameterized.expand(
-        [
-            ("missing_args", {"args": None}, NON_FIELD_ERRORS),
-            ("zero", {"args": {"max_event_bytes": 0}}, NON_FIELD_ERRORS),
-            ("negative", {"args": {"max_event_bytes": -1}}, NON_FIELD_ERRORS),
-            ("string", {"args": {"max_event_bytes": str(AI_MAX_EVENT_BYTES_OVERRIDE)}}, NON_FIELD_ERRORS),
-            ("float_of_an_option", {"args": {"max_event_bytes": float(AI_MAX_EVENT_BYTES_OVERRIDE)}}, NON_FIELD_ERRORS),
-            ("bool", {"args": {"max_event_bytes": True}}, NON_FIELD_ERRORS),
-            ("not_an_option", {"args": {"max_event_bytes": AI_MAX_EVENT_BYTES_OVERRIDE + 1}}, NON_FIELD_ERRORS),
-            ("analytics_pipeline", {"pipelines": ["analytics"]}, "pipelines"),
-            ("ai_and_analytics_pipelines", {"pipelines": ["ai", "analytics"]}, "pipelines"),
-            ("distinct_id_filter", {"distinct_ids": ["user-1"]}, "distinct_ids"),
-            ("event_name_filter", {"event_names": ["$ai_generation"]}, "event_names"),
-        ]
-    )
-    def test_override_ai_max_event_bytes_rejects_an_entry_capture_could_not_apply(self, _name, overrides, error_key):
-        kwargs: dict = {
-            "token": "phc_big_sender",
-            "restriction_type": RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES,
-            "args": {"max_event_bytes": AI_MAX_EVENT_BYTES_OVERRIDE},
-            "pipelines": ["ai"],
-            **overrides,
-        }
-
-        with self.assertRaises(ValidationError) as ctx:
-            EventIngestionRestrictionConfig.objects.create(**kwargs)
-        self.assertIn(error_key, ctx.exception.message_dict)

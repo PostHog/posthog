@@ -121,6 +121,7 @@ pub async fn handle_event_payload(
     // see serialized payloads.
     let sdk_attribution = SdkAttribution::from_first_event(&events);
 
+    let ai_max_event_bytes = state.ai_max_event_bytes.for_token(&token);
     let context = ProcessingContext {
         sent_at,
         token,
@@ -133,7 +134,7 @@ pub async fn handle_event_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
-        ai_max_event_bytes: state.ai_max_event_bytes,
+        ai_max_event_bytes,
         sdk_attribution,
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");

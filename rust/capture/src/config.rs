@@ -387,9 +387,13 @@ pub struct Config {
     /// warning says so when the two are out of order.
     ///
     /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
-    /// An `override_ai_max_event_bytes` restriction raises it for one token.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
+
+    /// Raises `ai_max_event_bytes` for listed project tokens: comma-separated
+    /// `token=bytes`, each value one of `AI_MAX_EVENT_BYTES_OVERRIDES`.
+    #[envconfig(default = "")]
+    pub ai_max_event_bytes_by_token: String,
 
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and

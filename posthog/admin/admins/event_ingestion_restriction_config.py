@@ -8,18 +8,6 @@ from posthog.models.event_ingestion_restriction_config import (
     RestrictionType,
 )
 
-from products.ai_observability.backend.facade.limits import get_ai_event_limits
-
-
-def max_event_bytes_choices() -> list[tuple[int | str, str]]:
-    return [
-        ("", "---------"),
-        *(
-            (option, f"{option / 1_000_000:g} MB ({option} bytes)")
-            for option in get_ai_event_limits().max_event_bytes_overrides
-        ),
-    ]
-
 
 class EventIngestionRestrictionConfigForm(forms.ModelForm):
     # Multi-select field for pipelines with checkboxes
@@ -37,25 +25,12 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
         help_text="Kafka topic to redirect events to. Only used for 'Redirect To Topic' restriction type.",
     )
 
-    max_event_bytes = forms.TypedChoiceField(
-        required=False,
-        choices=max_event_bytes_choices,
-        coerce=int,
-        empty_value=None,
-        help_text=(
-            "Largest AI event accepted for this token instead of the deployment default. "
-            "Only used for 'Override AI max event bytes'. Capture lowers it to what its Kafka producer accepts, "
-            "and never below the default."
-        ),
-    )
-
     class Meta:
         model = EventIngestionRestrictionConfig
         fields = [
             "token",
             "restriction_type",
             "topic",
-            "max_event_bytes",
             "note",
             "pipelines",
             "distinct_ids",
@@ -92,24 +67,20 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Populate topic from args on edit
         if self.instance and self.instance.pk and isinstance(self.instance.args, dict):
             self.fields["topic"].initial = self.instance.args.get("topic", "")
-            self.fields["max_event_bytes"].initial = self.instance.args.get("max_event_bytes")
 
     def clean(self):
         cleaned_data = super().clean() or {}
         restriction_type = cleaned_data.get("restriction_type")
         topic = cleaned_data.get("topic", "").strip()
-        max_event_bytes = cleaned_data.get("max_event_bytes")
 
         if restriction_type == RestrictionType.REDIRECT_TO_TOPIC:
             if not topic:
                 self.add_error("topic", "Topic is required for 'Redirect To Topic' restriction type.")
             else:
                 self.instance.args = {"topic": topic}
-        elif restriction_type == RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES:
-            # A missing value is reported by the model's clean(), which the admin shows as a form error.
-            self.instance.args = {"max_event_bytes": max_event_bytes} if max_event_bytes is not None else None
         else:
             self.instance.args = None
 
@@ -126,7 +97,6 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
         "restriction_type",
         "pipelines",
         "display_topic",
-        "display_max_event_bytes",
         "has_distinct_ids",
         "has_session_ids",
         "has_event_names",
@@ -153,12 +123,6 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
     def display_topic(self, obj):
         if isinstance(obj.args, dict):
             return obj.args.get("topic", "")
-        return ""
-
-    @admin.display(description="Max event bytes")
-    def display_max_event_bytes(self, obj):
-        if isinstance(obj.args, dict):
-            return obj.args.get("max_event_bytes", "")
         return ""
 
     @admin.display(boolean=True, description="Has Distinct IDs")
@@ -195,9 +159,7 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
                 f"{RestrictionType.DROP_EVENT_FROM_INGESTION.label}: Drop events from ingestion for specified filters. "
                 f"{RestrictionType.FORCE_OVERFLOW_FROM_INGESTION.label}: Force overflow from ingestion for specified filters. "
                 f"{RestrictionType.REDIRECT_TO_DLQ.label}: Redirect events to dead letter queue for specified filters. "
-                f"{RestrictionType.REDIRECT_TO_TOPIC.label}: Redirect events to a custom Kafka topic (enter topic name below). "
-                f"{RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES.label}: Accept AI events for this token up to the max event "
-                f"bytes below instead of the deployment default (AI pipeline only, no filters)."
+                f"{RestrictionType.REDIRECT_TO_TOPIC.label}: Redirect events to a custom Kafka topic (enter topic name below)."
             )
 
         return form

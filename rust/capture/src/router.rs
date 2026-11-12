@@ -28,6 +28,7 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
+use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -67,9 +68,9 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
-    /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
-    /// `0` disables the ceiling.
-    pub ai_max_event_bytes: u64,
+    /// Largest AI-lane event each token may send (`AI_MAX_EVENT_BYTES`, raised
+    /// per token by `AI_MAX_EVENT_BYTES_BY_TOKEN`). `0` disables the ceiling.
+    pub ai_max_event_bytes: AiEventSizeCaps,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -180,7 +181,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    ai_max_event_bytes: u64,
+    ai_max_event_bytes: impl Into<AiEventSizeCaps>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -210,7 +211,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
-        ai_max_event_bytes,
+        ai_max_event_bytes: ai_max_event_bytes.into(),
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,

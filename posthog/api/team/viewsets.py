@@ -81,9 +81,7 @@ class EventIngestionRestrictionSerializer(serializers.Serializer):
 
 
 def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
-    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token).exclude(
-        restriction_type=RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES
-    )
+    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
     data = [
         {
             "restriction_type": restriction.restriction_type,

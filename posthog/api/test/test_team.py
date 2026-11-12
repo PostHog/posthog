@@ -56,7 +56,6 @@ from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_wa
 from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
@@ -271,12 +270,6 @@ def team_api_test_factory():
                 token=other_team.api_token,
                 restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
                 distinct_ids=["other-user"],
-            )
-            EventIngestionRestrictionConfig.objects.create(
-                token=self.team.api_token,
-                restriction_type=RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES,
-                args={"max_event_bytes": get_ai_event_limits().max_event_bytes_overrides[0]},
-                pipelines=["ai"],
             )
 
             response = self.client.get(f"/api/environments/{self.team.pk}/event_ingestion_restrictions/")

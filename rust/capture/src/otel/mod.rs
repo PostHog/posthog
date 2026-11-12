@@ -29,7 +29,7 @@ use crate::ingestion_warnings::otel::{
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
-use crate::v0_request::{exceeds_max_ai_event_bytes, resolve_ai_max_event_bytes};
+use crate::v0_request::exceeds_max_ai_event_bytes;
 
 use self::attribution::otel_request_context;
 
@@ -295,21 +295,8 @@ pub async fn otel_handler(
     // The cost is that the loss cannot be seen in the response, so it is
     // reported twice: on `capture_events_dropped_total` for us, and as a
     // `MessageSizeTooLarge` ingestion warning for whoever owns the project.
+    let max_event_bytes = state.ai_max_event_bytes.for_token(&token);
     let before = processed_events.len();
-    let max_event_bytes = if processed_events
-        .iter()
-        .any(|e| exceeds_max_ai_event_bytes(e.event.data.len(), state.ai_max_event_bytes))
-    {
-        resolve_ai_max_event_bytes(
-            state.event_restriction_service.as_ref(),
-            &token,
-            state.timesource.current_time().timestamp(),
-            state.ai_max_event_bytes,
-        )
-        .await
-    } else {
-        state.ai_max_event_bytes
-    };
     processed_events.retain(|e| !exceeds_max_ai_event_bytes(e.event.data.len(), max_event_bytes));
     let dropped = before - processed_events.len();
     if dropped > 0 {

@@ -1,6 +1,5 @@
 ee/clickhouse/models/test/test_dead_letter_queue.py::TestDeadLetterQueue
 ee/clickhouse/models/test/test_property.py::TestPropDenormalized
-posthog/admin/test_admin.py::TestEventIngestionRestrictionConfigForm
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/hogql/database/test/test_postgres_table.py::TestPostgresTablePrimaryKey
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestEscapePreservationOnParserOutput

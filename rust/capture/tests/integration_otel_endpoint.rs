@@ -3,6 +3,7 @@ mod integration_utils;
 
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
+use capture::ai_event_size_caps::AiEventSizeCaps;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
@@ -142,7 +143,7 @@ struct TestClientOptions {
     // every emit site.
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     // `None` uses 960KB (983_040).
-    ai_max_event_bytes: Option<u64>,
+    ai_max_event_bytes: Option<AiEventSizeCaps>,
     // Opt-in AI byte budget. `None` (default) matches deploys with
     // `AI_BYTE_LIMIT_PER_SECOND=0`, where setup builds no limiter.
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
@@ -184,19 +185,19 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.event_restriction_service,
         None, // recorder_handle
         CaptureMode::Ai,
-        None,                                          // concurrency_limit
-        25 * 1024 * 1024,                              // event_payload_size_limit
-        false,                                         // enable_historical_rerouting
-        1_i64,                                         // historical_rerouting_threshold_days
-        false,                                         // is_mirror_deploy
-        0.0_f32,                                       // verbose_sample_percent
-        26_214_400,                                    // ai_max_sum_of_parts_bytes
-        options.ai_max_event_bytes.unwrap_or(983_040), // ai_max_event_bytes
-        None,                                          // body_chunk_read_timeout_ms
-        256,                                           // body_read_chunk_size_kb
-        10 * 1024 * 1024,                              // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,                              // capture_v1_max_decompressed_body_bytes
-        None,                                          // overflow_limiter
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_payload_size_limit
+        false,            // enable_historical_rerouting
+        1_i64,            // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0_f32,          // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        options.ai_max_event_bytes.unwrap_or_else(|| 983_040.into()),
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
         options.ai_events_overflow_limiter,
         options.ai_byte_rate_limiter,
         None, // replay_overflow_limiter
@@ -918,15 +919,22 @@ async fn both_spans_publish_when_no_byte_budget_is_configured() {
 /// never made to retry a span that can never fit. The warning is the only
 /// feedback channel for that, which is why it is asserted alongside the drop:
 /// without it the customer sees a 200 and silently missing spans.
+#[rstest::rstest]
+#[case::the_default_cap_sheds_it(String::new(), 0, 1)]
+#[case::a_raised_token_cap_keeps_it(format!("{TOKEN}=24000000"), 1, 0)]
 #[tokio::test]
-async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
+async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds(
+    #[case] by_token: String,
+    #[case] expected_events: usize,
+    #[case] expected_warnings: usize,
+) {
     let sink = CapturingSink::new();
     let emitter = Arc::new(CollectingEmitter::default());
     let client = make_test_client_with_options(
         &sink,
         TestClientOptions {
             ingestion_warning_emitter: Some(emitter.clone()),
-            ai_max_event_bytes: Some(64),
+            ai_max_event_bytes: Some(AiEventSizeCaps::parse(64, &by_token, 48_000_000)),
             ..Default::default()
         },
     );
@@ -934,56 +942,15 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
     // A 64-byte ceiling is under the serialized size of even a minimal AI span.
     let status = send_request_with_client(&client, &make_single_span_request()).await;
     assert_eq!(status, 200, "the export must still be accepted");
-    assert!(
-        sink.get_events().await.is_empty(),
-        "the oversized span must not reach the sink"
-    );
+    assert_eq!(sink.get_events().await.len(), expected_events);
 
     let emitted = emitter.emitted();
-    assert_eq!(emitted.len(), 1);
-    assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
-    assert_eq!(emitted[0].source, CAPTURE_AI_OTEL);
-    assert_eq!(
-        emitted[0].extra_details.get("droppedSpans"),
-        Some(&json!(1))
-    );
-}
-
-#[tokio::test]
-async fn an_ai_size_override_keeps_spans_the_default_would_shed() {
-    let sink = CapturingSink::new();
-    let emitter = Arc::new(CollectingEmitter::default());
-    let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300))
-        .with_ai_max_event_bytes_ceiling(8_000_000);
-    let mut manager = RestrictionManager::new();
-    manager.insert_restrictions(
-        Pipeline::Ai,
-        TOKEN,
-        vec![Restriction {
-            restriction_type: RestrictionType::OverrideAiMaxEventBytes,
-            scope: RestrictionScope::AllEvents,
-            args: Some(json!({"max_event_bytes": 1_000_000})),
-        }],
-    );
-    service.update(manager).await;
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            event_restriction_service: Some(service),
-            ingestion_warning_emitter: Some(emitter.clone()),
-            ai_max_event_bytes: Some(64),
-            ..Default::default()
-        },
-    );
-
-    let status = send_request_with_client(&client, &make_single_span_request()).await;
-    assert_eq!(status, 200);
-    assert_eq!(
-        sink.get_events().await.len(),
-        1,
-        "the span is under the token's override and must publish"
-    );
-    assert!(emitter.emitted().is_empty());
+    assert_eq!(emitted.len(), expected_warnings);
+    assert!(emitted
+        .iter()
+        .all(|w| w.warning == WarningType::MessageSizeTooLarge
+            && w.source == CAPTURE_AI_OTEL
+            && w.extra_details.get("droppedSpans") == Some(&json!(1))));
 }
 
 // The warning is the only feedback channel for this outcome: the OTLP contract

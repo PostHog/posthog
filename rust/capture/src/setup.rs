@@ -16,6 +16,7 @@ use metrics::gauge;
 use tracing::{info, warn};
 
 use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
@@ -283,7 +284,6 @@ pub async fn build_components(
             &config,
             handle,
             Pipeline::for_capture_mode(config.capture_mode),
-            ai_max_event_bytes_ceiling(ingestion_message_max_bytes),
         )
     } else {
         None
@@ -371,7 +371,11 @@ pub async fn build_components(
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
-        config.ai_max_event_bytes,
+        AiEventSizeCaps::parse(
+            config.ai_max_event_bytes,
+            &config.ai_max_event_bytes_by_token,
+            ai_max_event_bytes_ceiling(ingestion_message_max_bytes),
+        ),
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
@@ -440,8 +444,8 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
 }
 
-/// The producer's limit covers the `CapturedEvent` envelope too, so an override
-/// stays below it by the allowance the AI byte limiter charges.
+/// The producer's limit covers the `CapturedEvent` envelope too, so a raised
+/// cap stays below it by the allowance the AI byte limiter charges.
 fn ai_max_event_bytes_ceiling(producer_message_max_bytes: u32) -> u64 {
     (producer_message_max_bytes as u64)
         .saturating_sub(ENVELOPE_WEIGHT_BYTES as u64)
@@ -740,7 +744,6 @@ fn create_event_restriction_service(
     config: &Config,
     handle: lifecycle::Handle,
     pipelines: Vec<Pipeline>,
-    ai_max_event_bytes_ceiling: u64,
 ) -> Option<EventRestrictionService> {
     if !config.event_restrictions_enabled {
         return None;
@@ -755,8 +758,7 @@ fn create_event_restriction_service(
     let service = EventRestrictionService::new(
         pipelines,
         Duration::from_secs(config.event_restrictions_fail_open_after_secs),
-    )
-    .with_ai_max_event_bytes_ceiling(ai_max_event_bytes_ceiling);
+    );
 
     let service_clone = service.clone();
     let refresh_interval = Duration::from_secs(config.event_restrictions_refresh_interval_secs);
@@ -1224,6 +1226,14 @@ mod tests {
             .expect("boot must proceed when the completeness check is disabled");
     }
 
+    #[rstest]
+    #[case::leaves_room_for_the_envelope(1_000_000, 999_488)]
+    #[case::cap_below_the_envelope_raises_nothing(100, 0)]
+    #[case::never_above_the_shared_ceiling(64_000_000, AI_MAX_EVENT_BYTES_CEILING)]
+    fn raised_caps_stay_under_the_producer_cap(#[case] producer_cap: u32, #[case] expected: u64) {
+        assert_eq!(ai_max_event_bytes_ceiling(producer_cap), expected);
+    }
+
     /// The ceiling only guards anything while it sits under the producer's cap.
     /// A deployment that raises the producer keeps its headroom; one that never
     /// touched it gets told the default is too high for its broker.
@@ -1256,17 +1266,6 @@ mod tests {
             ai_ceiling_exceeds_producer_cap(&config, producer_cap),
             expected
         );
-    }
-
-    #[rstest]
-    #[case::leaves_room_for_the_envelope(1_000_000, 999_488)]
-    #[case::cap_below_the_envelope_grants_nothing(100, 0)]
-    #[case::never_above_the_shared_ceiling(64_000_000, AI_MAX_EVENT_BYTES_CEILING)]
-    fn ai_max_event_bytes_ceiling_sits_under_the_producer_cap(
-        #[case] producer_cap: u32,
-        #[case] expected: u64,
-    ) {
-        assert_eq!(ai_max_event_bytes_ceiling(producer_cap), expected);
     }
 
     /// Import deployments never build the AI byte limiter, however the knob is

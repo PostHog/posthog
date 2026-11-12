@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
+use capture::ai_event_size_caps::AiEventSizeCaps;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::global_rate_limiter::GlobalRateLimiter;
@@ -148,6 +149,10 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
+    setup_ai_test_router_with_caps(983_040.into())
+}
+
+fn setup_ai_test_router_with_caps(ai_max_event_bytes: AiEventSizeCaps) -> Router {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = TestSink;
@@ -182,8 +187,8 @@ fn setup_ai_test_router() -> Router {
         1_i64,
         false,
         0.0_f32,
-        26_214_400,       // 25MB default for AI endpoint
-        983_040,          // ai_max_event_bytes (960KB)
+        26_214_400, // 25MB default for AI endpoint
+        ai_max_event_bytes,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1095,37 +1100,25 @@ async fn test_event_exceeds_32kb_returns_413() {
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
+const RAISED_TOKEN_CAPS: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3=24000000";
+
+#[rstest::rstest]
+#[case::the_default_cap_refuses_it("", StatusCode::PAYLOAD_TOO_LARGE)]
+#[case::a_raised_token_cap_accepts_it(RAISED_TOKEN_CAPS, StatusCode::OK)]
 #[tokio::test]
-async fn test_combined_event_properties_exceeds_960kb_returns_413() {
-    let router = setup_ai_test_router();
+async fn combined_event_properties_over_960kb_follow_the_token_cap(
+    #[case] by_token: &str,
+    #[case] expected: StatusCode,
+) {
+    let router =
+        setup_ai_test_router_with_caps(AiEventSizeCaps::parse(983_040, by_token, 48_000_000));
     let test_client = TestClient::new(router);
 
-    // Create event and properties that together exceed 960KB
-    // 961KB to ensure we exceed the limit
-    let large_value = "x".repeat(961 * 1024);
-    let event_data = json!({
-        "event": "$ai_generation",
-        "distinct_id": "test_user"
-    });
-
-    let properties = json!({
-        "$ai_model": "test",
-        "large_field": large_value
-    });
-
-    let form = Form::new()
-        .part(
-            "event",
-            Part::bytes(serde_json::to_vec(&event_data).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        )
-        .part(
-            "event.properties",
-            Part::bytes(serde_json::to_vec(&properties).unwrap())
-                .mime_str("application/json")
-                .unwrap(),
-        );
+    let form = create_ai_event_form(
+        "$ai_generation",
+        "test_user",
+        json!({"$ai_model": "test", "large_field": "x".repeat(961 * 1024)}),
+    );
 
     let response = send_multipart_request(
         &test_client,
@@ -1133,7 +1126,38 @@ async fn test_combined_event_properties_exceeds_960kb_returns_413() {
         Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(response.status(), expected);
+}
+
+#[rstest::rstest]
+#[case::the_default_cap_refuses_it("", StatusCode::PAYLOAD_TOO_LARGE)]
+#[case::a_raised_token_cap_accepts_it(RAISED_TOKEN_CAPS, StatusCode::OK)]
+#[tokio::test]
+async fn ai_batch_events_over_960kb_follow_the_token_cap(
+    #[case] by_token: &str,
+    #[case] expected: StatusCode,
+) {
+    let router =
+        setup_ai_test_router_with_caps(AiEventSizeCaps::parse(983_040, by_token, 48_000_000));
+    let test_client = TestClient::new(router);
+    let body = json!({
+        "api_key": "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        "batch": [{
+            "event": "$ai_generation",
+            "distinct_id": "test_user",
+            "properties": {"$ai_model": "test", "large_field": "x".repeat(961 * 1024)}
+        }]
+    });
+
+    let response = test_client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(body.to_string())
+        .send()
+        .await;
+
+    assert_eq!(response.status(), expected);
 }
 
 #[tokio::test]
