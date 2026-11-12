@@ -9,6 +9,7 @@ from .github_sync_config import GitHubSyncConfig, GitHubSyncStatus
 from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
 from .node import Node, NodeType
+from .node_engine_table import NodeEngineTable
 from .node_subscription import NodeSubscription
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "GitHubSyncPlanStatus",
     "GitHubSyncedModel",
     "Node",
+    "NodeEngineTable",
     "NodeSubscription",
     "NodeType",
 ]
