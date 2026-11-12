@@ -223,6 +223,7 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 }
 
 CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
+MARKETING_TEMPLATE_REFUSAL = "The template is in a marketing category. Only transactional templates can be sent."
 LIQUID_UNSUBSCRIBE_PLACEHOLDER = re.compile(
     r"\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}", re.ASCII
 )
@@ -282,7 +283,10 @@ def check_unsubscribe_link_kept(template_id: UUID, team_id: int, content: dict) 
 
 
 def code_send_categories_enabled(team_id: int) -> bool:
-    team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    return _categories_enabled_for(Team.objects.only("uuid", "organization_id").get(id=team_id))
+
+
+def _categories_enabled_for(team: Team) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             CODE_SEND_CATEGORIES_FLAG,
@@ -306,7 +310,7 @@ def _sends_as_marketing(team_id: int, category: MessageCategory | None) -> bool:
     if not _is_marketing(category):
         return False
     if not code_send_categories_enabled(team_id):
-        raise MarketingTemplate("The template is in a marketing category. Only transactional templates can be sent.")
+        raise MarketingTemplate(MARKETING_TEMPLATE_REFUSAL)
     return True
 
 
@@ -519,13 +523,15 @@ class TemplateSend:
     marketing: bool
 
 
-def _template_send(team_id: int, template: TransactionalTemplate | MessageTemplate) -> TemplateSend:
+def _template_send(team: Team, template: TransactionalTemplate | MessageTemplate) -> TemplateSend:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     _require_email_content(template.type, template.content)
-    category = template_category(team_id, template.message_category_id)
-    marketing = _sends_as_marketing(team_id, category)
-    _require_active(team_id, template.transactional_hog_flow_id)
+    category = template_category(team.id, template.message_category_id)
+    marketing = _is_marketing(category)
+    if marketing and not _categories_enabled_for(team):
+        raise MarketingTemplate(MARKETING_TEMPLATE_REFUSAL)
+    _require_active(team.id, template.transactional_hog_flow_id)
     return TemplateSend(hog_flow_id=template.transactional_hog_flow_id, category=category, marketing=marketing)
 
 
@@ -639,8 +645,8 @@ def send_transactional_email(
             if isinstance(template, UUID)
             else template
         )
-        send = _template_send(team.id, loaded)
-        send_category = _send_category(team.id, send, category)
+        send = _template_send(team, loaded)
+        send_category = _send_category(team, send, category)
         if send.marketing:
             _require_marketing_template_step(team.id, send.hog_flow_id)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
@@ -663,9 +669,9 @@ def send_code_email(
         template = _template_for_key(team.id, email.key)
         category: SendCategory | None = None
         if template is not None:
-            send = _template_send(team.id, template)
+            send = _template_send(team, template)
             hog_flow_id = send.hog_flow_id
-            category = _send_category(team.id, send, email.category)
+            category = _send_category(team, send, email.category)
             kind = _kind_of(category)
         else:
             kind = requested_kind(email.category)
@@ -710,9 +716,9 @@ def _send_payload(
     return payload
 
 
-def _send_category(team_id: int, send: TemplateSend, requested: RequestedCategory) -> SendCategory | None:
+def _send_category(team: Team, send: TemplateSend, requested: RequestedCategory) -> SendCategory | None:
     category = template_send_category(send.category, requested)
-    if send.marketing or category is None or code_send_categories_enabled(team_id):
+    if send.marketing or category is None or _categories_enabled_for(team):
         return category
     return None
 

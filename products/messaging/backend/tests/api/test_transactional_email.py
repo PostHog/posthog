@@ -364,17 +364,29 @@ class TestTransactionalEmail(APIBaseTest):
             "variables": {"link": "https://example.com/reset", "nickname": None},
         }
 
-    @parameterized.expand([("template",), ("send_email",)])
+    @parameterized.expand(
+        [
+            ("template", False, 3),
+            ("send_email", False, 3),
+            ("template_in_a_category", True, 4),
+            ("send_email_in_a_category", True, 4),
+        ]
+    )
     def test_a_project_secret_api_key_send_reads_the_key_template_and_workflow_once(
-        self, mock_post, _flag, _capture, route
+        self, mock_post, flag, _capture, route, categorized, expected_queries
     ):
         self._cdp_accepts(mock_post)
+        flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
+        if categorized:
+            account = self._category(key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL)
+            MessageTemplate.objects.filter(id=self.template.id).update(message_category=account)
+        route = route.removesuffix("_in_a_category")
         client = self._psak_client(["hog_flow:write"])
         # The first send also records when the key was last used.
         assert self._send(client, route, self.body).status_code == status.HTTP_202_ACCEPTED
 
-        # The key with its team and organization, the template, and the template's workflow.
-        with self.assertNumQueries(3):
+        # The key with its team and organization, the template, its category, and the template's workflow.
+        with self.assertNumQueries(expected_queries):
             response = self._send(client, route, self.body)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
