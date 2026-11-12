@@ -346,21 +346,47 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
     @parameterized.expand(
         [
-            ("before_any_status_landed", True, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("before_its_cancel_status_landed", True, [("scheduled", 0, "")], [], status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("once_its_cancel_status_landed", True, [("scheduled", 0, "")], [("canceled", 60, "")], status.HTTP_200_OK),
+            ("just_sent_before_any_status_landed", True, 10, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            (
+                "before_its_cancel_status_landed",
+                True,
+                3600,
+                [("scheduled", 0, "")],
+                [],
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            (
+                "before_its_queued_cancel_landed",
+                True,
+                3600,
+                [("queued", 0, "")],
+                [],
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            (
+                "once_its_cancel_status_landed",
+                True,
+                3600,
+                [("scheduled", 0, "")],
+                [("canceled", 60, "")],
+                status.HTTP_200_OK,
+            ),
             (
                 "after_it_went_out_unchanged",
                 False,
+                3600,
                 [("scheduled", 0, "")],
                 [("sent", 60, "")],
                 status.HTTP_404_NOT_FOUND,
             ),
+            ("with_no_status_long_after_the_send", True, 3600, [], [], status.HTTP_404_NOT_FOUND),
         ]
     )
     def test_a_retry_after_a_lost_cancel_answer(
-        self, mock_post, _flag, _name, applied, status_rows, later_rows, expected_status
+        self, mock_post, _flag, _name, applied, sent_seconds_ago, status_rows, later_rows, expected_status
     ):
+        self.queued_at = datetime.now(UTC) - timedelta(seconds=sent_seconds_ago)
+        self.message_id = self._message_id(self.queued_at)
         self._job("waiting")
         self._status_rows(status_rows)
         mock_post.side_effect = self._lose_the_answer(applied)
@@ -372,6 +398,17 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
         assert lost.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.status_code == expected_status, response.json()
+
+    def test_a_lost_answer_on_a_repeat_cancel_keeps_it_canceled(self, mock_post, _flag):
+        self._job("waiting")
+        self._cancel(mock_post)
+        del self.cdp.jobs[(self.team.id, self.message_id)]
+        mock_post.side_effect = self._lose_the_answer(False)
+        self.client.post(f"{self._url(self.message_id)}cancel/")
+
+        response = self._cancel(mock_post)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def _lose_the_answer(self, applied: bool) -> Any:
         def post(*args: Any, **kwargs: Any) -> requests.Response:
@@ -555,6 +592,18 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         responses = self._manage_from_another_project(mock_post)
 
         assert [response.status_code for response in responses] == [404, 404]
+
+    def test_another_projects_retry_after_a_lost_answer_is_not_found(self, mock_post, _flag):
+        self._job("waiting")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_client = self._psak_client(["transactional_email:write"], team=other_team)
+        mock_post.side_effect = self._lose_the_answer(False)
+        other_client.post(f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/cancel/")
+
+        with self.cdp.serving(mock_post):
+            response = other_client.post(f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/cancel/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def _manage_from_another_project(self, mock_post: MagicMock) -> list[Any]:
         other_team = Team.objects.create(organization=self.organization, name="Other")

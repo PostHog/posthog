@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from products.messaging.backend.facade.contracts import (
     EmailCanceled,
     EmailNotFound,
     EmailSendStatus,
+    EmailStatus,
     RescheduleTooFar,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status, queued_at
@@ -26,66 +28,80 @@ from products.messaging.backend.services.transactional_email_status import get_e
 logger = structlog.get_logger(__name__)
 
 _CANCEL_MARK_TTL = timedelta(hours=1)
-_CANCELED = "canceled"
-_CANCEL_ATTEMPTED = "attempted"
+_STATUS_LAG = timedelta(minutes=5)
 _WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
+
+
+class _CancelMark(StrEnum):
+    CANCELED = "canceled"
+    ATTEMPTED = "attempted"
 
 
 def cancel_email(team_id: int, message_id: UUID) -> None:
     """Cancel the email, or confirm a cancel that already happened. Raises EmailNotFound, AlreadySending or
     DeliveryUnavailable."""
-    if queued_at(message_id) is None:
+    queued = queued_at(message_id)
+    if queued is None:
         raise EmailNotFound()
     try:
         response = _call(lambda: cancel_scheduled_email(team_id, str(message_id)), "cancel", team_id, message_id)
     except DeliveryUnavailable:
-        _write_cancel_mark(team_id, message_id, _CANCEL_ATTEMPTED)
+        _write_cancel_mark(team_id, message_id, _CancelMark.ATTEMPTED, keep_existing=True)
         raise
     refusal = _refusal_code(response)
     if response.status_code == 200:
-        _write_cancel_mark(team_id, message_id, _CANCELED)
+        _write_cancel_mark(team_id, message_id, _CancelMark.CANCELED, keep_existing=False)
         return
     if response.status_code == 409 and refusal == "already_sending":
         raise AlreadySending()
     if response.status_code == 404 and refusal == "not_found":
-        _answer_a_gone_job(team_id, message_id)
+        _answer_a_gone_job(team_id, message_id, queued)
         return
     raise _unexpected("cancel", team_id, message_id, response)
 
 
-def _answer_a_gone_job(team_id: int, message_id: UUID) -> None:
+def _answer_a_gone_job(team_id: int, message_id: UUID, queued: datetime) -> None:
     mark = _read_cancel_mark(team_id, message_id)
-    if mark == _CANCELED:
+    if mark == _CancelMark.CANCELED:
         return
     email_status = get_email_status(team_id, message_id)
-    latest = email_status.status if email_status is not None else None
-    if latest == EmailSendStatus.CANCELED:
+    if email_status is not None and email_status.status == EmailSendStatus.CANCELED:
         return
-    if mark == _CANCEL_ATTEMPTED and (latest is None or latest in _WAITING):
+    if mark == _CancelMark.ATTEMPTED and _may_still_wait(email_status, queued):
         raise DeliveryUnavailable()
     raise EmailNotFound()
+
+
+def _may_still_wait(email_status: EmailStatus | None, queued: datetime) -> bool:
+    if email_status is None:
+        return datetime.now(UTC) - queued < _STATUS_LAG
+    return email_status.status in _WAITING
 
 
 def _cancel_mark_key(team_id: int, message_id: UUID) -> str:
     return f"transactional_email_canceled:{team_id}:{message_id}"
 
 
-def _write_cancel_mark(team_id: int, message_id: UUID, mark: str) -> None:
+def _write_cancel_mark(team_id: int, message_id: UUID, mark: _CancelMark, *, keep_existing: bool) -> None:
+    key, timeout = _cancel_mark_key(team_id, message_id), int(_CANCEL_MARK_TTL.total_seconds())
     try:
-        cache.set(_cancel_mark_key(team_id, message_id), mark, timeout=int(_CANCEL_MARK_TTL.total_seconds()))
+        if keep_existing:
+            cache.add(key, mark.value, timeout=timeout)
+        else:
+            cache.set(key, mark.value, timeout=timeout)
     except Exception:
         logger.exception(
             "transactional_email_cancel_mark_write_failed", team_id=team_id, message_id=str(message_id), mark=mark
         )
 
 
-def _read_cancel_mark(team_id: int, message_id: UUID) -> str | None:
+def _read_cancel_mark(team_id: int, message_id: UUID) -> _CancelMark | None:
     try:
         mark = cache.get(_cancel_mark_key(team_id, message_id))
     except Exception:
         logger.exception("transactional_email_cancel_mark_read_failed", team_id=team_id, message_id=str(message_id))
         return None
-    return mark if isinstance(mark, str) else None
+    return _CancelMark(mark) if mark in set(_CancelMark) else None
 
 
 def reschedule_email(team_id: int, message_id: UUID, scheduled_at: datetime) -> datetime:
