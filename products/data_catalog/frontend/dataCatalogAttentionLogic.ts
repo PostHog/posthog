@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } f
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { runWhenIdle } from 'lib/utils/async'
@@ -15,6 +16,8 @@ import { dataCatalogPendingReviewRetrieve } from './generated/api'
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const REFRESH_DEBOUNCE_MS = 300
+const REQUEST_TIMEOUT_MS = 15 * 1000
+const ACCESS_DENIED_STATUS = 403
 
 export interface AttentionCounts {
     proposedMetrics: number
@@ -32,23 +35,41 @@ const NO_ATTENTION: AttentionCounts = {
     failingChecks: 0,
 }
 
-function fulfilledOr<T>(result: PromiseSettledResult<T>, fallback: T): T {
-    return result.status === 'fulfilled' ? result.value : fallback
+function isAccessDenied(reason: unknown): boolean {
+    return reason instanceof ApiError && reason.status === ACCESS_DENIED_STATUS
 }
 
-async function fetchAttentionCounts(projectId: string): Promise<AttentionCounts> {
+function settledCount<T>(result: PromiseSettledResult<T>, read: (value: T) => number, previous: number): number {
+    if (result.status === 'fulfilled') {
+        return read(result.value)
+    }
+    return isAccessDenied(result.reason) ? 0 : previous
+}
+
+function withTimeout(): RequestInit {
+    return { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }
+}
+
+async function fetchAttentionCounts(projectId: string, previous: AttentionCounts): Promise<AttentionCounts> {
     const [pendingReview, failingModels, failingChecks] = await Promise.allSettled([
-        dataCatalogPendingReviewRetrieve(projectId),
-        dataModelingNodesAttentionCountRetrieve(projectId),
-        dataQualityChecksFailingCountRetrieve(projectId),
+        dataCatalogPendingReviewRetrieve(projectId, withTimeout()),
+        dataModelingNodesAttentionCountRetrieve(projectId, withTimeout()),
+        dataQualityChecksFailingCountRetrieve(projectId, withTimeout()),
     ])
-    const review = fulfilledOr(pendingReview, { metrics: 0, relationships: 0, certifications: 0 })
     return {
-        proposedMetrics: review.metrics,
-        proposedRelationships: review.relationships,
-        proposedCertifications: review.certifications,
-        failingModels: fulfilledOr(failingModels, { count: 0 }).count,
-        failingChecks: fulfilledOr(failingChecks, { count: 0 }).count,
+        proposedMetrics: settledCount(pendingReview, (review) => review.metrics, previous.proposedMetrics),
+        proposedRelationships: settledCount(
+            pendingReview,
+            (review) => review.relationships,
+            previous.proposedRelationships
+        ),
+        proposedCertifications: settledCount(
+            pendingReview,
+            (review) => review.certifications,
+            previous.proposedCertifications
+        ),
+        failingModels: settledCount(failingModels, (models) => models.count, previous.failingModels),
+        failingChecks: settledCount(failingChecks, (checks) => checks.count, previous.failingChecks),
     }
 }
 
@@ -109,7 +130,9 @@ export const dataCatalogAttentionLogic = kea<dataCatalogAttentionLogicType>([
                     if (!catalogRestructureEnabled(values.featureFlags)) {
                         return NO_ATTENTION
                     }
-                    return await fetchAttentionCounts(String(ApiConfig.getCurrentTeamId()))
+                    const counts = await fetchAttentionCounts(String(ApiConfig.getCurrentTeamId()), values.attention)
+                    breakpoint()
+                    return counts
                 },
             },
         ],

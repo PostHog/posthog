@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -41,7 +42,7 @@ describe('dataCatalogAttentionLogic', () => {
             relationships: 0,
             certifications: 1,
         })
-        ;(dataModelingNodesAttentionCountRetrieve as jest.Mock).mockRejectedValue(new Error('Forbidden'))
+        ;(dataModelingNodesAttentionCountRetrieve as jest.Mock).mockResolvedValue({ count: 4 })
         ;(dataQualityChecksFailingCountRetrieve as jest.Mock).mockResolvedValue({ count: 2 })
     })
 
@@ -59,20 +60,37 @@ describe('dataCatalogAttentionLogic', () => {
         expect(logic.values.totalCount).toEqual(0)
     })
 
-    it('counts each tab and keeps the counts that loaded when one request fails', async () => {
+    it('counts each tab', async () => {
         mountWithFlags(RESTRUCTURE_FLAGS)
 
         logic.actions.loadAttention()
         await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
 
         expect(logic.values.tabCounts).toEqual({
-            overview: 0,
+            overview: 4,
             tables: 1,
             metrics: 3,
             relationships: 0,
             'data-quality': 2,
         })
-        expect(logic.values.totalCount).toEqual(6)
+        expect(logic.values.totalCount).toEqual(10)
         expect(logic.values.hasFailures).toBe(true)
+    })
+
+    it.each([
+        ['access denied clears the count', new ApiError('Forbidden', 403), 0],
+        ['a server error keeps the last count', new ApiError('Server error', 500), 4],
+        ['a timeout keeps the last count', new DOMException('The operation timed out.', 'TimeoutError'), 4],
+    ])('on refresh, %s', async (_case, failure, expectedFailingModels) => {
+        mountWithFlags(RESTRUCTURE_FLAGS)
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+        ;(dataModelingNodesAttentionCountRetrieve as jest.Mock).mockRejectedValue(failure)
+
+        logic.actions.loadAttention()
+        await expectLogic(logic).toDispatchActions(['loadAttentionSuccess'])
+
+        expect(logic.values.attention.failingModels).toEqual(expectedFailingModels)
+        expect(logic.values.attention.failingChecks).toEqual(2)
     })
 })
