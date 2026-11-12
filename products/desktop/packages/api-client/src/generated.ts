@@ -10423,6 +10423,7 @@ export namespace Schemas {
      * * `edit_release_conditions` - Edit Release Conditions
      * * `end_experiment` - End Experiment
      * * `freeze_exposure` - Freeze Exposure
+     * * `move_start_date` - Move Start Date
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -10434,7 +10435,8 @@ export namespace Schemas {
         | "edit_exposure_criteria"
         | "edit_release_conditions"
         | "end_experiment"
-        | "freeze_exposure";
+        | "freeze_exposure"
+        | "move_start_date";
     /**
      * * `flag_state` - Flag State
      * * `flag_shared` - Flag Shared
