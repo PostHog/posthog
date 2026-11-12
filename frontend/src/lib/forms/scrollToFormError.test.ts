@@ -26,11 +26,14 @@ describe('scrollToFormError', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+        document.body.innerHTML = ''
     })
 
     it('scrolls to error element when found', () => {
         const mockElement = {
             scrollIntoView: mockScrollIntoView,
+            querySelector: () => null,
+            getClientRects: () => [{}],
         } as unknown as Element
         mockQuerySelector.mockReturnValue(mockElement)
 
@@ -47,6 +50,8 @@ describe('scrollToFormError', () => {
     it('searches extra selectors when primary selector not found', () => {
         const mockElement = {
             scrollIntoView: mockScrollIntoView,
+            querySelector: () => null,
+            getClientRects: () => [{}],
         } as unknown as Element
 
         mockQuerySelector
@@ -105,5 +110,32 @@ describe('scrollToFormError', () => {
         expect(mockQuerySelector).toHaveBeenCalledWith('.another-error')
         expect(mockScrollIntoView).not.toHaveBeenCalled()
         expect(lemonToast.error).toHaveBeenCalledWith(fallbackMessage)
+    })
+
+    it('focuses an invalid control inside the error field instead of scrolling the field', () => {
+        document.body.innerHTML = '<div class="Field--error contents"><input name="name" aria-invalid="true" /></div>'
+        const field = document.querySelector('.Field--error') as HTMLElement
+        field.scrollIntoView = mockScrollIntoView
+
+        scrollToFormError({ fallbackErrorMessage: 'There was an error submitting this form.' })
+
+        expect(document.activeElement).toBe(document.querySelector('input[name="name"]'))
+        expect(mockScrollIntoView).not.toHaveBeenCalled()
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it('scrolls a field with no box of its own to its error message', () => {
+        document.body.innerHTML =
+            '<div class="Field--error contents"><textarea name="name"></textarea><div class="Field__error">Cohort name cannot be empty</div></div>'
+        const field = document.querySelector('.Field--error') as HTMLElement
+        const message = document.querySelector('.Field__error') as HTMLElement
+        field.getClientRects = () => [] as unknown as DOMRectList
+        field.scrollIntoView = jest.fn()
+        message.scrollIntoView = mockScrollIntoView
+
+        scrollToFormError()
+
+        expect(mockScrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+        expect(field.scrollIntoView).not.toHaveBeenCalled()
     })
 })

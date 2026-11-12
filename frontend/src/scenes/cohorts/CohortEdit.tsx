@@ -194,6 +194,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const {
         cohort,
         cohortLoading,
+        cohortErrors,
         cohortMissing,
         effectiveQuery,
         creationPersonQuery,
@@ -416,6 +417,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 onNameChange={(value) => {
                                     setCohortValue('name', value)
                                 }}
+                                nameError={typeof cohortErrors.name === 'string' ? cohortErrors.name : undefined}
                                 onDescriptionChange={(value) => {
                                     setCohortValue('description', value)
                                 }}

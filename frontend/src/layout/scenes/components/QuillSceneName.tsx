@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { Button, Input, SkeletonText, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
+import { useNameErrorTooltip } from './useNameErrorTooltip'
 import { useSceneNameEditing } from './useSceneNameEditing'
 
 export interface QuillSceneNameProps {
@@ -20,6 +21,8 @@ export interface QuillSceneNameProps {
     /** Shown after the open field, where `suffix` is hidden. */
     fieldSuffix?: ReactNode
     editDataAttr?: string
+    /** Opens the field, marks it invalid and explains why in a tooltip shown on hover and focus. */
+    error?: string
 }
 
 // The name and its editor share one box (height, padding and a 1px border), so opening the editor moves nothing.
@@ -38,6 +41,7 @@ export function QuillSceneName({
     suffix,
     fieldSuffix,
     editDataAttr = 'scene-name-edit',
+    error,
 }: QuillSceneNameProps): JSX.Element {
     const { name, isEditing, containerRef, startEditing, change, blur, saveFromEnter, cancel } = useSceneNameEditing({
         name: initialName,
@@ -47,8 +51,11 @@ export function QuillSceneName({
         renameDebounceMs,
         saveOnBlur,
         isGeneratingMetadata,
+        error,
     })
     const editable = !!onChange && canEdit
+    const fieldOpen = editable && isEditing
+    const errorTooltip = useNameErrorTooltip(error, fieldOpen)
     const label = name || <span className="text-muted-foreground">Unnamed</span>
 
     if (isLoading) {
@@ -60,7 +67,7 @@ export function QuillSceneName({
         )
     }
 
-    if (editable && isEditing) {
+    if (fieldOpen) {
         return (
             <div
                 ref={containerRef}
@@ -68,29 +75,45 @@ export function QuillSceneName({
                 className="flex min-w-0 flex-1 items-center gap-1"
                 data-attr="scene-name-edit-row"
             >
-                <Input
-                    aria-label="Name"
-                    name="name"
-                    value={name || ''}
-                    readOnly={isGeneratingMetadata}
-                    placeholder="Enter name"
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value)}
-                    onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
-                        if (event.key === 'Enter') {
-                            event.preventDefault()
-                            saveFromEnter(event.currentTarget.value)
-                            if (!forceEdit) {
-                                event.currentTarget.blur()
-                            }
-                        } else if (event.key === 'Escape') {
-                            event.preventDefault()
-                            cancel()
+                {/* Always mounted, because wrapping the input only while there is an error remounts it and drops focus. */}
+                <Tooltip open={errorTooltip.open} onOpenChange={errorTooltip.onOpenChange}>
+                    <TooltipTrigger
+                        render={
+                            <Input
+                                aria-label="Name"
+                                {...errorTooltip.inputProps}
+                                name="name"
+                                value={name || ''}
+                                readOnly={isGeneratingMetadata}
+                                placeholder="Enter name"
+                                onChange={(event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value)}
+                                onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault()
+                                        saveFromEnter(event.currentTarget.value)
+                                        if (!forceEdit) {
+                                            event.currentTarget.blur()
+                                        }
+                                    } else if (event.key === 'Escape') {
+                                        event.preventDefault()
+                                        cancel()
+                                    }
+                                }}
+                                autoFocus={!forceEdit}
+                                data-attr="scene-title-textarea"
+                                className={cn(
+                                    NAME_BOX,
+                                    'max-w-120 min-w-0 flex-1',
+                                    isGeneratingMetadata && 'opacity-80'
+                                )}
+                            />
                         }
-                    }}
-                    autoFocus={!forceEdit}
-                    data-attr="scene-title-textarea"
-                    className={cn(NAME_BOX, 'max-w-120 min-w-0 flex-1', isGeneratingMetadata && 'opacity-80')}
-                />
+                    />
+                    <TooltipContent side="bottom">{error}</TooltipContent>
+                </Tooltip>
+                <span id={errorTooltip.errorId} className="sr-only">
+                    {error}
+                </span>
                 {onGenerateMetadata && (
                     <Tooltip>
                         <TooltipTrigger

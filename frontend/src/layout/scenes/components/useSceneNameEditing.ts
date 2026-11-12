@@ -9,6 +9,7 @@ export interface SceneNameEditingOptions {
     renameDebounceMs?: number
     saveOnBlur?: boolean
     isGeneratingMetadata?: boolean
+    error?: string
 }
 
 export interface SceneNameEditing {
@@ -35,6 +36,7 @@ export function useSceneNameEditing({
     renameDebounceMs = 100,
     saveOnBlur = false,
     isGeneratingMetadata = false,
+    error,
 }: SceneNameEditingOptions): SceneNameEditing {
     const [name, setName] = useState(initialName)
     const [prevInitialName, setPrevInitialName] = useState(initialName)
@@ -67,6 +69,13 @@ export function useSceneNameEditing({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    // The field stays open after the error clears, so typing that clears it does not unmount the field mid-word.
+    useEffect(() => {
+        if (error && !isEditing) {
+            setIsEditing(true)
+        }
+    }, [error, isEditing])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
         onChange?.(value)
@@ -139,5 +148,5 @@ export function useSceneNameEditing({
         }
     }
 
-    return { name, isEditing, containerRef, startEditing, change, blur, saveFromEnter, cancel }
+    return { name, isEditing: isEditing || !!error, containerRef, startEditing, change, blur, saveFromEnter, cancel }
 }
