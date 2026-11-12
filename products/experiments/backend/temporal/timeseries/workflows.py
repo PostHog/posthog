@@ -11,7 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
-    from posthog.temporal.experiments.activities import (
+    from products.experiments.backend.temporal.timeseries.activities import (
         backfill_experiment_metric,
         calculate_experiment_regular_metric,
         calculate_experiment_saved_metric,
@@ -19,7 +19,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         get_experiment_regular_metrics_for_hour,
         get_experiment_saved_metrics_for_hour,
     )
-    from posthog.temporal.experiments.models import (
+    from products.experiments.backend.temporal.timeseries.models import (
         TIMESERIES_METRIC_MAX_ATTEMPTS,
         ExperimentRegularMetricInput,
         ExperimentRegularMetricResult,
