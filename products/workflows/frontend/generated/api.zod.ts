@@ -3095,6 +3095,8 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
  * @summary Import Customer.io automations as draft workflows
  */
 export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
+export const workflowImportsCreateBodySegmentsItemIdMax = 200
+
 export const workflowImportsCreateBodyDryRunDefault = false
 
 export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
@@ -3158,14 +3160,20 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
     segments: zod
         .array(
             zod.object({
-                id: zod.string().describe("The segment's id."),
+                id: zod.string().max(workflowImportsCreateBodySegmentsItemIdMax).describe("The segment's id."),
                 name: zod.string().describe("The segment's name."),
                 type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
+                conditions: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "The segment's rules: the `conditions` object from `GET \/v1\/environments\/{environment_id}\/segments\/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort."
+                    ),
             })
         )
         .optional()
         .describe(
-            'Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones.'
+            'Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort.'
         ),
     dry_run: zod
         .boolean()

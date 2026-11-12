@@ -1678,6 +1678,10 @@ exports: PostgresTable = PostgresTable(
 file_system: PostgresTable = PostgresTable(
     name="file_system",
     postgres_table_name="posthog_filesystem",
+    # Workflow and email template rows follow workflow access, which this table cannot check per row,
+    # so they are left out. The list matches WORKFLOW_FILE_SYSTEM_TYPES in posthog/models/file_system/constants.py.
+    predicates=[parse_expr("type NOT IN ('hog_flow', 'message_template')")],
+    push_team_guard_with_predicates=True,
     description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),

@@ -34,6 +34,10 @@ teams:
         slack: '#team-mcp-analytics'
     platform-ux:
         slack: '#team-platform-ux'
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-ai-observability:
+        notifications:
+            stamphog: false
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
@@ -302,6 +306,7 @@ rules:
     - match:
           - '/services/credentials-service/tests/integration/*.test.*'
           - '/services/credentials-service/tests/unit/*.test.*'
+          - '/frontend/src/lib/integrations/credentialAccountsLogic.test.ts'
       owners: team-warehouse-sources
     - match:
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'

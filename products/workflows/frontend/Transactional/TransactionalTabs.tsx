@@ -14,8 +14,15 @@ import { TransactionalEmailLog } from './log/TransactionalEmailLog'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
+import { TransactionalWebhooks } from './webhooks/TransactionalWebhooks'
 
-export function TransactionalTabs({ currentTab }: { currentTab: TransactionalRoute }): JSX.Element {
+export function TransactionalTabs({
+    currentTab,
+    showWebhooks,
+}: {
+    currentTab: TransactionalRoute
+    showWebhooks: boolean
+}): JSX.Element {
     const smtpInterestLogic = comingSoonInterestLogic(useComingSoonInterestSurvey(SMTP_INTEREST_SURVEY))
     const { hasRecordedInterest } = useValues(smtpInterestLogic)
     const { registerInterest } = useActions(smtpInterestLogic)
@@ -23,8 +30,12 @@ export function TransactionalTabs({ currentTab }: { currentTab: TransactionalRou
 
     return (
         <>
-            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup' | 'smtp'>
-                activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
+            <LemonTabs<TransactionalTab | 'library' | 'webhooks' | 'messaging-setup' | 'smtp'>
+                activeKey={
+                    isTransactionalTab || currentTab === 'library' || currentTab === 'webhooks'
+                        ? currentTab
+                        : 'messaging-setup'
+                }
                 onChange={(key) => {
                     // No SMTP page exists yet, so this tab asks for interest and the current tab stays selected.
                     if (key === 'smtp') {
@@ -56,6 +67,14 @@ export function TransactionalTabs({ currentTab }: { currentTab: TransactionalRou
                         link: urls.transactional('library'),
                         content: MESSAGING_TAB_CONTENT.library,
                     },
+                    showWebhooks
+                        ? {
+                              label: 'Webhooks',
+                              key: 'webhooks',
+                              link: urls.transactional('webhooks'),
+                              content: <TransactionalWebhooks />,
+                          }
+                        : null,
                     {
                         label: 'Messaging',
                         key: 'messaging-setup',
