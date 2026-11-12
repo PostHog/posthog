@@ -275,7 +275,12 @@ def _viewer_ticket_match(
     team: Team, verified_distinct_id: str, ticket: Ticket, verified_email: str | None
 ) -> TicketOwnershipMatch | None:
     """Return how the verified viewer owns this ticket, mirroring _identity_ticket_filter."""
-    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+    return _ticket_ownership_match(get_person_distinct_ids(team.id, verified_distinct_id), ticket, verified_email)
+
+
+def _ticket_ownership_match(
+    allowed_ids: list[str], ticket: Ticket, verified_email: str | None
+) -> TicketOwnershipMatch | None:
     if ticket.distinct_id in allowed_ids:
         return "distinct_id"
     if not verified_email or not ticket.distinct_id:
@@ -509,15 +514,19 @@ class WidgetMessageView(APIView):
         if ticket_id:
             # Adding to existing ticket
             try:
+                viewer_distinct_ids = (
+                    get_person_distinct_ids(team.id, verified_distinct_id) if verified_distinct_id is not None else []
+                )
                 # Concurrent messages can rebind distinct_id and store an email claim. The row lock
                 # makes each request read the values the previous one wrote, so a claim never stays
-                # attached to a distinct_id it was not signed for.
+                # attached to a distinct_id it was not signed for. Resolve person distinct_ids before
+                # the lock, because a personhog call inside it would block every write to the ticket.
                 with transaction.atomic():
                     ticket = Ticket.objects.select_for_update().get(id=ticket_id, team=team)
 
                     ownership_match: TicketOwnershipMatch | None = None
                     if verified_distinct_id is not None:
-                        ownership_match = _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email)
+                        ownership_match = _ticket_ownership_match(viewer_distinct_ids, ticket, verified_email)
                         if ownership_match is None:
                             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                     else:
