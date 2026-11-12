@@ -1939,7 +1939,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         folders_to_create = []
         items_to_update = []
 
-        all_files = scoped_files.select_related("created_by")
+        # Parent folders show path segments to everyone who lists the tree, so they come only from rows this
+        # caller can read, and each one goes in its source row's environment.
+        readable_files = self._filter_by_access_control(scoped_files)
+        scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
+        if scoped_team_ids:
+            readable_files = readable_files.filter(team_id__in=scoped_team_ids)
+        all_files = readable_files.select_related("created_by")
         for file_obj in all_files:
             segments = split_path(file_obj.path)
             correct_depth = len(segments)
@@ -1959,7 +1965,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     existing_paths.add(parent_path)
                     folders_to_create.append(
                         FileSystem(
-                            team=self.team,
+                            team_id=file_obj.team_id,
                             path=parent_path,
                             depth=depth_index,
                             type="folder",

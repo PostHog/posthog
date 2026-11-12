@@ -1237,6 +1237,12 @@ class MessageTemplatesViewSet(
     )
     @action(detail=True, methods=["GET"], pagination_class=None, required_scopes=["hog_flow:read"])
     def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The action check passes with a grant to any one workflow, and template files follow the access
+        # to the whole workflow resource, so the placement asks for that before it reads the template.
+        if self.user_access_control and not self.user_access_control.check_access_level_for_resource(
+            "hog_flow", required_level="viewer"
+        ):
+            raise NotFound()
         placement = self.get_object()
         return Response(MessageTemplatePlacementSerializer({"path": placement.path}).data)
 

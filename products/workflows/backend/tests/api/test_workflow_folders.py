@@ -720,6 +720,36 @@ class TestWorkflowFolders(APIBaseTest):
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
 
+    @parameterized.expand([("resource_viewer", "viewer", 200), ("only_an_unrelated_workflow_grant", "none", 404)])
+    def test_a_template_placement_needs_workflow_access_to_the_resource(self, _name, resource_level, status) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email", "_create_in_folder": "Hidden"}, format="json"
+        ).json()
+        unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level=resource_level, organization_member_id=membership.id
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(unrelated.id),
+            access_level="viewer",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        response = self.client.get(f"{templates_url}{template['id']}/placement/")
+
+        self.assertEqual(response.status_code, status, response.content)
+        self.assertEqual("Hidden" in response.content.decode(), status == 200)
+
     @parameterized.expand([("root", "Synthetic email"), ("escaped_folder", "Spring\\/Summer/Synthetic email")])
     def test_undoing_a_template_delete_with_the_flag_off_puts_it_back_at_its_placement(self, _name, path) -> None:
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
@@ -833,6 +863,7 @@ class TestWorkflowFolders(APIBaseTest):
             ("delete", "delete", "file_system/{file_id}/", None, 404),
             ("move", "post", "file_system/{file_id}/move/", {"new_path": "Moved/Sibling email"}, 404),
             ("retype", "patch", "file_system/{folder_id}/", {"type": "message_template", "ref": "{template_id}"}, 403),
+            ("unfiled_repair", "get", "file_system/unfiled/?type=message_template", None, 200),
         ]
     )
     def test_a_key_scoped_to_one_environment_reaches_only_its_own_template_files(
@@ -845,7 +876,8 @@ class TestWorkflowFolders(APIBaseTest):
             format="json",
         ).json()["id"]
         file = FileSystem.objects.get(team=sibling_team, type="message_template", ref=template_id)
-        original_path = file.path
+        FileSystem.objects.filter(pk=file.pk).update(path="Hidden campaign/Sibling email", depth=2)
+        original_path = "Hidden campaign/Sibling email"
         FileSystemShortcut.objects.create(
             team=sibling_team, user=self.user, path="Sibling email", type="message_template", ref=template_id
         )
@@ -872,6 +904,7 @@ class TestWorkflowFolders(APIBaseTest):
         file.refresh_from_db()
         self.assertEqual(file.path, original_path)
         self.assertEqual(FileSystem.objects.filter(team=sibling_team, type="message_template").count(), 1)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path="Hidden campaign").exists())
         self.client.force_login(self.user)
         stored = self.client.get(f"/api/projects/{sibling_team.id}/messaging_templates/{template_id}/")
         self.assertEqual(stored.status_code, 200, stored.content)
