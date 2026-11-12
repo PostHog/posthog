@@ -15,7 +15,8 @@ on:
             - 'posthog/temporal/llm_analytics/**'
             - 'products/ai_observability/**'
             - 'products/llm_analytics/**'
-            # temporal-worker-aeo runs this image for brand sentiment.
+            # temporal-worker-aeo runs this image and deploys from the temporal-worker-llm-analytics
+            # state, so the dispatch below rolls it out too.
             - 'products/aeo/**'
             - 'posthog/temporal/common/**'
             - 'posthog/management/commands/start_temporal_worker.py'
@@ -33,7 +34,8 @@ on:
             - 'posthog/temporal/llm_analytics/**'
             - 'products/ai_observability/**'
             - 'products/llm_analytics/**'
-            # temporal-worker-aeo runs this image for brand sentiment.
+            # temporal-worker-aeo runs this image and deploys from the temporal-worker-llm-analytics
+            # state, so the dispatch below rolls it out too.
             - 'products/aeo/**'
             - 'posthog/temporal/common/**'
             - 'posthog/management/commands/start_temporal_worker.py'
