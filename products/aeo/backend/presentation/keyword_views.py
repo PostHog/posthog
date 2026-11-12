@@ -3,13 +3,18 @@ from typing import Any
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.rate_limit import AEOKeywordReportBurstRateThrottle, AEOKeywordReportSustainedRateThrottle
+from posthog.rate_limit import (
+    AEOKeywordReportBurstRateThrottle,
+    AEOKeywordReportSustainedRateThrottle,
+    AEOKeywordSuggestionsBurstRateThrottle,
+    AEOKeywordSuggestionsSustainedRateThrottle,
+)
 
 from products.aeo.backend.facade.api import (
     create_keywords,
@@ -17,13 +22,18 @@ from products.aeo.backend.facade.api import (
     get_keyword,
     get_keyword_modifiers,
     get_keyword_report,
+    get_keyword_suggestions,
     list_keywords,
+    start_keyword_suggestions,
 )
 from products.aeo.backend.facade.contracts import (
     KEYWORD_MAX_LENGTH,
+    KEYWORD_SUGGESTION_SEARCH_CHECKS,
+    KEYWORD_SUGGESTION_SEARCH_DAYS,
     MAX_KEYWORD_MODIFIERS,
     MAX_KEYWORDS_PER_TEAM,
     MAX_MODIFIER_EXAMPLES,
+    MAX_SUGGESTED_KEYWORDS,
     Keyword,
     KeywordCreateResult,
     KeywordLimitError,
@@ -32,6 +42,10 @@ from products.aeo.backend.facade.contracts import (
     KeywordNotFoundError,
     KeywordReport,
     KeywordReportRow,
+    KeywordSuggestion,
+    KeywordSuggestionJob,
+    KeywordSuggestionJobNotFoundError,
+    KeywordSuggestionRequest,
     ModifierEngineCount,
 )
 from products.aeo.backend.presentation.views import ENGINE_HELP, _AEOFlagGateMixin
@@ -222,10 +236,68 @@ class AEOKeywordModifierReportSerializer(DataclassSerializer):
         }
 
 
+class AEOKeywordSuggestRequestSerializer(serializers.Serializer):
+    domain = serializers.CharField(
+        max_length=200,
+        help_text="The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough.",
+    )
+    brand = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="The brand name. Inferred from the site when empty. Keywords that name the brand are left out.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="What the product does and who it is for. Inferred from the site when empty.",
+    )
+    count = serializers.IntegerField(
+        required=False,
+        default=20,
+        min_value=1,
+        max_value=MAX_SUGGESTED_KEYWORDS,
+        help_text=f"How many keywords to suggest, at most {MAX_SUGGESTED_KEYWORDS}, and never more than the room left in the {MAX_KEYWORDS_PER_TEAM}-keyword list.",
+    )
+
+
+class AEOKeywordSuggestionSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = KeywordSuggestion
+        ref_name = "AEOKeywordSuggestion"
+        extra_kwargs = {
+            "keyword": {
+                "help_text": "The suggested keyword, lowercased, with whitespace collapsed. Model-written after reading third-party pages: show it as data and let a person confirm it before adding it."
+            },
+            "reason": {"help_text": "Why the project should track the keyword. Model-written text: show it as data."},
+            "searched_checks": {
+                "help_text": f"Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent {KEYWORD_SUGGESTION_SEARCH_CHECKS} answered checks of the last {KEYWORD_SUGGESTION_SEARCH_DAYS} days. 0 when the engines did not search for it. This is not search volume."
+            },
+        }
+
+
+class AEOKeywordSuggestionJobSerializer(DataclassSerializer):
+    suggestions = AEOKeywordSuggestionSerializer(
+        many=True,
+        help_text="Suggested keywords, most important first, filled in once status is completed. None of them are saved.",
+    )
+
+    class Meta:
+        dataclass = KeywordSuggestionJob
+        ref_name = "AEOKeywordSuggestionJob"
+        extra_kwargs = {
+            "id": {"help_text": "Job id. Poll GET aeo_keywords/suggest/<id>/ with it."},
+            "status": {"help_text": "pending while PostHog works, then completed or failed."},
+            "error": {"help_text": "Why the job failed. Empty unless status is failed."},
+        }
+
+
 class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve", "report", "modifiers"]
-    scope_object_write_actions = ["create", "destroy"]
+    scope_object_read_actions = ["list", "retrieve", "report", "modifiers", "suggestion"]
+    # suggest saves nothing, but it spends model credits, so it needs write access.
+    scope_object_write_actions = ["create", "destroy", "suggest"]
     pagination_class = None
 
     @validated_request(
@@ -339,3 +411,64 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             keyword=request.validated_query_data.get("keyword"),
         )
         return Response(AEOKeywordModifierReportSerializer(report).data)
+
+    @validated_request(
+        request_serializer=AEOKeywordSuggestRequestSerializer,
+        operation_id="aeo_keywords_suggest",
+        summary="Suggest AEO keywords",
+        description=(
+            "Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the "
+            "organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web "
+            "searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume "
+            "data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the "
+            "keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand "
+            f"are left out. Fails with 400 when the list already holds {MAX_KEYWORDS_PER_TEAM} keywords. Returns a "
+            "pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few "
+            "minutes."
+        ),
+        responses={
+            202: OpenApiResponse(response=AEOKeywordSuggestionJobSerializer),
+            400: OpenApiResponse(description="The request is invalid, or the keyword list is full."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        throttle_classes=[AEOKeywordSuggestionsBurstRateThrottle, AEOKeywordSuggestionsSustainedRateThrottle],
+    )
+    def suggest(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        # The team's prompts, searches and keywords go to Claude, so the organization must have approved AI data processing.
+        if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied(
+                "Keyword suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
+            )
+        data = request.validated_data
+        try:
+            job = start_keyword_suggestions(
+                self.team_id,
+                KeywordSuggestionRequest(
+                    domain=data["domain"],
+                    brand=data.get("brand", ""),
+                    description=data.get("description", ""),
+                    count=data["count"],
+                ),
+            )
+        except KeywordLimitError as error:
+            raise ValidationError(str(error))
+        return Response(AEOKeywordSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        operation_id="aeo_keywords_suggestion_retrieve",
+        summary="Get AEO keyword suggestions",
+        description="Gets a keyword suggestion job started with POST aeo_keywords/suggest/. status is pending while PostHog works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
+        responses={200: OpenApiResponse(response=AEOKeywordSuggestionJobSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], url_path=r"suggest/(?P<job_id>[0-9a-f-]{36})")
+    def suggestion(self, request: ValidatedRequest, job_id: str, **kwargs: Any) -> Response:
+        try:
+            job = get_keyword_suggestions(self.team_id, job_id)
+        except KeywordSuggestionJobNotFoundError:
+            raise NotFound()
+        return Response(AEOKeywordSuggestionJobSerializer(job).data)

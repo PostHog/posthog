@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MetricsAlertingSection } from './alerting/MetricsAlertingSection'
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { MetricsDashboardActions } from './components/MetricsDashboardActions'
 import { MetricsOverview } from './components/MetricsOverview'
@@ -27,7 +28,7 @@ import { QuillMetricsDashboardActions } from './components/QuillMetricsDashboard
 import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
-import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { DEFAULT_ACTIVE_TAB, MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
 export const METRICS_LOGIC_KEY = 'metrics'
 
@@ -37,6 +38,7 @@ const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[]
     { key: 'overview', label: 'Overview', 'data-attr': 'metrics-scene-tab-overview' },
     { key: 'viewer', label: 'Viewer', 'data-attr': 'metrics-scene-tab-viewer' },
     { key: 'sql', label: 'SQL', 'data-attr': 'metrics-scene-tab-sql' },
+    { key: 'alerts', label: 'Alerts', 'data-attr': 'metrics-scene-tab-alerts' },
 ]
 
 export const scene: SceneExport = {
@@ -71,7 +73,15 @@ const MetricsSceneContent = (): JSX.Element => {
         overview: metricsViewerDisabledReason,
         viewer: metricsViewerDisabledReason,
         sql: metricsSqlDisabledReason,
+        alerts: metricsViewerDisabledReason,
     }
+    // The platform serves metrics alerts only when its own flag is on as well.
+    const platformAlertsEnabled = useFeatureFlag('PLATFORM_ALERTS')
+    const metricsAlertsEnabled = useFeatureFlag('PLATFORM_ALERTS_SOURCE_METRICS')
+    const alertsEnabled = platformAlertsEnabled && metricsAlertsEnabled
+    const tabs = alertsEnabled ? TABS : TABS.filter((tab) => tab.key !== 'alerts')
+    // A shared link to the alerts tab falls back to the default tab for someone without the flag.
+    const shownTab = alertsEnabled || activeTab !== 'alerts' ? activeTab : DEFAULT_ACTIVE_TAB
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
@@ -137,13 +147,13 @@ const MetricsSceneContent = (): JSX.Element => {
                 Metrics is in alpha. Please share feedback on how to improve the product.
             </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
-                activeKey={activeTab}
+                activeKey={shownTab}
                 onChange={(tab) => {
                     if (!tabDisabledReasons[tab]) {
                         setActiveTab(tab)
                     }
                 }}
-                tabs={TABS.map((tab) => ({
+                tabs={tabs.map((tab) => ({
                     ...tab,
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
@@ -152,9 +162,10 @@ const MetricsSceneContent = (): JSX.Element => {
                 rightSlotClassName="hidden @min-[48rem]/metrics-scene:flex"
             />
             <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                {activeTab === 'overview' && <MetricsOverview />}
-                {activeTab === 'viewer' && <MetricsViewer />}
-                {activeTab === 'sql' && <MetricsSqlEditor />}
+                {shownTab === 'overview' && <MetricsOverview />}
+                {shownTab === 'viewer' && <MetricsViewer />}
+                {shownTab === 'sql' && <MetricsSqlEditor />}
+                {shownTab === 'alerts' && <MetricsAlertingSection />}
             </div>
             <MetricsDashboardImportModal />
         </>

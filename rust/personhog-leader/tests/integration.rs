@@ -2066,6 +2066,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         pod_name: "cancel-pod".to_string(),
         recv_timeout: Duration::from_secs(2),
         pool_size: 1,
+        cluster: None,
     })
     .unwrap();
 
