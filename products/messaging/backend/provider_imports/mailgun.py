@@ -243,7 +243,6 @@ class MailgunImportProvider(ImportProvider):
             count_labels=(
                 ("addresses", "Allowed addresses"),
                 ("domains", "Allowed domains"),
-                ("also_suppressed", "Allowed addresses that are on your PostHog suppression list"),
                 ("missing_domains", "Domains Mailgun couldn't find, skipped"),
             ),
         ),
@@ -632,22 +631,16 @@ def _save_allowlist(context: ImportContext, target: _Target, items: list[dict[st
         email for item in items if item.get("type") != "domain" and (email := normalized_email(item.get("value")))
     ]
     domains = [_clean(item.get("value")) for item in items if item.get("type") == "domain"]
-    also_suppressed = sorted(
-        MessageSuppression.objects.for_team(context.team_id, canonical=True)
-        .filter(identifier__in=addresses, suppressed=True, deleted=False)
-        .values_list("identifier", flat=True)
-    )
+    # Matching against the suppression list would let a workflow-only key learn who is suppressed, so this only points
+    # at the list.
     notes: list[str] = []
-    if also_suppressed:
-        notes.append(
-            f"On your PostHog suppression list: {', '.join(also_suppressed[:_MAX_NOTED_ITEMS])}. Remove any you still "
-            "want to email."
-        )
+    if addresses:
+        notes.append("Check your PostHog suppression list for any of these addresses you still want to email.")
     if domains and first:
         notes.append(f"Allowed domains: {', '.join(domains[:_MAX_NOTED_ITEMS])}.")
     return SavedPage(
         imported=0,
-        counts={"addresses": len(addresses), "domains": len(domains), "also_suppressed": len(also_suppressed)},
+        counts={"addresses": len(addresses), "domains": len(domains)},
         items=(
             (
                 ImportItem(

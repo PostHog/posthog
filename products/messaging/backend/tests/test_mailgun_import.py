@@ -160,13 +160,13 @@ class TestMailgunImport(BaseTest):
         }
         assert run.progress["unsubscribes"]["counts"]["tag_categories"] == 3
 
-    def test_allowlists_change_nothing_and_name_what_is_also_suppressed(self) -> None:
+    def test_allowlists_change_nothing_and_never_say_who_is_suppressed(self) -> None:
         run = self._run(["bounces", "allowlists"])
 
         assert run.progress["allowlists"]["imported"] == 0
-        assert run.progress["allowlists"]["counts"] == {"addresses": 1, "domains": 1, "also_suppressed": 1}
+        assert run.progress["allowlists"]["counts"] == {"addresses": 1, "domains": 1}
         notes = run.progress["allowlists"]["items"][0]["notes"]
-        assert any("both@example.com" in note for note in notes)
+        assert not any("both@example.com" in note for note in notes)
         assert any("qa.example.com" in note for note in notes)
         assert "both@example.com" in self._suppressions()
 
