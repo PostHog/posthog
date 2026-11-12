@@ -74,8 +74,8 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
     const aggregatableCount = inputs.reduce((total, input) => total + input.aggregatable.length, 0)
     const aggregated = aggregateMetricRecords(inputs.flatMap((input) => input.aggregatable))
     metricsAggregationPointsCounter.inc({ stage: 'in' }, aggregatableCount)
-    metricsAggregationPointsCounter.inc({ stage: 'out' }, aggregated.length)
     if (aggregated.length === aggregatableCount) {
+        metricsAggregationPointsCounter.inc({ stage: 'out' }, aggregatableCount)
         return
     }
 
@@ -100,6 +100,13 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
         recordsPerInput[position].push(record)
         usedBytes[position] += size
     }
+    // A merged histogram can encode larger than its inputs, so the last message can pass the budget.
+    if (usedBytes[usedBytes.length - 1] > budget) {
+        metricsAggregationSkippedCounter.inc({ reason: 'output_too_large' }, inputs.length)
+        metricsAggregationPointsCounter.inc({ stage: 'out' }, aggregatableCount)
+        return
+    }
+    metricsAggregationPointsCounter.inc({ stage: 'out' }, aggregated.length)
 
     const encoded = await Promise.all(
         inputs.map((input, position) =>

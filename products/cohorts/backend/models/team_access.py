@@ -20,8 +20,8 @@ class RealtimeCohortAccessPurpose(models.TextChoices):
 class RealtimeCohortTeamAccess(models.Model):
     """A team's access to the realtime cohort pipeline, granted on top of `REALTIME_COHORT_TEAM_ALLOWLIST`.
 
-    Staff write it only through the `realtime_cohort_team_access` command. Django, the shufflers, the
-    processor and the seeder read it. A missing row means `off`. Never read it through
+    Staff write it only through the `realtime_cohort_team_access` command and `enable` requests. Django,
+    the shufflers, the processor and the seeder read it. A missing row means `off`. Never read it through
     `get_or_create_team_extension`, because that creates the row.
 
     Rows are never deleted: a revoke sets `off`, and a team deletion leaves the row (`DO_NOTHING`).

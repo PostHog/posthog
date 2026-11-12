@@ -437,8 +437,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
-    const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc } = useValues(logic)
+    const { loadSchemaIncrementalFields, loadSchema, loadSourceConfig } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
@@ -454,6 +454,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // user's in-progress radio/field selections.
     useEffect(() => {
         loadSchemaIncrementalFields(schema.id)
+        loadSourceConfig()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [schema.id])
 
@@ -659,6 +660,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 schemaIncrementalFields.primary_key_detection_supported ?? false
                             }
                             primaryKeyLocked={!!schema.table && !!schema.primary_key_columns?.length}
+                            sourceSupportsCdc={sourceSupportsCdc}
+                            sourceConfigurationUrl={urls.dataWarehouseSource(`managed-${sourceId}`, 'configuration')}
                             onClose={() => {}}
                             onSave={persistSyncMethod}
                         />

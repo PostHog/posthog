@@ -1,5 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -33,6 +34,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
+import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -2011,6 +2013,58 @@ describe('CDP API', () => {
             } finally {
                 hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
                 produceSpy.mockRestore()
+            }
+        })
+
+        it('refuses to queue a run over the workflow quota without waiting on metrics Kafka', async () => {
+            const billableHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                billable_action_types: ['function'],
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            mockProducerObserver.resetKafkaProducer()
+            const kafka = mockProducer['producer'] as unknown as { produce: jest.Mock }
+            const stalledMetricAcks: (() => void)[] = []
+            kafka.produce.mockImplementation((topic: string, ...rest: any[]) => {
+                const ack = rest[rest.length - 1]
+                if (topic === 'clickhouse_app_metrics2_test') {
+                    stalledMetricAcks.push(() => ack?.())
+                } else {
+                    ack?.()
+                }
+            })
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${billableHogFlow.team_id}/hog_flows/${billableHogFlow.id}/scheduled_invocations`
+                    )
+                    .timeout(3000)
+                    .send({})
+
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
+                expect(hogflowQueue.queued).toEqual([])
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .map((message) => message.value)
+                    expect(metrics).toContainEqual(
+                        expect.objectContaining({
+                            app_source_id: billableHogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        })
+                    )
+                })
+            } finally {
+                kafka.produce.mockImplementation((...args: any[]) => args[args.length - 1]?.())
+                stalledMetricAcks.forEach((ack) => ack())
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
             }
         })
 
@@ -4702,33 +4756,184 @@ describe('CDP API', () => {
                 )
             })
 
-            it('replays a retry of the first request until a day after the latest time the send can be moved to', async () => {
-                const keys = api['transactionalEmailIdempotencyKeys']
-                const scope = `scope-${new UUIDT().toString()}`
-                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(keys['valkey'], scope)
-                try {
-                    const request = { ...body, scheduled_at: inDays(1), idempotency_key: `key-${scope}` }
-                    const sendFirstRequest = () =>
-                        send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
-                    const first = await sendFirstRequest()
-                    const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
+            const HOUR_MS = DAY_MS / 24
+            it.each([
+                [
+                    'a send accepted to go out now and moved 30 days ahead, an hour before then',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id,
+                ],
+                [
+                    'a send accepted to go out now and moved 30 days ahead by its uppercase id',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id.toUpperCase(),
+                ],
+                [
+                    'a send scheduled a day ahead and moved 30 days ahead',
+                    1,
+                    29.9,
+                    31 * DAY_MS - HOUR_MS,
+                    true,
+                    (id: string) => id,
+                ],
+                [
+                    'a send accepted to go out now and moved 30 days ahead, an hour after then',
+                    undefined,
+                    29.9,
+                    31 * DAY_MS + HOUR_MS,
+                    false,
+                    (id: string) => id,
+                ],
+                [
+                    'a send accepted to go out now and never moved',
+                    undefined,
+                    null,
+                    DAY_MS + HOUR_MS,
+                    false,
+                    (id: string) => id,
+                ],
+            ])(
+                'replays a retry of %s only until a day after the latest time it can be due',
+                async (_desc, scheduledInDays, movedToDays, retryAfterMs, replays, messageIdInUrl) => {
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    const valkey = keys['valkey']!
+                    const scope = `scope-${new UUIDT().toString()}`
+                    api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                    const letStoreTimePass = (ms: number) =>
+                        valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                            for (const stored of await client.keys(`*${scope}*`)) {
+                                const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                                const remainingMs = await client.pttl(storedKey)
+                                if (remainingMs > ms) {
+                                    await client.pexpire(storedKey, remainingMs - ms)
+                                } else if (remainingMs >= 0) {
+                                    await client.del(storedKey)
+                                }
+                            }
+                        })
+                    try {
+                        const request = {
+                            ...body,
+                            ...(scheduledInDays !== undefined && { scheduled_at: inDays(scheduledInDays) }),
+                            idempotency_key: `key-${scope}`,
+                        }
+                        const sendFirstRequest = () =>
+                            send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
+                        const first = await sendFirstRequest()
+                        expect(first.status).toEqual(202)
+                        if (movedToDays !== null) {
+                            const moved = await manage('reschedule', messageIdInUrl(first.body.invocation_id), {
+                                scheduled_at: inDays(movedToDays),
+                            })
+                            expect(moved.status).toEqual(200)
+                        }
+                        await letStoreTimePass(retryAfterMs)
 
-                    const retry = await sendFirstRequest()
+                        const retry = await sendFirstRequest()
 
-                    expect(moved.status).toEqual(200)
-                    expect(retry.status).toEqual(202)
-                    expect(retry.body).toEqual({ ...first.body, replayed: true })
-                    const ttlSeconds = await keys['valkey']!.useClient({ name: 'test-ttl' }, async (client) => {
-                        const stored = await client.keys(`*${scope}*`)
-                        expect(stored).toHaveLength(1)
-                        return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
-                    })
-                    expect(ttlSeconds).toBeGreaterThan((31 * DAY_MS) / 1000 - 120)
-                    expect(ttlSeconds).toBeLessThanOrEqual((31 * DAY_MS) / 1000)
-                } finally {
-                    api['transactionalEmailIdempotencyKeys'] = keys
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({
+                            ...first.body,
+                            invocation_id: retry.body.invocation_id,
+                            replayed: replays,
+                        })
+                        expect(retry.body.invocation_id === first.body.invocation_id).toEqual(replays)
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
                 }
-            })
+            )
+
+            it.each([
+                ['the key store is down', 'failed'],
+                ['no key store is configured', 'unavailable'],
+            ])(
+                'answers a move with 503 when %s and keeps the move, so a retry of it keeps the key',
+                async (_desc, outcome) => {
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    const valkey = keys['valkey']!
+                    const scope = `scope-${new UUIDT().toString()}`
+                    const scopedKeys = new IdempotencyKeys(valkey, scope)
+                    api['transactionalEmailIdempotencyKeys'] = scopedKeys
+                    const breakStore = (): (() => void) => {
+                        if (outcome === 'failed') {
+                            const outage = jest
+                                .spyOn(valkey, 'useClient')
+                                .mockRejectedValue(new Error('connection lost'))
+                            return () => outage.mockRestore()
+                        }
+                        api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, scope)
+                        return () => {
+                            api['transactionalEmailIdempotencyKeys'] = scopedKeys
+                        }
+                    }
+                    const failedWrites = async (): Promise<number> =>
+                        (
+                            await (
+                                register.getSingleMetric('cdp_hogflow_idempotency_operations_total') as Counter
+                            ).get()
+                        ).values.find(
+                            (v) =>
+                                v.labels.scope === scope &&
+                                v.labels.operation === 'replay_until' &&
+                                v.labels.outcome === outcome
+                        )?.value ?? 0
+                    try {
+                        const sendFirstRequest = () =>
+                            send(
+                                hogFlow.id,
+                                { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                                { ...body, idempotency_key: `key-${scope}` }
+                            )
+                        const first = await sendFirstRequest()
+                        expect(first.status).toEqual(202)
+                        const messageId = first.body.invocation_id
+                        const scheduledAt = inDays(3)
+
+                        const restoreStore = breakStore()
+                        let moved: supertest.Response
+                        try {
+                            moved = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                        } finally {
+                            restoreStore()
+                        }
+
+                        expect(moved.status).toEqual(503)
+                        expect(moved.body).toEqual({ error: 'idempotency_unavailable' })
+                        expect(await scheduledTime(messageId)).toEqual(scheduledAt)
+                        expect(emailStatusRows().at(-1)).toEqual(
+                            expect.objectContaining({
+                                message_id: messageId,
+                                status: 'scheduled',
+                                scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                            })
+                        )
+                        expect(await failedWrites()).toEqual(1)
+
+                        const movedAgain = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                        expect(movedAgain.status).toEqual(200)
+                        await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                            for (const stored of await client.keys(`*${scope}*`)) {
+                                const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                                const remainingMs = await client.pttl(storedKey)
+                                await (remainingMs > DAY_MS + HOUR_MS
+                                    ? client.pexpire(storedKey, remainingMs - DAY_MS - HOUR_MS)
+                                    : client.del(storedKey))
+                            }
+                        })
+                        const retry = await sendFirstRequest()
+                        expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
+                }
+            )
 
             it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
                 const messageId = await scheduleSend()
@@ -4760,7 +4965,7 @@ describe('CDP API', () => {
             it.each([
                 ['a time that has passed', 0],
                 ['a time that has passed, for a message older than 30 days', 31 * DAY_MS],
-            ])('moves a send to now for %s', async (_desc, messageAgeMs) => {
+            ])('moves a keyed send to now for %s', async (_desc, messageAgeMs) => {
                 const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
                 await manager.createJob({
                     id: messageId,
@@ -4768,6 +4973,11 @@ describe('CDP API', () => {
                     functionId: hogFlow.id,
                     queueName: 'email',
                     scheduled: new Date(Date.now() + DAY_MS),
+                    state: Buffer.from(
+                        JSON.stringify({
+                            state: { idempotencyKey: { hash: `hash-${messageId}`, fingerprint: 'request' } },
+                        })
+                    ),
                 })
                 const before = Date.now()
 
