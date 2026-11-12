@@ -63,9 +63,9 @@ def read_flag_calls_in_lazy_join(
     - The subquery passes each row of its scan through on its own. A filter before a GROUP BY, an aggregate, a window
       function, a LIMIT or DISTINCT changes which rows come out.
 
-    It raises when `node` compares the join's `event` with `$feature_flag_called` by `=` or `IN`, or by `!=` or
-    `NOT IN` under an odd number of NOTs, and one of these does not hold. The function builds the pin on the subquery's scan, so no name from `node` has to resolve in the
-    subquery.
+    It raises when `node` compares the join's `event` with `$feature_flag_called` by `=` or `IN` and one of these
+    does not hold. A `!=` or `NOT IN` under an odd number of NOTs counts as `=` or `IN`. The function builds the pin
+    on the subquery's scan, so no name from `node` has to resolve in the subquery.
     """
     subquery = join_to_add.table
     if not isinstance(subquery, ast.SelectQuery):
@@ -178,12 +178,10 @@ def _compares_with_flag_calls(node: AST, reads_join_event: Callable[[ast.Expr], 
     return finder.found
 
 
-_NEGATED_OPS = {
-    ast.CompareOperationOp.Eq: ast.CompareOperationOp.NotEq,
+# A negated `=` or `IN` maps to no entry, because it keeps every event other than the compared ones.
+_POSITIVE_OF_NEGATED = {
     ast.CompareOperationOp.NotEq: ast.CompareOperationOp.Eq,
-    ast.CompareOperationOp.In: ast.CompareOperationOp.NotIn,
     ast.CompareOperationOp.NotIn: ast.CompareOperationOp.In,
-    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.GlobalNotIn,
     ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.GlobalIn,
 }
 
@@ -227,7 +225,7 @@ class _JoinEventComparisonFinder(SyntaxVisitor):
         if comparison is None or not negated:
             self.visit(expr)
             return
-        flipped = _NEGATED_OPS.get(comparison.op)
+        flipped = _POSITIVE_OF_NEGATED.get(comparison.op)
         if flipped is not None:
             self._check(ast.CompareOperation(op=flipped, left=comparison.left, right=comparison.right))
         self.visit(comparison.left)
