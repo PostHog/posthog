@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import crypto from 'node:crypto'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
@@ -66,8 +67,27 @@ class SnsFetchError extends Error {
     }
 }
 
+export const SNS_SIGNING_CERT_CACHE_SIZE = 32
+
+const SNS_HOSTNAME = /^sns\.[a-z0-9-]+\.amazonaws\.com$/
+const SNS_CERT_PATH = /^\/SimpleNotificationService-[A-Za-z0-9]{8,64}\.pem$/
+
+const parseSnsUrl = (url: string): URL | undefined => {
+    const parsed = URL.parse(url)
+    return parsed?.protocol === 'https:' && SNS_HOSTNAME.test(parsed.hostname) ? parsed : undefined
+}
+
+const canonicalSnsCertUrl = (url: string): string | undefined => {
+    const parsed = parseSnsUrl(url)
+    return parsed && SNS_CERT_PATH.test(parsed.pathname) ? `https://${parsed.hostname}${parsed.pathname}` : undefined
+}
+
 export class SnsEnvelopeVerifier {
-    certCache: Record<string, Promise<string> | undefined> = {}
+    private certCache = new LRUCache<string, string>({
+        max: SNS_SIGNING_CERT_CACHE_SIZE,
+        ignoreFetchAbort: true,
+        fetchMethod: (url) => this.fetchText(url),
+    })
     protected allowedTopicArns: Set<string>
 
     constructor(allowedTopicArns: string[] = []) {
@@ -91,59 +111,11 @@ export class SnsEnvelopeVerifier {
     }
 
     private async fetchCert(url: string): Promise<string> {
-        if (!this.isValidSnsCertUrl(url)) {
+        const certUrl = canonicalSnsCertUrl(url)
+        if (!certUrl) {
             throw new Error(`Invalid SNS certificate URL: ${url}`)
         }
-
-        if (this.certCache[url]) {
-            return await this.certCache[url]!
-        }
-        this.certCache[url] = this.fetchText(url).catch((error) => {
-            delete this.certCache[url]
-            throw error
-        })
-        return this.certCache[url]!
-    }
-
-    private isValidSnsCertUrl(url: string): boolean {
-        try {
-            const parsedUrl = new URL(url)
-
-            if (parsedUrl.protocol !== 'https:') {
-                return false
-            }
-
-            const hostname = parsedUrl.hostname
-            if (!hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
-                return false
-            }
-
-            if (!parsedUrl.pathname.endsWith('.pem')) {
-                return false
-            }
-
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private isValidSnsSubscribeUrl(url: string): boolean {
-        try {
-            const parsedUrl = new URL(url)
-
-            if (parsedUrl.protocol !== 'https:') {
-                return false
-            }
-
-            if (!parsedUrl.hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
-                return false
-            }
-
-            return true
-        } catch {
-            return false
-        }
+        return await this.certCache.forceFetch(certUrl)
     }
 
     private parseIncomingBody(body: unknown): ParsedBody {
@@ -173,7 +145,7 @@ export class SnsEnvelopeVerifier {
     }
 
     private async verifySnsSignature(envelope: SnsEnvelope): Promise<boolean> {
-        if (!this.isValidSnsCertUrl(envelope.SigningCertURL)) {
+        if (!canonicalSnsCertUrl(envelope.SigningCertURL)) {
             return false
         }
         let cert: string
@@ -244,10 +216,19 @@ export class SnsEnvelopeVerifier {
 
         // When verification is required the message must be a signed SNS envelope. Raw deliveries
         // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
-        if (verifySignature) {
-            if (!('envelope' in parsed)) {
-                return { kind: 'reject', status: 403, error: 'Unsigned raw delivery not allowed' }
-            }
+        if (verifySignature && !('envelope' in parsed)) {
+            return { kind: 'reject', status: 403, error: 'Unsigned raw delivery not allowed' }
+        }
+
+        // A valid signature proves the envelope came from AWS, but not from the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SnsEnvelopeVerifier] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { kind: 'reject', status: 403, error: 'SNS TopicArn not allowed' }
+        }
+
+        if (verifySignature && 'envelope' in parsed) {
             logger.info('[SnsEnvelopeVerifier] verifying signature', {
                 type: parsed.envelope.Type,
                 messageId: parsed.envelope.MessageId,
@@ -268,21 +249,11 @@ export class SnsEnvelopeVerifier {
             }
         }
 
-        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
-        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
-        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
-        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
-            logger.warn('[SnsEnvelopeVerifier] Rejecting event from disallowed TopicArn', {
-                topicArn: parsed.envelope.TopicArn,
-            })
-            return { kind: 'reject', status: 403, error: 'SNS TopicArn not allowed' }
-        }
-
         if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
             logger.info('[SnsEnvelopeVerifier] confirming subscription', { envelope: parsed.envelope })
             const subscribeUrl = parsed.envelope.SubscribeURL
             if (subscribeUrl) {
-                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
+                if (!parseSnsUrl(subscribeUrl)) {
                     logger.warn('[SnsEnvelopeVerifier] Invalid SubscribeURL, rejecting', {
                         url: subscribeUrl,
                     })

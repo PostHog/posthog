@@ -75,9 +75,7 @@ from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Case, CharField, Count, F, Func, IntegerField, Min, Value, When
-from django.db.models.functions import Coalesce
-from django.db.models.lookups import Exact
+from django.db.models import Count, Min
 
 import dagster
 import pyarrow as pa
@@ -104,6 +102,14 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.ranking.inventory import spine_report_filter
+from products.signals.backend.ranking.report_facts import (
+    JUDGMENT_TYPES,
+    REPORT_FACT_FIELDS,
+    judgment_facts,
+    no_judgment_facts,
+    report_content_annotations,
+    report_row_facts,
+)
 from products.signals.backend.ranking.serving_manifest import serving_engagement_key
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -587,31 +593,6 @@ def _chunked[T](ids: list[T]) -> Iterator[list[T]]:
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
 
-def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
-    # Legacy artefact content is unconstrained JSON; a non-string value must not reach the
-    # pa.string() column, where it would abort the whole partition build.
-    value = parsed.get(key)
-    return value if isinstance(value, str) else None
-
-
-def _judgment_flag(parsed: dict[str, Any], key: str) -> bool | None:
-    value = parsed.get(key)
-    return value if isinstance(value, bool) else None
-
-
-def _json_array_length(field: str) -> Case:
-    """Length of a JSON list column, computed in Postgres so the list itself is never loaded.
-    `jsonb_array_length` raises on a value that is not an array, so any other stored value counts as 0."""
-    return Case(
-        When(
-            Exact(Func(F(field), function="jsonb_typeof", output_field=CharField()), Value("array")),
-            then=Func(F(field), function="jsonb_array_length", output_field=IntegerField()),
-        ),
-        default=Value(0),
-        output_field=IntegerField(),
-    )
-
-
 def _artefact_judgments(
     report_ids: list[str], snapshot_end: datetime.datetime
 ) -> dict[str, dict[str, str | bool | None]]:
@@ -631,10 +612,7 @@ def _artefact_judgments(
         artefacts = (
             SignalReportArtefact.objects.filter(
                 report_id__in=chunk,
-                type__in=[
-                    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                ],
+                type__in=JUDGMENT_TYPES,
                 created_at__lt=snapshot_end,
             )
             .order_by("report_id", "type", "-created_at")
@@ -645,21 +623,10 @@ def _artefact_judgments(
             # A null updated_at is a row predating the field, never an edit.
             if updated_at is not None and updated_at >= snapshot_end:
                 continue
-            try:
-                parsed = json.loads(content)
-            except ValueError:
+            facts = judgment_facts(artefact_type, content)
+            if facts is None:
                 continue
-            # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
-            if not isinstance(parsed, dict):
-                continue
-            entry = judgments.setdefault(
-                str(report_id), {"priority": None, "actionability": None, "already_addressed": None}
-            )
-            if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                entry["priority"] = _judgment_value(parsed, "priority")
-            else:
-                entry["actionability"] = _judgment_value(parsed, "actionability")
-                entry["already_addressed"] = _judgment_flag(parsed, "already_addressed")
+            judgments.setdefault(str(report_id), no_judgment_facts()).update(facts)
     return judgments
 
 
@@ -916,16 +883,12 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     ordered_spine_ids = sorted(report_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids)
     judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
+    content = report_content_annotations()
     rows: list[dict[str, Any]] = []
     for spine_chunk in _chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
-            .annotate(
-                chart_count=_json_array_length("charts"),
-                metric_count=_json_array_length("metrics"),
-                suggested_prompt_count=_json_array_length("suggested_prompts"),
-                tag_count=Coalesce(Func(F("tags"), function="cardinality"), Value(0), output_field=IntegerField()),
-            )
+            .annotate(**content)
             .values(
                 "id",
                 "team_id",
@@ -935,25 +898,14 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 "promoted_at",
                 "last_run_at",
                 "updated_at",
-                "signal_count",
-                "total_weight",
-                "run_count",
-                "title",
-                "summary",
-                "chart_count",
-                "metric_count",
-                "suggested_prompt_count",
-                "tag_count",
-                "content_revision_count",
-                "corroboration_count",
-                "user_authored",
+                *REPORT_FACT_FIELDS,
+                *content,
             )
             .iterator(chunk_size=2000)
         ):
             report_id = str(report["id"])
             created_at = ensure_utc(report["created_at"])
             promoted_at = ensure_utc(report["promoted_at"])
-            judgment = judgments.get(report_id, {})
             rows.append(
                 {
                     "snapshot_date": snapshot_date,
@@ -970,21 +922,8 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     "hours_since_promotion": (snapshot_end - promoted_at).total_seconds() / 3600
                     if promoted_at
                     else None,
-                    "signal_count": report["signal_count"],
-                    "total_weight": report["total_weight"],
-                    "run_count": report["run_count"],
-                    "priority": judgment.get("priority"),
-                    "actionability": judgment.get("actionability"),
-                    "title_chars": len(report["title"] or ""),
-                    "summary_chars": len(report["summary"] or ""),
-                    "chart_count": report["chart_count"],
-                    "metric_count": report["metric_count"],
-                    "suggested_prompt_count": report["suggested_prompt_count"],
-                    "tag_count": report["tag_count"],
-                    "content_revision_count": report["content_revision_count"] or 0,
-                    "corroboration_count": report["corroboration_count"] or 0,
-                    "user_authored": report["user_authored"],
-                    "already_addressed": judgment.get("already_addressed"),
+                    **report_row_facts(report),
+                    **judgments.get(report_id, no_judgment_facts()),
                     "features_observed_at": features_observed_at,
                 }
             )

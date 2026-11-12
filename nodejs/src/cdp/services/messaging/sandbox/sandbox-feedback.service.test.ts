@@ -38,7 +38,7 @@ const RECIPIENT = 'member@example.com'
 const FLOW_ID = '0190a7f2-1c2b-7d3e-8f40-5a6b7c8d9e0f'
 const RUN_ID = '0190a7f2-1c2b-7d3e-8f40-000000000001'
 const ACTION_ID = 'action_email_sandbox_1'
-const CERT_URL = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-test.pem'
+const CERT_URL = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem'
 
 const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
@@ -364,8 +364,8 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
         })
 
         it.each([
-            ['plain HTTP', 'http://sns.us-east-1.amazonaws.com/SimpleNotificationService-test.pem'],
-            ['a host outside AWS', 'https://attacker.example.com/SimpleNotificationService-test.pem'],
+            ['plain HTTP', 'http://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem'],
+            ['a host outside AWS', 'https://attacker.example.com/SimpleNotificationService-0123456789abcdef.pem'],
             ['an AWS-looking host prefix', 'https://sns.us-east-1.amazonaws.com.attacker.example/cert.pem'],
             ['a path that is not a PEM file', 'https://sns.us-east-1.amazonaws.com/cert.txt'],
         ])('rejects a signing certificate served over %s without fetching it', async (_label, certUrl) => {

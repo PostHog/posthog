@@ -19,6 +19,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
 from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
+from products.workflows.backend.facade.sandbox_email import SANDBOX_EMAIL_ACTION_TYPE
 from products.workflows.backend.facade.templates import (
     create_template,
     delete_template,
@@ -97,6 +98,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        if data.get("type") == SANDBOX_EMAIL_ACTION_TYPE:
+            raise serializers.ValidationError(
+                {"type": "Templates can't use the sandbox sender. Use an email step with a verified sender."}
+            )
         trigger_is_function = False
         if data.get("type") == "trigger":
             trigger_type = data.get("config", {}).get("type")
