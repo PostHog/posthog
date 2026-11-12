@@ -1,7 +1,7 @@
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
-import { Action, Actuation } from '../environment/environment'
+import { Actuation } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import { ValveContext, createValves } from './valves'
@@ -31,8 +31,11 @@ function stackOf({
     let probeReads = 0
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
-    const actions: Action[] = []
     const gone: number[] = []
+    const frozen = new Set<number>()
+    const everFrozen: number[] = []
+    let roleSessions = 4
+    let droppedSessions = 0
     const goneAfterRelease: number[] = []
     let releaseBegan = false
     const jobs: Job[] = []
@@ -43,18 +46,34 @@ function stackOf({
         teams: [OUR_TEAM],
         environment: {
             actuate: (action): Promise<Actuation> => {
-                actions.push(action)
                 if (finishesJobsFirst) {
                     jobs.splice(0)
                 }
                 if (action.kind === 'pg.terminate') {
-                    return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
+                    const dropped = Math.ceil(action.share * roleSessions)
+                    roleSessions -= dropped
+                    droppedSessions += dropped
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(dropped > 0),
+                        release: () => Promise.resolve(),
+                    })
                 }
                 const pid = processes.get(action.role)
                 if (pid === undefined) {
                     return Promise.resolve({
                         observed: () => Promise.reject(new Error(`${action.role} is not running`)),
                         release: () => Promise.resolve(),
+                    })
+                }
+                if (action.kind === 'freeze') {
+                    frozen.add(pid)
+                    everFrozen.push(pid)
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(frozen.has(pid)),
+                        release: () => {
+                            frozen.delete(pid)
+                            return Promise.resolve()
+                        },
                     })
                 }
                 if (!unkillable) {
@@ -91,8 +110,8 @@ function stackOf({
 
     return {
         context,
-        actions: () => [...actions],
         gone: () => [...gone],
+        effects: () => ({ gone: [...gone], frozen: [...frozen], everFrozen: [...everFrozen], droppedSessions }),
         goneAfterRelease: () => [...goneAfterRelease],
         releasing: (release: () => Promise<void>) => {
             releaseBegan = true
@@ -107,6 +126,8 @@ function stackOf({
         },
     }
 }
+
+type Effects = ReturnType<ReturnType<typeof stackOf>['effects']>
 
 const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): ValveEntry => ({
     valve: 'role.kill',
@@ -169,16 +190,18 @@ describe('valves', () => {
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
-    it.each<[string, ValveEntry, StackSetup, Action]>([
-        ['a kill', kill({ at: '0ms' }), {}, { kind: 'kill', role: EMAIL_WORKER }],
-        ['a freeze', freeze({ at: '0ms' }), {}, { kind: 'freeze', role: EMAIL_WORKER }],
+    const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }
+
+    it.each<[string, ValveEntry, StackSetup, Partial<Effects>]>([
+        ['a kill, which replaces the process', kill({ at: '0ms' }), {}, { gone: [1] }],
+        ['a freeze, which resumes the same process on release', freeze({ at: '0ms' }), {}, { everFrozen: [1] }],
         [
             'a connection drop, though the workers finish their jobs on new connections',
             dropConnections({ when: RUNNING_ON_EMAIL }),
             { runningJobs: 2, finishesJobsFirst: true },
-            { kind: 'pg.terminate', share: 0.5 },
+            { droppedSessions: 2 },
         ],
-    ])('applies and observes %s', async (_story, entry, stackSetup, action) => {
+    ])('applies and observes %s', async (_story, entry, stackSetup, effects) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf(stackSetup)
 
@@ -186,8 +209,8 @@ describe('valves', () => {
         await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
-        expect({ actions: stack.actions(), error: valves.timeline()[0].error }).toEqual({
-            actions: [action],
+        expect({ effects: stack.effects(), error: valves.timeline()[0].error }).toEqual({
+            effects: { ...UNTOUCHED, ...effects },
             error: undefined,
         })
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
