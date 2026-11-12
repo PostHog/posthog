@@ -121,6 +121,7 @@ describe('hog', () => {
             'learn',
             'skills list',
             'skills add',
+            'mcp add',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',

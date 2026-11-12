@@ -23,6 +23,7 @@ export const STEP_IDS = [
     'review',
     'verify',
     'products',
+    'mcp',
     'connected',
 ] as const
 

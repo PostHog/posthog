@@ -14,6 +14,7 @@ import { parseProviderIdToken } from './posthog/tokens'
 
 export interface FakeRuntimeOptions {
     env?: Env
+    platform?: NodeJS.Platform
     stdoutIsTTY?: boolean
     columns?: number
     cwd?: string
@@ -21,6 +22,8 @@ export interface FakeRuntimeOptions {
     stdin?: string
     // Read files from disk instead of `files`, for commands that scan real build output.
     useDisk?: boolean
+    // Links from a path to the absolute path they point to, which `realPath` follows.
+    links?: Record<string, string>
     // Answers to prompts, in the order hog asks them. A prompt with no answer left fails the test.
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
@@ -152,7 +155,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const clock = fakeClock(Date.UTC(2026, 0, 1))
     const runtime: FakeRuntime = {
         env: options.env ?? {},
-        platform: 'linux',
+        platform: options.platform ?? 'linux',
         isDevelopment: false,
         stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
@@ -217,7 +220,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         writeFile: async (path, contents) => {
             files[path] = contents
         },
-        realPath: async (path) => resolve(path),
+        realPath: async (path) => {
+            const resolved = resolve(path)
+            const link = Object.keys(options.links ?? {}).find(
+                (from) => resolved === from || resolved.startsWith(`${from}/`)
+            )
+            return link === undefined ? resolved : `${options.links?.[link]}${resolved.slice(link.length)}`
+        },
         replaceFile: async (path, contents) => {
             files[path] = contents
         },

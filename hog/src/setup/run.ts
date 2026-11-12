@@ -6,15 +6,16 @@ import { AGENTS_FILE, blockStage } from './agents-md'
 import type { DoneStep, EventsContext, SetupInput, SetupResult } from './result'
 import { completed, SetupRun, type Step } from './setup-run'
 import { readState, setupScope, STEP_IDS, type StepId } from './state'
-import { purpose } from './steps/1-purpose'
-import { login } from './steps/2-login'
-import { project } from './steps/3-project'
-import { agentsMd } from './steps/4-agents-md'
-import { install } from './steps/5-install'
-import { review } from './steps/6-review'
-import { countEvents, eventsContext, verify } from './steps/7-verify'
-import { ADD_SKILLS, products } from './steps/8-products'
-import { connected } from './steps/9-connected'
+import { purpose } from './steps/01-purpose'
+import { login } from './steps/02-login'
+import { project } from './steps/03-project'
+import { agentsMd } from './steps/04-agents-md'
+import { install } from './steps/05-install'
+import { review } from './steps/06-review'
+import { countEvents, eventsContext, verify } from './steps/07-verify'
+import { ADD_SKILLS, products } from './steps/08-products'
+import { mcp } from './steps/09-mcp'
+import { connected } from './steps/10-connected'
 
 // README.md in this folder draws how the steps run, stop and resume.
 const STEPS: Record<StepId, Step> = {
@@ -26,6 +27,7 @@ const STEPS: Record<StepId, Step> = {
     review,
     verify,
     products,
+    mcp,
     connected,
 }
 
@@ -69,7 +71,15 @@ const TELL_USER = `At the end of your turn, tell the user what else PostHog can 
 function doneInstructions(run: SetupRun, events: EventsContext | undefined): string {
     const finishedForAgent = run.ctx.prompts === undefined && run.done.some(({ step }) => step === 'connected')
 
-    return [CONNECTED, events?.count === 0 ? NO_EVENTS : '', finishedForAgent ? TELL_USER : '']
+    const { mcp } = run.context
+    const tellMcp =
+        !finishedForAgent || !mcp || mcp.configured
+            ? ''
+            : mcp.foreign
+              ? `Also tell the user that the \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, and that \`${mcp.command}\` replaces it with PostHog's.`
+              : `Also tell the user they can connect PostHog's MCP server with \`${mcp.command}\`.`
+
+    return [CONNECTED, events?.count === 0 ? NO_EVENTS : '', finishedForAgent ? TELL_USER : '', tellMcp]
         .filter(Boolean)
         .join(' ')
 }

@@ -28,6 +28,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog api access`                            | Shows the key's scopes and the missing scopes that block the most tools.                                                 |
 | `hog learn [skill] [path...]`               | Reads the PostHog agent skills, with the grammar of the MCP server's `learn` command. Needs no login.                    |
 | `hog skills list`, `hog skills add <id...>` | List the PostHog skills, and add them to this repository in the folder your agent reads. See [Skills](#skills).          |
+| `hog mcp add`                               | Connects PostHog's MCP server to your agent, with OAuth and no key in the file. See [MCP server](#mcp-server).           |
 | `hog error-tracking inject [paths...]`      | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.                |
 | `hog error-tracking clone <from> <to>`      | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                       |
 | `hog error-tracking upload [paths...]`      | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.   |
@@ -103,6 +104,7 @@ Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, 
 | `review`    | Asks the agent to check its changes against the rules.                                                                                                                        | `--reviewed`, or yes at the terminal          |
 | `verify`    | Looks for events PostHog received since the setup started. Exits with code 1 while there are none.                                                                            | An event arrived                              |
 | `products`  | Lists the other products and the command that starts each, and the PostHog skills that could help later, which `hog skills add <id...>` adds.                                 | `--products-ack`, or shown at the terminal    |
+| `mcp`       | Checks whether the agent running setup has PostHog's MCP server, and puts `{ agent, configured, command }` in `context.mcp`. Changes nothing.                                 | Never stops                                   |
 | `connected` | Rewrites the note in `AGENTS.md` with the commands for later PostHog work. From then on `hog setup` shows a summary.                                                          | Always                                        |
 
 The setup belongs to the folder of the closest `posthog.json`, or to the working folder when there is none, so each app in a monorepo has its own.
@@ -141,6 +143,27 @@ Commands in the skill text read `hog learn ...`. Project skills are only availab
 - The folder follows the agent running the command. `--agent <name>` overrides it and can repeat. With no agent, the skills go in `.agents/skills/`.
 - A skill that is already installed stays as it is, unless you pass `--force`.
 - Agents get `{ root, rootKind, agentSource, skills: [{ id, agent, path, status }], assets }`, where `status` is `installed` or `already_installed`.
+
+## MCP server
+
+`hog mcp add` adds PostHog's MCP server to your agent's settings, in the same file and format as the Wizard, so either tool sees what the other added.
+
+| Agent          | `--agent`        | File                                                                                                             |
+| -------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Claude Code    | `claude-code`    | `.mcp.json` in the closest git repository, or in the working folder outside one                                  |
+| Cursor         | `cursor`         | `~/.cursor/mcp.json`                                                                                             |
+| Codex          | `codex`          | `~/.codex/config.toml`                                                                                           |
+| VS Code        | `vscode`         | `mcp.json` in VS Code's user folder                                                                              |
+| Zed            | `zed`            | `~/.config/zed/settings.json`, or under `XDG_CONFIG_HOME` on Linux                                               |
+| opencode       | `opencode`       | `opencode.jsonc` or `opencode.json` in `OPENCODE_CONFIG_DIR`, `XDG_CONFIG_HOME/opencode` or `~/.config/opencode` |
+| Claude Desktop | `claude-desktop` | `claude_desktop_config.json` in Claude's app data folder, on macOS and Windows                                   |
+
+- The entry is the server URL, `https://mcp.posthog.com/mcp`, and never a key. The agent logs in to PostHog with OAuth the first time it connects.
+- The server serves PostHog Cloud, so a self-hosted host stops the command.
+- The agent running hog gets the server. `--agent <name>` overrides it and can repeat.
+- Other servers and comments in the file are kept. An agent that already has a `posthog` entry for PostHog's MCP server keeps it, unless you pass `--force`. For Claude Code, such an entry `claude mcp add` put in `~/.claude.json` counts too.
+- A `posthog` entry that connects to another server stops the command with `mcp_foreign_server`, and hog writes nothing. `--force` replaces it.
+- Agents get `{ added: [{ agent, path, status }] }`, where `status` is `added`, `replaced` or `already_added`.
 
 ## Global options
 
