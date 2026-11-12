@@ -13,6 +13,7 @@ from django.core.exceptions import (
 from django.db import IntegrityError, transaction
 
 import psycopg
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.exceptions import Conflict
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
@@ -84,7 +85,22 @@ class RestoreContext:
     organization: Any | None
 
 
+@dataclass(frozen=True)
+class FileChangeContext:
+    user: Any | None
+    request: Any | None
+
+
+@dataclass(frozen=True)
+class FileObjectRef:
+    team_id: int
+    type: str
+    ref: str
+
+
 PrepareDeleteHook = Callable[[Any | None, int, Any], None]
+DeleteLock = Callable[[Any], list[Any]]
+FileChangeCheck = Callable[[FileChangeContext, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
 PostDeleteHook = Callable[[DeletionContext, Any], None]
 PreRestoreHook = Callable[[RestoreContext, Any], None]
@@ -93,6 +109,8 @@ PostRestoreHook = Callable[[RestoreContext, Any], None]
 _MODEL_REGISTRY: dict[str, ModelRegistration] = {}
 _PREPARE_DELETE_HOOKS: dict[str, PrepareDeleteHook] = {}
 _PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
+_FILE_CHANGE_CHECKS: dict[str, tuple[FileChangeCheck, tuple[str, ...]]] = {}
+_DELETE_LOCKS: dict[str, tuple[DeleteLock, tuple[str, ...]]] = {}
 _POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
 _PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
 _POST_RESTORE_HOOKS: dict[str, PostRestoreHook] = {}
@@ -149,6 +167,58 @@ def register_pre_delete_hook(type_string: str, hook: PreDeleteHook) -> None:
     _PRE_DELETE_HOOKS[type_string] = hook
 
 
+# Runs for every file a request places, changes or unlinks, including files whose object stays. The check
+# gets each object with only `fields` loaded, so a type lists the fields its check reads.
+def register_file_change_check(type_string: str, check: FileChangeCheck, *, fields: tuple[str, ...]) -> None:
+    _FILE_CHANGE_CHECKS[type_string] = (check, fields)
+
+
+# A type registered here has its objects locked before a delete changes them. The lock gets one queryset per
+# type and team, ordered by primary key and loading only `fields`. It must not wait for a lock, because the
+# file system delete calls it while it holds the file rows, and a save of the object locks the object first
+# and the file rows second. The soft delete and the restore load and save only `fields`, so they must hold
+# every field either one writes and every field the save signals read.
+def register_delete_lock(type_string: str, lock: DeleteLock, *, fields: tuple[str, ...]) -> None:
+    _DELETE_LOCKS[type_string] = (lock, fields)
+
+
+def _delete_lock_fields(type_string: str) -> tuple[str, ...] | None:
+    registered = _DELETE_LOCKS.get(type_string)
+    return registered[1] if registered else None
+
+
+def lock_file_system_objects(refs: Iterable[FileObjectRef]) -> dict[FileObjectRef, Any]:
+    refs_by_type: dict[tuple[str, int], set[str]] = {}
+    for object_ref in refs:
+        if object_ref.type in _DELETE_LOCKS and object_ref.type in _MODEL_REGISTRY:
+            refs_by_type.setdefault((object_ref.type, object_ref.team_id), set()).add(object_ref.ref)
+    locked: dict[FileObjectRef, Any] = {}
+    teams: dict[int, Any] = {}
+    for (type_string, team_id), type_refs in sorted(refs_by_type.items()):
+        registration = _MODEL_REGISTRY[type_string]
+        lock, fields = _DELETE_LOCKS[type_string]
+        refs_by_value = _lookup_values(registration, type_refs)
+        if not refs_by_value:
+            continue
+        model = apps.get_model(registration.app_label, registration.model_name)
+        objects = (
+            _get_queryset(registration)
+            .only(*fields)
+            .filter(
+                **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": list(refs_by_value)}
+            )
+            .order_by("pk")
+        )
+        for instance in lock(objects):
+            # The soft delete's save signals read the team. One instance per team saves a read per object.
+            if team_id not in teams:
+                teams[team_id] = model._meta.get_field(registration.team_field).related_model.objects.get(pk=team_id)
+            setattr(instance, registration.team_field, teams[team_id])
+            for ref in refs_by_value.get(getattr(instance, registration.lookup_field), []):
+                locked[FileObjectRef(team_id=team_id, type=type_string, ref=ref)] = instance
+    return locked
+
+
 def register_post_delete_hook(type_string: str, hook: PostDeleteHook) -> None:
     _POST_DELETE_HOOKS[type_string] = hook
 
@@ -161,20 +231,71 @@ def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
     _POST_RESTORE_HOOKS[type_string] = hook
 
 
-# Runs before any pre-delete hook locks an object, so a type can load its checks' data in one query.
-def prepare_file_system_deletes(request: Any | None, refs_by_type: Mapping[tuple[int, str], Iterable[str]]) -> None:
+def _lookup_values(registration: ModelRegistration, refs: Iterable[str]) -> dict[Any, list[str]]:
+    lookup_field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(
+        registration.lookup_field
+    )
+    values: dict[Any, list[str]] = {}
+    for ref in sorted(refs):
+        try:
+            values.setdefault(lookup_field.to_python(ref), []).append(ref)
+        except (ValueError, TypeError, DjangoValidationError):
+            continue
+    return values
+
+
+def _registered_objects(registration: ModelRegistration, team_id: int, refs: Iterable[str]) -> Any | None:
+    lookup_values = list(_lookup_values(registration, refs))
+    if not lookup_values:
+        return None
+    return _get_queryset(registration).filter(
+        **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": lookup_values}
+    )
+
+
+# Runs before any pre-delete or pre-restore hook locks an object, so a type can load its checks' data in one query.
+def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple[int, str], Iterable[str]]) -> None:
     for (team_id, type_string), refs in sorted(refs_by_type.items()):
         hook = _PREPARE_DELETE_HOOKS.get(type_string)
         registration = _MODEL_REGISTRY.get(type_string)
         if hook is None or registration is None:
             continue
-        try:
-            objects = _get_queryset(registration).filter(
-                **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": sorted(refs)}
-            )
-        except (ValueError, DjangoValidationError):
+        objects = _registered_objects(registration, team_id, refs)
+        if objects is not None:
+            hook(request, team_id, objects)
+
+
+def check_file_system_object_changes(
+    context: FileChangeContext, refs_by_type: Mapping[tuple[int, str], Iterable[str]]
+) -> dict[FileObjectRef, PermissionDenied]:
+    """Run each type's change check and return the refs it refused."""
+    checked = {key: refs for key, refs in refs_by_type.items() if key[1] in _FILE_CHANGE_CHECKS}
+    prepare_file_system_objects(context.request, checked)
+    denied: dict[FileObjectRef, PermissionDenied] = {}
+    for (team_id, type_string), refs in sorted(checked.items()):
+        registration = _MODEL_REGISTRY.get(type_string)
+        if registration is None:
             continue
-        hook(request, team_id, objects)
+        check, fields = _FILE_CHANGE_CHECKS[type_string]
+        refs_by_value = _lookup_values(registration, refs)
+        objects = _registered_objects(registration, team_id, refs)
+        for obj in objects.only(*fields) if objects is not None else []:
+            try:
+                check(context, obj)
+            except PermissionDenied as error:
+                for ref in refs_by_value.get(getattr(obj, registration.lookup_field), []):
+                    denied[FileObjectRef(team_id=team_id, type=type_string, ref=ref)] = error
+    return denied
+
+
+def file_system_object_creator_ids(type_string: str, team_id: int, refs: Iterable[str]) -> set[int]:
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        return set()
+    objects = _registered_objects(registration, team_id, refs)
+    if objects is None:
+        return set()
+    return set(objects.exclude(created_by_id=None).values_list("created_by_id", flat=True))
 
 
 def is_file_system_type_registered(type_string: str) -> bool:
@@ -222,8 +343,11 @@ def _get_object(
     ref: str,
     team_id: int | None,
     for_update: bool = False,
+    fields: tuple[str, ...] | None = None,
 ) -> Any:
     queryset = _get_queryset(registration)
+    if fields:
+        queryset = queryset.only(*fields)
     if for_update:
         queryset = queryset.select_for_update()
     filters: dict[str, Any] = {registration.lookup_field: ref, f"{registration.team_field}_id": team_id}
@@ -318,7 +442,11 @@ def delete_file_system_object(
     request: Any | None = None,
     team: Any | None = None,
     organization: Any | None = None,
+    locked_objects: Mapping[FileObjectRef, Any] | None = None,
 ) -> DeletionResult:
+    """Deletes the object of `entry` and the row. `locked_objects` holds the objects the caller already locked
+    with `lock_file_system_objects`, keyed by the row's ref. Without it, a type with a delete lock locks its
+    object here."""
     type_string = entry.type
     ref = entry.ref
 
@@ -336,7 +464,15 @@ def delete_file_system_object(
     context = _build_deletion_context(entry, user=user, request=request, team=team, organization=organization)
 
     try:
-        instance = _get_object(registration, ref=ref, team_id=entry.team_id)
+        if type_string in _DELETE_LOCKS:
+            key = FileObjectRef(team_id=entry.team_id, type=type_string, ref=ref)
+            if locked_objects is None:
+                locked_objects = lock_file_system_objects([key])
+            if key not in locked_objects:
+                raise ObjectDoesNotExist
+            instance = locked_objects[key]
+        else:
+            instance = _get_object(registration, ref=ref, team_id=entry.team_id)
     except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
         # A ref the lookup field can't hold (`FileSystem.ref` is a plain CharField, set by the
         # caller when the row is created) is the same situation as one that resolves to nothing:
@@ -409,7 +545,7 @@ def get_restorable_object(type_string: str, ref: str, *, team_id: int | None) ->
         return None
 
     try:
-        instance = _get_object(registration, ref=ref, team_id=team_id)
+        instance = _get_object(registration, ref=ref, team_id=team_id, fields=_delete_lock_fields(type_string))
     except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
         # `ref` is caller-supplied and every model's lookup field rejects a different shape: an
         # integer pk raises ValueError on "oops", a UUID pk raises ValidationError. Those are all
@@ -456,7 +592,9 @@ def undo_delete(
 
     team_id = getattr(team, "id", None)
     try:
-        instance = _get_object(registration, ref=ref, team_id=team_id, for_update=True)
+        instance = _get_object(
+            registration, ref=ref, team_id=team_id, for_update=True, fields=_delete_lock_fields(type_string)
+        )
     except ObjectDoesNotExist as exc:
         raise ValueError(f"Unable to restore {type_string} with ref '{ref}'") from exc
 

@@ -1,3 +1,4 @@
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from typing import Any
@@ -6,7 +7,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import close_old_connections, connection, transaction
+from django.db import DatabaseError, OperationalError, close_old_connections, connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -14,14 +15,55 @@ from rest_framework.test import APIClient
 
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
-from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system import FileSystem, create_or_update_file
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+DENIED_FLOW_ID = UUID("abcdef12-3456-4890-abcd-ef1234567890")
+
+
+def _mixed_case(value: UUID) -> str:
+    letters = iter(range(32))
+    return "".join(char.upper() if char.isalpha() and next(letters) % 2 == 0 else char for char in str(value))
+
+
+REF_SPELLINGS = [
+    ("canonical", str),
+    ("uppercase", lambda value: str(value).upper()),
+    ("mixed_case", _mixed_case),
+    ("no_hyphens", lambda value: value.hex),
+]
+
+REF_ENTRY_POINTS = [
+    "list",
+    "search",
+    "tree",
+    "ref_lookup",
+    "shortcuts",
+    "frequent",
+    "repair",
+    "rename",
+    "move",
+    "link",
+    "delete",
+    "folder_move",
+    "folder_delete",
+    "placement",
+    "save_signal",
+    "unfiled",
+    "delete_keeps_the_object",
+    "delete_keeps_the_object_for_an_unmarked_copy",
+    "restore",
+]
 
 
 class TestWorkflowFolders(APIBaseTest):
@@ -83,6 +125,335 @@ class TestWorkflowFolders(APIBaseTest):
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
 
+    @parameterized.expand(
+        [
+            ("object_denied_under_an_open_resource", None, "none", False, True),
+            ("object_shared_under_a_closed_resource", "none", "viewer", True, False),
+        ]
+    )
+    def test_workflow_files_list_by_each_workflow_own_grant(
+        self, _name, resource_level, object_level, granted_visible, other_visible
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        granted = HogFlow.objects.create(team=self.team, name="Synthetic granted", created_by=self.user)
+        other = HogFlow.objects.create(team=self.team, name="Synthetic other", created_by=self.user)
+        for flow, name in ((granted, "Synthetic granted"), (other, "Synthetic other")):
+            create_or_update_file(
+                team=self.team,
+                base_folder="Workflows",
+                name=name,
+                file_type="hog_flow",
+                ref=str(flow.id),
+                href=f"/workflows/{flow.id}",
+                meta={},
+                created_by_id=self.user.id,
+            )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        if resource_level:
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                access_level=resource_level,
+                organization_member_id=membership.id,
+            )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(granted.id),
+            access_level=object_level,
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow"}).json()["results"]
+
+        refs = {row["ref"] for row in rows}
+        self.assertEqual((str(granted.id) in refs, str(other.id) in refs), (granted_visible, other_visible), refs)
+
+    @parameterized.expand(
+        [("canonical", str), ("hex", lambda value: value.hex), ("uppercase", lambda value: value.hex.upper())]
+    )
+    def test_a_shortcut_to_a_denied_workflow_is_refused_in_every_ref_spelling(self, _name, spell) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flow = HogFlow.objects.create(team=self.team, name="Synthetic denied", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="none",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Alias", "type": "hog_flow", "ref": spell(flow.id), "shortcut": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path="Alias").exists())
+
+    @parameterized.expand([("hex", lambda value: value.hex), ("uppercase", lambda value: str(value).upper())])
+    def test_a_workflow_file_filed_under_another_ref_spelling_follows_the_workflow_grant(self, _name, spell) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flow = HogFlow.objects.create(team=self.team, name="Synthetic denied", created_by=self.user)
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(flow.id)).delete()
+        filed = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Filed/Synthetic denied", "type": "hog_flow", "ref": spell(flow.id)},
+            format="json",
+        )
+        self.assertEqual(filed.status_code, 201, filed.content)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="none",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow"}).json()["results"]
+
+        self.assertEqual([row["path"] for row in rows], [])
+
+    @parameterized.expand([("create",), ("bulk_update",), ("update",)])
+    def test_starring_a_workflow_under_another_ref_spelling_needs_access_to_the_workflow(self, write) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flow = HogFlow.objects.create(team=self.team, name="Synthetic denied", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="none",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+        shortcuts_url = f"/api/projects/{self.team.id}/file_system_shortcut/"
+        shortcut = {"path": "Alias", "type": "hog_flow", "ref": flow.id.hex}
+
+        if write == "create":
+            response = self.client.post(shortcuts_url, shortcut, format="json")
+        elif write == "bulk_update":
+            response = self.client.post(
+                f"{shortcuts_url}bulk_update/", {"add": [shortcut], "remove_ids": []}, format="json"
+            )
+        else:
+            starred = FileSystemShortcut.objects.create(
+                team=self.team, user=member, path="Alias", type="insight", ref="1", href="/insights/1"
+            )
+            response = self.client.patch(
+                f"{shortcuts_url}{starred.id}/", {"type": "hog_flow", "ref": flow.id.hex}, format="json"
+            )
+
+        stored = FileSystemShortcut.objects.filter(user=member, type="hog_flow").values_list("ref", flat=True)
+        self.assertEqual((response.status_code, list(stored)), (403, []), response.content)
+
+    @parameterized.expand(
+        [
+            (f"{entry_point}_{spelling}", entry_point, spell)
+            for entry_point in REF_ENTRY_POINTS
+            for spelling, spell in REF_SPELLINGS
+        ]
+    )
+    def test_every_entry_point_matches_a_stored_ref_to_its_object_in_any_spelling(
+        self, _name, entry_point, spell
+    ) -> None:
+        actual, expected = getattr(self, f"_through_{entry_point}")(spell)
+
+        self.assertEqual(actual, expected)
+
+    def _deny_a_workflow_filed_under(self, spell, path: str = "Filed/Synthetic denied") -> tuple[FileSystem, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        HogFlow.objects.create(id=DENIED_FLOW_ID, team=self.team, name="Synthetic denied", created_by=self.user)
+        FileSystem.objects.filter(team=self.team, type="hog_flow").delete()
+        row = FileSystem.objects.create(
+            team=self.team,
+            path=path,
+            depth=len(path.split("/")),
+            type="hog_flow",
+            ref=spell(DENIED_FLOW_ID),
+            shortcut=False,
+        )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(DENIED_FLOW_ID),
+            access_level="none",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+        return row, member
+
+    def _through_list(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow"}).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_search(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Synthetic"}).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_tree(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"parent": "Filed"}).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_ref_lookup(self, spell):
+        self._deny_a_workflow_filed_under(spell)
+        rows = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": str(DENIED_FLOW_ID)}
+        ).json()["results"]
+        return [row["path"] for row in rows], []
+
+    def _through_shortcuts(self, spell):
+        _row, member = self._deny_a_workflow_filed_under(spell)
+        FileSystemShortcut.objects.create(
+            team=self.team, user=member, path="Synthetic denied", type="hog_flow", ref=spell(DENIED_FLOW_ID)
+        )
+        listed = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/").json()
+        rows = listed["results"] if isinstance(listed, dict) else listed
+        return [row["path"] for row in rows if row["type"] == "hog_flow"], []
+
+    def _through_frequent(self, spell):
+        _row, member = self._deny_a_workflow_filed_under(spell)
+        FileSystemViewLog.objects.create(team=self.team, user=member, type="hog_flow", ref=spell(DENIED_FLOW_ID))
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/frequent/").json()
+        return [row["path"] for row in rows], []
+
+    def _through_repair(self, spell):
+        self._deny_a_workflow_filed_under(spell, path="Secret plans/Synthetic denied")
+        self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        return FileSystem.objects.filter(team=self.team, path="Secret plans").exists(), False
+
+    def _refused_write(self, spell, write, *, on_folder: bool = False):
+        row, _member = self._deny_a_workflow_filed_under(
+            spell, path="Filed/Private campaign/Synthetic denied" if on_folder else "Filed/Synthetic denied"
+        )
+        target = (
+            FileSystem.objects.create(team=self.team, path="Filed", depth=1, type="folder", ref="Filed")
+            if on_folder
+            else row
+        )
+        response = write(f"/api/projects/{self.team.id}/file_system/{target.id}/")
+        rows = list(FileSystem.objects.filter(team=self.team, type="hog_flow").values_list("path", "ref"))
+        if on_folder:
+            hidden_folders = list(
+                FileSystem.objects.filter(team=self.team, type="folder", path__contains="Private campaign").values_list(
+                    "path", flat=True
+                )
+            )
+            return (rows, hidden_folders), ([(row.path, row.ref)], [])
+        return (response.status_code in (403, 404), rows), (True, [(row.path, row.ref)])
+
+    def _through_rename(self, spell):
+        return self._refused_write(spell, lambda url: self.client.patch(url, {"path": "Filed/Renamed"}, format="json"))
+
+    def _through_move(self, spell):
+        return self._refused_write(
+            spell, lambda url: self.client.post(f"{url}move/", {"new_path": "Moved/Synthetic denied"}, format="json")
+        )
+
+    def _through_link(self, spell):
+        return self._refused_write(
+            spell, lambda url: self.client.post(f"{url}link/", {"new_path": "Linked/Synthetic denied"}, format="json")
+        )
+
+    def _through_delete(self, spell):
+        return self._refused_write(spell, self.client.delete)
+
+    def _through_folder_move(self, spell):
+        return self._refused_write(
+            spell, lambda url: self.client.post(f"{url}move/", {"new_path": "Elsewhere"}, format="json"), on_folder=True
+        )
+
+    def _through_folder_delete(self, spell):
+        return self._refused_write(spell, self.client.delete, on_folder=True)
+
+    def _template_filed_under(self, spell, path: str = "Campaigns/Welcome", shortcut: bool | None = False) -> str:
+        template = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        ).json()
+        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        FileSystem.objects.create(
+            team=self.team,
+            path=path,
+            depth=len(path.split("/")),
+            type="message_template",
+            ref=spell(UUID(template["id"])),
+            shortcut=shortcut,
+        )
+        return template["id"]
+
+    def _template_paths(self) -> list[str]:
+        return sorted(FileSystem.objects.filter(team=self.team, type="message_template").values_list("path", flat=True))
+
+    def _through_placement(self, spell):
+        template_id = self._template_filed_under(spell)
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/placement/")
+        return response.json(), {"path": "Campaigns/Welcome"}
+
+    def _through_save_signal(self, spell):
+        template_id = self._template_filed_under(spell)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template_id}/", {"name": "Welcome v2"}, format="json"
+        )
+        return self._template_paths(), ["Campaigns/Welcome v2"]
+
+    def _through_unfiled(self, spell):
+        self._template_filed_under(spell)
+        self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/", {"type": "message_template"})
+        return self._template_paths(), ["Campaigns/Welcome"]
+
+    def _through_delete_keeps_the_object(self, spell, copy_shortcut: bool | None = False):
+        template_id = self._template_filed_under(spell, path="Copies/Welcome", shortcut=copy_shortcut)
+        canonical = FileSystem.objects.create(
+            team=self.team, path="Campaigns/Welcome", depth=2, type="message_template", ref=template_id, shortcut=False
+        )
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.id}/")
+        template = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/")
+        return (template.status_code, self._template_paths()), (200, ["Copies/Welcome"])
+
+    def _through_delete_keeps_the_object_for_an_unmarked_copy(self, spell):
+        return self._through_delete_keeps_the_object(spell, copy_shortcut=None)
+
+    def _through_restore(self, spell):
+        template_id = self._template_filed_under(spell)
+        row = FileSystem.objects.get(team=self.team, type="message_template")
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{row.id}/")
+        self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "message_template", "ref": spell(UUID(template_id)), "path": "Restored/Welcome"}]},
+            format="json",
+        )
+        return self._template_paths(), ["Restored/Welcome"]
+
     def test_a_template_creator_downgraded_to_viewer_cannot_delete_or_restore_it_from_the_tree(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -141,7 +512,9 @@ class TestWorkflowFolders(APIBaseTest):
         files_url = f"/api/projects/{self.team.id}/file_system/"
         entry = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"][0]
         copy = {"path": "Copies/Shared email", "type": "message_template", "ref": template["id"]}
-        self.assertEqual(self.client.post(files_url, copy, format="json").status_code, 201)
+        placed_copy = self.client.post(files_url, copy, format="json")
+        self.assertEqual(placed_copy.status_code, 201, placed_copy.content)
+        FileSystem.objects.filter(pk=placed_copy.json()["id"]).update(shortcut=None)
         viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
         membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
         create_access_control(
@@ -157,11 +530,14 @@ class TestWorkflowFolders(APIBaseTest):
             f"{files_url}{folder.json()['id']}/", {"type": "message_template", "ref": template["id"]}, format="json"
         )
         unlinked = self.client.delete(f"{files_url}{entry['id']}/")
+        moved = self.client.post(
+            f"{files_url}{placed_copy.json()['id']}/move/", {"new_path": "Viewer/Moved email"}, format="json"
+        )
 
         self.assertEqual(
-            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code],
-            [403, 403, 403, 403],
-            [placed.content, promoted.content, retyped.content, unlinked.content],
+            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code, moved.status_code],
+            [403, 403, 403, 403, 403],
+            [placed.content, promoted.content, retyped.content, unlinked.content, moved.content],
         )
         rows = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"]
         self.assertEqual(
@@ -268,6 +644,418 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("file_by_editor", "file", "editor", 201, True),
+            ("file_by_viewer", "file", "viewer", 403, False),
+            ("file_by_key_without_workflow_scope", "file", "key_without_workflow_scope", 403, False),
+            ("file_without_ref_by_editor", "file_without_ref", "editor", 400, False),
+            (
+                "file_without_ref_by_key_without_workflow_scope",
+                "file_without_ref",
+                "key_without_workflow_scope",
+                400,
+                False,
+            ),
+            (
+                "retype_without_ref_by_key_without_workflow_scope",
+                "retype_without_ref",
+                "key_without_workflow_scope",
+                400,
+                False,
+            ),
+            ("shortcut_by_viewer", "shortcut", "viewer", 201, True),
+            ("shortcut_by_member_without_access", "shortcut", "no_access", 403, False),
+            ("shortcut_by_key_without_workflow_scope", "shortcut", "key_without_workflow_scope", 403, False),
+            ("rename_by_editor", "rename", "editor", 200, True),
+            ("rename_by_viewer", "rename", "viewer", 403, False),
+            ("retype_by_editor", "retype", "editor", 200, True),
+            ("retype_by_viewer", "retype", "viewer", 403, False),
+            ("promote_by_editor", "promote", "editor", 200, True),
+            ("promote_by_viewer", "promote", "viewer", 403, False),
+            ("move_by_editor", "move", "editor", 200, True),
+            ("move_by_viewer", "move", "viewer", 403, False),
+            ("folder_move_by_editor", "folder_move", "editor", 200, True),
+            ("folder_move_by_viewer", "folder_move", "viewer", 403, False),
+            ("link_by_viewer", "link", "viewer", 200, True),
+            ("link_by_key_without_workflow_scope", "link", "key_without_workflow_scope", 403, False),
+            ("folder_link_by_viewer", "folder_link", "viewer", 200, True),
+            ("folder_link_by_key_without_workflow_scope", "folder_link", "key_without_workflow_scope", 403, False),
+            ("unlink_by_editor", "unlink", "editor", 204, True),
+            ("unlink_by_viewer", "unlink", "viewer", 403, False),
+            ("folder_delete_by_editor", "folder_delete", "editor", 204, True),
+            ("folder_delete_by_viewer", "folder_delete", "viewer", 403, False),
+            ("shortcut_folder_delete_by_viewer", "shortcut_folder_delete", "viewer", 204, True),
+            (
+                "shortcut_folder_delete_by_key_without_workflow_scope",
+                "shortcut_folder_delete",
+                "key_without_workflow_scope",
+                403,
+                False,
+            ),
+            ("delete_by_editor", "delete", "editor", 200, True),
+            ("delete_by_viewer", "delete", "viewer", 403, False),
+            ("restore_by_editor", "restore", "editor", 200, True),
+            ("restore_by_key_without_workflow_scope", "restore", "key_without_workflow_scope", 403, False),
+            ("unfiled_by_editor", "unfiled", "editor", 200, True),
+            ("unfiled_by_viewer", "unfiled", "viewer", 200, False),
+            ("unfiled_by_read_only_key", "unfiled", "read_only_key", 200, False),
+            ("refless_rename_by_owner", "refless_rename", "owner", 200, True),
+            (
+                "refless_rename_by_key_without_workflow_scope",
+                "refless_rename",
+                "key_without_workflow_scope",
+                403,
+                False,
+            ),
+            ("refless_move_by_owner", "refless_move", "owner", 200, True),
+            ("refless_move_by_key_without_workflow_scope", "refless_move", "key_without_workflow_scope", 403, False),
+        ]
+    )
+    def test_every_template_file_write_needs_access_to_change_the_template(
+        self, _name: str, path: str, actor: str, expected_status: int, writes: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(templates_url, {"name": "Guarded email", "type": "email"}, format="json").json()[
+            "id"
+        ]
+        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=template_id)
+        inbox = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        copy = FileSystem.objects.create(
+            team=self.team,
+            path="Inbox/Guarded email",
+            depth=2,
+            type="message_template",
+            ref=template_id,
+            shortcut=False,
+        )
+        shortcut = FileSystem.objects.create(
+            team=self.team, path="Starred email", depth=1, type="message_template", ref=template_id, shortcut=True
+        )
+        plain = FileSystem.objects.create(team=self.team, path="Plain", depth=1, type="folder")
+        starred = FileSystem.objects.create(team=self.team, path="Starred", depth=1, type="folder")
+        if path == "shortcut_folder_delete":
+            FileSystem.objects.create(
+                team=self.team,
+                path="Starred/Guarded email",
+                depth=2,
+                type="message_template",
+                ref=template_id,
+                shortcut=True,
+            )
+        if path == "delete":
+            copy.delete()
+        if path == "restore":
+            self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
+        if path == "unfiled":
+            FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        refless = FileSystem.objects.create(
+            team=self.team, path="Refless email", depth=1, type="message_template", ref=""
+        )
+        if path.startswith("refless"):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+        requests: dict[str, tuple[str, str, dict | None]] = {
+            "file": ("post", "", {"path": "Placed/Guarded email", "type": "message_template", "ref": template_id}),
+            "shortcut": (
+                "post",
+                "",
+                {"path": "Mine/Guarded email", "type": "message_template", "ref": template_id, "shortcut": True},
+            ),
+            "rename": ("patch", f"{entry.id}/", {"path": "Renamed/Guarded email"}),
+            "retype": ("patch", f"{plain.id}/", {"type": "message_template", "ref": template_id}),
+            "file_without_ref": ("post", "", {"path": "Placed/Guarded email", "type": "message_template", "ref": ""}),
+            "retype_without_ref": ("patch", f"{plain.id}/", {"type": "message_template"}),
+            "promote": ("patch", f"{shortcut.id}/", {"shortcut": False}),
+            "move": ("post", f"{entry.id}/move/", {"new_path": "Moved/Guarded email"}),
+            "folder_move": ("post", f"{inbox.id}/move/", {"new_path": "Archive/Inbox"}),
+            "link": ("post", f"{entry.id}/link/", {"new_path": "Linked/Guarded email"}),
+            "folder_link": ("post", f"{inbox.id}/link/", {"new_path": "Linked"}),
+            "unlink": ("delete", f"{entry.id}/", None),
+            "folder_delete": ("delete", f"{inbox.id}/?recursive=true", None),
+            "shortcut_folder_delete": ("delete", f"{starred.id}/?recursive=true", None),
+            "delete": ("delete", f"{entry.id}/", None),
+            "restore": (
+                "post",
+                "undo_delete/",
+                {"items": [{"type": "message_template", "ref": template_id, "path": "Restored/Guarded email"}]},
+            ),
+            "unfiled": ("get", "unfiled/?type=message_template", None),
+            "refless_rename": ("patch", f"{refless.id}/", {"path": "Renamed/Refless email"}),
+            "refless_move": ("post", f"{refless.id}/move/", {"new_path": "Moved/Refless email"}),
+        }
+        headers: dict[str, str] = {}
+        if "key" in actor:
+            scopes = {
+                "read_only_key": ["file_system:read", "hog_flow:read"],
+                "key_without_workflow_scope": ["file_system:read", "file_system:write"],
+            }[actor]
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"
+            self.client.logout()
+        elif actor != "owner":
+            member = User.objects.create_and_join(self.organization, f"{actor}@example.com", "invented-password")
+            membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                access_level={"editor": "editor", "viewer": "viewer", "no_access": "none"}[actor],
+                organization_member_id=membership.id,
+            )
+            self.client.force_login(member)
+
+        owner = APIClient()
+        owner.force_login(self.user)
+
+        def stored() -> tuple[list[tuple[str, bool]], int]:
+            rows = FileSystem.objects.filter(team=self.team, type="message_template")
+            template_status = owner.get(f"{templates_url}{template_id}/").status_code
+            return sorted((row.path, bool(row.shortcut)) for row in rows), template_status
+
+        before = stored()
+        method, suffix, payload = requests[path]
+        response = getattr(self.client, method)(f"{files_url}{suffix}", payload, format="json", **headers)
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(stored() != before, writes, stored())
+
+    @parameterized.expand(
+        [
+            ("move", "post", "move/", {"new_path": "Archive/Inbox"}, 'INSERT INTO "posthog_filesystem"', 200),
+            ("delete", "delete", "?recursive=true", None, '"posthog_filesystem"."ref" IN', 204),
+        ]
+    )
+    def test_a_folder_change_leaves_template_files_that_arrive_after_its_access_check(
+        self, _name: str, method: str, suffix: str, payload: dict | None, trigger: str, expected_status: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Late email", "type": "email"}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        dashboard_id = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        FileSystem.objects.create(team=self.team, path="Inbox/Report", depth=2, type="dashboard", ref=str(dashboard_id))
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+        self.client.force_login(viewer)
+        late_rows: list[FileSystem] = []
+        filing_started = Event()
+
+        def file_late_template(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            result = execute(sql, params, many, context)
+            if not filing_started.is_set() and trigger in sql and (method == "post" or "FOR UPDATE" in sql):
+                filing_started.set()
+                late_rows.append(
+                    FileSystem.objects.create(
+                        team=self.team, path="Inbox/Late email", depth=2, type="message_template", ref=template_id
+                    )
+                )
+            return result
+
+        with connection.execute_wrapper(file_late_template):
+            changed = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/{suffix}", payload, format="json"
+            )
+
+        self.assertEqual(changed.status_code, expected_status, changed.content)
+        late_rows[0].refresh_from_db()
+        self.assertEqual(late_rows[0].path, "Inbox/Late email")
+
+    @parameterized.expand(
+        [
+            (
+                "folder_move",
+                "folder",
+                "post",
+                "move/",
+                {"new_path": "Archive/Inbox"},
+                'SELECT "posthog_filesystem"."id" AS "pk" FROM',
+            ),
+            (
+                "folder_root_move",
+                "folder",
+                "post",
+                "move/",
+                {"new_path": "Archive/Inbox"},
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+            (
+                "move",
+                "child",
+                "post",
+                "move/",
+                {"new_path": "Archive/Report"},
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+            (
+                "rename",
+                "child",
+                "patch",
+                "",
+                {"path": "Archive/Report"},
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+            (
+                "delete",
+                "child",
+                "delete",
+                "",
+                None,
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+        ]
+    )
+    def test_a_file_write_checks_a_row_that_became_a_denied_template_before_its_lock(
+        self, _name: str, target: str, method: str, suffix: str, payload: dict | None, read: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Hidden email", "type": "email"},
+            format="json",
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        dashboard_id = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        child = FileSystem.objects.create(
+            team=self.team, path="Inbox/Report", depth=2, type="dashboard", ref=str(dashboard_id), shortcut=False
+        )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="none", organization_member_id=membership.id
+        )
+        self.client.force_login(member)
+        retyped = Event()
+        retargeted = folder if _name == "folder_root_move" else child
+        path_before = retargeted.path
+
+        def retype_after_the_read(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            result = execute(sql, params, many, context)
+            if not retyped.is_set() and sql.startswith(read) and "FOR UPDATE" not in sql:
+                retyped.set()
+                FileSystem.objects.filter(pk=retargeted.pk).update(type="message_template", ref=template_id)
+            return result
+
+        written = {"folder": folder, "child": child}[target]
+        with connection.execute_wrapper(retype_after_the_read):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{written.id}/{suffix}", payload, format="json"
+            )
+
+        self.assertTrue(retyped.is_set())
+        self.assertEqual(response.status_code, 403, response.content)
+        retargeted.refresh_from_db()
+        self.assertEqual(retargeted.path, path_before)
+
+    @parameterized.expand(
+        [
+            ("folder_move", "post", "file_system/{folder_id}/move/", {"new_path": "Archive/Inbox"}, 0),
+            (
+                "file",
+                "post",
+                "file_system/",
+                {"path": "Placed/Large email", "type": "message_template", "ref": "{template_id}"},
+                0,
+            ),
+            ("folder_delete", "delete", "file_system/{folder_id}/?recursive=true", {}, 1),
+            ("template_placement", "get", "messaging_templates/{template_id}/placement/", {}, 0),
+            (
+                "template_restore",
+                "post",
+                "file_system/undo_delete/",
+                {"items": [{"type": "message_template", "ref": "{template_id}"}]},
+                1,
+            ),
+        ]
+    )
+    def test_a_template_file_check_reads_only_the_template_access_fields(
+        self, _name: str, method: str, suffix: str, payload: dict, template_locks: int
+    ) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Large email", "type": "email", "content": {"email": {"subject": "Hi", "html": "<p>Hi</p>"}}},
+            format="json",
+        ).json()["id"]
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).update(
+            path="Inbox/Large email", depth=2
+        )
+        if _name == "template_restore":
+            self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/?recursive=true")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/{suffix.format(folder_id=folder.id, template_id=template_id)}",
+                json.loads(json.dumps(payload).replace("{template_id}", template_id)),
+                **({} if method == "get" else {"format": "json"}),
+            )
+
+        self.assertIn(response.status_code, (200, 201), response.content)
+        template_queries = [
+            query["sql"] for query in queries.captured_queries if '"posthog_messagetemplate"' in query["sql"]
+        ]
+        self.assertTrue(template_queries)
+        self.assertFalse(
+            [sql for sql in template_queries if '"content"' in sql or '"draft_content"' in sql], template_queries
+        )
+        self.assertEqual(
+            len([sql for sql in template_queries if sql.startswith("SELECT") and "FOR UPDATE" in sql]),
+            template_locks,
+            template_queries,
+        )
+
+    @parameterized.expand(
+        [("delete_reads_the_team", "delete", "posthog_team"), ("restore_reads_creators", "restore", "posthog_user")]
+    )
+    def test_a_template_folder_write_reads_shared_rows_no_more_often_for_more_templates(
+        self, _name: str, phase: str, table: str
+    ) -> None:
+        def reads_for_a_folder_of(count: int, folder_path: str) -> int:
+            folder = FileSystem.objects.create(team=self.team, path=folder_path, depth=1, type="folder")
+            template_ids = [
+                self.client.post(
+                    f"/api/projects/{self.team.id}/messaging_templates/",
+                    {"name": f"Email {index}", "type": "email", "_create_in_folder": folder_path},
+                    format="json",
+                ).json()["id"]
+                for index in range(count)
+            ]
+            delete_url = f"/api/projects/{self.team.id}/file_system/{folder.id}/?recursive=true"
+            restore_items = [
+                {"type": "message_template", "ref": template_id, "path": f"{folder_path}/Email {index}"}
+                for index, template_id in enumerate(template_ids)
+            ]
+            if phase == "restore":
+                self.client.delete(delete_url)
+            with CaptureQueriesContext(connection) as queries:
+                if phase == "delete":
+                    response = self.client.delete(delete_url)
+                else:
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                        {"items": restore_items},
+                        format="json",
+                    )
+            self.assertEqual(response.status_code, 200, response.content)
+            return len([query for query in queries.captured_queries if f'FROM "{table}"' in query["sql"]])
+
+        self.assertEqual(reads_for_a_folder_of(3, "Many"), reads_for_a_folder_of(1, "One"))
+
+    @parameterized.expand(
+        [
             ("workflow_too_deep", "hog_flows", "/".join(["Level"] * 51)),
             ("workflow_too_long", "hog_flows", "a" * 4001),
             ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
@@ -300,6 +1088,15 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(created.status_code, 400, created.content)
         self.assertEqual(created.json()["attr"], "_create_in_folder")
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
+
+    def test_filing_a_template_without_renaming_it_checks_the_path_with_its_stored_name(self) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template = self.client.post(templates_url, {"name": "n" * 400, "type": "email"}, format="json").json()
+
+        filed = self.client.patch(f"{templates_url}{template['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
+
+        self.assertEqual(filed.status_code, 400, filed.content)
+        self.assertEqual(filed.json()["attr"], "_create_in_folder")
 
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self) -> None:
         self.client.post(
@@ -343,6 +1140,72 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
+
+    @parameterized.expand([("create", "post"), ("update", "patch")])
+    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(self, _name, method) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(unrelated.id),
+            access_level="editor",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        url = templates_url if method == "post" else f"{templates_url}{template_id}/"
+        payload = {
+            "_create_in_folder": "Campaigns",
+            **({"name": "Synthetic new", "type": "email"} if method == "post" else {}),
+        }
+        response = getattr(self.client, method)(url, payload, format="json")
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
+
+    @parameterized.expand([("resource_viewer", "viewer", 200), ("only_an_unrelated_workflow_grant", "none", 404)])
+    def test_a_template_placement_needs_workflow_access_to_the_resource(self, _name, resource_level, status) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email", "_create_in_folder": "Hidden"}, format="json"
+        ).json()
+        unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level=resource_level, organization_member_id=membership.id
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(unrelated.id),
+            access_level="viewer",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        response = self.client.get(f"{templates_url}{template['id']}/placement/")
+
+        self.assertEqual(response.status_code, status, response.content)
+        self.assertEqual("Hidden" in response.content.decode(), status == 200)
 
     @parameterized.expand([("root", "Synthetic email"), ("escaped_folder", "Spring\\/Summer/Synthetic email")])
     def test_undoing_a_template_delete_with_the_flag_off_puts_it_back_at_its_placement(self, _name, path) -> None:
@@ -593,12 +1456,114 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 404),
-            ("with_write_scope", ["file_system:write", "hog_flow:write"], 200, 200),
+            ("list", "get", "file_system/?type=message_template", None, 200),
+            ("starred", "get", "file_system_shortcut/", None, 200),
+            ("delete", "delete", "file_system/{file_id}/", None, 404),
+            ("move", "post", "file_system/{file_id}/move/", {"new_path": "Moved/Sibling email"}, 404),
+            ("retype", "patch", "file_system/{folder_id}/", {"type": "message_template", "ref": "{template_id}"}, 403),
+            ("unfiled_repair", "get", "file_system/unfiled/?type=message_template", None, 200),
+        ]
+    )
+    def test_a_key_scoped_to_one_environment_reaches_only_its_own_template_files(
+        self, _name: str, method: str, path: str, payload: dict | None, expected_status: int
+    ) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        template_id = self.client.post(
+            f"/api/projects/{sibling_team.id}/messaging_templates/",
+            {"name": "Sibling email", "type": "email"},
+            format="json",
+        ).json()["id"]
+        file = FileSystem.objects.get(team=sibling_team, type="message_template", ref=template_id)
+        FileSystem.objects.filter(pk=file.pk).update(path="Hidden campaign/Sibling email", depth=2)
+        original_path = "Hidden campaign/Sibling email"
+        FileSystemShortcut.objects.create(
+            team=sibling_team, user=self.user, path="Sibling email", type="message_template", ref=template_id
+        )
+        folder = FileSystem.objects.create(team=sibling_team, path="Sibling folder", depth=1, type="folder")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["file_system:read", "file_system:write", "file_system_shortcut:read", "hog_flow:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/{path.format(file_id=file.id, folder_id=folder.id)}",
+            {key: value.format(template_id=template_id) for key, value in payload.items()} if payload else None,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertNotIn(template_id, response.content.decode())
+        file.refresh_from_db()
+        self.assertEqual(file.path, original_path)
+        self.assertEqual(FileSystem.objects.filter(team=sibling_team, type="message_template").count(), 1)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path="Hidden campaign").exists())
+        self.client.force_login(self.user)
+        stored = self.client.get(f"/api/projects/{sibling_team.id}/messaging_templates/{template_id}/")
+        self.assertEqual(stored.status_code, 200, stored.content)
+
+    @parameterized.expand(
+        [
+            (
+                "file",
+                "post",
+                "file_system/",
+                {"path": "Filed email", "type": "message_template", "ref": "{template_id}"},
+            ),
+            ("unlink", "delete", "file_system/{file_id}/", None),
+            ("move", "post", "file_system/{file_id}/move/", {"new_path": "Moved/Welcome"}),
+            (
+                "star",
+                "post",
+                "file_system_shortcut/",
+                {"path": "Starred email", "type": "message_template", "ref": "{template_id}"},
+            ),
+        ]
+    )
+    def test_a_key_without_the_workflow_write_scope_cannot_change_template_files(
+        self, _name: str, method: str, path: str, payload: dict | None
+    ) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        ).json()["id"]
+        file = FileSystem.objects.get(team=self.team, type="message_template", ref=template_id)
+        original_path = file.path
+        FileSystem.objects.create(team=self.team, path="Copy email", depth=1, type="message_template", ref=template_id)
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="File system key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["file_system:read", "file_system:write", "file_system_shortcut:write"],
+        )
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/{path.format(file_id=file.id)}",
+            {key: value.format(template_id=template_id) for key, value in payload.items()} if payload else None,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        file.refresh_from_db()
+        self.assertEqual(file.path, original_path)
+        self.assertEqual(FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).count(), 2)
+
+    @parameterized.expand(
+        [
+            ("file_system_scopes_only", ["file_system:read", "file_system:write"], False, 403, 404),
+            ("file_system_scopes_only_for_an_unknown_id", ["file_system:read", "file_system:write"], True, 403, 404),
+            ("with_write_scope", ["file_system:write", "hog_flow:write"], False, 200, 200),
         ]
     )
     def test_tree_restore_of_a_template_needs_the_workflow_write_scope(
-        self, _name: str, scopes: list[str], restore_status: int, template_status: int
+        self, _name: str, scopes: list[str], unknown_id: bool, restore_status: int, template_status: int
     ) -> None:
         template_id = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
@@ -613,7 +1578,7 @@ class TestWorkflowFolders(APIBaseTest):
 
         restored = self.client.post(
             f"{files_url}undo_delete/",
-            {"items": [{"type": "message_template", "ref": template_id}]},
+            {"items": [{"type": "message_template", "ref": str(DENIED_FLOW_ID) if unknown_id else template_id}]},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )
@@ -729,9 +1694,14 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(reloaded.json()["ref"], workflow_id)
 
     @parameterized.expand(
-        [("recents", "file_system/", {"order_by": "-last_viewed_at"}), ("frequent", "file_system/frequent/", {})]
+        [
+            ("recents", "file_system/", {"order_by": "-last_viewed_at"}),
+            ("frequent", "file_system/frequent/", {}),
+            ("one_item_listing", "file_system/", {"type": "message_template", "limit": 1}),
+            ("one_item_listing_by_an_admin_of_shared_files", "file_system/", {"type": "message_template", "limit": 1}),
+        ]
     )
-    def test_sidebar_reads_resolve_access_only_for_viewed_template_files(self, _name, path, params) -> None:
+    def test_file_reads_resolve_access_without_reading_every_template_file(self, name, path, params) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -743,6 +1713,13 @@ class TestWorkflowFolders(APIBaseTest):
             ]
             for i in range(11)
         ]
+        if name.endswith("admin_of_shared_files"):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            for template_id in unviewed:
+                create_access_control(
+                    team_id=self.team.id, resource="hog_flow", resource_id=template_id, access_level="viewer"
+                )
         self.client.post(
             f"/api/projects/{self.team.id}/file_system/log_view/",
             {"type": "message_template", "ref": viewed},
@@ -791,6 +1768,175 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
                 cursor.execute("DROP FUNCTION IF EXISTS refuse_file_row()")
 
         self.addCleanup(drop)
+
+    def _wait_for_blocked_backends(self, count: int) -> None:
+        for _ in range(200):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0"
+                )
+                if cursor.fetchone()[0] >= count:
+                    return
+            Event().wait(0.05)
+        self.fail(f"expected {count} blocked backends")
+
+    @parameterized.expand([("create",), ("update",), ("restore",)])
+    def test_filing_a_template_into_a_folder_asks_the_flag_service_before_taking_any_lock(self, operation: str) -> None:
+        remote_answers_in_a_transaction: list[bool] = []
+
+        def answer(key: str, *args: Any, only_evaluate_locally: bool = False, **kwargs: Any) -> bool | None:
+            if only_evaluate_locally:
+                return None
+            remote_answers_in_a_transaction.append(connection.in_atomic_block)
+            return True
+
+        flag = patch("posthoganalytics.feature_enabled", side_effect=answer)
+        flag.start()
+        self.addCleanup(flag.stop)
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        filed = {"name": "Folder email", "type": "email", "_create_in_folder": "Campaigns"}
+        if operation == "create":
+            response = self.client.post(templates_url, filed, format="json")
+            template_id = response.json()["id"]
+        else:
+            template_id = self.client.post(
+                templates_url, {"name": "Folder email", "type": "email"}, format="json"
+            ).json()["id"]
+            FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
+            remote_answers_in_a_transaction.clear()
+            if operation == "update":
+                response = self.client.patch(f"{templates_url}{template_id}/", filed, format="json")
+            else:
+                self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
+                remote_answers_in_a_transaction.clear()
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                    {"items": [{"type": "message_template", "ref": template_id, "path": "Campaigns/Folder email"}]},
+                    format="json",
+                )
+
+        self.assertIn(response.status_code, (200, 201), response.content)
+        paths = FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).values_list(
+            "path", flat=True
+        )
+        self.assertEqual(list(paths), ["Campaigns/Folder email"])
+        self.assertTrue(remote_answers_in_a_transaction)
+        self.assertNotIn(True, remote_answers_in_a_transaction)
+
+    def test_a_folder_move_and_a_file_sync_of_the_same_object_both_finish(self) -> None:
+        dashboard_id = str(
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        )
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        rows = sorted(
+            (
+                FileSystem.objects.create(team=self.team, path="Inbox/x", depth=2, type="dashboard", ref=dashboard_id)
+                for _ in range(3)
+            ),
+            key=lambda row: row.id,
+        )
+        for row, path in zip(rows, ["Inbox/c", "Inbox/b", "Inbox/a"]):
+            FileSystem.objects.filter(pk=row.pk).update(path=path)
+        middle_locked = Event()
+        release_middle = Event()
+
+        def hold_the_middle_row() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_filesystem WHERE id = %s FOR UPDATE", [rows[1].id])
+                    middle_locked.set()
+                    release_middle.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        def sync_the_files() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    create_or_update_file(
+                        team=self.team,
+                        base_folder="Unfiled/Dashboards",
+                        name="Report v2",
+                        file_type="dashboard",
+                        ref=dashboard_id,
+                        href=f"/dashboard/{dashboard_id}",
+                        meta={},
+                    )
+            finally:
+                close_old_connections()
+
+        def move_the_folder() -> Any:
+            close_old_connections()
+            try:
+                return self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
+                    {"new_path": "Archive/Inbox"},
+                    format="json",
+                )
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            holder = executor.submit(hold_the_middle_row)
+            self.assertTrue(middle_locked.wait(timeout=5))
+            try:
+                sync = executor.submit(sync_the_files)
+                self._wait_for_blocked_backends(1)
+                move = executor.submit(move_the_folder)
+                self._wait_for_blocked_backends(2)
+            finally:
+                release_middle.set()
+            holder.result(timeout=15)
+            sync.result(timeout=15)
+            moved = move.result(timeout=15)
+
+        self.assertEqual(moved.status_code, 200, moved.content)
+        self.assertEqual(
+            sorted(
+                FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).values_list(
+                    "path", flat=True
+                )
+            ),
+            ["Archive/Inbox/Report v2"] * 3,
+        )
+
+    def test_a_folder_move_leaves_its_team_free_for_new_rows(self) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        FileSystem.objects.create(team=self.team, path="Inbox/Reports", depth=2, type="folder")
+        outcomes: list[str] = []
+
+        def file_a_row_in_the_same_team() -> str:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '500ms'")
+                    FileSystem.objects.create(team=self.team, path="Other", depth=1, type="folder")
+                return "filed"
+            except DatabaseError:
+                return "blocked"
+            finally:
+                close_old_connections()
+
+        def file_during_the_move(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            result = execute(sql, params, many, context)
+            if not outcomes and sql.startswith('UPDATE "posthog_filesystem"'):
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    outcomes.append(executor.submit(file_a_row_in_the_same_team).result(timeout=10))
+            return result
+
+        with connection.execute_wrapper(file_during_the_move):
+            moved = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
+                {"new_path": "Archive/Inbox"},
+                format="json",
+            )
+
+        self.assertEqual(moved.status_code, 200, moved.content)
+        self.assertEqual(outcomes, ["filed"])
 
     def test_a_failed_file_row_keeps_the_created_template(self) -> None:
         self._refuse_file_rows()
@@ -894,6 +2040,27 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         self.assertEqual(deleted.status_code, 200, deleted.content)
         self.assertEqual(self.client.get(object_url).status_code, 404)
 
+    def test_a_template_tree_delete_reports_a_database_failure_as_an_error_not_a_busy_template(self) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        ).json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
+            "id"
+        ]
+
+        def lose_the_connection_on_the_lock(
+            execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]
+        ) -> Any:
+            if 'FROM "posthog_messagetemplate"' in sql and "FOR UPDATE NOWAIT" in sql:
+                raise OperationalError("server closed the connection unexpectedly")
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(lose_the_connection_on_the_lock):
+            deleted = self.client.delete(f"{files_url}{file_id}/")
+
+        self.assertEqual(deleted.status_code, 500, deleted.content)
+
     def test_template_tree_delete_keeps_a_save_that_commits_after_the_delete_read_the_template(self) -> None:
         created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
@@ -933,3 +2100,212 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         with connection.cursor() as cursor:
             cursor.execute("SELECT name, deleted FROM posthog_messagetemplate WHERE id = %s", [template_id])
             self.assertEqual(cursor.fetchone(), ("Welcome v2", True))
+
+    def test_two_deletes_of_files_for_the_same_object_both_finish(self) -> None:
+        dashboard_id = str(
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        )
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+        first, second = sorted(
+            (
+                FileSystem.objects.create(
+                    team=self.team, path=path, depth=1, type="dashboard", ref=dashboard_id, shortcut=False
+                )
+                for path in ["Report", "Report copy"]
+            ),
+            key=lambda row: row.id,
+        )
+        first_locked = Event()
+        release_first = Event()
+
+        def hold_the_first_row() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_filesystem WHERE id = %s FOR UPDATE", [first.id])
+                    first_locked.set()
+                    release_first.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        def delete(row: FileSystem) -> Any:
+            close_old_connections()
+            try:
+                return self.client.delete(f"/api/projects/{self.team.id}/file_system/{row.id}/")
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            holder = executor.submit(hold_the_first_row)
+            self.assertTrue(first_locked.wait(timeout=5))
+            try:
+                deleting_first = executor.submit(delete, first)
+                self._wait_for_blocked_backends(1)
+                deleting_second = executor.submit(delete, second)
+                self._wait_for_blocked_backends(2)
+            finally:
+                release_first.set()
+            holder.result(timeout=15)
+            statuses = sorted(
+                [deleting_first.result(timeout=15).status_code, deleting_second.result(timeout=15).status_code]
+            )
+
+        self.assertEqual(statuses, [200, 204])
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).exists())
+
+    @parameterized.expand([("move_and_folder_delete",), ("parent_and_child_folder_delete",)])
+    def test_two_folder_writes_that_share_rows_both_finish(self, scenario: str) -> None:
+        dashboard_ids = sorted(
+            (
+                str(self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": name}).json()["id"])
+                for name in ["X", "Y", "Z"]
+            ),
+        )
+        for dashboard_id in dashboard_ids:
+            FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+        first_ref, middle_ref, last_ref = dashboard_ids
+
+        def file_row(path: str, ref: str) -> FileSystem:
+            return FileSystem.objects.create(
+                team=self.team, path=path, depth=path.count("/") + 1, type="dashboard", ref=ref, shortcut=False
+            )
+
+        first: tuple[str, str, dict[str, str] | None]
+        second: tuple[str, str, dict[str, str] | None]
+        if scenario == "move_and_folder_delete":
+            moved = FileSystem.objects.create(team=self.team, path="Move", depth=1, type="folder")
+            low, middle, high = sorted((file_row(f"Move/{n}", first_ref) for n in "abc"), key=lambda row: row.id)
+            for row, ref in [(low, last_ref), (middle, middle_ref), (high, first_ref)]:
+                FileSystem.objects.filter(pk=row.pk).update(ref=ref)
+            deleted = FileSystem.objects.create(team=self.team, path="Delete", depth=1, type="folder")
+            for ref in dashboard_ids:
+                file_row(f"Delete/{ref}", ref)
+            held = middle
+            first = ("post", f"{moved.id}/move/", {"new_path": "Archive/Move"})
+            second = ("delete", f"{deleted.id}/?recursive=true", None)
+        else:
+            parent = FileSystem.objects.create(team=self.team, path="Parent", depth=1, type="folder")
+            child = FileSystem.objects.create(team=self.team, path="Parent/Child", depth=2, type="folder")
+            held = file_row("Parent/Child/Report", first_ref)
+            first = ("delete", f"{parent.id}/?recursive=true", None)
+            second = ("delete", f"{child.id}/?recursive=true", None)
+        held_locked = Event()
+        release_held = Event()
+
+        def hold_the_shared_row() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_filesystem WHERE id = %s FOR UPDATE", [held.id])
+                    held_locked.set()
+                    release_held.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        def send(request: tuple[str, str, dict | None]) -> Any:
+            close_old_connections()
+            try:
+                method, suffix, payload = request
+                return getattr(self.client, method)(
+                    f"/api/projects/{self.team.id}/file_system/{suffix}", payload, format="json"
+                )
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            holder = executor.submit(hold_the_shared_row)
+            self.assertTrue(held_locked.wait(timeout=5))
+            try:
+                sending_first = executor.submit(send, first)
+                self._wait_for_blocked_backends(1)
+                sending_second = executor.submit(send, second)
+                self._wait_for_blocked_backends(2)
+            finally:
+                release_held.set()
+            holder.result(timeout=15)
+            statuses = [sending_first.result(timeout=15).status_code, sending_second.result(timeout=15).status_code]
+
+        if scenario == "move_and_folder_delete":
+            self.assertEqual(statuses, [200, 204])
+            self.assertEqual(
+                sorted(FileSystem.objects.filter(team=self.team, type="dashboard").values_list("path", flat=True)),
+                ["Archive/Move/a", "Archive/Move/b", "Archive/Move/c"],
+            )
+        else:
+            self.assertEqual(statuses, [200, 404])
+            self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Parent").exists())
+
+    def test_a_delete_that_finds_a_new_surface_after_its_lock_relocks_in_id_order(self) -> None:
+        dashboard_id = str(
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Shared"}).json()["id"]
+        )
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+
+        def file_row(path: str, **fields: Any) -> FileSystem:
+            return FileSystem.objects.create(
+                team=self.team, path=path, depth=1, type="dashboard", ref=dashboard_id, shortcut=False, **fields
+            )
+
+        target = file_row("Target")
+        sibling = file_row("Sibling")
+        early_id = UUID(int=1)
+        other_holds_both = Event()
+
+        def commit_the_early_row_on_a_new_surface() -> None:
+            close_old_connections()
+            try:
+                file_row("Early", id=early_id, surface="synthetic-surface")
+            finally:
+                close_old_connections()
+
+        def lock_the_early_row_then_the_sibling() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id FROM posthog_filesystem WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
+                        [[early_id, sibling.id]],
+                    )
+                    other_holds_both.set()
+            finally:
+                close_old_connections()
+
+        def wait_for_one_blocked_backend() -> None:
+            close_old_connections()
+            try:
+                self._wait_for_blocked_backends(1)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures: list[Any] = []
+
+            def interleave_after_the_first_lock(
+                execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]
+            ) -> Any:
+                result = execute(sql, params, many, context)
+                if not futures and sql.startswith("SELECT") and "FOR UPDATE" in sql and "posthog_filesystem" in sql:
+                    executor.submit(commit_the_early_row_on_a_new_surface).result(timeout=10)
+                    futures.append(executor.submit(lock_the_early_row_then_the_sibling))
+                    executor.submit(wait_for_one_blocked_backend).result(timeout=15)
+                return result
+
+            def delete_the_target() -> Any:
+                close_old_connections()
+                try:
+                    with connection.execute_wrapper(interleave_after_the_first_lock):
+                        return self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.id}/")
+                finally:
+                    close_old_connections()
+
+            response = executor.submit(delete_the_target).result(timeout=30)
+            self.assertEqual(len(futures), 1)
+            futures[0].result(timeout=15)
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertTrue(other_holds_both.is_set())
+        self.assertFalse(FileSystem.objects.filter(pk=target.pk).exists())
+        self.assertEqual(
+            sorted(FileSystem.objects.filter(team=self.team, ref=dashboard_id).values_list("path", flat=True)),
+            ["Early", "Sibling"],
+        )

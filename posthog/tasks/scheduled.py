@@ -37,6 +37,7 @@ from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     capture_task_run_state_metrics,
+    capture_task_status_shadow_metrics,
     check_async_migration_health,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
@@ -95,6 +96,7 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
+from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
@@ -858,6 +860,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recover stuck canvas builds",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        backfill_metric_embeddings_task.s(),
+        name="backfill catalog metric embeddings",
+    )
+
     sender.add_periodic_task(
         crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
@@ -1040,6 +1049,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        capture_task_status_shadow_metrics.s(),
+        name="tasks status shadow metrics",
     )
 
     # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only

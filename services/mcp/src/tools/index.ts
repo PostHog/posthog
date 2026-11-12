@@ -9,6 +9,7 @@ import parserRecipeReference from './aiObservability/parserRecipeReference'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import experimentGetByFlagKey from './experiments/getByFlagKey'
+import getExperimentHealth from './experiments/getHealth'
 import getExperimentResults from './experiments/getResults'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
@@ -97,8 +98,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     'path-cleaning-rules-update': updatePathCleaning,
 
-    // Experiments (results and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
+    // Experiments (results, health and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
+    'experiment-health-get': getExperimentHealth,
     'experiment-get-by-flag-key': experimentGetByFlagKey,
 
     // Insights

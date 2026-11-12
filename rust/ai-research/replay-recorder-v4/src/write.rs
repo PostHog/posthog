@@ -1289,22 +1289,22 @@ mod tests {
 
     #[test]
     fn leaves_a_picture_only_the_sources_that_can_load() {
-        let (avif, webp, signed, fallback) = (
-            "https://cdn.example.com/a.avif",
+        let (jxl, webp, signed, fallback) = (
+            "https://cdn.example.com/a.jxl",
             "https://cdn.example.com/a.webp",
             "https://bucket.s3.amazonaws.com/a.webp?X-Amz-Signature=abc123",
             "https://cdn.example.com/a.png",
         );
         let source = |id: i64, attributes: serde_json::Value| json!({"type": 2, "tagName": "source", "attributes": attributes, "childNodes": [], "id": id});
         let (bare, typeless) = (
-            "https://cdn.example.com/b.avif",
+            "https://cdn.example.com/b.jxl",
             "https://cdn.example.com/c.webp",
         );
         // The scan leaves an SVG inline, so the browser can load it from the block. The fetcher stores a remote SVG.
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let remote_svg = "https://cdn.example.com/a.svg";
-        let avif_typed_svg = "data:image/svg+xml,%3Csvg%2F%3E";
+        let jxl_typed_svg = "data:image/svg+xml,%3Csvg%2F%3E";
         let shared = "https://cdn.example.com/shared.webp";
         let (beside_img_src, img_src) = (
             "https://cdn.example.com/beside-img-src.png",
@@ -1314,37 +1314,39 @@ mod tests {
             "https://cdn.example.com/also-in-webp.png",
             "https://cdn.example.com/webp-1x.webp",
         );
-        let other_avif = format!(
-            "data:image/avif;base64,{}",
-            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
+        let other_jxl = format!(
+            "data:image/jxl;base64,{}",
+            STANDARD.encode(b"\xff\x0aother")
         );
         let bitmap = format!("data:image/bmp;base64,{}", STANDARD.encode(b"BMbitmap"));
-        // The dataset keeps no AVIF, so an inline one leaves the list too.
-        let inline_avif = format!(
-            "data:image/avif;base64,{}",
-            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf")
+        // The image scrub reads no JPEG XL, so an inline one leaves the list too.
+        let inline_jxl = format!(
+            "data:image/jxl;base64,{}",
+            STANDARD.encode(b"\xff\x0acodestream")
         );
+        let avif = "https://cdn.example.com/still.avif";
         let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
             source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
             source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
-            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
+            source(3, json!({"type": "image/jxl", "srcset": format!("{jxl} 1x, {inline_jxl} 2x")})),
             // An inline candidate needs no fetch job, so it stays whatever the type.
-            source(15, json!({"type": "image/avif", "srcset": format!("{avif} 2x, {avif_typed_svg} 1x")})),
+            source(15, json!({"type": "image/jxl", "srcset": format!("{jxl} 2x, {jxl_typed_svg} 1x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
-            source(8, json!({"type": "image/avif", "srcset": bare})),
-            // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
+            source(8, json!({"type": "image/jxl", "srcset": bare})),
+            // Values that read the same once their inline JPEG XL images leave merge their policies, so the WebP source keeps
             // the shared candidate.
-            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
-            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
+            source(11, json!({"type": "image/jxl", "srcset": format!("{shared} 1x, {inline_jxl} 2x")})),
+            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_jxl} 2x")})),
             // The WebP source keeps its other candidate, so no source fetches the URL the two share.
-            source(13, json!({"type": "image/avif", "srcset": format!("{also_in_webp} 1x")})),
+            source(13, json!({"type": "image/jxl", "srcset": format!("{also_in_webp} 1x")})),
             source(14, json!({"type": "image/webp", "srcset": format!("{also_in_webp} 2x, {webp_1x} 1x")})),
             // Neither this source nor the img below with the same srcset shows the candidate, so neither keeps it.
-            source(16, json!({"type": "image/avif", "srcset": format!("{beside_img_src} 2x")})),
+            source(16, json!({"type": "image/jxl", "srcset": format!("{beside_img_src} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
             // Only the kept candidate stays, so a declined URL and an inline image the image scrub cannot read leave too.
             source(4, json!({"type": "image/webp", "srcset": format!("{webp} 1x, {signed} 2x, {bitmap} 3x")})),
+            source(18, json!({"type": "image/avif", "srcset": format!("{avif} 1x")})),
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
         ]});
         let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
@@ -1357,11 +1359,12 @@ mod tests {
         for message in &block.messages {
             inspector.observe_message(&mut inspection, message);
         }
-        // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
+        // The fetcher stores no JPEG XL, so the JPEG XL source gets no fetch job.
         let fetched = inspection.finish().image_urls;
         assert!(!fetched
             .iter()
-            .any(|u| u == avif || u == also_in_webp || u == beside_img_src));
+            .any(|u| u == jxl || u == also_in_webp || u == beside_img_src));
+        assert!(fetched.iter().any(|u| u == avif));
         assert!(fetched.iter().any(|u| u == img_src));
         assert!(fetched.iter().any(|u| u == webp_1x));
 
@@ -1377,11 +1380,11 @@ mod tests {
             .unwrap()
             .1
         };
-        // The AVIF source has no candidate left, so the browser takes the WebP.
+        // The JPEG XL source has no candidate left, so the browser takes the WebP.
         assert!(lines.contains(r#""srcset":"""#), "{lines}");
         assert!(
             lines.contains(&format!(r#""srcset":"{svg} 1x""#))
-                && lines.contains(&format!(r#""srcset":"{avif_typed_svg} 1x""#)),
+                && lines.contains(&format!(r#""srcset":"{jxl_typed_svg} 1x""#)),
             "{lines}"
         );
         assert!(
@@ -1389,7 +1392,8 @@ mod tests {
             "{lines}"
         );
         assert!(
-            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp))),
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp)))
+                && lines.contains(&format!(r#""srcset":"{} 1x""#, reference(avif))),
             "{lines}"
         );
         assert!(lines.contains(&reference(fallback)), "{lines}");
@@ -1412,9 +1416,8 @@ mod tests {
             "{lines}"
         );
         assert!(
-            !lines.contains("a.avif")
-                && !lines.contains("ftypavif")
-                && !lines.contains("data:image/avif")
+            !lines.contains("a.jxl")
+                && !lines.contains("data:image/jxl")
                 && !lines.contains("X-Amz-Signature")
                 && !lines.contains("declined"),
             "{lines}"
