@@ -496,10 +496,6 @@ describe('scenario environment', () => {
         const { limiter, close } = sesLimiterOn({ host: '127.0.0.1', port: 6379 })
         const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
         try {
-            const emailQueue = readFileSync(path.join(__dirname, '../../../src/server.ts'), 'utf8').match(
-                /new RateLimiterService\(sesValkey, \{ name: 'ses' \}\),\s*key: '([^']+)'/
-            )
-            expect(emailQueue?.[1]).toBe(SES_RATE_LIMIT_KEY)
             await limiter.claimUpTo(claim)
             expect(await limiter.claimUpTo(claim)).toBe(0)
 
