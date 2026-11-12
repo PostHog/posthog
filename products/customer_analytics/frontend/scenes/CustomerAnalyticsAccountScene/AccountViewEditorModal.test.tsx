@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { resetContext } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { accountViewsList, accountViewsPartialUpdate, userCustomerAnalyticsConfigRetrieve } from '../../generated/api'
 import type { AccountViewApi } from '../../generated/api.schemas'
 import { createAccountViewContent } from './accountViewDocument'
@@ -49,8 +46,6 @@ const mockUserCustomerAnalyticsConfigRetrieve = userCustomerAnalyticsConfigRetri
 describe('AccountViewEditorModal', () => {
     beforeEach(() => {
         resetContext()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true })
         mockAccountViewsList.mockResolvedValue([visibilityOnlyTeamView])
         mockAccountViewsPartialUpdate.mockResolvedValue({
             ...visibilityOnlyTeamView,
@@ -67,7 +62,6 @@ describe('AccountViewEditorModal', () => {
 
     afterEach(() => {
         cleanup()
-        featureFlagLogic.unmount()
     })
 
     it('shows the actual value for a stored custom tile span', async () => {

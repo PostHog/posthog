@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { ReactNode, Suspense, useEffect, useState } from 'react'
+import { ReactNode, Suspense, useContext, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
@@ -50,6 +50,14 @@ import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { withInertLinks } from './emailPreviewHtml'
 import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
+import {
+    SANDBOX_SENDER_VALUE,
+    sandboxSenderGroups,
+    sandboxSenderHint,
+    sandboxSenderInputOptions,
+    selectedSenderValue,
+} from './sandboxSenderOptions'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
@@ -272,6 +280,9 @@ export function NativeEmailIntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
+    const sandbox = useContext(SandboxSenderChoiceContext)
+    const sandboxHint = sandboxSenderHint(sandbox)
+    const { flushPendingDesignEdit } = useAsyncActions(emailTemplaterLogic)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
@@ -283,15 +294,32 @@ export function NativeEmailIntegrationChoice({
     // visible again on reopen without any separate reveal state.
     const overridesVisible = value?.email !== undefined || value?.name !== undefined
 
+    const switchSenderKind = (switchSender: () => void): void => {
+        void flushPendingDesignEdit().then(switchSender)
+    }
+
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        onChange({ ...value, integrationId, integrationIds: undefined })
+        if (integrationId === SANDBOX_SENDER_VALUE) {
+            switchSenderKind(() => sandbox?.onSelect())
+            return
+        }
+        const next = { ...value, integrationId, integrationIds: undefined }
+        if (sandbox?.selected) {
+            switchSenderKind(() => onChange(next))
+            return
+        }
+        onChange(next)
     }
 
     const onChangeIntegrations = (integrationIds: number[]): void => {
+        if (integrationIds.includes(SANDBOX_SENDER_VALUE)) {
+            switchSenderKind(() => sandbox?.onSelect())
+            return
+        }
         if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
             return
         }
@@ -302,7 +330,7 @@ export function NativeEmailIntegrationChoice({
         })
     }
 
-    if (!integrationsLoading && integrationsOfKind?.length === 0) {
+    if (!sandbox && !integrationsLoading && integrationsOfKind?.length === 0) {
         return (
             <div className="flex gap-2 justify-between items-center">
                 {label}
@@ -327,18 +355,21 @@ export function NativeEmailIntegrationChoice({
         <div className="flex flex-col">
             <div className="flex gap-2 items-center">
                 {label}
-                {senderRotationEnabled ? (
+                {senderRotationEnabled && !sandbox?.selected ? (
                     <div className="flex flex-col flex-1">
                         <LemonInputSelect<number>
                             className="m-1 flex-1"
                             mode="multiple"
                             placeholder="Choose email senders"
                             loading={integrationsLoading}
-                            options={(integrationsOfKind || []).map((integration) => ({
-                                key: String(integration.id),
-                                label: integration.display_name,
-                                value: integration.id,
-                            }))}
+                            options={[
+                                ...(integrationsOfKind || []).map((integration) => ({
+                                    key: String(integration.id),
+                                    label: integration.display_name,
+                                    value: integration.id,
+                                })),
+                                ...sandboxSenderInputOptions(sandbox),
+                            ]}
                             value={selectedIntegrationIds}
                             size="small"
                             fullWidth
@@ -370,6 +401,7 @@ export function NativeEmailIntegrationChoice({
                                     value: integration.id,
                                 })),
                             },
+                            ...sandboxSenderGroups(sandbox),
                             {
                                 options: [
                                     {
@@ -380,14 +412,14 @@ export function NativeEmailIntegrationChoice({
                                 ],
                             },
                         ]}
-                        value={value?.integrationId}
+                        value={selectedSenderValue(sandbox, value?.integrationId)}
                         size="small"
                         fullWidth
                         onChange={onChangeIntegration}
                         data-attr="workflow-email-sender-select"
                     />
                 )}
-                {!overridesVisible && (
+                {!overridesVisible && !sandbox?.selected && (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
@@ -401,6 +433,7 @@ export function NativeEmailIntegrationChoice({
                     </LemonButton>
                 )}
             </div>
+            {sandboxHint && <span className="px-2 pb-1 text-xs text-muted">{sandboxHint}</span>}
             {overridesVisible && (
                 <>
                     <div className="flex gap-2 items-center border-t">
@@ -897,10 +930,10 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                 <>
                     <div
                         className={clsx(
-                            'flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
                             buttonsAt === 'bottom' ? 'items-end' : 'items-center',
                             // Persistent start buttons while empty; hover-reveal once there is content
-                            value
+                            value || emailTemplate.text
                                 ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
                                 : 'opacity-100'
                         )}
@@ -912,17 +945,23 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                         />
                     </div>
 
-                    {/* The floor keeps the preview readable where the host gives it no
-                        spare height to grow into */}
-                    <iframe
-                        srcDoc={withInertLinks(value)}
-                        sandbox=""
-                        title="Email template preview"
-                        className="flex-1 min-h-80"
-                    />
+                    <EmailBodyPreview html={value} text={emailTemplate.text} />
                 </>
             )}
         </LemonField>
+    )
+}
+
+function EmailBodyPreview({ html, text }: { html: string | undefined; text: string | undefined }): JSX.Element {
+    if (!html && text) {
+        return (
+            <pre className="ph-no-capture flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
+                {text}
+            </pre>
+        )
+    }
+    return (
+        <iframe srcDoc={withInertLinks(html)} sandbox="" title="Email template preview" className="flex-1 min-h-80" />
     )
 }
 
@@ -973,6 +1012,7 @@ function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fie
         case 'native_email_template':
         case 'native_email_transactional_template':
         case 'native_email':
+        case 'native_email_sandbox':
             return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
     }
 }

@@ -7473,6 +7473,7 @@ export namespace Schemas {
         | "stripe"
         | "intercom"
         | "email"
+        | "email_sandbox"
         | "twilio"
         | "linear"
         | "github"
@@ -10624,6 +10625,27 @@ export namespace Schemas {
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10647,7 +10669,28 @@ export namespace Schemas {
         | "flag_active"
         | "flag_deleted"
         | "flag_rolled_out"
-        | "shipped_variant";
+        | "shipped_variant"
+        | "flag_last_called_at"
+        | "since_start_hours"
+        | "daily_calculation_ends_at"
+        | "metric_name"
+        | "metric_role"
+        | "ratio_side"
+        | "sample_count"
+        | "planned_sample_count"
+        | "data_hours"
+        | "variant"
+        | "difference_percentage"
+        | "detectable_difference_percentage"
+        | "significant"
+        | "forced_condition_count"
+        | "matched_count"
+        | "variant_matched_count"
+        | "forced_count"
+        | "forced_percentage"
+        | "traffic_since_at"
+        | "changed_at"
+        | "before_exposure";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10683,6 +10726,27 @@ export namespace Schemas {
          * * `flag_deleted` - Whether the feature flag is deleted
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10716,6 +10780,27 @@ export namespace Schemas {
          * * `flag_deleted` - Whether the feature flag is deleted
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+         * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `metric_name` - The name of a metric
+         * * `metric_role` - Whether a metric is primary or secondary
+         * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+         * * `sample_count` - Users or groups in a metric's results, across the variants
+         * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+         * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+         * * `variant` - The key of a variant
+         * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+         * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+         * * `significant` - Whether a variant's difference from the control is significant
+         * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+         * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+         * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+         * * `forced_count` - Users or groups that a release condition with a variant override served
+         * * `forced_percentage` - forced_count as a share of variant_matched_count
+         * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `changed_at` - When a change of the feature flag was saved
+         * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10800,6 +10885,10 @@ export namespace Schemas {
          * How the check decides. The same for every experiment and every status. Null for a check without a numeric rule.
          */
         rule: ExperimentHealthCheckRule | null;
+        /**
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         */
+        rows: Array<Record<string, string | number | boolean | null>>;
     };
     export type ExperimentHealthReleaseCondition = {
         /**
@@ -10909,6 +10998,15 @@ export namespace Schemas {
          */
         feature_flag_key: string;
         feature_flag: MinimalFeatureFlag & unknown;
+        /**
+         * Full experiment representation for the detail, create, and update endpoints.
+         *
+         * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+         * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+         * fields, and refreshes stale action names while serializing. The list endpoint uses the
+         * leaner ``ExperimentBasicSerializer`` instead.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
@@ -11434,6 +11532,10 @@ export namespace Schemas {
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
         feature_flag?: ExperimentFeatureFlagInput | undefined;
+        /**
+         * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+         */
+        feature_flag_rule_id?: (string | null) | undefined;
         holdout: ExperimentHoldout & unknown;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -11929,6 +12031,56 @@ export namespace Schemas {
         | "mcp"
         | "wizard"
         | "self_driving";
+    /**
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed
+     */
+    export type SourceSetupErrorCodeEnum =
+        | "unresolved_secret_ref"
+        | "credential_not_found"
+        | "credential_expired"
+        | "credential_source_type_mismatch"
+        | "reserved_name"
+        | "direct_query_unsupported"
+        | "direct_query_name_required"
+        | "duplicate_source"
+        | "duplicate_prefix"
+        | "billing_limit_reached"
+        | "max_instances_reached"
+        | "source_unavailable"
+        | "invalid_config"
+        | "credential_validation_failed"
+        | "schema_discovery_failed"
+        | "no_tables_found"
+        | "cdc_unsupported_source_type"
+        | "invalid_cdc_management_mode"
+        | "host_not_allowed"
+        | "connection_failed";
+    export type ExternalDataSourceErrorResponse = {
+        /**
+         * Human-readable explanation of why the request failed and what to do next.
+         */
+        message: string;
+        code?: SourceSetupErrorCodeEnum | undefined;
+    };
     export type ExternalDataSourceRevenueAnalyticsConfig = Partial<{
         enabled: boolean;
         include_invoiceless_charges: boolean;
@@ -16050,6 +16202,7 @@ export namespace Schemas {
         end_date: string | null;
         feature_flag_key: string;
         feature_flag: ExperimentFeatureFlagInput;
+        feature_flag_rule_id: string | null;
         holdout: ExperimentHoldout & unknown;
         holdout_id: number | null;
         exposure_cohort: number | null;
@@ -18615,6 +18768,10 @@ export namespace Schemas {
         github_issue_number: number | null;
         zendesk_ticket_id: number | null;
         /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         */
+        intercom_conversation_id: string | null;
+        /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          */
         organization_id: string | null;
@@ -19207,7 +19364,10 @@ export namespace Endpoints {
 
             body: Schemas.ExternalDataSourceCreate;
         };
-        responses: { 201: Schemas.ExternalDataSourceCreateResponse };
+        responses: {
+            201: Schemas.ExternalDataSourceCreateResponse;
+            400: Schemas.ExternalDataSourceErrorResponse;
+        };
     };
     /**
      * Create, Read, Update and Delete External data Sources.

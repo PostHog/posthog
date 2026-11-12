@@ -57,7 +57,7 @@ export function EmailDocumentEditor(): JSX.Element {
         documentEditorInitialDoc,
         convertedEmailDocument,
     } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, flushDesignEdit } = useActions(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
     const [mode, setMode] = useState<Mode>('edit')
     const [panelOpen, setPanelOpen] = useState(true)
@@ -263,7 +263,7 @@ export function EmailDocumentEditor(): JSX.Element {
     }, [editor])
 
     useEffect(() => {
-        const onBlur = (): void => flushDesignEdit()
+        const onBlur = (): void => flushPendingDesignEdit()
         editor.on('blur', onBlur)
         const adapter = createEmailEditorAdapter(editor)
         setEmailEditorRef({ editor: adapter } as any)
