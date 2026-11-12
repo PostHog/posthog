@@ -155,7 +155,12 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.alerts.backend.facade.api import delete_insight_alerts
-from products.alerts.backend.presentation.views.insight_alerts import insight_alerts_prefetch, serialize_insight_alerts
+from products.alerts.backend.presentation.views.insight_alerts import (
+    insight_alerts_hidden,
+    insight_alerts_prefetch,
+    native_insight_alerts,
+    serialize_insight_alerts,
+)
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -165,7 +170,6 @@ from products.dashboards.backend.facade.api import (
     CannotAddToDashboard,
     CannotRemoveFromDashboard,
     DashboardNotFound,
-    DashboardTileBasicSerializer,
     InsightTilePlacement,
     check_insight_tile_limit,
     dashboard_refs,
@@ -182,6 +186,7 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
+from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -1236,14 +1241,29 @@ class InsightSerializer(InsightBasicSerializer):
         if insight.alertable_query_kind is None:
             return []
 
-        # Alert configs carry their creator's and subscribers' names and emails, which anonymous
-        # viewers of a shared dashboard must never receive, so omit them when hiding authorship.
-        if self.context.get("hide_extra_details", False):
+        if insight_alerts_hidden(insight, self.context):
             return []
 
-        # Use prefetched alerts data
-        alerts = getattr(insight, "_prefetched_alerts", [])
-        return serialize_insight_alerts(alerts, self.context)
+        # Only the insight API prefetches alerts. Other callers embed none.
+        alerts = getattr(insight, "_prefetched_alerts", None)
+        if alerts is None:
+            return []
+        return serialize_insight_alerts([*alerts, *self._native_alerts(insight)], self.context)
+
+    def _native_alerts(self, insight: Insight) -> list[Any]:
+        """The insight's alerts with no insight row. The first call reads them for every insight in the
+        response at once and keeps them in the context, so a page costs one read."""
+        loaded: dict[int, list[Any]] = self.context.setdefault("_native_insight_alerts", {})
+        if insight.id not in loaded:
+            parent = self.parent
+            response = self.context.get("insights_in_response") or (
+                parent.instance if isinstance(parent, serializers.ListSerializer) and parent.instance else [insight]
+            )
+            batch = [each for each in response if hasattr(each, "_prefetched_alerts")] or [insight]
+            native = native_insight_alerts(batch)
+            loaded.update({each.id: native.get(each.id, []) for each in batch})
+            loaded.setdefault(insight.id, native.get(insight.id, []))
+        return loaded[insight.id]
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
     def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:
@@ -1255,7 +1275,9 @@ class InsightSerializer(InsightBasicSerializer):
         is_shared = self.context.get("is_shared", False)
         dashboard_filters_override = filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared)
+        tile_filters_override = tile_filters_override_requested_by_client(
+            request, dashboard_tile.filters_overrides if dashboard_tile else None, is_shared=is_shared
+        )
         dashboard_filters = (
             dashboard_filters_override
             if dashboard_filters_override is not None
@@ -1312,7 +1334,11 @@ class InsightSerializer(InsightBasicSerializer):
         # different filter set than the chart.
         dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
         tile_filters_override = (
-            tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
+            tile_filters_override_requested_by_client(
+                request, dashboard_tile.filters_overrides if dashboard_tile else None, is_shared=is_shared
+            )
+            if request
+            else {}
         )
 
         if instance.query is not None:
@@ -1426,7 +1452,9 @@ class InsightSerializer(InsightBasicSerializer):
 
                 dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
                 tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"], dashboard_tile, is_shared=is_shared
+                    self.context["request"],
+                    dashboard_tile.filters_overrides if dashboard_tile else None,
+                    is_shared=is_shared,
                 )
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature

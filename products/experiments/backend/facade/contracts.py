@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.experiments.backend.facade.enums import RecalculationStartOutcome
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -318,6 +320,7 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
     END_EXPERIMENT = "end_experiment"
     FREEZE_EXPOSURE = "freeze_exposure"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -939,3 +942,90 @@ class LinkedExperiment:
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class StaffTeamExperimentCounts:
+    total: int
+    running: int
+
+
+@frozen
+class StaffExperiment:
+    """An experiment as PostHog Admin shows it to staff."""
+
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    status: str
+    is_launched: bool
+    is_legacy: bool
+    has_malformed_properties: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+    created_at: datetime
+
+
+@frozen
+class StaffSharedMetric:
+    id: int
+    name: str
+    is_legacy: bool
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffSavedMetric:
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    is_legacy: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffRecalculationFailure:
+    metric_uuid: str
+    metric_name: str
+    error: str
+
+
+@frozen
+class StaffRecalculation:
+    """A metrics recalculation run as PostHog Admin shows it to staff."""
+
+    id: str
+    experiment_id: int
+    team_id: int
+    status: str
+    trigger: str
+    total_metrics: int
+    # None in lists, because counting needs a query per run.
+    completed_metrics: int | None
+    failed_metrics: int | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration: str | None
+    is_terminal: bool
+    temporal_url: str
+    failures: tuple[StaffRecalculationFailure, ...]
+
+
+@frozen
+class StaffMigration:
+    """The new-engine copy of a legacy experiment or shared metric."""
+
+    copy_id: int
+    # An earlier migration made the copy, so this one created nothing.
+    already_migrated: bool
+
+
+@frozen
+class RecalculationStart:
+    outcome: RecalculationStartOutcome
+    recalculation_id: str | None = None
+    detail: str = ""

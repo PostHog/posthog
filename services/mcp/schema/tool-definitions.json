@@ -548,12 +548,12 @@
         }
     },
     "llma-parser-recipe-create": {
-        "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
+        "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server tests your YAML against the exact event (by trace_id + event_uuid) together with the team's existing recipes, and saves the recipe only when every input or output side that was not parsed becomes parsed. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Compiles, validates, and saves a custom parser recipe for an LLM analytics trace event.",
         "title": "Create parser recipe",
-        "required_scopes": ["llm_analytics:write", "query:read"],
+        "required_scopes": ["llm_analytics:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
