@@ -71,7 +71,7 @@ class RefreshSchemasResponseSerializer(serializers.Serializer):
     total_tables_seen = serializers.IntegerField(help_text="Total tables the source reported, before filtering.")
 
 
-# Long enough for a nested document field path, short enough that one request stays cheap.
+# Long enough for a nested document field path. The model reads a shorter prefix of each name.
 MAX_IDENTIFIER_LENGTH = 4096
 
 

@@ -61,6 +61,9 @@ MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
 # The open tables one call asks about, so a caller sending more gets no answer for the rest.
 MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
+# Callers send their own names, so the model reads at most this much of each one. Picks map back by
+# position, so a cut name still resolves to its full column.
+MAX_NAME_CHARS = 256
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
@@ -118,6 +121,8 @@ def recommend_for_candidates(
 def _without_model_pick(field: IncrementalField) -> IncrementalField:
     cleaned: IncrementalField = {**field}
     cleaned.pop("picked_by_model", None)
+    if "notes" in cleaned:
+        cleaned["notes"] = [note for note in cleaned["notes"] if note != MODEL_PICK_NOTE]
     return cleaned
 
 
@@ -204,11 +209,11 @@ def _within_team_budget(team_id: int, requests: int) -> bool:
 
 def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     return {
-        "table": schema.name,
+        "table": schema.name[:MAX_NAME_CHARS],
         "columns": [
             {
                 "option": f"c{position}",
-                "name": field["field"],
+                "name": field["field"][:MAX_NAME_CHARS],
                 "type": str(field.get("field_type") or field["type"]),
                 "indexed": field.get("is_indexed", True),
                 "nullable": field.get("nullable", False),
@@ -283,7 +288,7 @@ def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
             **chosen,
             "recommended": True,
             "picked_by_model": True,
-            "notes": [MODEL_PICK_NOTE, *(note for note in chosen.get("notes", []) if note != MODEL_PICK_NOTE)],
+            "notes": [MODEL_PICK_NOTE, *chosen.get("notes", [])],
         },
         *rest,
     ]
