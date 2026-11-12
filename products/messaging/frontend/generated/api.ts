@@ -132,8 +132,8 @@ export const messagingEmailsList = async (
     projectId: string,
     params: MessagingEmailsListParams,
     options?: RequestInit
-): Promise<ScheduledEmailPageApi[]> => {
-    return apiMutator<ScheduledEmailPageApi[]>(getMessagingEmailsListUrl(projectId, params), {
+): Promise<ScheduledEmailPageApi> => {
+    return apiMutator<ScheduledEmailPageApi>(getMessagingEmailsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -91084,7 +91084,7 @@ export namespace Schemas {
 
     export interface PatchedRescheduleEmail {
       /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now. */
-      scheduled_at?: string | string[];
+      scheduled_at?: string;
     }
 
     export interface PatchedReviewBlindSpotsConfigSelect {
@@ -110815,26 +110815,21 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
-      /**
-         * Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here.
-         * @maxItems 10
-         * @nullable
-         */
-      cc?: string[] | null;
-      /**
-         * Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here.
-         * @maxItems 10
-         * @nullable
-         */
-      bcc?: string[] | null;
+      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      cc?: string | string[] | null;
+      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      bcc?: string | string[] | null;
       /**
          * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
          * @maxItems 10
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now. */
-      scheduled_at?: string | string[] | null;
+      /**
+         * When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /**
          * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
          * @deprecated
