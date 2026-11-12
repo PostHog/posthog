@@ -1,10 +1,10 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -438,24 +438,32 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+def _live_experiments() -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
-    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
-    keep the two in lockstep.
-
-    Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
+    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL,
+    so keep the two in lockstep.
     """
-    return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
+    return Experiment.objects.filter(deleted=False)
 
 
-def live_experiment_exists() -> Exists:
-    """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(live_experiments_for_flag(OuterRef("pk")))
+def live_experiments_for_flag(feature_flag_id: int) -> "QuerySet[Experiment]":
+    return _live_experiments().filter(feature_flag_id=feature_flag_id)
+
+
+def live_experiment_flag_ids(feature_flag_ids: Collection[int], *, using: str) -> frozenset[int]:
+    """The ids among `feature_flag_ids` that a live experiment uses, read in one query from the database alias
+    `using`. An empty collection returns an empty set without a query."""
+    return frozenset(
+        _live_experiments()
+        .using(using)
+        .filter(feature_flag_id__in=list(feature_flag_ids))
+        .values_list("feature_flag_id", flat=True)
+    )
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
-    """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
+    """`live_experiments_for_flag` for one flag."""
     return live_experiments_for_flag(feature_flag_id).exists()
 
 
