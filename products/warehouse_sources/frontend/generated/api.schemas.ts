@@ -2005,6 +2005,69 @@ export interface ExternalDataSourceExistsApi {
     exists: boolean
 }
 
+export interface IncrementalFieldCandidateApi {
+    /**
+     * Name of the field as shown in the UI.
+     * @maxLength 4096
+     */
+    label: string
+    /**
+     * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
+     * @maxLength 4096
+     */
+    field: string
+    /**
+     * Type of the field as shown in the UI, such as timestamp.
+     * @maxLength 32
+     */
+    type: string
+    /**
+     * Type of the field in the source, such as timestamp.
+     * @maxLength 32
+     */
+    field_type: string
+    /** Whether the field allows null values. */
+    nullable?: boolean
+    /** Whether the field leads an index or sort key on the source table. */
+    is_indexed?: boolean
+    /** Whether this is the field the source recommends as the incremental cursor. */
+    recommended?: boolean
+    /** Whether the decision model, not the name rules, picked this field. Ignored on input. */
+    picked_by_model?: boolean
+    /**
+     * Trade-offs of picking this field.
+     * @maxItems 16
+     * @items.maxLength 1000
+     */
+    notes?: string[]
+}
+
+export interface IncrementalFieldTableApi {
+    /**
+     * Name of the table, as returned by database_schema.
+     * @maxLength 4096
+     */
+    table: string
+    /**
+     * The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.
+     * @maxItems 16
+     */
+    incremental_fields: IncrementalFieldCandidateApi[]
+}
+
+export interface IncrementalFieldRecommendationsRequestApi {
+    /**
+     * Tables from database_schema to get a recommended incremental field for.
+     * @maxItems 128
+     */
+    tables: IncrementalFieldTableApi[]
+}
+
+export interface IncrementalFieldRecommendationsResponseApi {
+    /** Only the tables where the decision model picked a field, with that field first and recommended. */
+    tables: IncrementalFieldTableApi[]
+}
+
 /**
  * Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest.
  */
