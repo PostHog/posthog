@@ -20,8 +20,9 @@ import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
@@ -33,13 +34,13 @@ import { draftableOpportunity, engineLabel, isNoSearchEngine, promptSearches } f
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
     if (!check) {
-        return <span className="text-muted whitespace-nowrap">Not checked</span>
+        return <span className="text-muted whitespace-nowrap">-</span>
     }
     if (check.mode === 'no_search') {
         return <ContentAutopilotMentionResultTag mentioned={check.mentioned} checkFailed={check.check_failed} />
     }
     return (
-        <ContentAutopilotCheckResultTag
+        <ContentAutopilotCheckResult
             cited={check.cited}
             checkFailed={check.check_failed}
             position={check.target_best_position}
@@ -103,7 +104,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         setPromptsBranded,
         setShowArchived,
     } = useActions(contentAutopilotPromptsLogic)
-    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
 
     if (promptsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -291,7 +292,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 ),
                         },
                         ...promptEngines.map((engine) => ({
-                            title: engineLabel(engine),
+                            title: <ContentAutopilotEngineLabel engine={engine} />,
                             tooltip: isNoSearchEngine(engine)
                                 ? `Whether ${engineLabel(engine)}'s last answer named your brand. It answers without searching the web, so it never links to your site.`
                                 : `Whether ${engineLabel(engine)}'s last answer linked to a page on your site.`,
@@ -308,17 +309,21 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     <span className="text-muted whitespace-nowrap">Never</span>
                                 ),
                         },
-                        {
-                            key: 'draft',
-                            render: (_, prompt) => {
-                                const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
-                                return opportunity ? (
-                                    <div className="whitespace-nowrap">
-                                        <ContentAutopilotDraftButton opportunity={opportunity} />
-                                    </div>
-                                ) : null
-                            },
-                        },
+                        ...(draftingEnabled
+                            ? [
+                                  {
+                                      key: 'draft',
+                                      render: (_: unknown, prompt: AEOPromptApi) => {
+                                          const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
+                                          return opportunity ? (
+                                              <div className="whitespace-nowrap">
+                                                  <ContentAutopilotDraftButton opportunity={opportunity} />
+                                              </div>
+                                          ) : null
+                                      },
+                                  },
+                              ]
+                            : []),
                         {
                             title: 'Active',
                             key: 'active',

@@ -844,6 +844,16 @@ class TestAEOPromptAPI(APIBaseTest):
             "citation_rate": 0.5,
             "mention_rate": 0.75,
         }
+        assert [
+            (row["date"], row["engine"], row["checks"], row["cited"], row["mentioned"], row["failed"])
+            for row in overview["daily"]
+        ] == [
+            ("2026-10-17", "exa-answer", 1, 1, 1, 0),
+            ("2026-10-18", "claude-web-search", 1, 0, 0, 0),
+            ("2026-10-19", "exa-answer", 1, 0, 1, 0),
+            ("2026-10-20", "claude-web-search", 1, 1, 1, 0),
+            ("2026-10-20", "openai-web-search", 1, 0, 0, 1),
+        ]
         assert overview["previous"] == {
             "checks": 2,
             "failed": 0,
