@@ -27,6 +27,8 @@ class Command(BaseCommand):
         parser.add_argument("--sample-size", type=int, default=5, help="Alert ids listed per team and setting.")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if options["batch_size"] < 1:
+            raise CommandError("--batch-size must be at least 1")
         sources = [SourceKind(value) for value in options["source"]] if options["source"] else registered_sources()
         report = report_drift(
             source_kinds=sources,

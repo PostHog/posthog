@@ -89,7 +89,12 @@ def drifted_settings(expectation: LegacyCopyExpectation, copy: Mapping[str, Any]
             expected[column] = json.loads(json.dumps(expected[column]))
     except (ValueError, TypeError):
         return [NO_PLATFORM_FORM]
-    expected.update(expectation.extra_columns, team_id=expectation.team_id, owner=PlatformAlertOwner.PLATFORM.value)
+    expected.update(
+        expectation.extra_columns,
+        team_id=expectation.team_id,
+        owner=PlatformAlertOwner.PLATFORM.value,
+        source_kind=expectation.upsert.source_kind.value,
+    )
     stored = {column: copy[column] for column in expected}
     for side in (expected, stored):
         # A snooze that has ended mutes nothing, whichever side still holds it.
