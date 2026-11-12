@@ -50,6 +50,17 @@ describe('analyticsUtils', () => {
         ).toBe(railEnabled)
     })
 
+    test.each([
+        [true, ['/canvases', '/dashboard', '/insights', '/notebooks']],
+        [false, ['/dashboard', '/insights', '/notebooks']],
+    ])('lists every analytics type page under By PostHog with rail %s', (railEnabled, pages) => {
+        const hrefs = fromPostHogItems({ [FEATURE_FLAGS.TODAY_RAIL_NAV]: railEnabled }).map(({ href }) => href)
+
+        expect(hrefs.filter((href) => ['/canvases', '/dashboard', '/insights', '/notebooks'].includes(href))).toEqual(
+            pages
+        )
+    })
+
     it('reads an item from its file system row, resolving the creator and the escaped name', () => {
         const users = [{ id: 1, uuid: 'u1', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' }]
         const analytics = fileSystemEntryToAnalytics(entry({}), users)

@@ -193,6 +193,14 @@ export interface FromPostHogItem {
     item: FileSystemImport
 }
 
+// Canvases open only under the Today navigation.
+const ANALYTICS_TYPE_PAGES: Record<AnalyticsType, { href: () => string; flag?: string }> = {
+    canvas: { href: () => urls.canvases(), flag: FEATURE_FLAGS.TODAY_RAIL_NAV },
+    dashboard: { href: () => urls.dashboards() },
+    insight: { href: () => urls.savedInsights() },
+    notebook: { href: () => urls.notebooks() },
+}
+
 export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boolean {
     return (FROM_POSTHOG_ICON_TYPES as readonly string[]).includes(item.iconType ?? '')
 }
@@ -218,6 +226,11 @@ export function fromPostHogProducts(): FromPostHogItem[] {
         : []
     return [
         ...home,
+        ...ANALYTICS_TYPES.map(({ type, pluralLabel }): FromPostHogItem => {
+            const { flag } = ANALYTICS_TYPE_PAGES[type]
+            const href = ANALYTICS_TYPE_PAGES[type].href()
+            return { key: `${type}s`, label: pluralLabel, href, item: { path: pluralLabel, type, href, flag } }
+        }),
         ...FROM_POSTHOG_ICON_TYPES.flatMap((iconType) => {
             const item = products.find((product) => product.iconType === iconType)
             return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
