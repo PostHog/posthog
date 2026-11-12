@@ -20,9 +20,10 @@ import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { createInvocationResult } from '../../../utils/invocation-utils'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
-import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
+import { SandboxEmailAction, SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { SES_REJECTED, SES_SERVER_ERROR, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
@@ -30,7 +31,7 @@ import { SandboxEmailEvents } from './sandbox-email-events'
 import { SANDBOX_TEST_SEND_PATH, SandboxEmailTestRouteDeps, sandboxEmailTestRouter } from './sandbox-email-test-route'
 import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 import { deliveredAddressReader } from './sandbox-render'
-import { sandboxTestSendBucket } from './sandbox-ses-bucket'
+import { SandboxSesBucket, sandboxTestSendBucket } from './sandbox-ses-bucket'
 
 describe('sandbox email test sends', () => {
     const world = useSandboxWorld()
@@ -239,17 +240,44 @@ describe('sandbox email test sends', () => {
         expect(world.ses.attempts).toBe(2)
     })
 
-    it('charges no daily allowance for a test the SES send rate refuses', async () => {
-        const bucket = world.sesBucket(1)
-        serveWorker({ bucket, caps: { team: 1, recipient: 1 } })
-        await world.takeSlotsLeft(bucket)
+    it.each<[string, (bucket: SandboxSesBucket) => Promise<unknown>, SandboxEmailStepResult, SandboxEmailStepResult]>([
+        [
+            'the SES send rate refused it',
+            (bucket) => world.takeSlotsLeft(bucket),
+            { status: 'failed', reason: 'send_rate_limited' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            'SES throttled it',
+            () => Promise.resolve(world.ses.replyNext(SES_THROTTLE)),
+            { status: 'pending', reason: 'ses_throttled' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            'SES rejected it',
+            () => Promise.resolve(world.ses.replyNext(SES_REJECTED)),
+            { status: 'failed', reason: 'ses_rejected' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            'SES failed in a way that may have sent it',
+            () => Promise.resolve(world.ses.replyNext(SES_SERVER_ERROR)),
+            { status: 'pending', reason: 'ses_transient' },
+            { status: 'skipped', reason: 'daily_cap_reached' },
+        ],
+    ])(
+        'charges the daily allowances of a test only when SES may have taken it, after %s',
+        async (_case, arrange, first, next) => {
+            const bucket = world.sesBucket(1)
+            serveWorker({ bucket, caps: { team: 1, recipient: 1 } })
+            await arrange(bucket)
 
-        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
-        await deleteKeysWithPrefix(world.valkey, bucket.key)
+            await expect(tester().send(testRun())).resolves.toEqual(first)
+            await deleteKeysWithPrefix(world.valkey, bucket.key)
 
-        await expect(tester().send(testRun())).resolves.toMatchObject({ status: 'accepted' })
-        expect(world.ses.attempts).toBe(1)
-    })
+            await expect(tester().send(testRun())).resolves.toEqual(next)
+        }
+    )
 
     it.each<[string, () => Promise<string>]>([
         [

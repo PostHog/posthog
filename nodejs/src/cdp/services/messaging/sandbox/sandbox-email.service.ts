@@ -185,7 +185,7 @@ export class SandboxEmailService {
             ...(parentRunId ? { parentRunId } : {}),
         })
         if (sent.status === 'failed' || (sent.status === 'retry' && sent.reason === 'ses_throttled')) {
-            await caps.releaseUnsent()
+            await (request.isTest ? caps.refundUnsent() : caps.releaseUnsent())
         }
         return sent
     }
