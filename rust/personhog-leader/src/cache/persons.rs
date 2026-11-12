@@ -142,12 +142,7 @@ impl PersonCache {
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        let person = self.lookup(key);
-        match person {
-            Some(_) => counter!("personhog_leader_cache_hits_total").increment(1),
-            None => counter!("personhog_leader_cache_misses_total").increment(1),
-        }
-        person
+        self.lookup(key)
     }
 
     /// A read for bookkeeping passes such as the death-document settle.

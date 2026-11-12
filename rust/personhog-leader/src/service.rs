@@ -93,6 +93,16 @@ fn not_served(partition: u32) -> Status {
     Status::failed_precondition(format!("partition {partition} is not served by this pod"))
 }
 
+fn record_pg_load_ages(person: &CachedPerson, now_ms: i64) {
+    let seconds_since = |ms: i64| (now_ms - ms).max(0) as f64 / 1000.0;
+    histogram!("personhog_leader_pg_load_person_age_seconds")
+        .record(seconds_since(person.created_at));
+    if let Some(last_seen_at) = person.last_seen_at {
+        histogram!("personhog_leader_pg_load_last_seen_age_seconds")
+            .record(seconds_since(last_seen_at));
+    }
+}
+
 /// A committed document, with the locks the handler took for it, so the
 /// handler keeps them until it is done with the document.
 struct Committed {
@@ -332,6 +342,18 @@ impl PersonHogLeaderService {
         .increment(1);
     }
 
+    fn first_lookup(&self, partition: u32, key: &PersonCacheKey) -> CacheLookup {
+        let lookup = self.cache.get(partition, key);
+        match lookup {
+            CacheLookup::Found(_) => counter!("personhog_leader_cache_hits_total").increment(1),
+            CacheLookup::PersonNotFound => {
+                counter!("personhog_leader_cache_misses_total").increment(1)
+            }
+            CacheLookup::PartitionNotOwned => {}
+        }
+        lookup
+    }
+
     /// Recover a cache miss from the right source. A person in the dirty
     /// index has acked state the writer may not have applied to PG yet, so
     /// the PG row cannot be trusted — recover the full latest state from
@@ -433,6 +455,7 @@ impl PersonHogLeaderService {
                     "source" => "pg", "outcome" => "ok"
                 )
                 .increment(1);
+                record_pg_load_ages(&person, Utc::now().timestamp_millis());
                 self.cache.put(partition, key.clone(), person.clone());
                 Ok(person)
             }
@@ -540,7 +563,7 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
         // Fast path: cache hit (no lock needed); a death document takes the locked path.
-        match self.cache.get(partition, key) {
+        match self.first_lookup(partition, key) {
             CacheLookup::Found(person) if !person.is_deleted => {
                 Self::record_cache_hit();
                 return Ok(person);
@@ -576,7 +599,7 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        let person = match self.cache.get(partition, key) {
+        let person = match self.first_lookup(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
                 person
