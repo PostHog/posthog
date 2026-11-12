@@ -1078,6 +1078,30 @@ export interface AEOPromptSetRankingsApi {
     competitors_confirmed: boolean
 }
 
+/**
+ * * `queued` - Queued
+ * * `already_running` - Already running
+ */
+export type CitationRunStatusEnumApi = (typeof CitationRunStatusEnumApi)[keyof typeof CitationRunStatusEnumApi]
+
+export const CitationRunStatusEnumApi = {
+    Queued: 'queued',
+    AlreadyRunning: 'already_running',
+} as const
+
+export interface AEOCitationRunStartApi {
+    /** queued when a run was started, or already_running when one was in progress, so nothing new started.
+     *
+     * * `queued` - Queued
+     * * `already_running` - Already running */
+    status: CitationRunStatusEnumApi
+}
+
+export interface AEOSentimentScoringStartApi {
+    /** Id of the Temporal workflow that scores the answers. */
+    workflow_id: string
+}
+
 export interface AEOPromptSuggestRequestApi {
     /**
      * The site to suggest prompts for, for example posthog.com. The model reads it with web search.

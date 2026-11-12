@@ -1520,6 +1520,8 @@ AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
 AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
+# Runs a project may start by hand each day, on top of the scheduled ones.
+AEO_MANUAL_RUNS_PER_DAY = get_from_env("AEO_MANUAL_RUNS_PER_DAY", 3, type_cast=int)
 # The run day starts here, just before the first beat dispatch at 07:30 UTC. A prompt checked
 # since the boundary is not due until the next one, so the catch-up dispatches that follow a
 # killed run only pick up the prompts it missed, however late the previous day's run finished.

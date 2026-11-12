@@ -21,7 +21,12 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     posthog_feature_flag_enabled,
 )
-from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
+from posthog.rate_limit import (
+    AEOCitationRunRateThrottle,
+    AEOPromptSuggestionsBurstRateThrottle,
+    AEOPromptSuggestionsSustainedRateThrottle,
+    AEOSentimentScoringRateThrottle,
+)
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
@@ -46,7 +51,9 @@ from products.aeo.backend.facade.api import (
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
+    start_citation_run,
     start_prompt_suggestions,
+    start_sentiment_scoring,
     update_brand,
     update_engine_setting,
     update_prompt,
@@ -69,6 +76,8 @@ from products.aeo.backend.facade.contracts import (
     BrandStatus,
     BrandUpdate,
     CheckFrequency,
+    CitationRunStart,
+    CitationTrackingDisabledError,
     EngineNotFoundError,
     EngineSetting,
     EngineSettingUpdate,
@@ -106,6 +115,7 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
+    SentimentScoringStart,
     VisibilityDashboard,
 )
 from products.authorization.backend.facade import api as authorization
@@ -1008,6 +1018,26 @@ class AEOBrandUpdateRequestSerializer(serializers.Serializer):
     )
 
 
+class AEOCitationRunStartSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CitationRunStart
+        ref_name = "AEOCitationRunStart"
+        extra_kwargs = {
+            "status": {
+                "help_text": "queued when a run was started, or already_running when one was in progress, so nothing new started."
+            },
+        }
+
+
+class AEOSentimentScoringStartSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SentimentScoringStart
+        ref_name = "AEOSentimentScoringStart"
+        extra_kwargs = {
+            "workflow_id": {"help_text": "Id of the Temporal workflow that scores the answers."},
+        }
+
+
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -1044,7 +1074,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
-    scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
+    # run and score_sentiment save nothing directly, but run spends engine credits and both start background work.
+    scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest", "run", "score_sentiment"]
     pagination_class = PrecountedLimitOffsetPagination
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
@@ -1348,6 +1379,33 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         except PromptSuggestionJobNotFoundError:
             raise NotFound()
         return Response(AEOPromptSuggestionJobSerializer(job).data)
+
+    @validated_request(
+        operation_id="aeo_prompts_run",
+        summary="Run AEO citation checks now",
+        description="Starts a citation run for the project's active prompts that haven't been checked today, the same run the daily schedule starts. Prompts already checked today are skipped, so a run after the scheduled one only covers prompts added since. The run takes from minutes to hours, and its results appear in the prompt checks as each prompt finishes. Sentiment is scored after the run. Returns already_running when a run is in progress. Each project can start a few runs a day.",
+        responses={202: OpenApiResponse(response=AEOCitationRunStartSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], throttle_classes=[AEOCitationRunRateThrottle])
+    def run(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        try:
+            started = start_citation_run(self.team_id)
+        except CitationTrackingDisabledError as error:
+            raise PermissionDenied(str(error))
+        return Response(AEOCitationRunStartSerializer(started).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        operation_id="aeo_prompts_score_sentiment",
+        summary="Score AEO answer sentiment now",
+        description="Scores the sentiment toward the project's brand in answers from the last 30 days that mention it and have no score yet. It makes no new engine calls. Runs in the background and usually finishes within a few minutes; scores appear on the prompt checks.",
+        responses={202: OpenApiResponse(response=AEOSentimentScoringStartSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], throttle_classes=[AEOSentimentScoringRateThrottle])
+    def score_sentiment(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        started = start_sentiment_scoring(self.team_id)
+        return Response(AEOSentimentScoringStartSerializer(started).data, status=status.HTTP_202_ACCEPTED)
 
 
 class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):

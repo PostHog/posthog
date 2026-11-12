@@ -744,3 +744,24 @@ class VisibilityDashboard:
 
     id: int
     name: str
+
+
+class CitationRunStatus(LabeledStrEnum):
+    """Whether a requested citation run was queued, or one was already running for the project."""
+
+    QUEUED = "queued", "Queued"
+    ALREADY_RUNNING = "already_running", "Already running"
+
+
+@frozen
+class CitationRunStart:
+    status: CitationRunStatus
+
+
+class CitationTrackingDisabledError(Exception):
+    """The project is not set up for citation runs. The message is safe to show the user."""
+
+
+@frozen
+class SentimentScoringStart:
+    workflow_id: str

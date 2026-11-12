@@ -118,6 +118,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `already_running` - Already running
+     */
+    export type CitationRunStatusEnum = typeof CitationRunStatusEnum[keyof typeof CitationRunStatusEnum];
+
+
+    export const CitationRunStatusEnum = {
+      Queued: 'queued',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    export interface AEOCitationRunStart {
+      /** queued when a run was started, or already_running when one was in progress, so nothing new started.
+       *
+       * * `queued` - Queued
+       * * `already_running` - Already running */
+      status: CitationRunStatusEnum;
+    }
+
+    /**
      * * `web_search` - Web search
      * * `no_search` - No search
      */
@@ -1100,6 +1120,11 @@ export namespace Schemas {
       created_at: string;
       /** Whether this is the version the prompt runs with. */
       is_current: boolean;
+    }
+
+    export interface AEOSentimentScoringStart {
+      /** Id of the Temporal workflow that scores the answers. */
+      workflow_id: string;
     }
 
     export interface AEOVisibilityDashboard {

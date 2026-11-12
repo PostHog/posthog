@@ -8,6 +8,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -22,6 +23,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
+from posthog.redis import get_client
 
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
@@ -1472,6 +1474,66 @@ class TestAEOPromptAPI(APIBaseTest):
     def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
         response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("queued", True, False, status.HTTP_202_ACCEPTED, "queued", 1),
+            ("already_running", True, True, status.HTTP_202_ACCEPTED, "already_running", 0),
+            ("not_enabled", False, False, status.HTTP_403_FORBIDDEN, None, 0),
+        ]
+    )
+    def test_run_starts_a_citation_run_only_when_none_is_running_for_an_enabled_project(
+        self,
+        _name: str,
+        allowlisted: bool,
+        run_in_progress: bool,
+        expected_status: int,
+        expected_run_status: str | None,
+        expected_queued: int,
+    ) -> None:
+        if run_in_progress:
+            assert get_client().lock(f"aeo_citation_run:{self.team.id}", timeout=60).acquire(blocking=False)
+            self.addCleanup(get_client().delete, f"aeo_citation_run:{self.team.id}")
+
+        with (
+            self.settings(AEO_CITATION_TEAM_IDS=[str(self.team.id)] if allowlisted else []),
+            patch("products.aeo.backend.tasks.tasks.feature_enabled_or_false", return_value=True),
+            patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task") as task,
+        ):
+            response = self.client.post(f"{self.url}run/")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_run_status:
+            assert response.json() == {"status": expected_run_status}
+        assert task.delay.call_count == expected_queued
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_run_is_capped_per_project_per_day(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with (
+            self.settings(AEO_CITATION_TEAM_IDS=[str(self.team.id)], AEO_MANUAL_RUNS_PER_DAY=2),
+            patch("products.aeo.backend.tasks.tasks.feature_enabled_or_false", return_value=True),
+            patch("products.aeo.backend.facade.api.run_aeo_citation_checks_for_team_task"),
+        ):
+            statuses = [self.client.post(f"{self.url}run/").status_code for _ in range(3)]
+
+        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    def test_score_sentiment_starts_scoring_on_the_aeo_queue(self) -> None:
+        with (
+            patch("products.aeo.backend.temporal.brand_sentiment.sync_connect") as connect,
+            patch("products.aeo.backend.temporal.brand_sentiment.asyncio.run"),
+        ):
+            response = self.client.post(f"{self.url}score_sentiment/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        workflow_id = response.json()["workflow_id"]
+        assert workflow_id.startswith(f"aeo-brand-sentiment-{self.team.id}-manual-")
+        start = connect.return_value.start_workflow
+        assert start.call_args.kwargs["id"] == workflow_id
+        assert start.call_args.kwargs["task_queue"] == settings.AEO_TASK_QUEUE
 
 
 class TestAEOKeywordAPI(APIBaseTest):

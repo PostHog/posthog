@@ -785,6 +785,22 @@ class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
+# A manual AEO citation run makes paid web-search calls for every prompt not yet checked that day.
+# The runner skips prompts already checked, so repeated runs add little cost, but each one still holds a
+# long-running worker.
+class AEOCitationRunRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_citation_run"
+
+    def get_rate(self) -> str:
+        return f"{settings.AEO_MANUAL_RUNS_PER_DAY}/day"
+
+
+# Manual sentiment scoring runs the classifier over the project's unscored answers on the AEO worker.
+class AEOSentimentScoringRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_sentiment_scoring"
+    rate = "10/hour"
+
+
 # The AEO keyword report and modifiers recompute their numbers from every answered check in the window
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this

@@ -176,21 +176,26 @@ class AEOBrandSentimentWorkflow(PostHogWorkflow):
         )
 
 
+def start_brand_sentiment_scoring(team_id: int, run_id: str) -> str:
+    workflow_id = f"{WORKFLOW_NAME}-{team_id}-{run_id}"
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            WORKFLOW_NAME,
+            AEOBrandSentimentInputs(team_id=team_id, run_id=run_id),
+            id=workflow_id,
+            task_queue=settings.AEO_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        )
+    )
+    return workflow_id
+
+
 def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
     """Fire-and-forget: the citation run is already recorded, so a Temporal outage only means
     this run's answers stay unscored."""
-    inputs = AEOBrandSentimentInputs(team_id=team_id, run_id=run_id)
     try:
-        client = sync_connect()
-        asyncio.run(
-            client.start_workflow(
-                WORKFLOW_NAME,
-                inputs,
-                id=f"{WORKFLOW_NAME}-{team_id}-{run_id}",
-                task_queue=settings.AEO_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            )
-        )
+        start_brand_sentiment_scoring(team_id, run_id)
     except WorkflowAlreadyStartedError:
         logger.info("aeo_brand_sentiment_already_started", team_id=team_id, run_id=run_id)
     except Exception as error:

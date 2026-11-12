@@ -73,7 +73,10 @@ from products.aeo.backend.facade.contracts import (
     BrandUpdate,
     CheckMode,
     CitationGap,
+    CitationRunStart,
+    CitationRunStatus,
     CitationRunSummary,
+    CitationTrackingDisabledError,
     EngineSetting,
     EngineSettingUpdate,
     Keyword,
@@ -111,16 +114,36 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    SentimentScoringStart,
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.tasks.tasks import (
+    citation_run_in_progress,
+    citation_tracking_enabled,
     recompute_aeo_own_citations_task,
+    run_aeo_citation_checks_for_team_task,
     suggest_aeo_keywords_task,
     suggest_aeo_prompts_task,
 )
+from products.aeo.backend.temporal.brand_sentiment import start_brand_sentiment_scoring
+
+
+def start_citation_run(team_id: int) -> CitationRunStart:
+    """Queues a run of the prompts not yet checked today, as the scheduled dispatch does."""
+    if not citation_tracking_enabled(Team.objects.get(id=team_id)):
+        raise CitationTrackingDisabledError("Citation runs aren't enabled for this project yet.")
+    if citation_run_in_progress(team_id):
+        return CitationRunStart(status=CitationRunStatus.ALREADY_RUNNING)
+    run_aeo_citation_checks_for_team_task.delay(team_id)
+    return CitationRunStart(status=CitationRunStatus.QUEUED)
+
+
+def start_sentiment_scoring(team_id: int) -> SentimentScoringStart:
+    run_id = f"manual-{uuid.uuid4().hex}"
+    return SentimentScoringStart(workflow_id=start_brand_sentiment_scoring(team_id, run_id))
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
