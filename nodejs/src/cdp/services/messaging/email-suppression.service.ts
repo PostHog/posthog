@@ -133,6 +133,8 @@ const LEGACY_HARD_BOUNCE_REASONS = [
  *   follow-up should propagate invalidations via pubsub (see `IntegrationManagerService` for the
  *   pattern) if the staleness becomes a support issue.
  */
+export type SuppressionWriteOptions = { throwOnFailure?: boolean }
+
 export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
@@ -141,7 +143,7 @@ export class EmailSuppressionService {
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
     constructor(
-        private postgres: PostgresRouter,
+        private postgres: Pick<PostgresRouter, 'query'>,
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
@@ -214,7 +216,7 @@ export class EmailSuppressionService {
         emails: string[],
         diagnostic?: string,
         bounceTimestamp?: string,
-        eventId?: string
+        { throwOnFailure = false, eventId }: SuppressionWriteOptions & { eventId?: string } = {}
     ): Promise<void> {
         const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
@@ -312,6 +314,9 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record transient bounces', { teamId, error })
+            if (throwOnFailure) {
+                throw error
+            }
         }
     }
 
@@ -322,7 +327,12 @@ export class EmailSuppressionService {
      * that a complaint already claimed keeps its source and reason, so the bounce refreshes the
      * diagnostic without relabelling why the address is suppressed.
      */
-    public async recordHardBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
+    public async recordHardBounces(
+        teamId: number,
+        emails: string[],
+        diagnostic?: string,
+        { throwOnFailure = false }: SuppressionWriteOptions = {}
+    ): Promise<void> {
         const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
@@ -335,6 +345,9 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
+            if (throwOnFailure) {
+                throw error
+            }
         }
     }
 
@@ -395,7 +408,11 @@ export class EmailSuppressionService {
     }
 
     /** Only for a bounce that proves the address does not exist, or one team could block valid addresses for all. */
-    public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string): Promise<void> {
+    public async recordGlobalHardBounces(
+        emails: string[],
+        bounceTimestamp?: string,
+        { throwOnFailure = false }: SuppressionWriteOptions = {}
+    ): Promise<void> {
         const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
@@ -418,6 +435,9 @@ export class EmailSuppressionService {
             cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, identifiers.length)
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record global hard bounces', { error })
+            if (throwOnFailure) {
+                throw error
+            }
         }
     }
 
@@ -428,7 +448,12 @@ export class EmailSuppressionService {
      * other existing row is re-keyed to COMPLAINT so the list shows the operative reason. The
      * bounce paths then treat COMPLAINT as authoritative, so a later bounce can't relabel the row.
      */
-    public async recordComplaints(teamId: number, emails: string[], feedbackType?: string): Promise<void> {
+    public async recordComplaints(
+        teamId: number,
+        emails: string[],
+        feedbackType?: string,
+        { throwOnFailure = false }: SuppressionWriteOptions = {}
+    ): Promise<void> {
         const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
@@ -494,6 +519,9 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record complaints', { teamId, error })
+            if (throwOnFailure) {
+                throw error
+            }
         }
     }
 
@@ -510,7 +538,7 @@ export class EmailSuppressionService {
         teamId: number,
         emails: string[],
         deliveryTimestamp?: string,
-        { clearGlobal = false }: { clearGlobal?: boolean } = {}
+        { clearGlobal = false, throwOnFailure = false }: { clearGlobal?: boolean } & SuppressionWriteOptions = {}
     ): Promise<void> {
         const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
@@ -541,6 +569,9 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
+            if (throwOnFailure) {
+                throw error
+            }
         }
 
         if (!clearGlobal) {
@@ -564,6 +595,9 @@ export class EmailSuppressionService {
             }
         } catch (error) {
             logger.error('[EmailSuppression] Failed to clear global hard bounces on delivery', { teamId, error })
+            if (throwOnFailure) {
+                throw error
+            }
         }
     }
 

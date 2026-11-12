@@ -7,7 +7,8 @@ import { logger, serializeError } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { sesQueuedNotificationsCounter } from '../services/messaging/email-tracking.service'
-import { SES_NOTIFICATIONS_PER_BATCH, SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses'
+import { SES_NOTIFICATIONS_PER_BATCH } from '../services/messaging/helpers/ses'
+import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/sns-envelope'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 

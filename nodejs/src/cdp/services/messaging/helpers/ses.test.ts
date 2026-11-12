@@ -6,13 +6,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch } from '~/common/utils/request'
 
-import {
-    SNS_SIGNING_CERT_CACHE_SIZE,
-    SesWebhookHandler,
-    nonexistentRecipients,
-    normalizeClickUrl,
-    resolveClickDestination,
-} from './ses'
+import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
+import { SNS_SIGNING_CERT_CACHE_SIZE } from './sns-envelope'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
 jest.mock('~/common/utils/request', () => ({

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 
 if TYPE_CHECKING:
@@ -19,9 +20,8 @@ class ExperimentToSavedMetricVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.experiments.backend.models.experiment import ExperimentToSavedMetric
-
-        return ExperimentToSavedMetric
+        # The experiments product registers its model from its AppConfig.ready().
+        return registered_model("ExperimentToSavedMetric")
 
     @classmethod
     def get_resource_team(cls, resource: Any) -> Team:

@@ -10,9 +10,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
 from products.workflows.backend.facade.sandbox_email import (
-    ADOPTION_UNAVAILABLE,
-    provision_sandbox_sender,
+    SandboxSenderUnavailable,
     sandbox_sender_status,
+    set_up_sandbox_sender,
 )
 
 
@@ -60,15 +60,10 @@ class WorkflowEmailSandboxViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def provision(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user()
-        status = sandbox_sender_status(self.team, user)
-        if not status.adoption_enabled:
-            raise exceptions.PermissionDenied(ADOPTION_UNAVAILABLE)
-        if status.organization_blocked:
-            raise exceptions.PermissionDenied(
-                "This organization can't use the sandbox sender. Verify a domain to send email from workflows."
-            )
-        row = provision_sandbox_sender(self.team, user)
+        try:
+            row = set_up_sandbox_sender(self.team, self._user())
+        except SandboxSenderUnavailable as error:
+            raise exceptions.PermissionDenied(str(error))
         return Response(WorkflowEmailSandboxProvisionSerializer({"integration_id": row.id}).data)
 
     def _user(self) -> User:
