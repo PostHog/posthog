@@ -25,7 +25,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
@@ -39,6 +39,7 @@ import { DashboardQuerySharingDebug } from 'products/dashboards/frontend/Dashboa
 import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
 import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
+import { dashboardWidthLogic } from 'products/dashboards/frontend/dashboardWidthLogic'
 import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
@@ -144,6 +145,7 @@ function DashboardScene({
     const {
         placement,
         dashboard,
+        dashboardMode,
         canEditDashboard,
         tiles,
         itemsLoading,
@@ -161,6 +163,9 @@ function DashboardScene({
     const { id: dashboardId } = useMountedLogic(dashboardLogic).props
     useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
+    const { fullWidth } = useValues(dashboardWidthLogic)
+    const constrainWidth =
+        !fullWidth && placement === DashboardPlacement.Dashboard && dashboardMode !== DashboardMode.Fullscreen
     const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
@@ -210,7 +215,7 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
+        <SceneContent className={cn('dashboard', compact && 'gap-y-2', constrainWidth && 'dashboard--constrained')}>
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader
                     loading={!dashboard && !dashboardFailedToLoad}

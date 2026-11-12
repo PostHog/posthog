@@ -136,6 +136,10 @@ export function reportDashboardFiltersChanged(
     })
 }
 
+export function reportDashboardFullWidthToggled(fullWidth: boolean): void {
+    posthog.capture('dashboard full width toggled', { full_width: fullWidth })
+}
+
 export function reportDashboardTileDensityConfigured(tileDensity: DashboardTileSpacing): void {
     posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
 }

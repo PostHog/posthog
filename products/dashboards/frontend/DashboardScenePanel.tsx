@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
+import { IconExpand, IconCode2, IconCopy, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -33,6 +33,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterF
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
+import { dashboardWidthLogic } from './dashboardWidthLogic'
 import { deleteDashboardLogic } from './deleteDashboardLogic'
 import { duplicateDashboardLogic } from './duplicateDashboardLogic'
 
@@ -54,6 +55,8 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { fullWidth } = useValues(dashboardWidthLogic)
+    const { toggleFullWidth } = useActions(dashboardWidthLogic)
 
     const { user } = useValues(userLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -105,6 +108,16 @@ export function DashboardScenePanel(): JSX.Element | null {
                             }}
                             isFullscreen={dashboardMode === DashboardMode.Fullscreen}
                         />
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={toggleFullWidth}
+                            active={fullWidth}
+                            tooltip="Only changes how this browser shows dashboards"
+                            data-attr={`${RESOURCE_TYPE}-full-width-button`}
+                        >
+                            <IconExpand />
+                            Full width
+                        </ButtonPrimitive>
                     </>
                 )}
 

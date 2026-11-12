@@ -1,3 +1,12 @@
+@import '../../styles/vars';
+
 .dashboard .page-caption {
     margin-bottom: 0;
+}
+
+// The Today layout's scene header bar stays edge to edge, matching every other scene.
+.dashboard--constrained > :not(header) {
+    width: 100%;
+    max-width: $xxl;
+    margin-inline: auto;
 }
