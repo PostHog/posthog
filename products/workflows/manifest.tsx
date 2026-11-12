@@ -63,6 +63,12 @@ export const manifest: ProductManifest = {
             iconType: 'transactional',
             projectBased: true,
         },
+        TransactionalCodeEmail: {
+            import: () => import('./frontend/Transactional/code/CodeEmailScene'),
+            name: 'Transactional',
+            iconType: 'transactional',
+            projectBased: true,
+        },
         WorkflowsEmailDomain: {
             import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
             name: 'Workflows',
@@ -103,6 +109,7 @@ export const manifest: ProductManifest = {
         '/transactional/log': ['Transactional', 'transactional'],
         '/transactional/metrics': ['Transactional', 'transactional'],
         '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
+        '/transactional/code-emails/:id': ['TransactionalCodeEmail', 'transactionalCodeEmail'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -129,13 +136,17 @@ export const manifest: ProductManifest = {
         transactionalMetrics: (): string => '/transactional/metrics',
         transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+        transactionalCodeEmail: (id: string): string => `/transactional/code-emails/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },
     fileSystemTypes: {
         workflows: {
             name: 'Workflow',
             iconType: 'workflows',
-            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-workflows-light)',
+                'var(--color-product-workflows-dark)',
+            ] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
             listHref: () => urls.workflows(),
             filterKey: 'workflows',
@@ -158,7 +169,10 @@ export const manifest: ProductManifest = {
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,
             iconType: 'workflows',
-            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-workflows-light)',
+                'var(--color-product-workflows-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Workflows',
         },
         {

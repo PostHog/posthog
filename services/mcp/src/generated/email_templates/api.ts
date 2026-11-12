@@ -29,7 +29,7 @@ export const MessagingSendEmailCreateHeader = () => zod.object({
         ),
 })
 
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -46,7 +46,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
@@ -72,7 +72,39 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            "Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says."
+        ),
+    tracking: zod
+        .union([
+            zod.boolean(),
+            zod.strictObject({
+                opens: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether PostHog adds its open pixel to the email. Defaults to true.'),
+                clicks: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
+                    ),
+                engagement: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true."
+                    ),
+            }),
+        ])
+        .optional()
+        .describe(
+            "What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body."
+        ),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
         ),
     from: zod
         .string()
@@ -91,9 +123,23 @@ export const MessagingTemplatesListParams = () => zod.object({
         ),
 })
 
+export const messagingTemplatesListQueryBasicDefault = false
+
 export const MessagingTemplatesListQueryParams = () => zod.object({
+    basic: zod
+        .boolean()
+        .default(messagingTemplatesListQueryBasicDefault)
+        .describe(
+            'With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    transactional: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.'
+        ),
 })
 
 export const MessagingTemplatesCreateParams = () => zod.object({
