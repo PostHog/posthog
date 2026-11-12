@@ -214,6 +214,9 @@ export function safeEmailDoc(node: JSONContent): JSONContent {
     if (attrs && 'emailStyle' in attrs) {
         attrs.emailStyle = safeEmailStyle(attrs.emailStyle)
     }
+    if (attrs && node.type === 'emailColumn' && 'ratio' in attrs) {
+        attrs.ratio = Number(attrs.ratio) || 1
+    }
     if (attrs && node.type === 'emailSpacer' && 'backgroundColor' in attrs) {
         attrs.backgroundColor = safeColor(attrs.backgroundColor) || null
     }
@@ -223,7 +226,11 @@ export function safeEmailDoc(node: JSONContent): JSONContent {
         ...(node.marks
             ? {
                   marks: node.marks.map((mark) =>
-                      mark.type === 'textStyle' && mark.attrs ? { ...mark, attrs: safeTextStyleMark(mark.attrs) } : mark
+                      mark.type === 'textStyle' && mark.attrs
+                          ? { ...mark, attrs: safeTextStyleMark(mark.attrs) }
+                          : mark.type === 'link' && mark.attrs && 'color' in mark.attrs
+                            ? { ...mark, attrs: { ...mark.attrs, color: safeColor(mark.attrs.color) || null } }
+                            : mark
                   ),
               }
             : {}),

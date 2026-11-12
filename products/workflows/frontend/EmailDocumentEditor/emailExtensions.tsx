@@ -314,7 +314,7 @@ export const EmailColumn = Node.create({
             mergeAttributes(HTMLAttributes, {
                 'data-email-column': '',
                 class: 'email-canvas-column',
-                style: `flex:${node.attrs.ratio} 1 0;${blockStyleToCanvasCss(node.attrs.emailStyle, 'emailColumn')}`,
+                style: `flex:${Number(node.attrs.ratio) || 1} 1 0;${blockStyleToCanvasCss(node.attrs.emailStyle, 'emailColumn')}`,
             }),
             0,
         ]
@@ -416,7 +416,7 @@ export const EmailLink = LinkExtension.extend({
                 default: null,
                 parseHTML: (element: HTMLElement) => element.style.color || null,
                 renderHTML: (attributes: Record<string, any>) =>
-                    attributes.color ? { style: `color:${attributes.color}` } : {},
+                    safeColor(attributes.color) ? { style: `color:${safeColor(attributes.color)}` } : {},
             },
         }
     },
