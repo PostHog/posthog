@@ -87,8 +87,15 @@ interface ScanBounds {
     date_to: string | undefined
 }
 
-function scanBoundsOf(session: MCPSessionApi | null): ScanBounds {
-    return { date_from: session?.session_start || undefined, date_to: session?.session_end || undefined }
+// The list's session_end can stop short of the session's real end: the list is cached briefly, so a
+// session that ended recently may still be gaining calls, and a fixed range end clips the list's scan.
+// Bound by the end only when neither applies; those old sessions are where the bound saves the most.
+const SETTLED_SESSION_AGE_MS = 60 * 60 * 1000
+
+function scanBoundsOf(session: MCPSessionApi | null, dateFilter: MCPSessionsDateFilter): ScanBounds {
+    const end = session?.session_end
+    const settled = !!end && !dateFilter.dateTo && Date.now() - Date.parse(end) > SETTLED_SESSION_AGE_MS
+    return { date_from: session?.session_start || undefined, date_to: settled ? end : undefined }
 }
 
 function sameScanBounds(a: ScanBounds | undefined, b: ScanBounds): boolean {
@@ -413,7 +420,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     }
                     const filters = values.sharedQueryFilters
                     const refreshCount = values.refreshCount
-                    const scanBounds = scanBoundsOf(values.selectedSession)
+                    const scanBounds = scanBoundsOf(values.selectedSession, values.dateFilter)
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
@@ -425,6 +432,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         throw error
                     })
                     breakpoint()
+                    const sessionRow = values.sessions.find((session) => session.session_id === sessionId) ?? null
+                    if (!sameScanBounds(scanBounds, scanBoundsOf(sessionRow, values.dateFilter))) {
+                        if (sessionId === values.selectedSessionId) {
+                            actions.loadToolCalls(sessionId)
+                        }
+                        return values.toolCallsBySession
+                    }
                     const others = Object.entries(values.toolCallsBySession).filter(
                         ([id, entry]) => id !== sessionId && entry.filters === filters
                     )
@@ -650,7 +664,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             return (
                 entry?.filters === values.sharedQueryFilters &&
                 entry.refreshCount === values.refreshCount &&
-                sameScanBounds(entry.scanBounds, scanBoundsOf(values.selectedSession))
+                sameScanBounds(entry.scanBounds, scanBoundsOf(values.selectedSession, values.dateFilter))
             )
         }
         return {
@@ -693,7 +707,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     values.selectedSessionId &&
                     !sameScanBounds(
                         values.toolCallsBySession[values.selectedSessionId]?.scanBounds,
-                        scanBoundsOf(values.selectedSession)
+                        scanBoundsOf(values.selectedSession, values.dateFilter)
                     )
                 ) {
                     actions.loadToolCalls(values.selectedSessionId)
