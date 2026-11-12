@@ -3277,22 +3277,25 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['goes out now', undefined, 0],
-                ['is scheduled, since a reschedule can move it to the last day it may go out', inDays(1), 1],
-            ])('keeps the files of a send that %s', async (_desc, scheduledAt, copies) => {
-                const file = await uploadAttachment(team.id, {})
-                bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
+                ['goes out now', undefined],
+                ['is scheduled', inDays(1)],
+            ])(
+                'keeps the files of a send that %s until the last day a reschedule can move it to',
+                async (_desc, scheduledAt) => {
+                    const file = await uploadAttachment(team.id, {})
+                    bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
 
-                const res = await sendOnFilesApi({
-                    ...body,
-                    idempotency_key: newKey(),
-                    send: { ...codeSend, attachments: [reference(file)] },
-                    ...(scheduledAt && { scheduled_at: scheduledAt }),
-                })
+                    const res = await sendOnFilesApi({
+                        ...body,
+                        idempotency_key: newKey(),
+                        send: { ...codeSend, attachments: [reference(file)] },
+                        ...(scheduledAt && { scheduled_at: scheduledAt }),
+                    })
 
-                expect(res.status).toBe(202)
-                expect(bucket.copied.filter((path) => path.endsWith(`/${file.metadata.sha256}`))).toHaveLength(copies)
-            })
+                    expect(res.status).toBe(202)
+                    expect(bucket.copied.filter((path) => path.endsWith(`/${file.metadata.sha256}`))).toHaveLength(1)
+                }
+            )
 
             it.each([
                 ['the same files', () => [reference(invoice)], 202],

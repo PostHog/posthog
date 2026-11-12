@@ -181,9 +181,7 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
-        const latestDueAt = scheduledAt
-            ? new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
-            : undefined
+        const latestDueAt = new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
         const statusAt = new Date()
         const { shape } = files
         if (shape && 'refused' in shape) {
@@ -247,7 +245,7 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                latestDueAt
+                scheduledAt ? latestDueAt : undefined
             )
         }
         stages.start('metrics_flush')
