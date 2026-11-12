@@ -12030,16 +12030,60 @@ export namespace Schemas {
         | "mcp"
         | "wizard"
         | "self_driving";
+    /**
+     * * `unresolved_secret_ref` - Unresolved secret reference
+     * * `credential_not_found` - Stored credential not found
+     * * `credential_expired` - Stored credential expired
+     * * `credential_source_type_mismatch` - Stored credential is for another source type
+     * * `reserved_name` - Reserved source name
+     * * `direct_query_unsupported` - Direct query not supported for this source type
+     * * `direct_query_name_required` - Direct query sources need a name
+     * * `duplicate_source` - A source of this type already exists without a prefix
+     * * `duplicate_prefix` - Prefix already used by another source of this type
+     * * `billing_limit_reached` - Monthly sync limit reached
+     * * `max_instances_reached` - Too many sources of this type
+     * * `source_unavailable` - Source cannot be set up this way
+     * * `invalid_config` - Invalid source config
+     * * `credential_validation_failed` - Credential validation failed
+     * * `schema_discovery_failed` - Table discovery failed
+     * * `no_tables_found` - No tables found
+     * * `cdc_unsupported_source_type` - Source type does not support CDC
+     * * `invalid_cdc_management_mode` - Invalid CDC management mode
+     * * `host_not_allowed` - Host not allowed
+     * * `connection_failed` - Connection failed
+     */
+    export type SourceSetupErrorCodeEnum =
+        | "unresolved_secret_ref"
+        | "credential_not_found"
+        | "credential_expired"
+        | "credential_source_type_mismatch"
+        | "reserved_name"
+        | "direct_query_unsupported"
+        | "direct_query_name_required"
+        | "duplicate_source"
+        | "duplicate_prefix"
+        | "billing_limit_reached"
+        | "max_instances_reached"
+        | "source_unavailable"
+        | "invalid_config"
+        | "credential_validation_failed"
+        | "schema_discovery_failed"
+        | "no_tables_found"
+        | "cdc_unsupported_source_type"
+        | "invalid_cdc_management_mode"
+        | "host_not_allowed"
+        | "connection_failed";
+    export type ExternalDataSourceErrorResponse = {
+        /**
+         * Human-readable explanation of why the request failed and what to do next.
+         */
+        message: string;
+        code?: SourceSetupErrorCodeEnum | undefined;
+    };
     export type ExternalDataSourceRevenueAnalyticsConfig = Partial<{
         enabled: boolean;
         include_invoiceless_charges: boolean;
     }>;
-    export type SourceUpdatePayload = {
-        /**
-         * Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds.
-         */
-        credential_id: string;
-    };
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -12130,10 +12174,6 @@ export namespace Schemas {
          * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
          */
         connection_warning: string | null;
-        /**
-         * Mixin for serializers to add user access control fields
-         */
-        payload?: (SourceUpdatePayload & unknown) | undefined;
     };
     export type FeatureFlagExperimentSetMetadata = {
         /**
@@ -16236,7 +16276,6 @@ export namespace Schemas {
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
-        payload: SourceUpdatePayload & unknown;
     }>;
     /**
      * * `errors` - Errors or bugs
@@ -18728,6 +18767,10 @@ export namespace Schemas {
         github_issue_number: number | null;
         zendesk_ticket_id: number | null;
         /**
+         * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+         */
+        intercom_conversation_id: string | null;
+        /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          */
         organization_id: string | null;
@@ -19320,7 +19363,10 @@ export namespace Endpoints {
 
             body: Schemas.ExternalDataSourceCreate;
         };
-        responses: { 201: Schemas.ExternalDataSourceCreateResponse };
+        responses: {
+            201: Schemas.ExternalDataSourceCreateResponse;
+            400: Schemas.ExternalDataSourceErrorResponse;
+        };
     };
     /**
      * Create, Read, Update and Delete External data Sources.
