@@ -158,20 +158,94 @@ class TestActionsIncremental:
         assert result.requests[1].param("before") == "oldest"
 
 
+class TestNestedRowTables:
+    @parameterized.expand(
+        [
+            (
+                "check_items",
+                "checklists",
+                "checkItems",
+                {"fields": "id", "checkItems": "all", "limit": "1000"},
+            ),
+            (
+                "custom_field_items",
+                "cards",
+                "customFieldItems",
+                {"fields": "id", "customFieldItems": "true", "limit": "1000"},
+            ),
+        ]
+    )
+    def test_flattens_nested_rows_across_boards(
+        self, endpoint: str, child_path: str, nested_key: str, expected_params: dict[str, str]
+    ) -> None:
+        result = _run(
+            endpoint,
+            [
+                _json([{"id": "b1"}, {"id": "b2"}]),
+                _json(
+                    [
+                        {
+                            "id": "p1",
+                            nested_key: [{"id": "5abbe394c78f17ffa9e10843"}, {"id": "5abbe395c78f17ffa9e10843"}],
+                        },
+                        {"id": "p2", nested_key: [{"id": "5abbe396c78f17ffa9e10843"}]},
+                    ]
+                ),
+                # A board whose parent objects have no nested rows yields nothing rather than failing.
+                _json([{"id": "p3", nested_key: []}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == [
+            "5abbe394c78f17ffa9e10843",
+            "5abbe395c78f17ffa9e10843",
+            "5abbe396c78f17ffa9e10843",
+        ]
+        assert result.rows[0]["created_at"] == "2018-03-28T18:48:52+00:00"
+        assert [r.url.split("?")[0] for r in result.requests[1:]] == [
+            f"https://api.trello.com/1/boards/b1/{child_path}",
+            f"https://api.trello.com/1/boards/b2/{child_path}",
+        ]
+        for key, value in expected_params.items():
+            assert result.requests[1].param(key) == value
+
+
+class TestBoardMemberships:
+    def test_rows_carry_board_id_and_send_no_limit(self) -> None:
+        result = _run(
+            "board_memberships",
+            [
+                _json([{"id": "b1"}, {"id": "b2"}]),
+                _json([{"id": "5abbe394c78f17ffa9e10843", "idMember": "m1", "memberType": "admin"}]),
+                _json([{"id": "5abbe395c78f17ffa9e10843", "idMember": "m1", "memberType": "normal"}]),
+            ],
+        )
+
+        assert [(r["board_id"], r["idMember"], r["memberType"]) for r in result.rows] == [
+            ("b1", "m1", "admin"),
+            ("b2", "m1", "normal"),
+        ]
+        assert all("_boards_id" not in r for r in result.rows)
+        assert result.requests[1].url.split("?")[0] == "https://api.trello.com/1/boards/b1/memberships"
+        assert result.requests[1].param("limit") is None
+
+
 class TestTrelloSourceResponse:
     @parameterized.expand(
         [
-            ("boards", "asc", "id"),
-            ("actions", "desc", "id"),
-            ("cards", "asc", "id"),
+            ("boards", "asc", ["id"]),
+            ("actions", "desc", ["id"]),
+            ("cards", "asc", ["id"]),
+            ("board_memberships", "asc", ["board_id", "id"]),
         ]
     )
-    def test_source_response_shape(self, endpoint: str, sort_mode: str, primary_key: str) -> None:
+    def test_source_response_shape(self, endpoint: str, sort_mode: str, primary_keys: list[str]) -> None:
         response = _run(endpoint, []).response
         assert response is not None
         assert response.name == endpoint
         assert response.sort_mode == sort_mode
-        assert response.primary_keys == [primary_key]
+        assert response.primary_keys == primary_keys
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "week"
@@ -181,4 +255,4 @@ class TestTrelloSourceResponse:
         response = _run(endpoint, []).response
         assert response is not None
         assert callable(response.items)
-        assert response.primary_keys == [TRELLO_ENDPOINTS[endpoint].primary_key]
+        assert response.primary_keys == TRELLO_ENDPOINTS[endpoint].primary_keys

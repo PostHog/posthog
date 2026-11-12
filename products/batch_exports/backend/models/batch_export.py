@@ -643,8 +643,10 @@ class BatchExportBackfill(UUIDTModel):
 class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
     """Represents a file made available to download by a batch export.
 
-    When creating a "file-download" batch export, the output is a row in this table
-    containing pre-signed URLs to access the data exported.
+    A file download batch export run gets one row for each file it writes to S3. The
+    workflow creates the rows after the run completes. A row stores the S3 key of the
+    file, not a URL: each download request generates a short-lived pre-signed URL from
+    the key.
     """
 
     class Meta:
