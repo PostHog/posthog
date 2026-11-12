@@ -82,16 +82,17 @@ sequenceDiagram
         Agent->>You: What do you want to use PostHog for?
         You->>Agent: Your answer
     end
-    opt No host is named and hog has no login
-        Agent->>You: Should your data be hosted in the US or the EU?
-        You->>Agent: Your region
-    end
-    Agent->>hog: hog setup next --reason "..." --products a,b --region us
+    Agent->>hog: hog setup next --reason "..." --products a,b
 
     Note over You,PH: 2. login
     hog->>PH: Start a device login
     hog-->>Agent: wait, with a link and a code
-    Agent->>You: Open the link, check the code, approve
+    Agent->>You: Open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
+    opt You want the other region
+        You->>Agent: Use the EU
+        Agent->>hog: hog setup next --region eu
+        hog-->>Agent: wait, with a new link and code
+    end
     Agent->>hog: hog setup next (waits for the approval)
     You->>PH: Log in or sign up, then approve
     PH-->>hog: Token for one project

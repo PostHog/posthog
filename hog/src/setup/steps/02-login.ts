@@ -21,17 +21,20 @@ import type { OAuthLogin } from '@/posthog/oauth'
 
 import type { Stop } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT, updateState } from '../state'
+import { SETUP_NEXT, updateState, type SetupState } from '../state'
 
-function regionNote(host: Host, named: boolean): string {
-    const region = regionOf(host)
-    const other = REGION_CHOICES.find((choice) => choice.value !== region)
-    const current = REGION_CHOICES.find((choice) => choice.value === region)
-    if (named || !current || !other) {
+function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean): string {
+    const current = REGION_CHOICES.find((choice) => choice.value === regionOf(host))
+    const other = REGION_CHOICES.find((choice) => choice.value !== current?.value)
+    if (named || picked === undefined || !current || !other) {
         return ''
     }
 
-    return ` Tell the user this logs them in to ${current.label} (${current.hint}). If their account is on ${other.hint}, run \`${SETUP_NEXT} --region ${other.value}\` instead of waiting.`
+    const using =
+        picked === 'default'
+            ? `hog defaults to ${current.label} (${current.hint})`
+            : `hog uses ${current.label} (${current.hint}), where they last logged in`
+    return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_NEXT} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_NEXT}\` once they reply that they approved.`
 }
 
 function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
@@ -58,7 +61,11 @@ async function switchRegion(run: SetupRun, named: boolean): Promise<void> {
         return
     }
 
-    run.state = await updateState(run.ctx, run.scope, (state) => state && { ...state, host: REGIONS[region] })
+    run.state = await updateState(
+        run.ctx,
+        run.scope,
+        (state) => state && { ...state, host: REGIONS[region], hostPicked: undefined }
+    )
 }
 
 // An agent's first call gets the link, and its next call waits for that link. A person at the
@@ -105,7 +112,7 @@ export const login: Step = {
         const named = (await run.namedHost()) !== undefined
         await switchRegion(run, named)
         const { host, projectId } = await run.target()
-        const region = regionNote(host, named)
+        const region = regionNote(host, run.state?.hostPicked, named)
         const identity = { command: SETUP_NEXT, resume: SETUP_NEXT, pendingName: run.scope.pendingName }
         const flow = loginFlow(ctx.runtime, host, LOGIN_SCOPES, { identity })
 
