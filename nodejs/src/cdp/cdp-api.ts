@@ -1645,6 +1645,8 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
+                case 'idempotency_unavailable':
+                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }

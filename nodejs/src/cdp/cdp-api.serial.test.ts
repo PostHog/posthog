@@ -4577,7 +4577,7 @@ describe('CDP API', () => {
                 }
             )
 
-            it('moves a send with an idempotency key while the key store is down', async () => {
+            it('answers a move whose key write fails with 503 and keeps the move, so a retry of it keeps the key', async () => {
                 const keys = api['transactionalEmailIdempotencyKeys']
                 const valkey = keys['valkey']!
                 const scope = `scope-${new UUIDT().toString()}`
@@ -4592,11 +4592,13 @@ describe('CDP API', () => {
                             v.labels.outcome === 'failed'
                     )?.value ?? 0
                 try {
-                    const first = await send(
-                        hogFlow.id,
-                        { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
-                        { ...body, scheduled_at: inDays(2), idempotency_key: `key-${scope}` }
-                    )
+                    const sendFirstRequest = () =>
+                        send(
+                            hogFlow.id,
+                            { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                            { ...body, idempotency_key: `key-${scope}` }
+                        )
+                    const first = await sendFirstRequest()
                     expect(first.status).toEqual(202)
                     const messageId = first.body.invocation_id
                     const scheduledAt = inDays(3)
@@ -4609,8 +4611,8 @@ describe('CDP API', () => {
                         outage.mockRestore()
                     }
 
-                    expect(moved.status).toEqual(200)
-                    expect(moved.body).toEqual({ id: messageId, status: 'scheduled', scheduled_at: scheduledAt })
+                    expect(moved.status).toEqual(503)
+                    expect(moved.body).toEqual({ error: 'idempotency_unavailable' })
                     expect(await scheduledTime(messageId)).toEqual(scheduledAt)
                     expect(emailStatusRows().at(-1)).toEqual(
                         expect.objectContaining({
@@ -4620,6 +4622,20 @@ describe('CDP API', () => {
                         })
                     )
                     expect(await failedWrites()).toEqual(1)
+
+                    const movedAgain = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                    expect(movedAgain.status).toEqual(200)
+                    await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                        for (const stored of await client.keys(`*${scope}*`)) {
+                            const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                            const remainingMs = await client.pttl(storedKey)
+                            await (remainingMs > DAY_MS + HOUR_MS
+                                ? client.pexpire(storedKey, remainingMs - DAY_MS - HOUR_MS)
+                                : client.del(storedKey))
+                        }
+                    })
+                    const retry = await sendFirstRequest()
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }

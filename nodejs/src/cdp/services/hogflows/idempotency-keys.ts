@@ -346,7 +346,7 @@ export class IdempotencyKeys {
         invocationId: string,
         { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
         latestDueAt: Date
-    ): Promise<void> {
+    ): Promise<boolean> {
         try {
             await this.writeQueued(
                 {
@@ -362,12 +362,14 @@ export class IdempotencyKeys {
                 },
                 'replay_until'
             )
+            return true
         } catch (error) {
             logger.error('🔑', 'idempotency key replay window not extended', {
                 scope: this.scope,
                 error: String(error),
             })
             this.count('replay_until', 'failed')
+            return false
         }
     }
 

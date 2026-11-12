@@ -389,7 +389,7 @@ export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'cl
 
 export type ScheduledSendRescheduleResult =
     | { outcome: 'rescheduled'; scheduledAt: string }
-    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' | 'idempotency_unavailable' }
 
 export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
@@ -428,14 +428,14 @@ export class ScheduledTransactionalSends {
         }
         const job = v2JobToInvocation(result.job)
         const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
-        if (idempotencyKey) {
-            await this.deps.idempotencyKeys.replayUntilDayAfter(
+        const keyKept =
+            !idempotencyKey ||
+            (await this.deps.idempotencyKeys.replayUntilDayAfter(
                 teamId,
                 messageId,
                 idempotencyKey,
                 latestDueAtOf(messageId)
-            )
-        }
+            ))
         writeStatus(this.deps.emailStatus, {
             teamId,
             messageId,
@@ -445,6 +445,9 @@ export class ScheduledTransactionalSends {
             scheduledAt,
             statusAt: result.rescheduledAt,
         })
+        if (!keyKept) {
+            return { outcome: 'idempotency_unavailable' }
+        }
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
