@@ -31,6 +31,7 @@ import {
     EXAMPLE_PROMPT_SET_OVERVIEW,
     EXAMPLE_PROMPT_SET_RANKINGS,
     EXAMPLE_PROMPT_TOPICS,
+    EXAMPLE_COMPETITOR_BRANDS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROMPT_CHECKS,
     EXAMPLE_PROMPT_VERSIONS,
@@ -92,6 +93,15 @@ const workspaceHandlers = ({
                 { ...EXAMPLE_KEYWORD_REPORT, keywords: keywords.length ? EXAMPLE_KEYWORD_REPORT.keywords : [] },
             ],
             '/api/projects/:team_id/aeo_keywords/modifiers/': () => [200, EXAMPLE_KEYWORD_MODIFIERS],
+            '/api/projects/:team_id/aeo_brands/': () => [
+                200,
+                {
+                    count: EXAMPLE_COMPETITOR_BRANDS.length,
+                    next: null,
+                    previous: null,
+                    results: EXAMPLE_COMPETITOR_BRANDS,
+                },
+            ],
             '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
