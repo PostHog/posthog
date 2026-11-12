@@ -131,6 +131,7 @@ class TestScoreValueValidation(unittest.TestCase):
         [
             ("too_few", ["good"], {"categorical_values": "Select at least 2 categorical options."}),
             ("minimum_satisfied", ["good", "accurate"], {}),
+            ("duplicates", ["good", "good"], {"categorical_values": "Category keys must be distinct."}),
             ("unknown_key", ["good", "unknown"], {"categorical_values": "Select valid categorical option keys."}),
         ]
     )

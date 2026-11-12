@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconWarning } from '@posthog/icons'
+import { IconWarning, IconX } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -36,7 +36,8 @@ import {
     getExperimentStatusLabel,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
 
-import { ReleaseLinkFlagCombobox } from './ReleaseLinkFlagCombobox'
+import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
+import { ReleaseLinkSuggestions } from './ReleaseLinkSuggestions'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseShowMore } from './ReleaseShowMore'
 import { ReleaseBadgeVariant, ReleaseRow, badgeVariantForTag } from './releaseUtils'
@@ -46,15 +47,16 @@ interface LinkedObject {
     type: string
     title: string
     meta: string
-    badge: string
+    badge?: string
     badgeVariant: ReleaseBadgeVariant
     to: string
     mono?: boolean
+    onRemove?: () => void
 }
 
 function LinkedRow({ item }: { item: LinkedObject }): JSX.Element {
     return (
-        <Card size="sm" className="p-0">
+        <Card size="sm" className="flex flex-row items-center p-0">
             <LinkPrimitive
                 to={item.to}
                 className="flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-start text-foreground hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
@@ -71,10 +73,24 @@ function LinkedRow({ item }: { item: LinkedObject }): JSX.Element {
                         {item.meta}
                     </Text>
                 </span>
-                <Badge variant={item.badgeVariant} className="shrink-0">
-                    {item.badge}
-                </Badge>
+                {item.badge && (
+                    <Badge variant={item.badgeVariant} className="shrink-0">
+                        {item.badge}
+                    </Badge>
+                )}
             </LinkPrimitive>
+            {item.onRemove && (
+                <Button
+                    variant="default"
+                    size="icon-sm"
+                    className="mr-1 shrink-0"
+                    aria-label={`Remove ${item.title} from the release`}
+                    onClick={item.onRemove}
+                    data-attr="release-linked-remove"
+                >
+                    <IconX />
+                </Button>
+            )}
         </Card>
     )
 }
@@ -84,14 +100,14 @@ const LINKED_LIMIT = 8
 export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
     const { canEditReleases } = useValues(releaseLogic)
-    const { updateRelease } = useActions(releaseLogic)
+    const { updateRelease, unlinkBroadcast } = useActions(releaseLogic)
     const items: LinkedObject[] = [
         ...row.flags.map((flag) => ({
             key: `flag-${flag.id}`,
             type: 'feature_flag',
             title: flag.key,
             meta: 'Feature flag',
-            badge: flag.active ? 'Enabled' : 'Disabled',
+            badge: flag.active ? undefined : 'Disabled',
             badgeVariant: (flag.active ? 'success' : 'warning') as ReleaseBadgeVariant,
             to: urls.featureFlag(flag.id),
             mono: true,
@@ -108,6 +124,16 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                 to: urls.experiment(experiment.id),
             }
         }),
+        ...row.broadcasts.map((broadcast) => ({
+            key: `broadcast-${broadcast.id}`,
+            type: 'broadcasts',
+            title: broadcast.name || 'Untitled broadcast',
+            meta: 'Broadcast',
+            badge: (broadcast.status ?? 'draft').charAt(0).toUpperCase() + (broadcast.status ?? 'draft').slice(1),
+            badgeVariant: broadcast.status === 'active' ? ('success' as const) : ('default' as const),
+            to: urls.broadcast(broadcast.id),
+            onRemove: canEditReleases ? () => unlinkBroadcast(row.id, broadcast.id) : undefined,
+        })),
         ...row.earlyAccess.map((item) => {
             const stage = item.stage as EarlyAccessFeatureStage
             return {
@@ -180,9 +206,8 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                     onChange={setVisible}
                     dataAttr="release-linked"
                 />
-                {row.flags.length > 0 && canEditReleases && (
-                    <ReleaseLinkFlagCombobox row={row} placeholder="Link another flag" />
-                )}
+                {canEditReleases && <ReleaseLinkSuggestions row={row} />}
+                {canEditReleases && <ReleaseAddLinkCombobox row={row} />}
             </CardContent>
         </Card>
     )

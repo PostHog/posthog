@@ -829,14 +829,9 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 16)
+        self.assertEqual(dashboard.tiles.count(), 17)
         self.assertEqual(dashboard.name, "Your starter dashboard")
-        self.assertEqual(
-            dashboard.description,
-            "How people use your app at a glance: traffic, retention, where visitors come from, and "
-            "whether they take action. Built from automatically captured events, so it works on day one. "
-            "Swap in your own events to make it yours.",
-        )
+        self.assertEqual(dashboard.description, "An overview of how people use your app.")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")

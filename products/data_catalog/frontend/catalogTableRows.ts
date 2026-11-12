@@ -33,7 +33,7 @@ import {
 } from 'products/data_quality/frontend/generated/api.schemas'
 import { type SubjectGroup, subjectKeyOf } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { ColumnSort, SortValueGetters, sortByColumn } from './catalogSort'
+import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from './catalogSort'
 import type { CertificationTargetType } from './certificationsLogic'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
@@ -103,9 +103,16 @@ const FAILED_STATUS = 'Failed'
 
 const LIVE_LABELS: Partial<Record<TableKind, string>> = {
     posthog: 'Live',
-    view: 'Live (runs on read)',
+    view: 'Up to date, runs on each query',
     self_managed: 'Queried in place',
 }
+
+const MATERIALIZATION_OFF_LABEL = 'Materialization off, runs on each query'
+
+const LAST_REFRESHED_LABEL = 'Last refreshed'
+const NO_SUCCESSFUL_REFRESH_LABEL = 'No successful refresh yet'
+
+const STOPPED_REFRESH_KINDS: IssueKind[] = ['suspended', 'failed']
 
 const NEVER_REFRESHED_LABELS: Partial<Record<TableKind, string>> = {
     source: 'Not synced yet',
@@ -193,14 +200,26 @@ function subtitleFor(origin: string, node: DataModelingNode | null): string {
     return downstreamCount > 0 ? `${origin} · feeds ${pluralize(downstreamCount, 'model')}` : origin
 }
 
+function stoppedRefreshKind(attention: AttentionRow, syncFailed: boolean): IssueKind | null {
+    return STOPPED_REFRESH_KINDS.find((kind) => attention.issueKinds.includes(kind)) ?? (syncFailed ? 'failed' : null)
+}
+
+function liveLabelFor(
+    kind: TableKind,
+    problem: MaterializationProblem | null,
+    savedQuery: DataWarehouseSavedQuerySummary | null
+): string | undefined {
+    return problem && savedQuery?.is_materialized === false ? MATERIALIZATION_OFF_LABEL : LIVE_LABELS[kind]
+}
+
 function freshnessFor(
     kind: TableKind,
+    liveLabel: string | undefined,
     refreshedAt: string | null,
     attention: AttentionRow,
     refreshing: boolean,
     syncFailed: boolean
 ): Freshness {
-    const liveLabel = LIVE_LABELS[kind]
     if (liveLabel) {
         return { state: liveLabel, timeLabel: null, time: null }
     }
@@ -211,11 +230,13 @@ function freshnessFor(
     if (since?.kind === 'behind') {
         return { state: since.label, timeLabel: null, time: refreshedAt }
     }
-    if (attention.issueKinds.includes('failed') && since) {
-        return { state: ISSUE_LABELS.failed, timeLabel: since.label, time: since.time }
-    }
-    if (syncFailed) {
-        return { state: ISSUE_LABELS.failed, timeLabel: null, time: refreshedAt }
+    const stoppedKind = stoppedRefreshKind(attention, syncFailed)
+    if (stoppedKind) {
+        return {
+            state: ISSUE_LABELS[stoppedKind],
+            timeLabel: refreshedAt ? LAST_REFRESHED_LABEL : NO_SUCCESSFUL_REFRESH_LABEL,
+            time: refreshedAt,
+        }
     }
     return refreshedAt
         ? { state: null, timeLabel: null, time: refreshedAt }
@@ -259,11 +280,12 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         certificationLookupKey: string | null
     ): CatalogTableRow => {
         const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
+        const materialization = node ? (problemsByNodeId.get(node.id) ?? null) : null
         const attention = buildAttentionRow(
             {
                 key: row.key,
                 node,
-                materialization: node ? (problemsByNodeId.get(node.id) ?? null) : null,
+                materialization,
                 failingChecks,
             },
             sources.healthBySubjectKey,
@@ -278,7 +300,14 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         return {
             ...row,
             refreshing,
-            freshness: freshnessFor(row.kind, row.refreshedAt, attention, refreshing, syncStatus === FAILED_STATUS),
+            freshness: freshnessFor(
+                row.kind,
+                liveLabelFor(row.kind, materialization, row.savedQuery),
+                row.refreshedAt,
+                attention,
+                refreshing,
+                syncStatus === FAILED_STATUS
+            ),
             subtitle: subtitleFor(origin, node),
             checkCounts: rolledUpCheckCounts(subjectHealth, row.checkGroup),
             attention,
@@ -357,7 +386,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
                     checkGroup,
                     savedQuery,
                     certificationTarget: { targetType: 'view', targetId: view.id },
-                    refreshedAt: node?.last_run_at ?? savedQuery?.last_run_at ?? null,
+                    refreshedAt: node ? (node.last_run_at ?? null) : (savedQuery?.last_run_at ?? null),
                     detailUrl: node ? urls.nodeDetail(node.id) : (checkGroup?.detailUrl ?? null),
                 },
                 key
@@ -456,6 +485,8 @@ export type SortDirection = 'asc' | 'desc'
 
 export type TablesSort = ColumnSort<TablesSortColumn>
 
+export const DEFAULT_TABLES_SORT: TablesSort = { column: 'status', direction: 'asc' }
+
 const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
 
 export function checkGroupCounts(group: SubjectGroup | null | undefined): CheckCounts | null {
@@ -500,8 +531,12 @@ const SORT_VALUES: SortValueGetters<CatalogTableRow, TablesSortColumn> = {
     freshness: (row) => row.refreshedAt,
 }
 
-export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort | null): CatalogTableRow[] {
+export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort): CatalogTableRow[] {
     return sortByColumn(rows, sort, SORT_VALUES, (row) => row.name)
+}
+
+export function nextTablesSort(current: TablesSort, column: TablesSortColumn): TablesSort {
+    return nextColumnSort(current, column) ?? DEFAULT_TABLES_SORT
 }
 
 export type ProposalDecision = 'accept' | 'reject'

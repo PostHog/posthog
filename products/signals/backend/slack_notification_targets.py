@@ -20,7 +20,7 @@ from django.core.cache import cache
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
 
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -51,10 +51,15 @@ def is_slack_member_target(target: str) -> bool:
     return bool(_MEMBER_ID_RE.fullmatch(channel_id_from_target(target)))
 
 
-def saved_notification_integration(user: User) -> IntegrationRecord | None:
-    """The Slack workspace this user's notifications already go through, if any."""
-    config = SignalUserAutonomyConfig.objects.filter(user=user).select_related("slack_notification_integration").first()
-    return config.slack_notification_integration if config else None
+def saved_notification_integration(user: User, team_id: int | None) -> IntegrationRecord | None:
+    """The Slack workspace this user's notifications already go through on this team, if any."""
+    if team_id is None:
+        return None
+    config = SignalUserAutonomyConfig.objects.filter(user=user).only("slack_notification_integration_id").first()
+    integration_id = config.slack_notification_integration_id if config else None
+    if integration_id is None:
+        return None
+    return IntegrationManager.slack.any.get_many(team_id, [integration_id]).get(integration_id)
 
 
 def lookup_slack_user_id_by_email(

@@ -12,8 +12,14 @@ import {
     HogFunctionType,
     IntegrationType,
 } from '../types'
+import { throwIfDeadlinePassed } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import {
+    HogConfigurationError,
+    isHogLimitError,
+    isHogVMErrorKind,
+    withBytecodeContract,
+} from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import {
     INTEGRATION_REF_KEY,
@@ -51,6 +57,8 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
+export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string | Promise<string> }
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -62,7 +70,9 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal,
+        { recipientIdentifier = (email: string) => email }: BuildInputsOptions = {}
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -83,7 +93,7 @@ export class HogInputsService {
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
-        const liquidBudget = new LiquidRenderBudget()
+        const liquidBudget = new LiquidRenderBudget(signal)
 
         // Build a lookup of schema types for rendering and post-render coercion
         const schemaTypes: Record<string, string> = {}
@@ -92,6 +102,7 @@ export class HogInputsService {
         }
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
+            throwIfDeadlinePassed(signal)
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
@@ -108,12 +119,22 @@ export class HogInputsService {
                     : hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID
                       ? new Set([key])
                       : undefined
-                return formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
+                try {
+                    const rendered = formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
+                    throwIfDeadlinePassed(signal)
+                    return rendered
+                } catch (error) {
+                    throwIfDeadlinePassed(signal)
+                    throw error
+                }
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {
-                    return await formatHogInput(input.bytecode, newGlobals, key)
+                    return await formatHogInput(input.bytecode, newGlobals, key, signal)
                 } catch (error) {
+                    if (error === signal?.reason) {
+                        throw error
+                    }
                     throw withBytecodeContract(error, input.bytecode_contract)
                 }
             }
@@ -132,7 +153,11 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                const recipient = { team_id: hogFunction.team_id, identifier: emailValue.to.email }
+                const identifier = recipientIdentifier(emailValue.to.email)
+                const recipient = {
+                    team_id: hogFunction.team_id,
+                    identifier: typeof identifier === 'string' ? identifier : await identifier,
+                }
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
                     recipient,
                     preferencesTokenSource
@@ -172,11 +197,20 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal,
+        options?: BuildInputsOptions
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource),
+            inputs: await this.buildInputs(
+                hogFunction,
+                globals,
+                additionalInputs,
+                preferencesTokenSource,
+                signal,
+                options
+            ),
         }
     }
 
@@ -470,7 +504,8 @@ const decryptIntegrationMessage = (key: string): string =>
 export const formatHogInput = async (
     bytecode: any,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
+    key?: string,
+    signal?: AbortSignal
 ): Promise<any> => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
@@ -481,7 +516,7 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
-        const { execResult: result, error } = await execHog(bytecode, { globals })
+        const { execResult: result, error } = await execHog(bytecode, { globals }, signal)
         if (!result || error) {
             throw error ?? result?.error
         }
@@ -502,12 +537,12 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode)) {
-        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key)))
+        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key, signal)))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
         let ret: Record<string, any> = {}
 
         if (bytecode[EXTEND_OBJECT_KEY]) {
-            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
+            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key, signal)
             if (res && typeof res === 'object') {
                 ret = {
                     ...res,
@@ -520,7 +555,7 @@ export const formatHogInput = async (
                 if (subkey === EXTEND_OBJECT_KEY) {
                     return
                 }
-                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey, signal)
             })
         )
 
@@ -551,6 +586,10 @@ for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data
 
 const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
     LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
+
+// Only the time limit can pass on another attempt. The other limits fail the same way every time.
+export const isLiquidRenderTimeout = (error: unknown): boolean =>
+    error instanceof Error && isHogLimitError(error) && liquidFailureReason(error.message, 'limit') === 'time'
 
 /**
  * A parse error or a refused filter fails the template on every event. Any other render error is
@@ -592,6 +631,7 @@ export const formatLiquidInput = (
     }
 
     if (typeof value === 'string') {
+        budget.throwIfDeadlinePassed()
         try {
             return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget, {
                 escapeHtml: !isPlainTextKey(key, plainTextKeys),

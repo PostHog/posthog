@@ -62,6 +62,10 @@
 
 **Skills:** `/skill`
 
+<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
+
+**Security review:** [needed or not needed]
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).

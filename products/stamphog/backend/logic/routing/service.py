@@ -73,6 +73,8 @@ _CLAIMED_STATUSES = frozenset({STATUS_ROUTING, STATUS_REQUESTED})
 TRIGGER_SAFETY_NET = "safety_net"
 # ReviewHog will not start a silent review of the waiting head, so no verdict comes for it.
 TRIGGER_EXTERNAL_REVIEW = "external_review"
+# A push or a base retarget that no review follows retracted the approval that held the full routing back.
+TRIGGER_APPROVAL_RETRACTED = "approval_retracted"
 SCOPE_FULL = RoutingScope.FULL.value
 SCOPE_PINNED = RoutingScope.PINNED.value
 
@@ -449,11 +451,23 @@ def _capture(repo_config: StamphogRepoConfig, record: dict[str, Any]) -> None:
         "stamphog_routing_additions_resolved": record["additions_resolved"],
         "stamphog_routing_files_truncated": record["files_truncated"],
         "stamphog_routing_latency_ms": record["latency_ms"],
+        # A retry can finish a plan that an older worker saved without the key.
+        "stamphog_routing_wait_ms": record.get("wait_ms"),
         "stamphog_routing_input_tokens": record["input_tokens"],
         "stamphog_routing_output_tokens": record["output_tokens"],
     }
     with ph_scoped_capture() as capture:
         capture(distinct_id=repo_config.repository, event=ROUTING_EVENT, properties=properties)
+
+
+def _wait_ms(previous: Mapping[str, Any] | None, routed_at: datetime) -> int | None:
+    """How long the head waited for stamphog's verdict before this run, or None when it never waited."""
+    if previous is None or previous.get("status") != STATUS_WAITING:
+        return None
+    waiting_since = previous.get("waiting_since")
+    if not isinstance(waiting_since, str):
+        return None
+    return int((routed_at - datetime.fromisoformat(waiting_since)).total_seconds() * 1000)
 
 
 def _plan(
@@ -513,7 +527,8 @@ def _plan(
     else:
         to_request = list(decision.kept)
     requests = _plan_requests(to_request, fork=fork, labels_by_team=fork_labels(repo_config))
-    planned_at = datetime.now(UTC).isoformat()
+    now = datetime.now(UTC)
+    planned_at = now.isoformat()
     return {
         **claim,
         "fork": fork,
@@ -544,6 +559,8 @@ def _plan(
         "input_tokens": model.usage.input_tokens if model.usage else 0,
         "output_tokens": model.usage.output_tokens if model.usage else 0,
         "latency_ms": int((time.monotonic() - started) * 1000),
+        # The claim keeps the record it replaced as `previous`, and `_request_and_comment` drops it before the capture.
+        "wait_ms": _wait_ms(claim.get("previous"), now),
         "planned_at": planned_at,
         "routed_at": planned_at,
     }

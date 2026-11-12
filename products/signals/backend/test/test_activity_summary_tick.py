@@ -8,8 +8,9 @@ from typing import Any
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 import redis
@@ -90,6 +91,7 @@ from products.signals.backend.activity_summary.tick import (
     run_pair,
 )
 from products.signals.backend.models import SignalSourceConfig, UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.personal_ranking_tasks import build_lock_key
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 
@@ -415,7 +417,10 @@ class TestActivitySummaryQueue(BaseTest):
         config = self._config(
             rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share, max_org_share=1
         )
-        assert self._select(config) == [
+        with patch("products.signals.backend.activity_summary.queue.MIN_PROMPT_VERSION", PROMPT_VERSION):
+            selected = self._select(config)
+
+        assert selected == [
             *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
         ]
@@ -1136,11 +1141,15 @@ class TestActivitySummaryQueue(BaseTest):
         self, trigger: str | None, wait_hours: int
     ) -> None:
         self._changes(self.user, 3)
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.addCleanup(cache.delete, build_lock_key(self.team.id, self.user.id))
         capture = MagicMock()
         with (
             patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])),
             patch("posthog.api.embedding_worker.emit_embedding_request") as emit,
             patch.object(tick, "ph_background_capture", return_value=capture),
+            patch("products.signals.backend.personal_ranking.config.read_flag_payload", return_value={}),
+            patch("products.signals.backend.personal_ranking_tasks.build_personal_inbox_ranking.delay") as queue,
         ):
             result = run_pair(
                 ActivitySummaryPairInput(
@@ -1164,6 +1173,7 @@ class TestActivitySummaryQueue(BaseTest):
         assert event["event"] == "activity summary generated"
         assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
+        assert queue.call_args_list == [call(self.team.id, self.user.id, None, None, True, "first_summary")]
 
     @parameterized.expand(
         [

@@ -7,9 +7,11 @@ caller asks for them with `with_source_rows()` or uses `IntegrationManager.sourc
 one kind with one auth type, because a new row has exactly one auth type. `OAuthAccessor` adds the
 token refresh.
 
-No operation returns a queryset, and no operation runs caller code inside its transaction. The
-integration rows move to a separate service later, so the operations here are the whole contract, and
-only their transport changes. Rows come back typed as the read-only `IntegrationRecord`.
+No operation returns a queryset, and no operation runs caller code inside the transaction of the
+backend. The integration rows move to a separate service later, so the operations here are the whole
+contract, and only their transport changes. Rows come back typed as the read-only `IntegrationRecord`.
+The deletes and writes run the hooks of the products (see `lifecycle.py`) in the Django database, around
+the backend call.
 
 The accessors hold the scope rules and send the storage work to `current_backend()` (see
 `backend/`). No code here queries the model.
@@ -48,6 +50,7 @@ from posthog.integrations.contracts import (
     UpdatedRows,
 )
 from posthog.integrations.enums import AuthType
+from posthog.integrations.lifecycle import run_delete_hooks, run_saved_hooks, sdk_delete, sdk_write
 from posthog.integrations.observability import instrumented, record_token_refresh
 from posthog.integrations.source_kinds import is_source_kind
 from posthog.integrations.usages import integration_usages
@@ -311,27 +314,35 @@ class IntegrationReader:
 
     @instrumented("delete")
     def delete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
-        """Delete the row. Raises `IntegrationInUse` when other objects use it, unless `ignore_usages`."""
+        """Delete the row. Raises `IntegrationInUse` when other objects use it, unless `ignore_usages`.
+
+        The delete hooks of the products run first, in the same transaction. See `lifecycle.py`.
+        """
         scope = self._scope()
-        if not ignore_usages:
+        with sdk_delete():
             # Read the row first, so a row out of the scope raises `IntegrationNotFound`, not `IntegrationInUse`.
             row = self._backend.get(scope, team_id=team_id, id=id)
-            usages = integration_usages(team_id, row.id)
-            if usages:
-                raise IntegrationInUse(usages)
-        self._backend.delete(scope, team_id=team_id, id=id)
+            if not ignore_usages:
+                usages = integration_usages(team_id, row.id)
+                if usages:
+                    raise IntegrationInUse(usages)
+            run_delete_hooks([row])
+            self._backend.delete(scope, team_id=team_id, id=id)
 
     @instrumented("delete_by_external_id", rows="written")
     def delete_by_external_id(self, external_id: str) -> int:
         """Delete the rows of every team with this external id, for example after an app is uninstalled.
 
         Raises `ValueError` on `IntegrationManager.any`, because it would delete rows of other providers.
-        All the deletes commit together or not at all. Each row is deleted on its own, so the delete
-        signals fire.
+        All the deletes commit together or not at all, with the delete hooks of each row. See `lifecycle.py`.
         """
-        return self._backend.delete_by_external_id(
-            self._cross_team_scope("delete_by_external_id"), external_id=external_id
-        )
+        if not external_id:
+            # `RowFilter(external_id=None)` selects every row of the scope, so the hooks would run for all of them.
+            raise ValueError("delete_by_external_id needs an external id")
+        scope = self._cross_team_scope("delete_by_external_id")
+        with sdk_delete():
+            run_delete_hooks(self._backend.list(scope, RowFilter(external_id=external_id)))
+            return self._backend.delete_by_external_id(scope, external_id=external_id)
 
     async def aget(self, team_id: int, id: int) -> IntegrationRecord:
         return await database_sync_to_async(self.get)(team_id, id)
@@ -438,9 +449,11 @@ class AuthAccessor(IntegrationReader):
 
         Raises `IntegrationConflict` when the team already has a row of the kind with this external id.
         """
-        return self._backend.create(
-            self._new_row(team_id, external_id, config, sensitive_config, created_by_id),
-        )
+        new = self._new_row(team_id, external_id, config, sensitive_config, created_by_id)
+        with sdk_write():
+            row = self._backend.create(new)
+        run_saved_hooks(row, created=True, config_changed=True)
+        return row
 
     @instrumented("upsert")
     def upsert(
@@ -460,7 +473,10 @@ class AuthAccessor(IntegrationReader):
         with another auth type.
         """
         new = self._new_row(team_id, external_id, config, sensitive_config, created_by_id)
-        return self._backend.upsert(self._scope(), new)
+        with sdk_write():
+            row, created = self._backend.upsert(self._scope(), new)
+        run_saved_hooks(row, created=created, config_changed=True)
+        return row, created
 
     @instrumented("update")
     def update(
@@ -474,7 +490,10 @@ class AuthAccessor(IntegrationReader):
         sensitive_config_remove: Iterable[str] = (),
         errors: str | None = None,
     ) -> IntegrationRecord:
-        """Merge `config_patch` into the config and drop the keys in `config_remove`. `errors=None` keeps the errors."""
+        """Merge `config_patch` into the config and drop the keys in `config_remove`. `errors=None` keeps the errors.
+
+        The saved hooks run after the write, also when the patch changes nothing. See `lifecycle.py`.
+        """
         patch = IntegrationPatch(
             config_patch=dict(config_patch or {}),
             config_remove=tuple(config_remove),
@@ -482,7 +501,10 @@ class AuthAccessor(IntegrationReader):
             sensitive_config_remove=tuple(sensitive_config_remove),
             errors=errors,
         )
-        return self._backend.update(self._scope(), team_id=team_id, id=id, patch=_checked_patch(patch))
+        with sdk_write():
+            row = self._backend.update(self._scope(), team_id=team_id, id=id, patch=_checked_patch(patch))
+        run_saved_hooks(row, created=False, config_changed=bool(patch.config_patch or patch.config_remove))
+        return row
 
     @instrumented("update_by_external_id", rows="written")
     def update_by_external_id(self, external_id: str, patch: IntegrationPatch) -> int:

@@ -1989,6 +1989,8 @@ export interface ListOutputApi {
      * * `Running` - Running
      * * `Starting` - Starting */
     status: BatchExportRunStatusEnumApi
+    /** When the file download batch export run was created. */
+    created_at: string
 }
 
 export interface PaginatedListOutputListApi {
