@@ -1471,7 +1471,7 @@ describe('scenario environment', () => {
             }
         }, 30_000)
 
-        it('fails a drop that cannot reach a server the roles use, after dropping their sessions on the one it reached', async () => {
+        it('fails a drop that cannot reach the read replica, after dropping the role sessions on the main server', async () => {
             const readonlyFromEnv = process.env.DATABASE_READONLY_URL
             process.env.DATABASE_READONLY_URL = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
             try {
@@ -1498,7 +1498,7 @@ describe('scenario environment', () => {
                     process.env.DATABASE_READONLY_URL = readonlyFromEnv
                 }
             }
-        })
+        }, 30_000)
 
         it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
             environment = environmentOf()
