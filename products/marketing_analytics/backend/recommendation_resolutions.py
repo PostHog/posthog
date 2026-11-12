@@ -1,12 +1,36 @@
 from posthog.schema import (
     MarketingAnalyticsRecommendationIdentity,
+    MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationResolutionState as ResolutionState,
 )
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.marketing_analytics.backend.hogql_queries.recommendation_identity import validate_identity
+from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
+    RecommendationKey,
+    validate_identity,
+)
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution, subject_hash
+
+
+def resolutions_by_key(team_id: int) -> dict[str, MarketingAnalyticsRecommendationResolution]:
+    rows = RecommendationResolution.objects.for_team(team_id).values_list(
+        "id",
+        "rule",
+        "source_type",
+        "customer_id",
+        "campaign_id",
+        "subject",
+        "resolution",
+        "resolved_at",
+        named=True,
+    )
+    return {
+        RecommendationKey.from_fields(row).encoded: MarketingAnalyticsRecommendationResolution(
+            id=str(row.id), resolution=ResolutionState(row.resolution), resolved_at=row.resolved_at.isoformat()
+        )
+        for row in rows
+    }
 
 
 def resolve(
