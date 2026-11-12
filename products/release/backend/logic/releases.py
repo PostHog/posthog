@@ -44,6 +44,8 @@ def create_release(
 
 def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
     release = get_release(team_id, release_id)
+    if "name" in changes:
+        changes = {**changes, "auto_named": False}
     for field, value in changes.items():
         setattr(release, field, value)
     release.save(update_fields=[*changes.keys(), "updated_at"])
