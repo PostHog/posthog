@@ -11,7 +11,7 @@ import { reportsUnavailableReason } from './evaluationSummary'
 
 type Cadence = 'every_n' | 'daily' | 'weekly'
 
-/** Scheduled reports in a few lines: when they arrive, where they go, and optional guidance for the agent. The step heading holds the on and off switch. */
+/** Scheduled reports in a few lines: when they arrive, optional guidance for the agent, and where they go. The step heading holds the on and off switch. */
 export function EvaluationReportsPanel(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
@@ -124,17 +124,6 @@ export function EvaluationReportsPanel(): JSX.Element | null {
                         </div>
                         {error && <span className="text-xs text-danger">{error}</span>}
                     </div>
-                    <DeliveryTargetsConfig
-                        emailValue={configDraft.emailValue}
-                        onEmailChange={setDraftEmailValue}
-                        slackIntegrationId={configDraft.slackIntegrationId}
-                        onSlackIntegrationChange={setDraftSlackIntegrationId}
-                        slackChannelValue={configDraft.slackChannelValue}
-                        onSlackChannelChange={setDraftSlackChannelValue}
-                        shown={shownDestinations}
-                        onAdd={addDraftDestination}
-                        onRemove={removeDraftDestination}
-                    />
                     {guidanceOpen || configDraft.reportPromptGuidance ? (
                         <LemonTextArea
                             value={configDraft.reportPromptGuidance}
@@ -156,6 +145,17 @@ export function EvaluationReportsPanel(): JSX.Element | null {
                             </LemonButton>
                         </div>
                     )}
+                    <DeliveryTargetsConfig
+                        emailValue={configDraft.emailValue}
+                        onEmailChange={setDraftEmailValue}
+                        slackIntegrationId={configDraft.slackIntegrationId}
+                        onSlackIntegrationChange={setDraftSlackIntegrationId}
+                        slackChannelValue={configDraft.slackChannelValue}
+                        onSlackChannelChange={setDraftSlackChannelValue}
+                        shown={shownDestinations}
+                        onAdd={addDraftDestination}
+                        onRemove={removeDraftDestination}
+                    />
                 </>
             )}
         </div>

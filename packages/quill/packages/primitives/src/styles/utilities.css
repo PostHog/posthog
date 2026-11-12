@@ -53,3 +53,120 @@
         animation: none;
     }
 }
+
+/*
+ * Edge fades for a scroller that keeps its scrollbar: content fades out under the top and bottom edges
+ * when there is more to scroll to. Unlike `scroll-mask-*`, which masks the scroller and so fades its
+ * scrollbar too, these are sticky gradients inside the scroller's content box, which ends at the scrollbar.
+ *
+ * Put the class on the scrolling element. Tune it with:
+ *   --quill-scroll-fade-size        fade height (default 1rem)
+ *   --quill-scroll-fade-top-offset  start the top fade below a sticky header, so the header stays solid
+ *   --quill-scroll-fade-color       the scroller's background (default --card), which the gradient fades to
+ *
+ * Scroll-driven animations show each fade only while content is past that edge, with no JavaScript.
+ * Without them (Firefox, reduced motion) no fade shows, and the content scrolls normally.
+ *
+ * It also sets scroll padding, so a row scrolled into view (focus, `scrollIntoView`, or a scroller that
+ * reads its own scroll padding) stops clear of both fades and the header above the top one. The rule sits
+ * in the components layer, so a `scroll-p*` utility can still override it.
+ */
+@layer components {
+    .quill-scroll-fade {
+        scroll-padding-block: calc(var(--quill-scroll-fade-top-offset, 0px) + var(--quill-scroll-fade-size, 1rem))
+            var(--quill-scroll-fade-size, 1rem);
+    }
+}
+
+.quill-scroll-fade::before,
+.quill-scroll-fade::after {
+    position: sticky;
+    z-index: 10;
+    display: block;
+    height: var(--quill-scroll-fade-size, 1rem);
+    pointer-events: none;
+    content: '';
+    opacity: 0;
+}
+
+.quill-scroll-fade::before {
+    top: var(--quill-scroll-fade-top-offset, 0);
+    margin-bottom: calc(-1 * var(--quill-scroll-fade-size, 1rem));
+    background: linear-gradient(to bottom, var(--quill-scroll-fade-color, var(--card)), transparent);
+}
+
+.quill-scroll-fade::after {
+    bottom: 0;
+    margin-top: calc(-1 * var(--quill-scroll-fade-size, 1rem));
+    background: linear-gradient(to top, var(--quill-scroll-fade-color, var(--card)), transparent);
+}
+
+@keyframes quill-scroll-fade__in {
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes quill-scroll-fade__out {
+    from {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: scroll()) {
+        .quill-scroll-fade::before {
+            animation: quill-scroll-fade__in linear both;
+            animation-timeline: scroll(nearest block);
+            animation-range: 0 var(--quill-scroll-fade-size, 1rem);
+        }
+
+        .quill-scroll-fade::after {
+            animation: quill-scroll-fade__out linear both;
+            animation-timeline: scroll(nearest block);
+            animation-range: calc(100% - var(--quill-scroll-fade-size, 1rem)) 100%;
+        }
+    }
+}
+
+/*
+ * One cycle of a rotating example: it fades and slides in, holds, then fades out a little faster.
+ * Swap the content when the animation ends (React: `key` + `onAnimationEnd`) to rotate through a list.
+ * Add `quill-fade-cycle--settled` to the first item, so it shows at once without fading in on open.
+ * Reduced motion drops the animation, so `animationend` never fires and the first item stays.
+ */
+.quill-fade-cycle {
+    display: inline-block;
+    animation: quill-fade-cycle__in-out 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+
+.quill-fade-cycle--settled {
+    animation-delay: -250ms;
+}
+
+@keyframes quill-fade-cycle__in-out {
+    0% {
+        filter: blur(2px);
+        opacity: 0;
+        transform: translateY(3px);
+    }
+
+    10%,
+    92% {
+        filter: none;
+        opacity: 1;
+        transform: none;
+    }
+
+    100% {
+        filter: blur(2px);
+        opacity: 0;
+        transform: translateY(-3px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quill-fade-cycle {
+        animation: none;
+    }
+}

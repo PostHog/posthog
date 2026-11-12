@@ -87,8 +87,8 @@ New `widget_type` strings need **no migration** — register registries + catalo
 **MVP smoke (renders + core tests — not a ship point):**
 
 ```bash
-hogli test products/dashboards/backend/api/test/test_run_widgets.py
-hogli test products/dashboards/backend/api/test/test_dashboard_widgets.py
+hogli test products/dashboards/backend/tests/api/test_run_widgets.py
+hogli test products/dashboards/backend/tests/api/test_dashboard_widgets.py
 hogli test products/dashboards/frontend/widgets/registry.test.tsx
 ```
 
@@ -97,9 +97,9 @@ hogli test products/dashboards/frontend/widgets/registry.test.tsx
 **Config SSOT changes** (also run after `widget_specs/` edits):
 
 ```bash
-hogli test products/dashboards/backend/api/test/test_widget_config_schema_parity.py
+hogli test products/dashboards/backend/tests/api/test_widget_config_schema_parity.py
 hogli test products/dashboards/frontend/widgets/widgetConfigSchemaParity.test.ts
-hogli test products/dashboards/backend/api/test/test_widget_openapi_enums.py   # new widget_type only
+hogli test products/dashboards/backend/tests/api/test_widget_openapi_enums.py   # new widget_type only
 ```
 
 **Update:** tests for layers touched — at minimum `test_run_widgets.py` if BE changed, `products/dashboards/frontend/widgets/` if FE changed, `hogli build:openapi` if config OpenAPI changed. See [managing-existing-widgets.md](references/managing-existing-widgets.md) routing table **Also check** column.

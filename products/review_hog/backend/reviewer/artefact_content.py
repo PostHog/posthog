@@ -319,6 +319,10 @@ class PRSnapshotArtefact(BaseModel):
     skipped_paths: list[str] = Field(
         default_factory=list, description="The changed files the review left out (lock, generated, test files)."
     )
+    devex_lens_files: list[str] = Field(
+        default_factory=list,
+        description="The changed files the devex team owns, the scope of the devex lens session. Empty on a turn without it.",
+    )
 
 
 class TurnMarkerArtefact(BaseModel):

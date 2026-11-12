@@ -40,6 +40,7 @@ def flash_pipeline_kill_switch_on(team_id: int) -> bool:
 STANDARD_COORDINATOR_FLAG = "reviewhog-standard-coordinator"
 ZERO_CHANGE_SKIP_FLAG = "reviewhog-zero-change-skip"
 DELTA_BAND_FLAG = "reviewhog-delta-band"
+DEVEX_LENS_FLAG = "reviewhog-devex-lens"
 # Its variant names an entry of SINGLE_AGENT_ARM_SETS. Turned off, it moves every new turn to the control set.
 SINGLE_AGENT_ARMS_FLAG = "reviewhog-single-agent-arms"
 
@@ -71,6 +72,11 @@ def skips_zero_change_follow_ups(repository: str, pr_number: int) -> bool:
 def delta_reviews_low_risk_follow_ups(repository: str, pr_number: int) -> bool:
     """Whether this PR is in the treatment arm of the delta split: low-risk later follow-ups review only what changed."""
     return _pull_request_flag_on(DELTA_BAND_FLAG, repository, pr_number)
+
+
+def devex_lens_on(repository: str, pr_number: int) -> bool:
+    """Whether this PR's Standard turns add the devex lens session when the PR changes files the devex team owns."""
+    return _pull_request_flag_on(DEVEX_LENS_FLAG, repository, pr_number)
 
 
 def single_agent_arm_set(repository: str, pr_number: int) -> str:

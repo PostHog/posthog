@@ -23,6 +23,7 @@ from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -2012,6 +2013,28 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             self.assertEqual(response.json()["tags"], ["changed"])
         else:
             self.assertFalse(Notebook.objects.filter(team=self.team, pk=notebook.pk).exists())
+
+    @parameterized.expand([("account_notebooks",), ("team_account_notes",)])
+    def test_account_grant_reaches_notes_when_customer_analytics_is_none(self, endpoint: str) -> None:
+        self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.no_access_user, organization=self.organization
+            ),
+        )
+        self.client.force_login(self.no_access_user)
+        url = {
+            "account_notebooks": f"{self.accounts_url}{self.account.id}/notebooks/",
+            "team_account_notes": f"/api/projects/{self.team.id}/account_notes/",
+        }[endpoint]
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_account_presence_404_when_object_access_denied(self) -> None:
         AccessControl.objects.create(
@@ -4261,3 +4284,177 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual([m["id"] for m in by_title["results"]], [str(review.id)])
         by_attendee = self.client.get(endpoint, {"search": "jane"}).json()
         self.assertEqual([m["id"] for m in by_attendee["results"]], [str(kickoff.id)])
+
+
+class TestAccountNoteScope(APIBaseTest):
+    """Account notes have their own `account_note` scope, so a scout can be granted notes without the rest of `account`."""
+
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp")
+        self.endpoint_base = f"/api/environments/{self.team.id}/accounts/{self.account.id}/notebooks/"
+        self.application = OAuthApplication.objects.create(
+            name="Signals scout sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+
+    def _authenticate(self, scope: str, *, sandbox_task_id=None) -> None:
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.application,
+            token=f"pha_account_note_scope_{uuid4().hex}",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=sandbox_task_id,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    def _authenticate_as_scout(self, *, writes: str = "account_note:write", sandbox_task_id=None) -> None:
+        # A real scout token carries the scout marker and `task:write` from the internal scopes.
+        self._authenticate(
+            f"account:read account_note:read {writes} signal_scout_internal:write task:write",
+            sandbox_task_id=sandbox_task_id,
+        )
+
+    def _link_note(self, title: str = "Note", tags: tuple[str, ...] = ()) -> Notebook:
+        notebook = Notebook.objects.create(team=self.team, title=title, visibility=Notebook.Visibility.INTERNAL)
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+        for name in tags:
+            tag, _ = Tag.objects.get_or_create(name=name, team=self.team)
+            TaggedItem.for_content_object(tag, notebook).save()
+        return notebook
+
+    @parameterized.expand(
+        [
+            ("note_scope", "account_note:write", status.HTTP_201_CREATED),
+            # Keys and tokens issued before the split carry `account:write`, which still covers notes.
+            ("legacy_account_scope", "account:write", status.HTTP_201_CREATED),
+            ("read_only", "account_note:read account:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_requires_a_note_write_scope(self, _name: str, scope: str, expected: int) -> None:
+        self._authenticate(scope)
+
+        response = self.client.post(self.endpoint_base, {"title": "Kickoff", "text_content": "notes"}, format="json")
+
+        self.assertEqual(expected, response.status_code, response.content)
+
+    def test_note_scope_does_not_reach_the_account_itself(self) -> None:
+        self._authenticate("account:read account_note:write")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/accounts/{self.account.id}/", {"name": "Renamed"}, format="json"
+        )
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code, response.content)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.name, "Acme Corp")
+
+    def test_team_notes_list_takes_the_note_read_scope(self) -> None:
+        self._link_note(title="Visible")
+        self._authenticate("account_note:read")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/account_notes/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual([row["title"] for row in response.json()["results"]], ["Visible"])
+
+    def test_scout_note_is_tagged_with_the_scout_and_its_skill(self) -> None:
+        with patch("posthog.auth.resolve_scout_client_tag", return_value="scout:billing-watch"):
+            self._authenticate_as_scout(sandbox_task_id=uuid4())
+            response = self.client.post(
+                self.endpoint_base,
+                {"title": "Usage shift", "text_content": "Replay spend doubled", "tags": ["billing-shift"]},
+                format="json",
+            )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], ["billing-shift", "scout", "scout-billing-watch"])
+
+    def test_scout_skill_tag_drops_the_signals_scout_prefix(self) -> None:
+        # Built-in scouts' skill names all start `signals-scout-`, which would read `scout-signals-scout-...`.
+        with patch("posthog.auth.resolve_scout_client_tag", return_value="scout:signals-scout-billing-watch"):
+            self._authenticate_as_scout(sandbox_task_id=uuid4())
+            response = self.client.post(self.endpoint_base, {"title": "Finding", "text_content": "x"}, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], ["scout", "scout-billing-watch"])
+
+    def test_scout_update_without_tags_leaves_the_tags_alone(self) -> None:
+        notebook = self._link_note(tags=("context-core", "risk"))
+        with patch("posthog.auth.resolve_scout_client_tag", return_value="scout:billing-watch"):
+            self._authenticate_as_scout(sandbox_task_id=uuid4())
+            response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], ["context-core", "risk"])
+
+    @parameterized.expand(
+        [
+            ("no_tags", {}, ["scout"]),
+            # DRF coerces a number to a string; the raw request value is an int that tagging cannot handle.
+            ("numeric_tag", {"tags": [123]}, ["123", "scout"]),
+        ]
+    )
+    def test_scout_note_without_a_known_skill_still_gets_the_scout_tag(
+        self, _name: str, extra: dict, expected_tags: list[str]
+    ) -> None:
+        self._authenticate_as_scout()
+
+        response = self.client.post(
+            self.endpoint_base, {"title": "Finding", "text_content": "x", **extra}, format="json"
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], expected_tags)
+
+    def test_scout_cannot_strip_its_own_tag(self) -> None:
+        notebook = self._link_note(tags=("scout", "scout-billing-watch", "billing-shift"))
+        with patch("posthog.auth.resolve_scout_client_tag", return_value="scout:billing-watch"):
+            self._authenticate_as_scout(sandbox_task_id=uuid4())
+            response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {"tags": []}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], ["scout", "scout-billing-watch"])
+
+    def test_scout_cannot_retag_a_note_a_person_wrote(self) -> None:
+        notebook = self._link_note(tags=("context-core", "risk"))
+        with patch("posthog.auth.resolve_scout_client_tag", return_value="scout:billing-watch"):
+            self._authenticate_as_scout(sandbox_task_id=uuid4())
+            response = self.client.patch(
+                f"{self.endpoint_base}{notebook.short_id}/", {"tags": ["billing-shift"]}, format="json"
+            )
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code, response.content)
+        self.assertEqual(sorted(notebook.tagged_items.values_list("tag__name", flat=True)), ["context-core", "risk"])
+
+    def test_a_person_can_remove_the_scout_tag(self) -> None:
+        notebook = self._link_note(tags=("scout", "billing-shift"))
+
+        response = self.client.patch(f"{self.endpoint_base}{notebook.short_id}/", {"tags": ["reviewed"]}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(response.json()["tags"], ["reviewed"])
+
+    def test_scout_cannot_delete_a_note(self) -> None:
+        notebook = self._link_note()
+        self._authenticate_as_scout()
+
+        response = self.client.delete(f"{self.endpoint_base}{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code, response.content)
+        self.assertTrue(Notebook.objects.filter(id=notebook.id, deleted=False).exists())
+
+    def test_a_person_can_still_delete_a_note(self) -> None:
+        notebook = self._link_note()
+
+        response = self.client.delete(f"{self.endpoint_base}{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code, response.content)

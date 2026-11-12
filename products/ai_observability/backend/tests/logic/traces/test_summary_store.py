@@ -28,7 +28,7 @@ READY = ReadySummary(
     bullets=(SummaryItem(text="The user asks for a refund.", node_id="gen-1"),),
     notes=(SummaryItem(text="No order number given.", node_id=None),),
     flow="ask → refuse",
-    model="gpt-4.1-mini",
+    model="gpt-6-luna",
     generated_at=T0,
 )
 

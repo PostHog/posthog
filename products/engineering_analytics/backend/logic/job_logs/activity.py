@@ -1,9 +1,6 @@
-"""Fetch one failed CI job's log and emit it into Logs.
+"""Fetch one CI job's log and emit it into Logs.
 
-A GitHub Actions job log is fetched under the shared GitHub egress budget, and a Depot CI job
-attempt's log with the Depot source's own token. Returns small counts only; the log content never
-flows back through the workflow (Temporal's payload limit). A budget denial raises so Temporal
-retries with backoff instead of blocking a worker.
+The activities return counts only, because the log content would exceed Temporal's payload limit.
 """
 
 import json
@@ -36,16 +33,16 @@ from products.engineering_analytics.backend.logic.sources import depot_source_ap
 
 logger = structlog.get_logger(__name__)
 
-# The BATCH lane can stay shed for the remainder of an hourly budget window, so the retry horizon
-# must outlive a worst-case shed. Otherwise the job's logs are dropped forever (the workflow_job
-# webhook never refires).
+# The BATCH lane can stay shed for the rest of an hourly budget window, so the retry horizon must
+# outlive that. A fetch that exhausts its retries inside the window can be dropped for good.
 _FETCH_RETRY_POLICY = RetryPolicy(
     maximum_attempts=10,
     initial_interval=timedelta(seconds=30),
     maximum_interval=timedelta(minutes=15),
 )
 
-# Reserve a trace namespace for Depot without changing GitHub's existing trace IDs.
+# Depot run ids take the high bit, so their trace ids cannot collide with GitHub's, which are the
+# bare run id.
 _DEPOT_TRACE_NAMESPACE = 1 << 127
 
 
@@ -92,13 +89,13 @@ class _DepotCredentials:
 
 
 def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, str]:
-    """Return ``(github_access_token, installation_id, log_ingest_token)``. ``log_ingest_token`` is
-    the owning team's project API token — the OTLP Bearer that routes emitted logs to that team's Logs.
-    """
+    """``(github_access_token, installation_id, log_ingest_token)``. The ingest token is the team's
+    project API token, which routes the emitted logs to that team's Logs."""
     integration = IntegrationManager.github.oauth.get(team_id, integration_id)
     github = GitHubIntegration(integration, source="job_logs", priority=Priority.BATCH)
     if github.access_token_expired():
         github.refresh_access_token()
+    integration = github.integration
     if not integration.access_token:
         raise ValueError(f"No GitHub access token for integration {integration_id}")
     return (
@@ -118,23 +115,21 @@ def _resolve_depot_credentials(team_id: int, source_id: str) -> _DepotCredential
 
 def _require_logs_endpoint() -> None:
     if not settings.OTLP_LOGS_INGEST_ENDPOINT:
-        # No Logs sink configured: don't fetch (wastes the egress budget) and don't mark the job done
-        # (a no-op emit would never retry). Raise so Temporal retries once the endpoint is set.
+        # Raise instead of returning, because a completed workflow would never fetch this job again.
         raise ApplicationError("Logs export endpoint not configured", type="LogsExportDisabled")
 
 
 def _thin_and_emit(
     log_text: str, attributes: dict[str, str | int], *, log_ingest_token: str, trace_id: int | None, job_id: int
 ) -> int:
-    # CI failure logs are team-level operational data: they ride the owning team's project Logs
-    # (visible to any logs:read holder) by design and intentionally do NOT inherit the GitHub
-    # source's resource-level access control. Don't emit anything a logs:read holder shouldn't see.
+    # The emitted logs do not inherit the GitHub source's access control: every logs:read holder
+    # of the team can read them. Do not emit anything such a reader should not see.
     thinned = thin_log_lines(log_text)
     with JobLogsEmitter(endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT, token=log_ingest_token) as emitter:
-        # run_id→trace, job_id→span so the Logs UI can group a whole run and isolate one job.
+        # The run is the trace and the job is the span, so the Logs UI can group a run and isolate a job.
         return emitter.emit_log_archive(
             thinned,
-            # Total lines in the full log before thinning, which is the denominator for each line's orig_line.
+            # orig_total is the line count before thinning, the denominator for each line's orig_line.
             attributes={**attributes, "orig_total": len(log_text.splitlines())},
             trace_id=trace_id,
             span_id=job_id,
@@ -148,10 +143,8 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
-    # Deferrable bulk: BATCH is shed first as the installation's budget fills, and the raise below
-    # hands the retry to Temporal.
     if not await acquire_github_installation(installation_id, priority=Priority.BATCH, source="job_logs"):
-        # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
+        # Raise so that Temporal retries with backoff instead of a worker blocking on the budget.
         raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
     if archive is None:
@@ -168,9 +161,7 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "repo": inputs.repo,
         "branch": inputs.branch or "",
         "conclusion": inputs.conclusion or "",
-        # job_name/workflow_name make records readable in the Logs UI without a warehouse join;
-        # run_attempt disambiguates re-runs (all attempts share run_id, i.e. one trace); head_sha
-        # is the per-commit anchor (SPEC §6 — precision key only, never the attribution key).
+        # All attempts of a run share run_id, so run_attempt is what tells re-runs apart.
         "job_name": inputs.job_name or "",
         "workflow_name": inputs.workflow_name or "",
         "run_attempt": inputs.run_attempt or 0,

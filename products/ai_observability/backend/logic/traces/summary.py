@@ -37,6 +37,8 @@ FAILURE_MESSAGES: dict[TraceSummaryFailureReason, str] = {
     "error": "Something went wrong while summarizing. Try again.",
 }
 
+FINAL_FAILURE_REASONS: frozenset[TraceSummaryFailureReason] = frozenset({"too_large", "trace_not_found"})
+
 _LINE_REF = re.compile(r"L(\d+)")
 
 
@@ -119,6 +121,10 @@ class FailedSummary:
     @property
     def message(self) -> str:
         return FAILURE_MESSAGES[self.reason]
+
+    @property
+    def retryable(self) -> bool:
+        return self.reason not in FINAL_FAILURE_REASONS
 
 
 SummaryEntry = PendingSummary | ReadySummary | FailedSummary

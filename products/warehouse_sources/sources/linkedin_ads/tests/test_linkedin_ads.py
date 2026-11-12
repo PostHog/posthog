@@ -614,6 +614,7 @@ class TestLinkedinAdsClientTokenRefresh:
 
         oauth = mock_oauth_cls.return_value
         oauth.access_token_expired.return_value = token_expired
+        oauth.refresh_access_token.return_value = integration
 
         client = linkedin_ads_client(self.config, team_id=789)
 
@@ -631,6 +632,7 @@ class TestLinkedinAdsClientTokenRefresh:
 
         oauth = mock_oauth_cls.return_value
         oauth.access_token_expired.return_value = True
+        oauth.refresh_access_token.return_value = integration
 
         with pytest.raises(Exception) as exc_info:
             linkedin_ads_client(self.config, team_id=789)
