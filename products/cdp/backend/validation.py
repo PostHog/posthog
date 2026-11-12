@@ -1171,6 +1171,13 @@ def masked_dictionary_secret(stored: Any) -> dict:
     return {"secret": True}
 
 
+def mask_secret_input(stored: Any, lists_entries: bool) -> dict:
+    """Mask a stored secret input. Its templating is not secret and stays, so a value entered again runs with it."""
+    masked = masked_dictionary_secret(stored) if lists_entries else {"secret": True}
+    templating = stored.get("templating") if isinstance(stored, dict) else None
+    return {**masked, "templating": templating} if templating else masked
+
+
 def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, list[str]]:
     """Put each stored secret back where the editor sent the mask for an entry it did not retype."""
     entries = value.get("value") if isinstance(value, dict) else None

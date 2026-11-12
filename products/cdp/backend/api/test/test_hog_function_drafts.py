@@ -22,6 +22,7 @@ from products.cdp.backend.api.test.secret_sender import (
     MOVED_SENDER_HOG,
     MOVED_URL,
     SENDER_HOG,
+    SENDER_SCHEMA,
     SENDER_URL,
     counted_reentries,
     secret_reentry_flag,
@@ -706,6 +707,42 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
+            ("types_the_held_url_again", {"url": {"value": SENDER_URL}}, status.HTTP_200_OK),
+            ("types_a_new_url", {"url": {"value": MOVED_URL}}, status.HTTP_400_BAD_REQUEST),
+            (
+                "types_a_new_url_and_the_token",
+                {"url": {"value": MOVED_URL}, "token": {"value": "staged"}},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_publish_that_changes_a_secret_needs_the_secrets_a_draft_edit_entered(
+        self, _name: str, entered: dict, expected_status: int
+    ):
+        function_id = self._create(
+            hog=SENDER_HOG,
+            inputs_schema=[{**SENDER_SCHEMA[0], "secret": True}, SENDER_SCHEMA[1]],
+            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}},
+        )
+
+        with secret_reentry_flag(True):
+            self._stage(function_id, {"inputs": {"url": {"secret": True}, "token": {"value": "staged"}}})
+            confirm_token = self._preview_publish(function_id)["confirm_token"]
+            response = self.client.post(
+                self._url(function_id, "/publish"),
+                {"confirm": True, "confirm_token": confirm_token, "inputs": entered},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        live = HogFunction.objects.get(id=function_id).encrypted_inputs
+        if expected_status == status.HTTP_200_OK:
+            assert (live["url"]["value"], live["token"]["value"]) == (entered["url"]["value"], "staged")
+        else:
+            assert (response.json()["attr"], response.json()["code"]) == ("inputs__token", "secret_reentry_required")
+            assert live["url"]["value"] == SENDER_URL
+
+    @parameterized.expand(
+        [
             (
                 "by_adding_an_entry",
                 True,
@@ -994,6 +1031,15 @@ class TestHogFunctionDrafts(DraftTestCase):
         stored_draft = HogFunction.objects.get(id=function_id).draft
         assert stored_draft is not None
         assert key not in stored_draft["inputs"]
+
+    def test_masked_secret_keeps_its_templating(self):
+        liquid_token = {"value": "Bearer {{ event.uuid }}", "templating": "liquid"}
+        function_id = self._create(inputs={**BASE_FUNCTION["inputs"], "token": liquid_token})
+
+        response = self._stage(function_id, {"hog": EDITED_HOG})
+
+        masked = {"secret": True, "templating": "liquid"}
+        assert (response["inputs"]["token"], response["draft"]["inputs"]["token"]) == (masked, masked)
 
     @parameterized.expand([("inputs",), ("mappings",)])
     def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:

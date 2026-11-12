@@ -100,7 +100,7 @@ from products.cdp.backend.validation import (
     compile_hog,
     exposes_secret_dictionary_keys,
     generate_template_bytecode,
-    masked_dictionary_secret,
+    mask_secret_input,
     masked_secret_input_keys,
     require_viewer_access_to_added_actions,
     reserved_functions_used,
@@ -214,7 +214,7 @@ def mask_config_secrets(content: dict) -> dict:
         inputs = config.get("inputs") or {}
         for key in secret_keys:
             if key in inputs:
-                inputs[key] = masked_dictionary_secret(inputs[key]) if key in dictionary_keys else {"secret": True}
+                inputs[key] = mask_secret_input(inputs[key], key in dictionary_keys)
         if secret_keys and "transpiled" in content:
             content["transpiled"] = None
     return content
@@ -1120,6 +1120,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # A draft can hold a stored secret in plaintext, so at publish and in a draft test run a key made public
         # passes only with a new value.
         checks_draft = "live_encrypted_inputs" in self.context or bool(self.context.get("use_draft"))
+        if checks_draft and self._changes_a_held_secret(instance, live_secrets, requested, entered & declared):
+            # A draft edit entered its secrets for the secrets it saw, and the code can send one secret to an
+            # address another one holds, so after a new value each of them has to be typed in this request.
+            staged = dict.fromkeys(staged, False)
         supplied = {
             key
             for key in supplied_input_keys(self.requested_inputs)
@@ -1169,6 +1173,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if carried:
                 errors["mappings"] = MAPPING_SECRET_MESSAGE
             raise serializers.ValidationError(errors, code="secret_reentry_required")
+
+    @staticmethod
+    def _changes_a_held_secret(instance: HogFunction, live_secrets: dict, requested: dict, entered: set[str]) -> bool:
+        held = {**live_secrets, **(instance.draft_encrypted_inputs or {})}
+        return any(
+            _secret_json(requested[key].get("value"))
+            != _secret_json(held[key].get("value") if isinstance(held.get(key), dict) else None)
+            for key in entered
+        )
 
     def _canonical_config(
         self, inputs_schema: Any, inputs: Any, mappings: Any, validate_mappings: bool
@@ -1237,10 +1250,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 has_value = encrypted_inputs.get(schema["key"]) or inputs.get(schema["key"])
                 if has_value:
                     # Marker to indicate to the user that a secret is set
-                    inputs[schema["key"]] = (
-                        masked_dictionary_secret(has_value)
-                        if exposes_secret_dictionary_keys(schema, inputs_schema)
-                        else {"secret": True}
+                    inputs[schema["key"]] = mask_secret_input(
+                        has_value, exposes_secret_dictionary_keys(schema, inputs_schema)
                     )
 
         data["inputs"] = inputs
@@ -1254,23 +1265,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     ) -> Optional[dict]:
         # A draft's secret values live in draft_encrypted_inputs (falling back to the live ones on
         # publish), so the snapshot itself carries no secrets to hide — but the reader still needs to
-        # know a secret is set. Emit the same `{"secret": true}` marker the live inputs use, on a copy
-        # so the instance's stored draft is left alone.
+        # know a secret is set. The stored secret goes back on a copy, so the instance's stored draft is
+        # left alone, and `mask_config_secrets` masks it as it masks the live inputs.
         if not isinstance(draft, dict):
             return draft
         inputs = dict(draft.get("inputs") or {})
-        schemas = draft.get("inputs_schema") or []
-        for schema in schemas:
+        for schema in draft.get("inputs_schema") or []:
             key = schema.get("key") if isinstance(schema, dict) else None
             if not key or not schema.get("secret"):
                 continue
             stored = draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key)
             if stored:
-                inputs[key] = (
-                    masked_dictionary_secret(stored)
-                    if exposes_secret_dictionary_keys(schema, schemas)
-                    else {"secret": True}
-                )
+                inputs[key] = stored
         return mask_config_secrets({**draft, "inputs": inputs})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
