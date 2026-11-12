@@ -29,6 +29,7 @@ from posthog.schema_enums import AlertCalculationInterval, AlertState
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
+    WATCHED_ROWS_PER_INSIGHT,
     enabled_alert_insight_ids,
     first_subscriber_id,
     get_alert_team_id,
@@ -50,6 +51,7 @@ from products.alerts.backend.llm_detector_limits import count_enabled_llm_alerts
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
+    AlertSubscription,
     InvestigationStatus,
     InvestigationVerdict,
     Threshold,
@@ -74,6 +76,7 @@ from products.alerts_platform.backend.facade.api import (
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertDelivery,
     DestinationType,
     InvalidPlatformAlertEdit,
@@ -82,7 +85,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
@@ -541,6 +544,25 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert {key: row[key] for key in written} == written
         assert (row["threshold"]["configuration"], row["state"]) == (threshold, "Snoozed")
+
+    def test_a_moved_alert_keeps_its_rows_settings_that_an_older_copy_lacks(self) -> None:
+        row_config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}
+        AlertConfiguration.objects.filter(id=self.alert.id).update(config=row_config, skip_weekend=True)
+        with team_scope(self.team.id):
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    "insight_id": self.alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                    },
+                },
+            )
+
+        row = self._row("retrieve")
+
+        assert (row["config"], row["skip_weekend"]) == (row_config, True)
 
     @parameterized.expand([("asked_for_checks", "?checks_limit=5", True), ("plain_read", "", False)])
     def test_a_platform_history_failure_never_shows_the_alerts_stale_checks(
@@ -1381,6 +1403,29 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         }
 
         assert reads[reader]() is expected
+
+    @parameterized.expand([("copy_on", True), ("copy_off", False)])
+    def test_a_subscriber_watches_a_moved_alert_behind_newer_alerts(self, _name: str, copy_on: bool) -> None:
+        subscriber = User.objects.create_and_join(self.organization, "subscriber@example.com", None)
+        AlertSubscription.objects.create(alert_configuration=self.alert, user=subscriber, created_by=self.user)
+        with team_scope(self.team.id):
+            platform_testing.set_enabled(self.copy_id, copy_on)
+            for _ in range(WATCHED_ROWS_PER_INSIGHT):
+                newer = Insight.objects.create(team=self.team, query=self.alert.insight.query)
+                platform_testing.create_configuration(
+                    team_id=self.team.id,
+                    name="newer",
+                    source_kind=SourceKind.INSIGHT,
+                    source_config={"insight_id": newer.id},
+                    check_interval_minutes=60 * 24,
+                    recurrence_unit="day",
+                    owner=PlatformAlertOwner.PLATFORM,
+                    destinations_owner=PlatformAlertOwner.PLATFORM,
+                )
+
+        watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)
+
+        assert watched == ([self.alert.insight.short_id] if copy_on else [])
 
     @parameterized.expand(
         [
