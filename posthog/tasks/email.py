@@ -27,17 +27,11 @@ from posthog.email import (
     EmailRecipientUndeliverableError,
     get_email_team_and_org_context,
     is_email_available,
-    is_http_email_service_available,
     single_line,
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import (
-    ESPSuppressionReason,
-    check_esp_suppression,
-    sanitize_display_name,
-    sanitize_message_body,
-)
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
@@ -438,16 +432,9 @@ def should_send_pipeline_error_notification(
     return failure_rate > threshold
 
 
-@shared_task(ignore_result=True)
-@skip_team_scope_audit
-def check_invite_email_suppression(invite_id: str) -> None:
-    invite = OrganizationInvite.objects.select_related("created_by").filter(id=invite_id).first()
-    if invite is None or not invite.target_email or not is_http_email_service_available():
-        return
-    # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
-    if check_esp_suppression(invite.target_email).reason != ESPSuppressionReason.SUPPRESSED:
-        return
-    OrganizationInvite.objects.filter(id=invite_id).update(email_suppressed=True)
+def _mark_invite_email_suppressed(invite: OrganizationInvite) -> None:
+    invite_id = str(invite.id)
+    OrganizationInvite.objects.filter(id=invite.id).update(email_suppressed=True)
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
@@ -551,7 +538,7 @@ def send_invite(invite_id: str) -> None:
         already_delivered = MessagingRecord.objects.filter(
             campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
-        message.send(send_async=False)
+        undeliverable = message.send(send_async=False)
         delivered = MessagingRecord.objects.filter(
             campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
@@ -572,10 +559,10 @@ def send_invite(invite_id: str) -> None:
                 campaign_key=campaign_key,
             )
     else:
-        message.send()
+        undeliverable = message.send(send_async=False)
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
-    # The lookup can take seconds, so it runs in its own task rather than delaying the invite email.
-    check_invite_email_suppression.delay(str(invite_id))
+    if undeliverable:
+        _mark_invite_email_suppressed(invite)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
