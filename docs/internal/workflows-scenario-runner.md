@@ -441,7 +441,7 @@ The card hash is the SHA-256 of the card without `gates` and the profile hash, s
 Gates stay outside the card hash; anything else that changes what runs changes it.
 `runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
 An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
-An edit to the loader still changes `runner_version`.
+Every other committed edit under `nodejs/tests/scenarios/` outside `generator/` and `valves/` still changes `runner_version`, a test file or the loader included.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
@@ -698,7 +698,7 @@ A property is added without a version change; a rename, a removal or a change of
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
-| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, and the YAML files in `cards/` and `profiles/`                                                 |
+| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, and the YAML files in `cards/` and `profiles/`; test files count                               |
 | `generator_version` | string or null  | Git tree hash of `generator/`                                                                                                                                              |
 | `valves_version`    | string or null  | Git tree hash of `valves/`, or of the empty tree when it does not exist                                                                                                    |
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
@@ -802,9 +802,9 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 
 ### Versions from git
 
-- **Decision.** The runner, generator and valves versions are git tree hashes of their directories. The runner version leaves out the card and profile YAML files, which the card hash and the profile hash cover.
+- **Decision.** The runner, generator and valves versions are git tree hashes of their directories. The runner version leaves out only the card and profile YAML files, which the card hash and the profile hash cover.
 - **Why.** Nobody has to bump a version by hand, and any change to the code that shapes a run changes the fingerprint.
-- **Cost.** Uncommitted edits do not change a version; `head_dirty` flags those runs.
+- **Cost.** Uncommitted edits do not change a version; `head_dirty` flags those runs. A test-only edit changes a version too, so runs on either side of it do not compare.
 
 ### Evidence stays on the box
 
