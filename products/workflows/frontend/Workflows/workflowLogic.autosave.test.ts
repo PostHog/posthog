@@ -282,6 +282,28 @@ describe('workflowLogic auto-save', () => {
             expect(updateCalls).toBe(0)
         })
 
+        it('does not auto-save edits from a user with view access only', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
+                        user_access_level: AccessControlLevel.Viewer,
+                    }),
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited by a viewer')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(logic.values.isAutoSavePending).toBe(false)
+            expect(updateCalls).toBe(0)
+        })
+
         it('does not auto-save when nothing has changed', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID })
