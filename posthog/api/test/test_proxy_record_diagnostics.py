@@ -448,17 +448,20 @@ def _capture_response(status_code: int, body: object) -> MagicMock:
     return response
 
 
-MISSING_AUTH = {"type": "authentication_error", "error": "missing_authorization"}
+REACHED_CAPTURE = {"error": "missing_required_headers"}
 
 
 class TestCheckCaptureV1(SimpleTestCase):
     @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_passes_when_both_routes_reach_capture(self, post_mock):
-        post_mock.return_value = _capture_response(401, MISSING_AUTH)
+        post_mock.return_value = _capture_response(400, REACHED_CAPTURE)
 
         result = diagnostics._check_capture_v1(_record())
 
         self.assertEqual(result.status, "passed")
+        self.assertEqual(
+            {call.kwargs["headers"]["Authorization"] for call in post_mock.call_args_list}, {"Bearer phc_probe"}
+        )
         self.assertEqual(
             sorted(call.args[1] for call in post_mock.call_args_list),
             ["https://e.example.com/i/v1/ai/events", "https://e.example.com/i/v1/analytics/events"],
@@ -469,6 +472,7 @@ class TestCheckCaptureV1(SimpleTestCase):
             ("blocked_in_front", _capture_response(403, ValueError("not json"))),
             ("not_found", _capture_response(404, ValueError("not json"))),
             ("other_error_code", _capture_response(401, {"error": "invalid_token"})),
+            ("authorization_dropped", _capture_response(401, {"error": "missing_authorization"})),
             ("connection_error", requests.exceptions.ConnectionError("refused")),
             ("ssrf_blocked", SSRFBlockedError("private")),
         ]
@@ -480,7 +484,7 @@ class TestCheckCaptureV1(SimpleTestCase):
                 if isinstance(ai_outcome, Exception):
                     raise ai_outcome
                 return ai_outcome
-            return _capture_response(401, MISSING_AUTH)
+            return _capture_response(400, REACHED_CAPTURE)
 
         post_mock.side_effect = respond
 

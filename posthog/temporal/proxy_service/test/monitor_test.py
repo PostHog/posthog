@@ -29,10 +29,7 @@ from posthog.temporal.proxy_service.monitor import (
 
 
 def _capture_v1_rejection() -> Mock:
-    return Mock(
-        status_code=401,
-        json=Mock(return_value={"error": "missing_authorization", "error_description": "missing Authorization header"}),
-    )
+    return Mock(status_code=400, json=Mock(return_value={"error": "missing_required_headers"}))
 
 
 def _non_capture_response(status_code: int) -> Mock:
@@ -135,12 +132,14 @@ class TestCheckProxyIsLive(TestCase):
                 call(
                     "POST",
                     f"https://{self.proxy_record.domain}/i/v1/analytics/events",
+                    headers={"Authorization": "Bearer phc_probe"},
                     json={},
                     timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
                 ),
                 call(
                     "POST",
                     f"https://{self.proxy_record.domain}/i/v1/ai/events",
+                    headers={"Authorization": "Bearer phc_probe"},
                     json={},
                     timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
                 ),
@@ -157,6 +156,11 @@ class TestCheckProxyIsLive(TestCase):
             ("redirect", _non_capture_response(301), "got 301"),
             ("blocked_in_front_of_capture", _non_capture_response(403), "got 403"),
             ("other_json_error", Mock(status_code=401, json=Mock(return_value={"error": "unauthorized"})), "got 401"),
+            (
+                "authorization_dropped",
+                Mock(status_code=401, json=Mock(return_value={"error": "missing_authorization"})),
+                "got 401",
+            ),
             ("connection_error", requests.exceptions.ConnectionError("refused"), "ConnectionError"),
             ("ssrf_blocked", SSRFBlockedError("private address"), "SSRFBlockedError"),
         ]

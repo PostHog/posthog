@@ -60,8 +60,10 @@ LOGGER = get_logger(__name__)
 # where a single on-demand diagnostics run instead shares its tighter budget across several checks.
 PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
 
-# The `error` code capture v1 returns for a request with no Authorization header.
-CAPTURE_V1_MISSING_AUTHORIZATION = "missing_authorization"
+# The probe sends only an Authorization header, so capture v1 answers with this `error` code, and
+# only when that header reaches it. Our proxy guides forward only `phc_`, `phs_` and `phx_` tokens.
+CAPTURE_V1_PROBE_HEADERS = {"Authorization": "Bearer phc_probe"}
+CAPTURE_V1_MISSING_REQUIRED_HEADERS = "missing_required_headers"
 
 # (connect, read) for each capture v1 probe. `requests` applies a bare number to the connect and to
 # each socket read separately, so a tuple keeps the worst case explicit. Capture answers this probe
@@ -492,21 +494,30 @@ def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str
 
     The v1 SDK majors (posthog-ios 4, posthog-android 4, posthog_flutter 6, posthog-python 8) send
     every analytics event to /i/v1/analytics/events (and `captureAi` to /i/v1/ai/events) with no
-    fallback, so a proxy that forwards /i/v0 but not /i/v1 drops all of those events. The probe carries no Authorization header, and capture checks that header
-    before anything else (rust/capture/src/v1/context.rs), so it answers 401 with a JSON body whose
-    `error` is `missing_authorization` and ingests nothing. Requiring that code proves the request
-    reached capture: a bare 4xx can come from whatever sits in front of it.
+    fallback, so a proxy that forwards /i/v0 but not /i/v1 drops all of those events.
+
+    The probe sends an Authorization header and none of the other PostHog headers. Capture checks
+    Authorization first and the other headers next (rust/capture/src/v1/context.rs), so it answers
+    400 with `error: missing_required_headers` and ingests nothing. That code proves the request
+    reached capture with its Authorization header: a bare 4xx can come from whatever sits in front
+    of capture, and a proxy that drops the header gets `missing_authorization` instead.
     """
     try:
         # Same pinning as the /i/v0 probe: the domain's DNS could answer differently by now.
-        response = pinned_request("POST", f"{probe_base}{path}", json={}, timeout=CAPTURE_V1_PROBE_TIMEOUT_S)
+        response = pinned_request(
+            "POST",
+            f"{probe_base}{path}",
+            headers=CAPTURE_V1_PROBE_HEADERS,
+            json={},
+            timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
+        )
     except (requests.exceptions.RequestException, SSRFBlockedError) as e:
         return f"Proxy does not forward {path} ({e.__class__.__name__}); {consequence}"
     try:
         body = response.json()
     except ValueError:
         body = None
-    if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_AUTHORIZATION:
+    if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS:
         return None
     return f"Proxy does not forward {path} (got {response.status_code}); {consequence}"
 

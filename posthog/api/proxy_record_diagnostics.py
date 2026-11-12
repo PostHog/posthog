@@ -142,8 +142,10 @@ CHECK_TIMEOUT_S = 3.0
 DNS_QUERY_TIMEOUT_S = 1.0
 CERT_EXPIRY_WARN_DAYS = 14
 
-# The `error` code capture v1 returns for a request with no Authorization header.
-CAPTURE_V1_MISSING_AUTHORIZATION = "missing_authorization"
+# The probe sends only an Authorization header, so capture v1 answers with this `error` code, and
+# only when that header reaches it. Our proxy guides forward only `phc_`, `phs_` and `phx_` tokens.
+CAPTURE_V1_PROBE_HEADERS: Final[dict[str, str]] = {"Authorization": "Bearer phc_probe"}
+CAPTURE_V1_MISSING_REQUIRED_HEADERS = "missing_required_headers"
 # Capture v1 routes that posthog-ios 4, posthog-android 4, posthog_flutter 6 and posthog-python 8
 # send to. `captureAi` has its own route, so a proxy can forward one and not the other.
 CAPTURE_V1_PATHS: Final[tuple[str, ...]] = ("/i/v1/analytics/events", "/i/v1/ai/events")
@@ -788,18 +790,21 @@ def _check_capture_v1(record: ProxyRecord) -> CheckResult:
 def _reaches_capture_v1(domain: str, path: str) -> bool:
     """Whether a request to `path` reaches capture v1.
 
-    The probe carries no Authorization header, and capture v1 checks that header before anything
-    else (rust/capture/src/v1/context.rs), so it answers with a JSON `error` of
-    `missing_authorization` and ingests nothing. Requiring that code proves the request reached
-    capture: a bare 4xx can come from whatever sits in front of it. Goes through pinned_request
-    for the same SSRF reasons as the live event probe.
+    The probe sends an Authorization header and none of the other PostHog headers. Capture v1
+    checks Authorization first and the other headers next (rust/capture/src/v1/context.rs), so it
+    answers with a JSON `error` of `missing_required_headers` and ingests nothing. That code proves
+    the request reached capture with its Authorization header: a bare 4xx can come from whatever
+    sits in front of capture, and a proxy that drops the header gets `missing_authorization`.
+    Goes through pinned_request for the same SSRF reasons as the live event probe.
     """
     try:
-        response = pinned_request("POST", _probe_url(domain, path), json={}, timeout=CHECK_TIMEOUT_S)
+        response = pinned_request(
+            "POST", _probe_url(domain, path), headers=CAPTURE_V1_PROBE_HEADERS, json={}, timeout=CHECK_TIMEOUT_S
+        )
         body = response.json()
     except (SSRFBlockedError, requests.exceptions.RequestException, ValueError):
         return False
-    return isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_AUTHORIZATION
+    return isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS
 
 
 def _check_cert_expiry(record: ProxyRecord, *, is_cloudflare: bool) -> CheckResult:
