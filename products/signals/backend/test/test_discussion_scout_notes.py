@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.signals.backend.discussion_notes import _build_note_content, _extract_question
+from products.signals.backend.discussion_notes import _build_note_content, extract_question
 from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
 
@@ -104,7 +104,7 @@ class TestExtractQuestion(SimpleTestCase):
         expected: str,
     ) -> None:
         self.assertEqual(
-            _extract_question(text, report_title=report_title, report_id=report_id),
+            extract_question(text, report_title=report_title, report_id=report_id),
             expected,
         )
 

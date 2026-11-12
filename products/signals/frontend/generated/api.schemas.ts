@@ -9888,6 +9888,51 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * * `authored` - authored
+ * * `edited` - edited
+ */
+export type InvolvementEnumApi = (typeof InvolvementEnumApi)[keyof typeof InvolvementEnumApi]
+
+export const InvolvementEnumApi = {
+    Authored: 'authored',
+    Edited: 'edited',
+} as const
+
+/**
+ * One discussion a person opened on a report your scout emitted or edited.
+ */
+export interface ScoutReportDiscussionApi {
+    /** The report the discussion is about. */
+    report_id: string
+    /** The report's title, truncated. */
+    report_title: string
+    /** `authored` when your scout emitted the report, `edited` when it only edited it.
+     *
+     * * `authored` - authored
+     * * `edited` - edited */
+    involvement: InvolvementEnumApi
+    /** The discussion task. */
+    task_id: string
+    /** When the discussion started. */
+    created_at: string
+    /**
+     * Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.
+     * @nullable
+     */
+    status: string | null
+    /**
+     * The question the person opened the discussion with, truncated. Null unless that person may steer scouts on this project, or when the question could not be read from the task.
+     * @nullable
+     */
+    question: string | null
+    /**
+     * The latest run's summary of the conversation and its outcome, written by the discussion agent. Null when no run has written one yet, or when the summary is private to the person who started it.
+     * @nullable
+     */
+    task_summary: string | null
+}
+
+/**
  * * `default` - Default
  * * `custom` - Custom
  */
@@ -12443,6 +12488,23 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
     summary_only?: boolean
+}
+
+export type SignalsScoutReportDiscussionsListParams = {
+    /**
+     * Maximum rows to return, newest first. Defaults to 20.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Narrow to discussions on one report. Returns nothing for a report your scout never emitted or edited.
+     */
+    report_id?: string
+    /**
+     * Only discussions started at or after this time. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what is new since then.
+     */
+    since?: string
 }
 
 export type SignalsScoutRunsListParams = {

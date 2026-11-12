@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 87 enabled ops
+ * PostHog API - MCP 88 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -3417,6 +3417,42 @@ export const SignalsScoutProjectProfileGetQueryParams = () => zod.object({
         .default(signalsScoutProjectProfileGetQuerySummaryOnlyDefault)
         .describe(
             'When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.'
+        ),
+})
+
+/**
+ * Return the discussions people opened with Ask AI on inbox reports your scout emitted or edited, newest first, each with the latest summary of the conversation and its outcome. Callable only from a scout run, which is read from the run's credential.
+ * @summary List discussions on your scout's reports
+ */
+export const SignalsScoutReportDiscussionsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutReportDiscussionsListQueryLimitDefault = 20
+export const signalsScoutReportDiscussionsListQueryLimitMax = 50
+
+export const SignalsScoutReportDiscussionsListQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsScoutReportDiscussionsListQueryLimitMax)
+        .default(signalsScoutReportDiscussionsListQueryLimitDefault)
+        .describe('Maximum rows to return, newest first. Defaults to 20.'),
+    report_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Narrow to discussions on one report. Returns nothing for a report your scout never emitted or edited.'
+        ),
+    since: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Only discussions started at or after this time. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what is new since then.'
         ),
 })
 
