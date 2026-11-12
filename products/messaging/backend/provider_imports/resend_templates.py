@@ -6,7 +6,9 @@ so a person decides what it should become.
 """
 
 import re
+import math
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -103,8 +105,11 @@ def _literal(tag: str) -> str:
 def _liquid_string(value: Any) -> str | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, int | float):
+    if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        # Liquid has no exponent notation, so 1e-06 would read as a variable name.
+        return format(Decimal(repr(value)), "f") if math.isfinite(value) else None
     text = str(value)
     if any(braces in text for braces in ("{{", "}}", "{%", "%}")) or _UNSAFE_IN_LIQUID_STRING.search(text):
         return None

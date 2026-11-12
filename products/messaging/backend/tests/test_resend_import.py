@@ -371,6 +371,17 @@ class TestResendTemplateConversion(SimpleTestCase):
     def test_converts_tags(self, source: str, is_html: bool, expected: str) -> None:
         assert convert_text(source, {}, is_html=is_html).text == expected
 
+    @parameterized.expand(
+        [
+            ("integer", 3, "{{ variables.N | default: 3 }}"),
+            ("tiny_float", 0.000001, "{{ variables.N | default: 0.000001 }}"),
+            ("huge_float", 1e21, "{{ variables.N | default: 1000000000000000000000 }}"),
+            ("not_a_number", float("nan"), "{{ variables.N }}"),
+        ]
+    )
+    def test_numeric_fallbacks_stay_valid_liquid(self, _name: str, fallback: float, expected: str) -> None:
+        assert convert_text("{{N}}", {"N": fallback}, is_html=False).text == expected
+
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
         assert convert_text("{{" * 200_000, {}, is_html=True).text.startswith('{{ "{{" }}')
 
