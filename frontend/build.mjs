@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
+    buildOrWatch,
     commonConfig,
     copyIndexHtml,
     copyPublicFolder,
@@ -63,7 +64,38 @@ const common = {
 
 // Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
 // there would replace the toolbar's module plugin. The toolbar bundles no zod.
-const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
+const workerBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
+
+async function buildWorkers() {
+    const hashedFileNames = {}
+    await Promise.all(
+        WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) =>
+            buildOrWatch({
+                name,
+                entryPoints: [entryPoint],
+                format: 'esm',
+                outfile: path.resolve(__dirname, 'dist', outfileName),
+                ...workerBundle,
+                ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
+                onBuildComplete(config, buildResponse) {
+                    if (!buildResponse) {
+                        return
+                    }
+                    const workerFile = buildResponse.entrypoints.find((file) => file.endsWith('.js'))
+                    hashedFileNames[outfileName] = path.basename(workerFile)
+                    createHashlessEntrypoints(__dirname, buildResponse.entrypoints)
+                },
+            })
+        )
+    )
+    return hashedFileNames
+}
+
+// lib/utils/createWorker.ts loads each worker by its hashed name, so the app bundles need the names at build time.
+const appBundle = {
+    ...workerBundle,
+    define: { ...commonConfig.define, __POSTHOG_WORKER_FILES__: JSON.stringify(await buildWorkers()) },
+}
 
 await buildInParallel(
     [
@@ -79,14 +111,6 @@ await buildInParallel(
             // minifyAppChunks minifies the identifiers of each chunk on its own, after the build.
             ...(isDev ? {} : { minify: false, minifyWhitespace: true, minifySyntax: true }),
         },
-        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
-            name,
-            entryPoints: [entryPoint],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', outfileName),
-            ...appBundle,
-            ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
-        })),
         {
             name: 'Exporter',
             entryPoints: {

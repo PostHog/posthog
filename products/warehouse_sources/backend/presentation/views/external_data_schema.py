@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     LegacyHistoryTableError,
     UndecryptedConfigError,
 )
+from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -132,13 +133,13 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
-    SettableSyncFrequency,
     WarehouseColumnSensitivity,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
     report_history_table_deleted,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -975,15 +976,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Maximum 5184000 (60 days)."
         ),
     )
-    sync_frequency = serializers.ChoiceField(
-        choices=SettableSyncFrequency.choices,
-        required=False,
-        allow_null=True,
-        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
-        error_messages={
-            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
-        },
-    )
+    sync_frequency = SyncFrequencyField(required=False, allow_null=True)
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
     )
@@ -1363,16 +1356,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
-    def validate_sync_frequency(self, value: str | None) -> str | None:
-        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
-        # The choices still list it, so callers do send it. The message names should_sync because
-        # that is what stops a sync.
-        if value == "never":
-            raise ValidationError(
-                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
-            )
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
@@ -1561,7 +1544,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
-        validated_data.pop("sync_frequency", None)
+        # The validated value is canonical; the raw payload can carry a synonym such as "daily".
+        sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
@@ -1959,7 +1943,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
 
         should_sync = validated_data.get("should_sync", None)
-        sync_frequency = data.get("sync_frequency", None)
         sync_time_of_day_in_payload = "sync_time_of_day" in data
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
@@ -3447,6 +3430,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+        # The form keeps a configured cursor, so it needs no recommendation.
+        if not instance.incremental_field:
+            apply_stored_suggestion(schema, instance.sync_type_config, team=self.team, schema_id=str(instance.id))
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

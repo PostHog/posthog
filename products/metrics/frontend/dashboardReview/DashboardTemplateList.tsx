@@ -13,6 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MetricsDashboardTemplateApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { DashboardTemplateStatusTag } from './DashboardTemplateStatusTag'
+import { InternalTag } from './InternalTag'
 import { ReviewStatusFilter, metricsDashboardReviewSceneLogic } from './metricsDashboardReviewSceneLogic'
 
 const STATUS_OPTIONS: { value: ReviewStatusFilter; label: string }[] = [
@@ -33,6 +34,7 @@ export function DashboardTemplateList(): JSX.Element {
         <>
             <SceneTitleSection
                 name="Dashboard review"
+                nameSuffix={<InternalTag />}
                 description="Approve AI-generated metrics dashboards before projects see them."
                 resourceType={{ type: 'metrics' }}
                 actions={

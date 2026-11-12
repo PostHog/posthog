@@ -148,6 +148,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/cross-project-dashboards/:id': ['CrossProjectDashboard', 'crossProjectDashboard'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/product-activity': ['CustomerAnalytics', 'customerAnalyticsProductActivity'],
     '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
@@ -1541,6 +1542,7 @@ export const productUrls = {
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
+    customerAnalyticsProductActivity: (): string => '/customer_analytics/product-activity',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
     customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
@@ -3544,12 +3546,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
             },
             {
-                name: 'Bots',
-                href: urls.webAnalyticsBotAnalytics(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
-            {
-                name: 'Search & AI',
+                name: 'AI traffic',
                 href: urls.webAnalyticsPagePerformance(),
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
             },
