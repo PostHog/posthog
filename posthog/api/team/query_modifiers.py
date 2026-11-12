@@ -13,6 +13,8 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     validate_rule_set as validate_custom_bot_rule_set,
 )
 
+STAFF_ONLY_MODIFIERS = frozenset({"useNewEventsSchema", "useWebAnalyticsDimensionalTables"})
+
 
 def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
     # Django admin can store a scalar or list here. Treat it as empty rather than raising.
@@ -30,9 +32,10 @@ def validate_modifiers(value: dict | None) -> dict | None:
         raise exceptions.ValidationError("Must provide a dictionary or None.")
 
     # The native JSON events table is switched per project by an instance setting, never by a stored modifier.
-    # Dropping the key keeps a client from storing one, including a settings page that echoes the whole
+    # The dimensional tables modifier also starts a precompute job for the project, so only staff set it.
+    # Dropping both keys keeps a client from storing them, including a settings page that echoes the whole
     # modifiers dict back.
-    value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
+    value = {key: item for key, item in value.items() if key not in STAFF_ONLY_MODIFIERS}
 
     if "bounceRateDurationSeconds" in value:
         bounce_rate = value["bounceRateDurationSeconds"]

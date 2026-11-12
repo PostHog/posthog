@@ -21,7 +21,7 @@ from posthog.hogql import ast
 
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
+from posthog.ph_client import feature_enabled_or_false
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
@@ -49,9 +49,9 @@ logger = structlog.get_logger(__name__)
 
 # The same flag gates the frontend toggle, so a request that sets the modifier without the flag is ignored.
 WEB_ANALYTICS_QUERY_MODIFIERS_FLAG = "web-analytics-query-modifiers"
-# Moves teams on the legacy pre-aggregated tables to the dimensional tables. It is evaluated per user, so a
-# rollout can start with named users, and a multivariate experiment keeps its `control` variant on the legacy path.
-WEB_ANALYTICS_DIMENSIONAL_FOR_PREAGGREGATED_FLAG = "web-analytics-dimensional-for-preaggregated"
+# Turns dimensional reads off for every team without a deploy. The writer keeps filling the tables, so turning
+# reads back on serves at once.
+WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG = "web-analytics-dimensional-reads-disabled"
 
 # The tables have no column for these keys, or store a session-level value that differs from what the
 # live filter matches. Gclid, fbclid and gad_source are stored as booleans, so a value filter cannot match them.
@@ -72,7 +72,7 @@ def ready_dimensional_job_ids(
     runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"],
     tables: Collection[str],
 ) -> DimensionalJobIds | None:
-    """The job ids to read when the query or its experiment opted in and `tables` cover its whole range,
+    """The job ids to read when the query or its team opted in and `tables` cover its whole range,
     including the compare period. None means the caller uses its next path."""
     if not _reads_dimensional(runner):
         return None
@@ -150,26 +150,27 @@ def dimensional_precomputed_at(job_ids: DimensionalJobIds | None) -> str | None:
 def _reads_dimensional(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
     web_query_modifiers = runner.query.webQueryModifiers
     requested = web_query_modifiers.useDimensionalTables if web_query_modifiers else None
-    if requested is None:
-        return bool(runner.modifiers.useWebAnalyticsPreAggregatedTables) and _in_preaggregated_experiment(runner)
-    return requested and _query_modifiers_flag_enabled(runner)
+    if requested is False or _dimensional_reads_disabled(runner):
+        return False
+    # The team modifier also selects the teams the writer fills, so a team that reads by default has its tables.
+    if runner.modifiers.useWebAnalyticsDimensionalTables:
+        return True
+    return bool(requested) and _query_modifiers_flag_enabled(runner)
 
 
-def _in_preaggregated_experiment(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+def _dimensional_reads_disabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
     team = runner.team
-    user = runner.user
-    variant = get_feature_flag_or_none(
-        WEB_ANALYTICS_DIMENSIONAL_FOR_PREAGGREGATED_FLAG,
-        str(user.distinct_id) if user and user.distinct_id else str(team.uuid),
+    return feature_enabled_or_false(
+        WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG,
+        str(team.uuid),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
-        person_properties={"email": user.email} if user else None,
         group_properties={
             "organization": {"id": str(team.organization_id)},
             "project": {"id": str(team.id)},
         },
         only_evaluate_locally=True,
+        send_feature_flag_events=False,
     )
-    return variant is True or variant == "test"
 
 
 def _query_modifiers_flag_enabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:

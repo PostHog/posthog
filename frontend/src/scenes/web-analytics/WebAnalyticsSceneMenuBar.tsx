@@ -99,7 +99,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
         shouldFilterTestAccounts,
         showFocusMode,
         tiles,
-        webQueryModifiers,
+        usesDimensionalTables,
     } = useValues(webAnalyticsLogic)
     const {
         enterFocusMode,
@@ -234,10 +234,8 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                 </SceneMenuBarCheckboxItem>
                 {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] && (
                     <SceneMenuBarCheckboxItem
-                        checked={!!webQueryModifiers.useDimensionalTables}
-                        onCheckedChange={(checked) =>
-                            setWebQueryModifiers({ useDimensionalTables: checked || undefined })
-                        }
+                        checked={usesDimensionalTables}
+                        onCheckedChange={(checked) => setWebQueryModifiers({ useDimensionalTables: checked })}
                         data-attr="web-analytics-menubar-dimensional-tables"
                     >
                         Use dimensional tables

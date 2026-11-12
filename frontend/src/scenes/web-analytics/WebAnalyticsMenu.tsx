@@ -45,7 +45,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
         showFocusMode,
         tiles,
         useWebAnalyticsPrecompute,
-        webQueryModifiers,
+        usesDimensionalTables,
     } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
@@ -138,14 +138,10 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                                     menuItem
                                     data-attr="web-analytics-dimensional-tables-toggle"
                                     onClick={() => {
-                                        setWebQueryModifiers({
-                                            useDimensionalTables: webQueryModifiers.useDimensionalTables
-                                                ? undefined
-                                                : true,
-                                        })
+                                        setWebQueryModifiers({ useDimensionalTables: !usesDimensionalTables })
                                     }}
                                 >
-                                    <LemonSwitch checked={!!webQueryModifiers.useDimensionalTables} size="xsmall" />
+                                    <LemonSwitch checked={usesDimensionalTables} size="xsmall" />
                                     Use dimensional tables
                                 </ButtonPrimitive>
                             </Tooltip>

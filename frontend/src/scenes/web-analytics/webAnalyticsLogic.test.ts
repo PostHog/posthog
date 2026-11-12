@@ -842,3 +842,41 @@ describe('webAnalyticsLogic path cleaning filters', () => {
         ])
     })
 })
+
+describe('webAnalyticsLogic dimensional tables toggle', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const mountWithTeamModifier = (teamDefault: boolean | undefined): void => {
+        localStorage.clear()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            modifiers: teamDefault === undefined ? {} : { useWebAnalyticsDimensionalTables: teamDefault },
+        })
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    }
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Switching off on a team that reads the dimensional tables by default must send an explicit `false`,
+    // because a cleared value falls back to the team default and keeps the tables on.
+    it.each([
+        [undefined, undefined, false],
+        [true, undefined, true],
+        [true, false, false],
+        [false, true, true],
+        [undefined, true, true],
+    ])('team default %s and browser choice %s → uses dimensional %s', async (teamDefault, browserChoice, expected) => {
+        mountWithTeamModifier(teamDefault)
+        if (browserChoice !== undefined) {
+            logic.actions.setWebQueryModifiers({ useDimensionalTables: browserChoice })
+        }
+        await expectLogic(logic).toMatchValues({ usesDimensionalTables: expected })
+    })
+})

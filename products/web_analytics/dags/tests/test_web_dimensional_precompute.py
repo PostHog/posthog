@@ -22,7 +22,6 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import dimensional_ttl_schedule
 from products.web_analytics.dags.web_dimensional_precompute import (
     BOUNCES_TABLE,
-    DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
@@ -63,9 +62,6 @@ def _ready_job(start: int, end: int, built_minutes_ago: int, ttl_minutes: int) -
         expires_at=built_at + timedelta(minutes=ttl_minutes),
     )
 
-
-_IS_CLOUD = "products.web_analytics.dags.web_dimensional_precompute.is_cloud"
-_CLOUD_DEPLOYMENT = "products.web_analytics.dags.web_dimensional_precompute.settings.CLOUD_DEPLOYMENT"
 
 # Patch chunking to a single chunk so call counts are deterministic in the op tests.
 _SINGLE_CHUNK = "products.web_analytics.dags.web_dimensional_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -213,34 +209,23 @@ class TestGetSelectedTeamIds:
             assert get_selected_team_ids() == [2]
 
     def test_env_set_empty_disables(self):
-        # An explicit empty value disables the job even on cloud.
-        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
+        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
 
-    @parameterized.expand([("US",), ("EU",)])
-    def test_unset_uses_region_default_on_cloud(self, region: str):
-        with (
-            patch(_IS_CLOUD, return_value=True),
-            patch(_CLOUD_DEPLOYMENT, region),
-            patch.dict(os.environ, {}, clear=False),
-        ):
-            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION[region]
 
-    def test_unset_unknown_region_is_empty(self):
-        # A region without a default entry must not fall back to another region's list.
-        with (
-            patch(_IS_CLOUD, return_value=True),
-            patch(_CLOUD_DEPLOYMENT, "DEV"),
-            patch.dict(os.environ, {}, clear=False),
-        ):
-            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == []
+class TestGetSelectedTeamIdsFromModifier(APIBaseTest):
+    def test_unset_env_selects_teams_with_the_dimensional_modifier_on(self):
+        org = Organization.objects.create(name="dimensional")
+        enabled = [
+            Team.objects.create(organization=org, name=f"on-{i}", modifiers={"useWebAnalyticsDimensionalTables": True})
+            for i in range(2)
+        ]
+        Team.objects.create(organization=org, name="off", modifiers={"useWebAnalyticsDimensionalTables": False})
+        Team.objects.create(organization=org, name="v2-only", modifiers={"useWebAnalyticsPreAggregatedTables": True})
 
-    def test_unset_is_empty_off_cloud(self):
-        with patch(_IS_CLOUD, return_value=False), patch.dict(os.environ, {}, clear=False):
+        with patch.dict(os.environ, {}, clear=False):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == []
+            assert get_selected_team_ids() == [team.pk for team in enabled]
 
 
 class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):

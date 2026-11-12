@@ -263,6 +263,7 @@ export interface webAnalyticsLogicValues {
     tiles: WebAnalyticsTile[]
     tilesWithoutQueryModifiers: WebAnalyticsTile[]
     useWebAnalyticsPrecompute: boolean | null
+    usesDimensionalTables: boolean
     warmablePresetShortId: string | null
     webAnalyticsFilters: WebAnalyticsPropertyFilters
     webQueryModifiers: WebAnalyticsQueryModifiers
@@ -563,6 +564,10 @@ export interface webAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
         restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
+        usesDimensionalTables: (
+            webQueryModifiers: WebAnalyticsQueryModifiers,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
             restrictedUiEnabled: boolean
@@ -1256,6 +1261,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     )
                 )
             },
+        ],
+        usesDimensionalTables: [
+            (s) => [s.webQueryModifiers, s.currentTeam],
+            (webQueryModifiers: WebAnalyticsQueryModifiers, currentTeam: TeamPublicType | TeamType | null): boolean =>
+                // A browser choice wins over the project setting, the same order the backend applies.
+                webQueryModifiers.useDimensionalTables ?? !!currentTeam?.modifiers?.useWebAnalyticsDimensionalTables,
         ],
         incompatibleFilters: [
             (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],

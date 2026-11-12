@@ -8,16 +8,10 @@ the heavy raw-table scan happens on a schedule for a known audience rather than
 lazily on every user query, while re-runs are cheap because already-fresh
 windows are skipped.
 
-Rollout is intentionally decoupled from the v2 pre-aggregation pipeline and its
-team selection. The audience defaults to a small per-region built-in rollout list
-(`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) on PostHog Cloud, and is fully overridable via the
-`WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs; set it
-to empty to disable the job). Self-hosted instances default to no teams so the
-job never precomputes for unrelated teams that happen to share those IDs. There
-is no dependency on the v2 team-selection dictionary or flag.
-
-The write path is not yet wired into any query runner — this job only populates
-the tables (so the new output can be compared with v2's side by side).
+The audience is every team whose `useWebAnalyticsDimensionalTables` modifier is on. The
+query runners read the same modifier, so a team that reads the tables by default is a team
+this job fills. The `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team
+IDs) overrides the modifier when set; set it to empty to stop the job.
 
 After the writers, a coverage check reads the READY jobs back from Postgres and
 fails the run when a team has a day without a fresh job or a stale current day.
@@ -28,13 +22,10 @@ import os
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 
-from django.conf import settings
-
 import dagster
 import structlog
 from prometheus_client import Counter, Gauge
 
-from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, chunk_ranges, skip_on_kill_switch
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
@@ -75,18 +66,7 @@ PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS",
 # trade more bytes/INSERT for fewer INSERTs on lower-volume teams.
 PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "1"))
 
-# Built-in rollout audience used when the env var is unset, keyed by Cloud region.
-# Region-keyed because team IDs are not unique across US and EU — a single flat list
-# would enroll an unrelated same-ID team in the other region. Applied on PostHog
-# Cloud only (see get_selected_team_ids). US holds the dogfood project (2), the
-# high-volume pilot (55348), and the teams currently reading the v2 tables, for the
-# v2 side-by-side.
-DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
-    "US": [2, 39058, 47074, 55348],
-    "EU": [1, 1589, 126918],
-}
-
-# Comma-separated team IDs to precompute. Overrides the per-region default;
+# Comma-separated team IDs to precompute. Overrides the team modifier;
 # set to empty to disable the job entirely.
 SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
 
@@ -111,20 +91,15 @@ COVERAGE_TODAY_LAG_GAUGE = "web_dimensional_precompute_today_lag_seconds"
 
 
 def get_selected_team_ids() -> list[int]:
-    """Resolve the team allowlist.
-
-    The env var wins if set (even to empty): a comma-separated list, blank/invalid
-    entries skipped. If unset, fall back to the current region's default — but only
-    on PostHog Cloud; self-hosted defaults to none so the job never runs for
-    unrelated teams that happen to share those IDs.
-    """
+    """The teams to precompute: the env var when set, even to empty, else every team with the modifier on."""
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
     if raw is not None:
         return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
-    if not is_cloud():
-        return []
-    region = (settings.CLOUD_DEPLOYMENT or "").upper()
-    return list(DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION.get(region, []))
+    return list(
+        Team.objects.filter(modifiers__useWebAnalyticsDimensionalTables=True)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
 
 
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(
@@ -398,7 +373,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
     )
     if not team_ids:
-        context.log.info(f"web_dimensional_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
+        context.log.info("web_dimensional_precompute_noop (no team selected)")
         context.add_output_metadata({"teams": 0, "failures": 0})
         return DimensionalPrecomputeRun(
             teams=0, failures=0, team_ids=(), sample_job_ids={}, window=window, current_day=current_day

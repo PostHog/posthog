@@ -47,7 +47,10 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
-from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    ready_dimensional_job_ids,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 DIMENSIONAL_READ_TABLES = (WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
@@ -98,16 +101,10 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
-        variant_patcher = patch(
-            "products.web_analytics.backend.hogql_queries.web_dimensional_read.get_feature_flag_or_none",
-            return_value=None,
-        )
-        variant_patcher.start()
-        self.addCleanup(variant_patcher.stop)
         super().setUp()
 
     def _pageview(self, distinct_id: str, session: str, ts: str, **props) -> None:
