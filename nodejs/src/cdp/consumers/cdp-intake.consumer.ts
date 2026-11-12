@@ -30,11 +30,7 @@ const TOPICS: Record<
     },
 }
 
-/**
- * Inserts the runs that the send and webhook routes accepted onto one intake topic as cyclotron jobs.
- *
- * One deployment runs per topic, so a backlog of webhook runs never delays transactional sends.
- */
+// One deployment runs per intake topic, so a backlog of webhook runs never delays transactional sends.
 export class CdpIntakeConsumer extends CdpConsumerBase {
     protected name = 'CdpIntakeConsumer'
     private kafkaConsumer: KafkaConsumerInterface
