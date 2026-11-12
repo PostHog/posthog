@@ -1649,6 +1649,27 @@ class TestReplayVisionLifecycleTools(BaseTest):
 
         assert artifact["error"] == "invalid_filters"
 
+    def test_observation_stats_rank_fixed_and_freeform_tags_together(self):
+        scanner = self._scanner(
+            scanner_type=ScannerType.CLASSIFIER, scanner_config={"prompt": "p", "tags": ["checkout"]}
+        )
+        outputs = [{"tags": ["checkout"]}, {"tags_freeform": ["coupon"]}, {"tags_freeform": ["coupon"]}]
+        for index, output in enumerate(outputs):
+            ReplayObservation.objects.create(
+                scanner=scanner,
+                session_id=f"s{index}",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={"model_output": output},
+            )
+
+        content, _ = async_to_sync(self._tool(GetReplayVisionObservationStatsTool)._arun_impl)(
+            scanner_id=str(scanner.id)
+        )
+
+        assert "- coupon: 2\n- checkout: 1" in content
+
     @parameterized.expand([("count", False), ("cohort", True)])
     def test_impact_leaves_out_observations_from_an_unreadable_experiment(self, _name: str, create_cohort: bool):
         scanner = self._scanner()

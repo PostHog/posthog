@@ -1113,9 +1113,12 @@ class GetReplayVisionObservationStatsTool(ReplayVisionGatesMixin, MaxTool):
             )
         elif classifier := stats["classifier"]:
             artifact["classifier"] = classifier
-            ranked = classifier["fixed_ranked"] + classifier["freeform_ranked"]
-            if ranked:
-                lines = [f"- {row['tag']}: {row['count']}" for row in ranked]
+            tag_counts: Counter[str] = Counter()
+            for row in classifier["fixed_ranked"] + classifier["freeform_ranked"]:
+                tag_counts[row["tag"]] += row["count"]
+            if tag_counts:
+                ranked = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))
+                lines = [f"- {tag}: {count}" for tag, count in ranked]
                 content += (
                     f" {classifier['total_with_tags']} succeeded observation(s) carry a tag. Top tags:\n\n"
                     + as_untrusted_data("tags", lines)
