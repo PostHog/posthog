@@ -4292,6 +4292,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `azure_application_insights` - azure_application_insights
  * * `appsignal` - appsignal
  * * `cursor` - cursor
+ * * `app_store_connect` - app_store_connect
+ * * `sentry_feedback` - sentry_feedback
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -5450,6 +5452,19 @@ export interface CursorIssueSignalExtraApi {
     timestamp: string | null
 }
 
+export interface AppStoreConnectReviewSignalExtraApi {
+    app_id: string | null
+    rating: string | null
+    territory: string | null
+    created_date: string | null
+}
+
+export interface SentryFeedbackSignalExtraApi {
+    project_slug: string | null
+    event_id: string | null
+    date_created: string | null
+}
+
 export interface TriggerDevErrorSignalExtraApi {
     task_identifier: string | null
     status: string | null
@@ -5671,6 +5686,8 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | AppStoreConnectReviewSignalExtraApi
+    | SentryFeedbackSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -5845,7 +5862,9 @@ export interface SignalNodeApi {
      * * `google_play_console` - google_play_console
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
-     * * `cursor` - cursor */
+     * * `cursor` - cursor
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
