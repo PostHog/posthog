@@ -131137,7 +131137,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Words to match against the metric name, display name, description, and definition. Results come best match first. A metric matches when it contains any word, compared by stem. A quoted phrase must match all its words, and common words such as 'what' or 'our' are ignored. Partial words, synonyms, and acronyms do not match: 'rev' does not find 'revenue', and 'mrr' does not find 'monthly recurring revenue'.
      */
     search?: string;
     /**
