@@ -88,23 +88,23 @@ export function WatchPanelSections({
             {observations && (
                 <AccordionItem
                     value="observations"
-                    className={`relative ${ITEM_CLASS}`}
                     ref={(el) => {
                         itemRefs.current.observations = el
                     }}
                 >
-                    <AccordionTrigger
-                        className="min-w-0 [&>span]:min-w-0 [&>span]:flex-1"
-                        data-attr="watch-panel-section-observations"
-                    >
-                        <span className="flex items-center gap-1.5 min-w-0">
-                            <IconSparkles className="shrink-0" />
-                            <span className="truncate">Replay Vision observations</span>
-                            {observations.count > 0 && <Badge className="shrink-0">{observations.count}</Badge>}
-                            {observations.action && <span aria-hidden className="w-40 shrink-0" />}
-                        </span>
-                    </AccordionTrigger>
-                    {observations.action && <div className="absolute top-1.5 right-8">{observations.action}</div>}
+                    <div className="flex items-center gap-1 [&>h3]:m-0 [&>h3]:min-w-0 [&>h3]:flex-1 [&>h3]:font-[inherit]">
+                        <AccordionTrigger
+                            className="min-w-0 [&>span]:min-w-0 [&>span]:flex-1"
+                            data-attr="watch-panel-section-observations"
+                        >
+                            <span className="flex items-center gap-1.5 min-w-0">
+                                <IconSparkles className="shrink-0" />
+                                <span className="truncate">Replay Vision observations</span>
+                                {observations.count > 0 && <Badge className="shrink-0">{observations.count}</Badge>}
+                            </span>
+                        </AccordionTrigger>
+                        {observations.action && <div className="shrink-0 pr-2">{observations.action}</div>}
+                    </div>
                     <AccordionContent>{observations.content}</AccordionContent>
                 </AccordionItem>
             )}
