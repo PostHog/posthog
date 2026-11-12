@@ -6,13 +6,21 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { CodeEmailApi, MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import type { MessageTemplate } from '../TemplateLibrary/types'
 import type { TransactionalEmailRow } from './transactionalEmailRows'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 
-const template = (id: string, name: string, tags: string[], createdBy: number, transactional = true): MessageTemplate =>
+const SERVER_PAGE_SIZE = 2
+
+const template = (
+    id: string,
+    name: string,
+    tags: string[],
+    createdBy: number,
+    transactional = true,
+    draft = false
+): MessageTemplateApi =>
     ({
         id,
         name,
@@ -20,7 +28,17 @@ const template = (id: string, name: string, tags: string[], createdBy: number, t
         tags,
         created_by: { id: createdBy },
         transactional_hog_flow_id: transactional ? `flow-${id}` : null,
-    }) as unknown as MessageTemplate
+        content: { templating: 'liquid', email: { subject: name, html: `<p>${name}</p>` } },
+        draft_content: draft ? { templating: 'liquid', email: { subject: `${name} v2`, html: '<p>v2</p>' } } : null,
+        has_draft: draft,
+    }) as unknown as MessageTemplateApi
+
+const STORED_TEMPLATES = [
+    template('d', 'Newsletter', ['auth'], 1, false),
+    template('a', 'Password reset', ['auth'], 1),
+    template('b', 'Receipt', ['billing'], 2, true, true),
+    template('c', 'Sign-in code', ['auth'], 2),
+]
 
 const codeEmail = (id: string, key: string, tags: string[]): CodeEmailApi => ({
     id,
@@ -45,9 +63,13 @@ describe('transactionalEmailsLogic', () => {
     const codeRow = (): TransactionalEmailRow =>
         logic.values.transactionalEmails.find((r) => r.name === 'password-changed')!
     let writes: { path: string; tags: string[] }[]
+    let serverPredatesBasicRowsByRequest: boolean[]
+    let templateListRequests: number
 
     beforeEach(async () => {
         writes = []
+        serverPredatesBasicRowsByRequest = [false]
+        templateListRequests = 0
         useMocks({
             patch: {
                 '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
@@ -64,13 +86,22 @@ describe('transactionalEmailsLogic', () => {
                 },
             },
             get: {
-                '/api/projects/:team_id/messaging_templates/': {
-                    results: [
-                        template('a', 'Password reset', ['auth'], 1),
-                        template('b', 'Receipt', ['billing'], 2),
-                        template('c', 'Sign-in code', ['auth'], 2),
-                        template('d', 'Newsletter', ['auth'], 1, false),
-                    ],
+                '/api/projects/:team_id/messaging_templates/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const offset = Number(params.get('offset') ?? 0)
+                    const limit = Math.min(Number(params.get('limit') ?? SERVER_PAGE_SIZE), SERVER_PAGE_SIZE)
+                    const serverPredatesBasicRows =
+                        serverPredatesBasicRowsByRequest[
+                            Math.min(templateListRequests++, serverPredatesBasicRowsByRequest.length - 1)
+                        ]
+                    const matching = serverPredatesBasicRows
+                        ? STORED_TEMPLATES.map(({ has_draft, ...full }) => full)
+                        : STORED_TEMPLATES.filter(
+                              (t) => params.get('transactional') !== 'true' || t.transactional_hog_flow_id
+                          ).map(({ content, draft_content, ...basic }) =>
+                              params.get('basic') === 'true' ? basic : { ...basic, content, draft_content }
+                          )
+                    return [200, { count: matching.length, results: matching.slice(offset, offset + limit) }]
                 },
                 [CODE_EMAILS]: [codeEmail('k', 'password-changed', ['auth'])],
             },
@@ -86,6 +117,32 @@ describe('transactionalEmailsLogic', () => {
     })
 
     afterEach(() => logic.unmount())
+
+    it('loads every page of transactional emails without their content', () => {
+        expect(logic.values.transactionalTemplates.map(({ name, content }) => ({ name, content }))).toEqual([
+            { name: 'Password reset', content: undefined },
+            { name: 'Receipt', content: undefined },
+            { name: 'Sign-in code', content: undefined },
+        ])
+    })
+
+    it.each([
+        ['this release', [false]],
+        ['an earlier release, mid-deploy', [true]],
+        ['an earlier release for the first page, then this release', [true, false]],
+        ['this release for the first page, then an earlier release', [false, true]],
+    ])('lists transactional emails and their draft badges from a server on %s', async (_case, releases) => {
+        serverPredatesBasicRowsByRequest = releases
+        templateListRequests = 0
+        logic.actions.loadTransactionalTemplates()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.transactionalTemplates.map(({ name, has_draft }) => ({ name, has_draft }))).toEqual([
+            { name: 'Password reset', has_draft: false },
+            { name: 'Receipt', has_draft: true },
+            { name: 'Sign-in code', has_draft: false },
+        ])
+    })
 
     it.each([
         [
@@ -236,7 +293,7 @@ describe('transactionalEmailsLogic', () => {
             expect(stored).toEqual(all)
             expect(row().tags).toEqual(all)
             logic.actions.loadCodeEmails()
-            logic.actions.loadTemplates()
+            logic.actions.loadTransactionalTemplates()
             await expectLogic(logic).toFinishAllListeners()
             expect(row().tags).toEqual(all)
         } finally {

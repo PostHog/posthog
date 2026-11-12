@@ -8,9 +8,9 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clear_locations
 
+from products.data_modeling.backend.facade.contracts import IncrementalFilterError
 from products.data_modeling.backend.logic.incremental_filter import (
     GUARD_ALIAS,
-    IncrementalFilterError,
     bind_window_start,
     bind_window_start_sql,
     inject_incremental_filter,

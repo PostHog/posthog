@@ -93,7 +93,7 @@ export interface DevUserUsageApi {
     /** Tokens minted in the last 30 days that were revoked. */
     revoked_30d: number
     /**
-     * Token caps minted in the last 24 hours, in USD.
+     * Budget counted for tokens minted in the last 24 hours, in USD.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     reserved_usd_24h: string
@@ -213,6 +213,12 @@ export interface DevTokenApi {
      * @nullable
      */
     revoked_at: string | null
+    /**
+     * What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    spent_usd: string | null
     /** Whether the token still works: live, revoked or expired.
      *
      * * `live` - Live
@@ -229,20 +235,25 @@ export interface DevTokenApi {
 
 export interface DevTokenUsageApi {
     /**
-     * Most token caps one user can mint in 24 hours, in USD.
+     * Most budget one user can use in 24 hours, in USD.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     daily_cap_usd: string
     /**
-     * Token caps the user minted in the last 24 hours, in USD.
+     * Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     used_usd: string
     /**
-     * Cap of each new token, in USD.
+     * Largest cap of a new token, in USD.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     token_cap_usd: string
+    /**
+     * Budget that must be left to create a token, in USD.
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    token_cap_min_usd: string
     /** Lifetime of each new token, in seconds. */
     ttl_seconds: number
     /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
