@@ -118,6 +118,8 @@ export type KafkaConsumerConfig = {
      * deployment value that can drift away from the assumption without anything noticing.
      */
     fetchBatchSize?: number
+    /** Background tasks in flight before the consumer waits for the oldest one, overriding CONSUMER_MAX_BACKGROUND_TASKS. */
+    maxBackgroundTasks?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -170,7 +172,7 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
