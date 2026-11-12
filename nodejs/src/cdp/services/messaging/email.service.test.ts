@@ -1476,7 +1476,7 @@ describe('EmailService', () => {
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
-            const result = await service.executeSendEmail(invocation)
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1505,11 +1505,33 @@ describe('EmailService', () => {
                 template: { template_uuid: 'template-1' },
             })
 
-            const result = await service.executeSendEmail(invocation)
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
 
             expect(result.error).toBeUndefined()
             expect(ses.sent[0].tags).toMatchObject({ ph_template_id: 'template-1' })
             expect(result.capturedPostHogEvents[0].properties.$email_template_id).toEqual('template-1')
+        })
+
+        it('sends a transactional email without template tags for a team outside the template tags allowlist', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                template_key: 'welcome_v2',
+            }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+
+            const result = await createService({ templateTagsTeams: String(team.id + 1) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toEqual({
+                ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                ph_email_status: 'true',
+            })
+            expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                $email_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                $email_template_key: 'welcome_v2',
+            })
         })
 
         const sesAccepts = (): void => {}
