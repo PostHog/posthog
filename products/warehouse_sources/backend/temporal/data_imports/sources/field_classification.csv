@@ -772,7 +772,7 @@ Meetup,,,,,,meetup
 Megaphone,api_token organization_id,,,,,megaphone
 Meltwater,,,,,,meltwater
 Mem0,api_key org_id project_id,,,,,mem0
-Memberful,,,,,,memberful
+Memberful,subdomain api_key,,,,,memberful
 Membrain,api_key subdomain,,,,,membrain
 Mendeley,,,,,,mendeley
 Mention,access_token,,,,,mention
