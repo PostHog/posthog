@@ -4,14 +4,27 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
 from parameterized import parameterized
 
-from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS, BriefSettings
+from posthog.llm.gateway_client import AIGatewayConfig
+from posthog.models import Team, User
+
+from products.pulse.backend.config import (
+    DEFAULT_BRIEF_SETTINGS,
+    LLM_MAX_RETRIES,
+    LLM_TIMEOUT_SECONDS,
+    SYNTHESIS_MODEL,
+    SYNTHESIZE_ACTIVITY_TIMEOUT,
+    BriefSettings,
+)
 from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT, _get_managed_prompt
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.generation.synthesize import _render_items, apply_say_less_gate, synthesize_brief
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
+
+from ee.hogai.llm import MaxChatOpenAI
 
 _START = dt.date(2026, 1, 1)
 _END = dt.date(2026, 1, 8)
@@ -254,3 +267,29 @@ class TestSayLessGate:
                 end_date=_END,
                 lookback_days=7,
             )
+
+
+@patch.dict("os.environ", {"OPENAI_API_KEY": "direct-api-key"})
+def test_a_stalled_gateway_leaves_the_direct_attempts_inside_the_activity_timeout() -> None:
+    gateway = AIGatewayConfig(url="https://ai-gateway.test/v1", api_key="phs_gateway")
+    with patch("ee.hogai.llm.resolve_ai_gateway_config", return_value=gateway):
+        llm = MaxChatOpenAI(
+            model=SYNTHESIS_MODEL,
+            timeout=LLM_TIMEOUT_SECONDS,
+            max_retries=LLM_MAX_RETRIES,
+            user=User(),
+            team=Team(),
+            billable=True,
+            posthog_properties={"ai_product": "pulse", "ai_feature": "brief_synthesis"},
+        )
+    twin = llm.ai_gateway_fallback
+    assert twin is not None
+    assert twin.max_retries is not None
+
+    gateway_seconds = httpx.Timeout(llm.root_client.timeout).read
+    direct_seconds = httpx.Timeout(twin.root_client.timeout).read
+    assert gateway_seconds is not None
+    assert direct_seconds is not None
+    worst_case_seconds = gateway_seconds + direct_seconds * (twin.max_retries + 1)
+
+    assert worst_case_seconds < SYNTHESIZE_ACTIVITY_TIMEOUT.total_seconds()

@@ -109,8 +109,8 @@ jobs:
             !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
             needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
-        # Covers two bounded build attempts plus the post-build image-boot verification before
-        # dispatch.
+        # Covers two bounded build attempts plus the post-build image-boot verification and the
+        # frontend asset publish to three buckets before dispatch.
         timeout-minutes: 60
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -392,6 +392,119 @@ jobs:
                           python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker; from posthog.celery import app; app.loader.import_default_modules()"
                           python manage.py check
                       '
+
+            # The pages in this image name content-hashed files that browsers fetch from the CDN, and the
+            # CDN reads each environment's static-assets bucket. Publishing from the pushed digest before
+            # any dispatch below means no pod can serve a page whose files the bucket lacks, whichever sync
+            # path rolls it out. An upload error fails the job, and with it every dispatch. The pushed image
+            # is the only correct source: the sourcemap stage rewrites the JS after the frontend build
+            # stage, so only the final image's dist matches what pods serve.
+            #
+            # Only files named Name-HASH.ext, with an uppercase content hash after the last hyphen, are
+            # published: a new hash is a new key, so an older run finishing late changes nothing. The
+            # pattern accepts the two hash shapes the build emits, 8 characters from esbuild and S plus
+            # 10 hex digits from the stable chunk names. A looser pattern also takes fixed-name files such
+            # as terminal/jq-COPYING.txt, and the upload below never updates a name that exists. The
+            # fixed-name files (SDK bundles, the toolbar, index.html) are fetched by name, so the Argo
+            # upload hook keeps writing those as the pods roll, never ahead of them.
+            - name: Extract the frontend build from the image
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              env:
+                  IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  container=$(docker create "$IMAGE")
+                  docker cp "$container:/code/frontend/dist" "$RUNNER_TEMP/frontend-dist"
+                  docker rm "$container" > /dev/null
+                  staging="$RUNNER_TEMP/frontend-dist-immutable"
+                  mkdir -p "$staging"
+                  cd "$RUNNER_TEMP/frontend-dist"
+                  find . -type f -regextype posix-extended \
+                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-([A-Z0-9]{8}|S[0-9A-F]{10})\.[a-z0-9]+$' \
+                      ! -name '*.map' > "$RUNNER_TEMP/hashed.txt"
+                  while IFS= read -r f; do
+                      rel="${f#./}"
+                      mkdir -p "$staging/$(dirname "$rel")"
+                      cp "$f" "$staging/$rel"
+                  done < "$RUNNER_TEMP/hashed.txt"
+                  count=$(wc -l < "$RUNNER_TEMP/hashed.txt")
+                  echo "$count content-hashed files"
+                  if [ "$count" -eq 0 ]; then
+                      echo "::error::No content-hashed files found in the image's frontend/dist, so nothing can be published."
+                      exit 1
+                  fi
+                  # The build has thousands of small files, and each publish step has a short timeout.
+                  # More parallel requests than the AWS CLI default of 10 keep each upload well inside it.
+                  aws configure set default.s3.max_concurrent_requests 50
+
+            # The extract step leaves out every .map file, so a retained sourcemap stays private.
+            # The upload never replaces an object that exists. The name of a content-hashed file comes from
+            # its content, so an existing object needs no update. The upload role can then be denied every
+            # overwrite, and these credentials cannot change a file that browsers already load.
+            # The build marker is written last: a pod-start gate reads it as proof that every file above
+            # is in the bucket.
+            #
+            # Each environment publishes only once its role variable is set, so the publish rolls out one
+            # bucket at a time and a missing variable skips the bucket instead of blocking every deploy.
+            # A step timeout keeps a stalled upload from eating the job's whole budget.
+            - name: Assume the dev static-assets role
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE }}
+                  aws-region: us-east-1
+            - name: Publish frontend assets to dev
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 5
+              env:
+                  BUCKET: posthog-cloud-dev-us-east-1-static-assets
+              run: |
+                  set -euo pipefail
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            - name: Assume the prod-us static-assets role
+              if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE }}
+                  aws-region: us-east-1
+            - name: Publish frontend assets to prod-us
+              if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 5
+              env:
+                  BUCKET: posthog-cloud-prod-us-east-1-static-assets
+              run: |
+                  set -euo pipefail
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            - name: Assume the prod-eu static-assets role
+              if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE }}
+                  aws-region: eu-central-1
+            - name: Publish frontend assets to prod-eu
+              if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 5
+              env:
+                  BUCKET: posthog-cloud-prod-eu-central-1-static-assets
+              run: |
+                  set -euo pipefail
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
+
+            # The role action exports its session keys to the job environment, where they stay until the
+            # job ends. No later step uses AWS, so the steps below must not hold write access to the buckets.
+            - name: Drop the static-assets credentials
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              run: |
+                  {
+                      echo "AWS_ACCESS_KEY_ID="
+                      echo "AWS_SECRET_ACCESS_KEY="
+                      echo "AWS_SESSION_TOKEN="
+                  } >> "$GITHUB_ENV"
 
             - name: get deployer token
               id: deployer
