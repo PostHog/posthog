@@ -143,6 +143,33 @@ const externalDataSchemasDeleteData = (): ToolBase<
     },
 })
 
+const ExternalDataSchemasDeleteHistoryTableSchema = () => {
+    const ExternalDataSchemasHistoryTableDestroyParams = orvalSchemas.ExternalDataSchemasHistoryTableDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasHistoryTableDestroyParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSchemasDeleteHistoryTable = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasDeleteHistoryTableSchema>,
+    unknown
+> => ({
+    name: 'external-data-schemas-delete-history-table',
+    schema: ExternalDataSchemasDeleteHistoryTableSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasDeleteHistoryTableSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/history_table/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSchemasDestinationsRetrieveSchema = () => {
     const ExternalDataSchemasDestinationsRetrieveParams = orvalSchemas.ExternalDataSchemasDestinationsRetrieveParams()
     return z.preprocess(
@@ -728,6 +755,42 @@ const externalDataSourcesDisableCdcCreate = (): ToolBase<
     },
 })
 
+const ExternalDataSourcesDraftCustomManifestSchema = () => {
+    const ExternalDataSourcesDraftCustomManifestCreateBody =
+        orvalSchemas.ExternalDataSourcesDraftCustomManifestCreateBody()
+    return ExternalDataSourcesDraftCustomManifestCreateBody
+}
+
+const externalDataSourcesDraftCustomManifest = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesDraftCustomManifestSchema>,
+    Schemas.DraftCustomManifestResponse
+> => ({
+    name: 'external-data-sources-draft-custom-manifest',
+    schema: ExternalDataSourcesDraftCustomManifestSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDraftCustomManifestSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_name !== undefined) {
+            body['source_name'] = params.source_name
+        }
+        if (params.docs_url !== undefined) {
+            body['docs_url'] = params.docs_url
+        }
+        if (params.docs_text !== undefined) {
+            body['docs_text'] = params.docs_text
+        }
+        const result = await context.api.request<Schemas.DraftCustomManifestResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/draft_custom_manifest/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesEnableCdcCreateSchema = () => {
     const ExternalDataSourcesEnableCdcCreateBody = orvalSchemas.ExternalDataSourcesEnableCdcCreateBody()
     const ExternalDataSourcesEnableCdcCreateParams = orvalSchemas.ExternalDataSourcesEnableCdcCreateParams()
@@ -1010,6 +1073,52 @@ const externalDataSourcesRetrieve = (): ToolBase<
         const filtered = omitResponseFields(result, [
             'schemas.*.table.columns',
             'schemas.*.available_columns',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const ExternalDataSourcesRevenueConfigUpdateSchema = () => {
+    const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody =
+        orvalSchemas.ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody()
+    const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams =
+        orvalSchemas.ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
+        ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams.omit({ project_id: true }).extend(
+            ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody.shape
+        )
+    )
+}
+
+const externalDataSourcesRevenueConfigUpdate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesRevenueConfigUpdateSchema>,
+    Schemas.ExternalDataSourceSerializers
+> => ({
+    name: 'external-data-sources-revenue-config-update',
+    schema: ExternalDataSourcesRevenueConfigUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesRevenueConfigUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.include_invoiceless_charges !== undefined) {
+            body['include_invoiceless_charges'] = params.include_invoiceless_charges
+        }
+        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/revenue_analytics_config/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'source_type',
+            'prefix',
+            'revenue_analytics_config',
         ]) as typeof result
         return filtered
     },
@@ -1462,6 +1571,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
+    'external-data-schemas-delete-history-table': externalDataSchemasDeleteHistoryTable,
     'external-data-schemas-destinations-retrieve': externalDataSchemasDestinationsRetrieve,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
     'external-data-schemas-list': externalDataSchemasList,
@@ -1480,6 +1590,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-destinations-update': externalDataSourcesDestinationsUpdate,
     'external-data-sources-destroy': externalDataSourcesDestroy,
     'external-data-sources-disable-cdc-create': externalDataSourcesDisableCdcCreate,
+    'external-data-sources-draft-custom-manifest': externalDataSourcesDraftCustomManifest,
     'external-data-sources-enable-cdc-create': externalDataSourcesEnableCdcCreate,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,
@@ -1488,6 +1599,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-repair-cdc-create': externalDataSourcesRepairCdcCreate,
     'external-data-sources-resume-cdc-create': externalDataSourcesResumeCdcCreate,
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
+    'external-data-sources-revenue-config-update': externalDataSourcesRevenueConfigUpdate,
     'external-data-sources-update-cdc-settings-create': externalDataSourcesUpdateCdcSettingsCreate,
     'external-data-sources-update-webhook-inputs-create': externalDataSourcesUpdateWebhookInputsCreate,
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,

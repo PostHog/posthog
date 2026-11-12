@@ -6632,6 +6632,9 @@ export interface IncrementalField {
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
     is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
+    recommended?: boolean // the backend's pick among the candidates, set for database sources
+    picked_by_model?: boolean // the decision model, not the name rules, chose this field
+    notes?: string[] // trade-offs of picking this field, for the person choosing
 }
 
 export interface ExternalDataSourceSyncSchema {

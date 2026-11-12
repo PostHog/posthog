@@ -7,7 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+import { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 const LOOKBACK_UNIT_SECONDS = {
     minutes: 60,
@@ -41,6 +41,40 @@ export const secondsToLookbackParts = (
     // Floor (not round) so a non-divisible value never displays as more than it is and then
     // saves back the inflated number — e.g. 90 s shows "1 minute" and round-trips to 60 s.
     return { amount: Math.floor(seconds / 60), unit: 'minutes' }
+}
+
+// `recommended` is a cursor for incremental sync, so only that select marks it. Append wants a field
+// that never changes on update, which is the opposite pick.
+const incrementalFieldOptions = (
+    fields: IncrementalField[],
+    markRecommended: boolean
+): { value: string; label: JSX.Element }[] =>
+    fields.map((field) => ({
+        value: field.field,
+        label: (
+            <>
+                <span className="leading-5">{field.label}</span>
+                <LemonTag className="ml-2" type="success">
+                    {field.type}
+                </LemonTag>
+                {markRecommended && field.recommended && (
+                    <LemonTag className="ml-1" type="highlight">
+                        Recommended
+                    </LemonTag>
+                )}
+            </>
+        ),
+    }))
+
+// A model pick is a column that changes on update, so append, which wants a column that never
+// changes, defaults to the next candidate instead.
+const getDefaultAppendField = (schema: ExternalDataSourceSyncSchema, defaultField: string | null): string | null =>
+    schema.incremental_field ?? schema.incremental_fields.find((field) => !field.picked_by_model)?.field ?? defaultField
+
+// The backend puts its note for a model pick first, so the form shows the same words.
+const getModelPickNote = (fields: IncrementalField[], selectedField: string | null): string | null => {
+    const selected = fields.find((field) => field.field === selectedField)
+    return selected?.picked_by_model ? (selected.notes?.[0] ?? null) : null
 }
 
 const getIncrementalSyncSupported = (
@@ -260,12 +294,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const keyResolvable = !keyRequired || !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
+    const defaultAppendField = getDefaultAppendField(schema, defaultField)
 
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled, keyResolvable)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
-    const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
+    const modelPickNote = getModelPickNote(schema.incremental_fields, incrementalFieldValue)
+    const [appendFieldValue, setAppendFieldValue] = useState(defaultAppendField)
     // Prefill detected PKs only when the selector is editable. A locked schema already has a key
     // the backend refuses to swap, so prefilling from detected would silently turn unrelated edits
     // into "Primary key cannot be changed" errors.
@@ -289,7 +325,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             )
         )
         setIncrementalFieldValue(defaultField)
-        setAppendFieldValue(defaultField)
+        setAppendFieldValue(defaultAppendField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
         const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
         setLookbackAmount(resetLookback.amount)
@@ -499,20 +535,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                     setIncrementalFieldValue(newValue)
                                     setRadioValue('incremental')
                                 }}
-                                options={
-                                    schema.incremental_fields.map((n) => ({
-                                        value: n.field,
-                                        label: (
-                                            <>
-                                                <span className="leading-5">{n.label}</span>
-                                                <LemonTag className="ml-2" type="success">
-                                                    {n.type}
-                                                </LemonTag>
-                                            </>
-                                        ),
-                                    })) ?? []
-                                }
+                                options={incrementalFieldOptions(schema.incremental_fields, true)}
                             />
+                            {radioValue === 'incremental' && modelPickNote && (
+                                <p className="text-secondary text-xs mt-1 mb-0">{modelPickNote}</p>
+                            )}
                             {radioValue === 'incremental' &&
                                 incrementalFieldValue &&
                                 schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.nullable && (
@@ -611,19 +638,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                           setAppendFieldValue(newValue)
                                           setRadioValue('append')
                                       }}
-                                      options={
-                                          schema.incremental_fields.map((n) => ({
-                                              value: n.field,
-                                              label: (
-                                                  <>
-                                                      <span className="leading-5">{n.label}</span>
-                                                      <LemonTag className="ml-2" type="success">
-                                                          {n.type}
-                                                      </LemonTag>
-                                                  </>
-                                              ),
-                                          })) ?? []
-                                      }
+                                      options={incrementalFieldOptions(schema.incremental_fields, false)}
                                   />
                                   {radioValue === 'append' &&
                                       appendFieldValue &&

@@ -986,7 +986,9 @@ export const EngineEnumApi = {
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
     enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
     include_invoiceless_charges?: boolean
 }
 
@@ -1589,6 +1591,13 @@ export interface CdcResumeResponseApi {
     success: boolean
 }
 
+export interface PatchedExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+    enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+    include_invoiceless_charges?: boolean
+}
+
 export interface CdcUpdateSettingsRequestApi {
     /** Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode. */
     cdc_auto_drop_slot?: boolean
@@ -2003,6 +2012,69 @@ export interface DraftCustomManifestResponseApi {
 export interface ExternalDataSourceExistsApi {
     /** Whether the project has any accessible external data sources. */
     exists: boolean
+}
+
+export interface IncrementalFieldCandidateApi {
+    /**
+     * Name of the field as shown in the UI.
+     * @maxLength 4096
+     */
+    label: string
+    /**
+     * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
+     * @maxLength 4096
+     */
+    field: string
+    /**
+     * Type of the field as shown in the UI, such as timestamp.
+     * @maxLength 32
+     */
+    type: string
+    /**
+     * Type of the field in the source, such as timestamp.
+     * @maxLength 32
+     */
+    field_type: string
+    /** Whether the field allows null values. */
+    nullable?: boolean
+    /** Whether the field leads an index or sort key on the source table. */
+    is_indexed?: boolean
+    /** Whether this is the field the source recommends as the incremental cursor. */
+    recommended?: boolean
+    /** Whether the decision model, not the name rules, picked this field. Ignored on input. */
+    picked_by_model?: boolean
+    /**
+     * Trade-offs of picking this field.
+     * @maxItems 16
+     * @items.maxLength 1000
+     */
+    notes?: string[]
+}
+
+export interface IncrementalFieldTableApi {
+    /**
+     * Name of the table, as returned by database_schema.
+     * @maxLength 4096
+     */
+    table: string
+    /**
+     * The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.
+     * @maxItems 16
+     */
+    incremental_fields: IncrementalFieldCandidateApi[]
+}
+
+export interface IncrementalFieldRecommendationsRequestApi {
+    /**
+     * Tables from database_schema to get a recommended incremental field for.
+     * @maxItems 128
+     */
+    tables: IncrementalFieldTableApi[]
+}
+
+export interface IncrementalFieldRecommendationsResponseApi {
+    /** Only the tables where the decision model picked a field, with that field first and recommended. */
+    tables: IncrementalFieldTableApi[]
 }
 
 /**

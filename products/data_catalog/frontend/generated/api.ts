@@ -31,6 +31,7 @@ import type {
     PaginatedDataCatalogMetricListApi,
     PaginatedDataCatalogRelationshipProposalListApi,
     PatchedDataCatalogMetricApi,
+    PendingReviewCountsApi,
     RelationshipRejectApi,
     UsageSnapshotApi,
     UsageSnapshotSummaryApi,
@@ -461,6 +462,23 @@ export const dataCatalogMetricsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
+    })
+}
+
+export const getDataCatalogPendingReviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/pending_review/`
+}
+
+/**
+ * How many items wait in each review queue, counted as the list of that queue shows them to you.
+ */
+export const dataCatalogPendingReviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PendingReviewCountsApi> => {
+    return apiMutator<PendingReviewCountsApi>(getDataCatalogPendingReviewRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
