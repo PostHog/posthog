@@ -189,6 +189,7 @@ export type EmailMetricRow = {
     // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
     // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
     trackedSends: number
+    removed: boolean
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
@@ -1630,33 +1631,52 @@ export function buildEmailMetricRows(
     emailActions: { id: string; name: string }[],
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
 ): EmailMetricRow[] {
-    return emailActions.map((action) => {
-        const totals = emailTotalsByActionId[action.id] || {}
-        const sent = totals.email_sent ?? 0
-        const bounced = totals.email_bounced ?? 0
-        const markedAsSpam = totals.email_blocked ?? 0
-        const untracked = totals.email_untracked ?? 0
-        return {
-            id: action.id,
-            email: action.name,
-            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
-            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
-            sent,
-            opened: totals.email_opened ?? 0,
-            linkClicked: totals.email_link_clicked ?? 0,
-            bounced,
-            bouncedHard: totals.email_bounced_hard ?? 0,
-            bouncedSoft: totals.email_bounced_transient ?? 0,
-            bouncedUnknown: totals.email_bounced_undetermined ?? 0,
-            bouncePrevented: totals.email_bounce_prevented ?? 0,
-            missingRecipient: totals.email_missing_recipient ?? 0,
-            frequencyCapped: totals.message_frequency_capped ?? 0,
-            markedAsSpam,
-            untracked,
-            trackedSends: Math.max(0, sent - untracked),
-        }
-    })
+    const currentRows = emailActions.map((action) =>
+        toEmailMetricRow(action.id, action.name, emailTotalsByActionId[action.id] || {}, false)
+    )
+    const currentIds = new Set(emailActions.map((action) => action.id))
+    const removedRows = Object.entries(emailTotalsByActionId)
+        .filter(([actionId, totals]) => !currentIds.has(actionId) && hasEmailOnlyTotals(totals))
+        .map(([actionId, totals]) => toEmailMetricRow(actionId, 'Removed email', totals, true))
+    return [...currentRows, ...removedRows]
+}
+
+// Push and SMS steps also record message_frequency_capped, so that metric alone does not mark a step as an email.
+function hasEmailOnlyTotals(totals: Partial<Record<EmailMetricName, number>>): boolean {
+    return Object.entries(totals).some(([metricName, total]) => metricName !== 'message_frequency_capped' && total > 0)
+}
+
+function toEmailMetricRow(
+    id: string,
+    email: string,
+    totals: Partial<Record<EmailMetricName, number>>,
+    removed: boolean
+): EmailMetricRow {
+    const sent = totals.email_sent ?? 0
+    const bounced = totals.email_bounced ?? 0
+    const markedAsSpam = totals.email_blocked ?? 0
+    const untracked = totals.email_untracked ?? 0
+    return {
+        id,
+        email,
+        // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+        // feedback-loop reports recipients send after delivery, so they are not subtracted here.
+        delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
+        sent,
+        opened: totals.email_opened ?? 0,
+        linkClicked: totals.email_link_clicked ?? 0,
+        bounced,
+        bouncedHard: totals.email_bounced_hard ?? 0,
+        bouncedSoft: totals.email_bounced_transient ?? 0,
+        bouncedUnknown: totals.email_bounced_undetermined ?? 0,
+        bouncePrevented: totals.email_bounce_prevented ?? 0,
+        missingRecipient: totals.email_missing_recipient ?? 0,
+        frequencyCapped: totals.message_frequency_capped ?? 0,
+        markedAsSpam,
+        untracked,
+        trackedSends: Math.max(0, sent - untracked),
+        removed,
+    }
 }
 
 export function buildPushMetricRows(
