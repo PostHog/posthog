@@ -37,6 +37,8 @@ from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -750,3 +752,11 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
             await asyncio.shield(redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token))
         except (Exception, asyncio.CancelledError):
             logger.exception("github_full_cache.sync_lock_release_failed", integration_id=integration_id)
+
+
+def delete_repository_cache_of_integration(row: IntegrationRecord) -> None:
+    # Does the work of the CASCADE foreign key, which goes away when the rows leave this database.
+    IntegrationRepositoryCacheEntry.objects.filter(team_id=row.team_id, integration_id=row.id).delete()
+
+
+register_delete_hook(delete_repository_cache_of_integration)

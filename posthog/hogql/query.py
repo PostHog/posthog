@@ -940,7 +940,8 @@ class HogQLQueryExecutor:
                 self,
                 query=query,
                 settings=settings,
-                context=dataclasses.replace(self.context, limit_top_select=False),
+                # The source query gets its own set, so its flag-call reads do not tag the query that embeds its rows.
+                context=dataclasses.replace(self.context, limit_top_select=False, flag_calls_read=set()),
                 limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
