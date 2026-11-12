@@ -39160,6 +39160,10 @@
             "enum": ["account", "campaign", "search_term"],
             "type": "string"
         },
+        "MarketingAnalyticsRecommendationResolutionState": {
+            "enum": ["dismissed", "applied"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationRule": {
             "enum": [
                 "budget_constrained",

@@ -155,6 +155,7 @@ ActivityScope = Literal[
     "ReviewRepository",
     "ReviewProjectSettings",
     "ReviewInstallationClaim",
+    "RecommendationResolution",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -781,6 +782,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    "RecommendationResolution": ["subject_hash", "resolved_at"],
     "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],

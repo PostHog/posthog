@@ -8947,6 +8947,8 @@ export interface MarketingAnalyticsRecommendationIdentity {
     subject: string
 }
 
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
+
 /**
  * The benchmark a recommendation compares a CPA with, in this order of preference:
  * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
