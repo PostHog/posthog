@@ -241,8 +241,8 @@ def estimate_scanner_session_volume(
         budget=budget,
         sample_factor=sample_factor,
         scan_window_days=scan_window_days,
-        # Per budget, because a timeout under a preview's short budget says nothing about a longer one.
-        exact_skip_key=f"{filter_key}:exact-skip:{budget.max_execution_seconds}",
+        exact_skip_key=f"{filter_key}:exact-skip",
+        timeout_budget=budget.max_execution_seconds,
     )
     if budget.result_cache_seconds:
         safe_cache_set(result_key, dataclasses.asdict(estimate), budget.result_cache_seconds)
@@ -260,7 +260,10 @@ def _estimate_scanner_session_volume(
     sample_factor: float | None,
     scan_window_days: int,
     exact_skip_key: str,
+    timeout_budget: int,
 ) -> ScannerVolumeEstimate:
+    # Per budget for a timeout, which under a preview's short budget says nothing about a longer one.
+    timeout_skip_key = f"{exact_skip_key}:{timeout_budget}"
     now = dt.datetime.now(dt.UTC)
     window_start = now - dt.timedelta(days=scan_window_days)
     windowed = query.model_copy(deep=True)
@@ -280,7 +283,12 @@ def _estimate_scanner_session_volume(
     )
 
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
-    if not sampled_plan.sampled or budget.sampled_only or get_safe_cache(exact_skip_key):
+    if (
+        not sampled_plan.sampled
+        or budget.sampled_only
+        or get_safe_cache(exact_skip_key)
+        or get_safe_cache(timeout_skip_key)
+    ):
         # Nothing was sampled, so a fallback would rerun the identical query.
         return _execute_estimate_query(
             sampled_plan,
@@ -321,8 +329,10 @@ def _estimate_scanner_session_volume(
         ClickHouseEstimatedQueryExecutionTimeTooLong,
         ClickHouseQueryMemoryLimitExceeded,
         CHQueryErrorTooManyBytes,
-    ):
-        safe_cache_set(exact_skip_key, True, EXACT_ESTIMATE_SKIP_TTL_SECONDS)
+    ) as error:
+        # The byte cap is the same under every budget, so hitting it skips the exact count for all of them.
+        skip_key = exact_skip_key if isinstance(error, CHQueryErrorTooManyBytes) else timeout_skip_key
+        safe_cache_set(skip_key, True, EXACT_ESTIMATE_SKIP_TTL_SECONDS)
         # Full budget: halving it fails teams whose sampled count needs more than half.
         return _execute_estimate_query(
             sampled_plan,

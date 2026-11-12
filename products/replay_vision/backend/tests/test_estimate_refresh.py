@@ -208,12 +208,23 @@ def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
 
 
 @pytest.mark.django_db
-def test_a_failed_exact_count_is_skipped_next_time_and_previews_reuse_their_result() -> None:
+@pytest.mark.parametrize(
+    "exact_error, batch_query_type, batch_matched",
+    [
+        # A preview's timeout says nothing about the batch's longer budget, so the batch tries the exact count.
+        (ClickHouseQueryTimeOut(), "ReplayVisionScannerEstimateExactQuery", 7),
+        # The byte cap is the same under every budget, so the batch skips the exact count too.
+        (CHQueryErrorTooManyBytes("too many bytes", code=307), "ReplayVisionScannerEstimateSampledQuery", 70),
+    ],
+)
+def test_a_failed_exact_count_is_skipped_next_time_and_previews_reuse_their_result(
+    exact_error: Exception, batch_query_type: str, batch_matched: int
+) -> None:
     scanner = _make_scanner()
     with patch(
         "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
         side_effect=[
-            ClickHouseQueryTimeOut(),
+            exact_error,
             MagicMock(results=[[5, None]]),
             MagicMock(results=[[6, None]]),
             MagicMock(results=[[7, None]]),
@@ -236,10 +247,9 @@ def test_a_failed_exact_count_is_skipped_next_time_and_previews_reuse_their_resu
         "ReplayVisionScannerEstimateExactQuery",
         "ReplayVisionScannerEstimateSampledQuery",
         "ReplayVisionScannerEstimateSampledQuery",
-        # A preview's timeout says nothing about the batch's longer budget, so the batch tries the exact count.
-        "ReplayVisionScannerEstimateExactQuery",
+        batch_query_type,
     ]
-    assert batch.matched_sessions == 7
+    assert batch.matched_sessions == batch_matched
 
 
 @pytest.mark.django_db
