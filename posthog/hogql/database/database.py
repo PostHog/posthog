@@ -1483,7 +1483,6 @@ class Database(BaseModel):
         table's source and then the resource defaults.
         Userless context (no UserAccessControl) fails closed.
         """
-        # Lazy import, like the other access-control imports in this module.
         from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef  # noqa: PLC0415
 
         uac = self.user_access_control
@@ -2859,10 +2858,8 @@ class Database(BaseModel):
                 virtual_source = sources.virtual_source
                 with timings.measure("build_virtual_tables", emit_span=True):
                     for schema_row in sources.virtual_schemas:
-                        # Warehouse access control is granted on the synced table row. A synced schema
-                        # row without one yet has no table rules to check, so it is denied until its first
-                        # sync. A live-only row never gets a table row, so it is checked against its
-                        # source's rules and the resource defaults instead.
+                        # A synced row is denied until its first sync creates the table row that carries
+                        # its access rules. A live-only row never gets one, so it uses its source's rules.
                         if (
                             sources.is_hogql_warehouse_access_control_enabled
                             and not sources.bypass_warehouse_access_control
