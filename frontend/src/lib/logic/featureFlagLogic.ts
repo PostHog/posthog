@@ -57,15 +57,13 @@ export function revokePostHogAIAccess(): void {
 }
 let cachedFlagsProxy: FeatureFlagsSet | null = null
 
-/** Flags the app sets from other values, after the server and persisted flags are merged. */
 export function deriveFeatureFlags(flags: FeatureFlagsSet, posthogAiAccess: boolean | undefined): FeatureFlagsSet {
     const derived = { ...flags }
     // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
     if (posthogAiAccess !== undefined) {
         derived[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
     }
-    // The scene menu bar is part of the new navigation. Deriving it here keeps it in step with `today-rail-nav`,
-    // which the nav switch changes locally before the server re-evaluates `scene-menu-bar`.
+    // The nav switch changes `today-rail-nav` locally, before the server re-evaluates `scene-menu-bar`.
     if (derived[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
         derived[FEATURE_FLAGS.SCENE_MENU_BAR] = true
     }
