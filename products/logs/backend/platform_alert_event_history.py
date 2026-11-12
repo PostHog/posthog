@@ -56,7 +56,7 @@ def platform_check_rows(*, team_id: int, alert_id: UUID, since: datetime, limit:
     """The newest `limit` checks since `since` that moved the alert's state or failed, or None when
     the platform does not own the alert.
 
-    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    Raises when ClickHouse fails.
     """
     page = notable_checks_by_public_id(team_id=team_id, public_id=alert_id, since=since, limit=limit)
     if page is None:
@@ -135,7 +135,7 @@ def platform_control_rows(
     """The newest `limit` control-plane changes of the logs `kinds`, or None when the platform does
     not own the alert. A kind the platform does not record is ignored.
 
-    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    Raises when ClickHouse fails.
     """
     changes = [_CHANGE_OF_LOGS_KIND[kind] for kind in kinds if kind in _CHANGE_OF_LOGS_KIND]
     page = control_changes_by_public_id(team_id=team_id, public_id=alert_id, kinds=changes, limit=limit)
@@ -189,7 +189,7 @@ def platform_control_timelines(
     """Each named alert's control-plane timeline in `[since, until)`. An alert the platform does not
     own, or that has no kept change, is left out.
 
-    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    Raises when ClickHouse fails.
     """
     histories = control_history_by_public_id(team_id=team_id, public_ids=alert_ids, since=since, until=until)
     return {

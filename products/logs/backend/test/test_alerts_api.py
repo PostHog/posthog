@@ -3824,15 +3824,21 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
         assert [interval["state"] for interval in row["state_timeline"]] == ["not_firing", "broken", "not_firing"]
 
-    def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
-        with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
-            side_effect=Exception("ClickHouse is down"),
-        ):
-            [row] = self._rows("list")
+    @parameterized.expand(
+        [
+            ("list", "history_by_public_id", ""),
+            ("retrieve", "platform_control_timelines", "{id}/"),
+            ("events", "platform_check_rows", "{id}/events/"),
+        ]
+    )
+    def test_a_clickhouse_failure_is_an_error_rather_than_the_logs_rows_history(
+        self, _name: str, failing_read: str, path: str
+    ) -> None:
+        with patch(f"{_ALERTS_API}.{failing_read}", side_effect=Exception("ClickHouse is down")):
+            response = self.client.get(self.base_url + path.format(id=self.alert.id))
 
-        assert row["last_checked_at"] == (self.now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
-        assert row["last_error_message"] == "Logs stack timeout"
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response.json()["detail"] == "Couldn't load alert history. Try again in a minute."
 
     def _record_events_history(self) -> None:
         def at(minutes_after_cutover: int) -> datetime:
@@ -3892,22 +3898,6 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             )
             for e in response.json()["results"]
         ] == expected
-
-    def test_events_fall_back_to_logs_rows_when_clickhouse_fails(self) -> None:
-        self._record_events_history()
-
-        with patch(
-            "products.logs.backend.presentation.views.alerts_api.platform_check_rows",
-            side_effect=Exception("ClickHouse is down"),
-        ):
-            response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [(e["kind"], e["state_after"]) for e in response.json()["results"]] == [
-            ("disable", "not_firing"),
-            ("check", "firing"),
-            ("check", "errored"),
-        ]
 
     def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
         response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")
