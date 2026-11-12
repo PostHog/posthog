@@ -159,6 +159,10 @@ class MetricSerializer(serializers.ModelSerializer):
     is_drifted = serializers.SerializerMethodField(
         help_text="True when the definition has drifted from its linked source insight (or the insight is gone).",
     )
+    match_reason = serializers.SerializerMethodField(
+        help_text="Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', "
+        "'all words in the description', 'some words in the description'. Null when the list has no search.",
+    )
     created_source = serializers.ChoiceField(
         choices=[(s.value, s.value) for s in CreatedSource],
         required=False,
@@ -190,6 +194,7 @@ class MetricSerializer(serializers.ModelSerializer):
             "referenced_table_names",
             "status",
             "is_drifted",
+            "match_reason",
             "approved_at",
             "approved_by",
             "source_insight_short_id",
@@ -250,6 +255,10 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_match_reason(self, obj: Metric) -> str | None:
+        return self.context.get("match_reasons", {}).get(obj.id)
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricCreate")

@@ -16,11 +16,12 @@ const EVIDENCE_UNIT_IDS = 5
 
 export const deliveryKey = (unitId: string, actionId: string): string => `${unitId}/${actionId}`
 
-const TOO_MANY_REQUESTS = 429
+const ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES = ['TooManyRequestsException', 'ThrottlingException']
 
 const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
-const isNotRetriedBySes = (status: number): boolean => status >= 400 && status < 500 && status !== TOO_MANY_REQUESTS
+const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
+    status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
 
 const isNotRetriedByFetch = (status: number): boolean => status >= 400 && !RETRIABLE_STATUS_CODES.includes(status)
 
@@ -29,7 +30,7 @@ function endedByTerminalFault(records: TruthRecord[]): boolean {
     if (last?.fault === undefined) {
         return false
     }
-    return last.kind === 'webhook' ? isNotRetriedByFetch(last.status) : isNotRetriedBySes(last.status)
+    return last.kind === 'webhook' ? isNotRetriedByFetch(last.status) : isNotRetriedByTheEmailService(last)
 }
 
 type DeliveryRecord = TruthRecord & { unitId: string; actionId: string }

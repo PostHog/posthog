@@ -1,5 +1,14 @@
 import { randomUUID } from 'crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import {
+    createReadStream,
+    createWriteStream,
+    existsSync,
+    mkdirSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import path from 'path'
 import { pipeline } from 'stream/promises'
@@ -13,9 +22,9 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
-import { STACK, cyclotronUrlOf } from '../environment/stack'
-import { DriveSummary, drive, seed } from '../generator/generator'
+import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { Measurement, Sampled, Sampler, measure, startSampler } from '../judge/measurements'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
@@ -24,6 +33,8 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { Status, statusOf } from './status'
+
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
 
 export type RunResult = {
     runId: string
@@ -54,6 +65,8 @@ export interface Runner {
 
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
+const SEED_STATEMENT_TIMEOUT_MS = 5000
+const SEED_WITHIN_MS = 60_000
 
 type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements'>
 
@@ -66,12 +79,22 @@ function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
     return { 'message.timeout.ms': DELIVERY_TIMEOUT_MS, ...Object.fromEntries(settings) }
 }
 
+function seedingUrlOf(spec: RoleSpec): string {
+    const databaseUrl = postgresUrlOf(spec)
+    if (!databaseUrl) {
+        return databaseUrl
+    }
+    const url = new URL(databaseUrl)
+    url.searchParams.set('statement_timeout', String(SEED_STATEMENT_TIMEOUT_MS))
+    return url.toString()
+}
+
 function watchHealth(environment: Environment): () => Promise<string[]> {
     const down = new Set<string>()
     const stopped = new AbortController()
     const watching = (async () => {
         while (!stopped.signal.aborted) {
-            const health = await environment.health().catch(() => ({ down: ['health check'] }))
+            const health = await environment.dependencyHealth().catch(() => ({ down: ['health check'] }))
             health.down.forEach((name) => down.add(name))
             await sleep(HEALTH_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
         }
@@ -104,7 +127,15 @@ function keepLogTails(stateDir: string): (evidenceDir: string) => Promise<void> 
 }
 
 function writeJson(evidenceDir: string, name: string, value: unknown): void {
-    writeFileSync(path.join(evidenceDir, name), JSON.stringify(value, null, 2))
+    const file = path.join(evidenceDir, name)
+    const partial = `${file}.partial`
+    try {
+        writeFileSync(partial, JSON.stringify(value, null, 2))
+        renameSync(partial, file)
+    } catch (error) {
+        rmSync(partial, { force: true })
+        throw error
+    }
 }
 
 async function errorOf(write: () => Promise<void> | void): Promise<string | undefined> {
@@ -112,21 +143,91 @@ async function errorOf(write: () => Promise<void> | void): Promise<string | unde
         await write()
         return undefined
     } catch (error) {
-        return (error as Error).message
+        return messageOf(error)
     }
 }
 
-function withEvidenceError(result: RunResult, error: string | undefined): RunResult {
+function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunVerdict {
     return error === undefined
-        ? result
+        ? verdict
         : {
-              ...result,
+              ...verdict,
               status: 'invalid',
-              statusReason: `${result.statusReason}; the evidence could not be written: ${error}`,
+              statusReason: `${verdict.statusReason}; the evidence could not be written: ${error}`,
           }
 }
 
-export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
+type OpenPool = {
+    ending: boolean
+    end(): Promise<void>
+    _clients: { connection: { stream: { destroy(): void } } }[]
+}
+
+function destroyConnections(postgres: PostgresRouter): void {
+    const { pools } = postgres as unknown as { pools: Map<unknown, OpenPool> }
+    for (const pool of new Set(pools.values())) {
+        if (!pool.ending) {
+            void pool.end().catch(() => undefined)
+        }
+        pool._clients.forEach((client) => client.connection.stream.destroy())
+    }
+}
+
+class SeedingCutShort extends Error {}
+
+function messageOf(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
+}
+
+async function seedWithin(
+    loaded: LoadedCard,
+    seedingUrl: string,
+    signal: AbortSignal,
+    withinMs: number
+): Promise<SeedState> {
+    if (signal.aborted) {
+        throw new Error('seeding was interrupted')
+    }
+    const deadline = AbortSignal.timeout(withinMs)
+    const stop = AbortSignal.any([signal, deadline])
+    const postgres = new PostgresRouter(
+        { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
+        'posthog-scenarios'
+    )
+    const stage = (async () => {
+        try {
+            return await seed(loaded, postgres, stop)
+        } finally {
+            await postgres.end()
+        }
+    })()
+    let onStop = (): void => undefined
+    const stopped = new Promise<never>((_, reject) => {
+        onStop = () => reject(stop.reason)
+        stop.addEventListener('abort', onStop, { once: true })
+    })
+    try {
+        return await Promise.race([stage, stopped])
+    } catch (error) {
+        if (!stop.aborted) {
+            throw error
+        }
+        stage.catch(() => undefined)
+        destroyConnections(postgres)
+        const why = deadline.aborted ? `seeding did not finish within ${withinMs} ms` : 'seeding was interrupted'
+        throw new SeedingCutShort(`${why}; its connections were destroyed, restart required`)
+    } finally {
+        stop.removeEventListener('abort', onStop)
+    }
+}
+
+export type RunnerOptions = { seedWithinMs?: number }
+
+export function createRunner(
+    environment: Environment,
+    env: NodeJS.ProcessEnv = process.env,
+    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
+): Runner {
     const stateDir = defaultStateDir(env)
     let restartRequired: Error | undefined
 
@@ -162,13 +263,6 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             const probe = createCyclotronProbe(cyclotronUrlOf(specs[0]))
             const judge = createJudge({ edgeUrl, probe })
             const valves = createValves()
-            const postgres = new PostgresRouter(
-                {
-                    DATABASE_URL: specs[0].env.DATABASE_URL || STACK.postgresUrl,
-                    POSTGRES_CONNECTION_POOL_SIZE: 2,
-                },
-                'posthog-scenarios'
-            )
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             let sampler: Sampler | undefined
@@ -178,11 +272,20 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings).catch((error: unknown) => {
                     restartRequired = new Error(
-                        `The reset before run ${runId} failed and stopped the environment: ${(error as Error).message}. Restart the runner, then run the card again.`
+                        `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
                     )
                     throw error
                 })
-                const seeded = await seed(loaded, postgres)
+                const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal, seedWithinMs).catch(
+                    (error: unknown) => {
+                        if (error instanceof SeedingCutShort) {
+                            restartRequired = new Error(
+                                `The seeding stage of run ${runId} was cut short and its connections were destroyed, so a write it sent may still land in the next card. Restart the runner, then run the card again.`
+                            )
+                        }
+                        throw error
+                    }
+                )
                 await judge.open(seeded)
                 const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
@@ -218,7 +321,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 outcome = {
                     ...outcome,
                     status: 'invalid',
-                    statusReason: `the run stopped: ${(error as Error).message}`,
+                    statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
                 await valves.releaseAll()
@@ -230,20 +333,17 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     restartRequired = new Error(
                         `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
                     )
-                    const failed = `the load producer did not disconnect: ${(error as Error).message}`
+                    const failed = `the load producer did not disconnect: ${messageOf(error)}`
                     outcome = {
                         ...outcome,
                         status: 'invalid',
                         statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
                     }
-                } finally {
-                    await postgres.end()
                 }
             }
-            const base: RunResult = {
+            const verdict: RunVerdict = {
                 runId,
                 ...outcome,
-                recorded: false,
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
@@ -253,34 +353,26 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
+            const provenance = provenanceOf()
             const evidenceError = await errorOf(async () => {
                 await writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
+                writeJson(evidenceDir, 'scorecard.json', {
+                    ...verdict,
+                    event: scorecardOf(verdict, loaded, provenance),
+                })
             })
-            const judged = withEvidenceError(base, evidenceError)
-            const event = scorecardOf(judged, loaded, provenanceOf())
-            const written = await publish(event, env, signal)
-            const result: RunResult = {
+            const judged = withEvidenceError(verdict, evidenceError)
+            const written = await publish(scorecardOf(judged, loaded, provenance), env, signal)
+            return {
                 ...judged,
                 recorded: written.recorded,
                 captured: written.captured,
                 scorecardError: written.problem,
             }
-            const filesError =
-                evidenceError === undefined
-                    ? await errorOf(() => {
-                          writeJson(evidenceDir, 'scorecard-event.json', event)
-                          writeJson(evidenceDir, 'scorecard.json', result)
-                      })
-                    : undefined
-            if (filesError === undefined) {
-                return result
-            }
-            const problems = [written.problem, `the scorecard files could not be written: ${filesError}`]
-            return { ...result, scorecardError: problems.filter((problem) => problem !== undefined).join('; ') }
         },
 
         async down() {

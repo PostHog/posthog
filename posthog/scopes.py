@@ -147,7 +147,6 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
@@ -264,7 +263,8 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
     # The granular scopes are offered instead.
     "warehouse_objects": "Umbrella resource: grant warehouse_view/warehouse_table instead.",
     # Pending removal. No endpoint enforces these, so they do nothing when granted.
-    # Remove them from `APIScopeObject` once no personal API key or OAuth grant references them.
+    # Remove them from `APIScopeObject` whenever you like: `/authorize` drops a requested scope that no
+    # longer exists, and saving a personal API key drops one the key still holds.
     "batch_import": "Pending removal: no endpoint enforces it (its viewset is INTERNAL).",
     "mcp_registry": "Retired: no endpoint enforces it; kept for OAuth clients that still request it.",
     "external_data_schema": "Pending removal: covered by external_data_source; no viewset uses it.",
@@ -272,7 +272,6 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
     "link": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "live_debugger": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "loop": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
-    "user_interview": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "knowledge_writer": "Retired: its only endpoint was removed, so no endpoint enforces it.",
     # Access control resources that no token check reads, so granting them to a token does nothing.
     "toolbar": "Access control resource only: no endpoint checks it as a token scope.",
@@ -327,6 +326,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # SDK prompt fetches by name and by list, so a service does not need a credential tied
     # to one person's account. Publishing, labels and archiving stay closed to these keys.
     ("llm_prompt", "read"),
+    ("logs", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
