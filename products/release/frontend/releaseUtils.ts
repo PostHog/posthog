@@ -698,7 +698,9 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         audiences,
         audienceSummary:
             new Set(audiences.map((audience) => audience.summary)).size > 1
-                ? `Differs across ${audiences.length} flags`
+                ? audiences.every((audience) => audience.percent !== null)
+                    ? `${audiences.filter((audience) => isFullyRolledOut(audience.flag)).length} of ${audiences.length} flags reach everyone`
+                    : `Differs across ${audiences.length} flags`
                 : audiences[0]?.summary,
         firstFlagCreated: flags.map((flag) => flag.created_at).sort()[0] ?? null,
     }
@@ -785,8 +787,10 @@ function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; d
     if (flags.length) {
         return {
             status: 'Behind a flag',
-            headline: 'Behind a flag',
-            detail: audienceSummary ? `${audienceSummary}.` : '',
+            headline: audienceSummary
+                ? `${audienceSummary.charAt(0).toUpperCase()}${audienceSummary.slice(1)}`
+                : 'Behind a flag',
+            detail: '',
         }
     }
     if (facts.pendingFlags) {

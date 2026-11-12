@@ -1,11 +1,14 @@
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
+
 import { RolloutStep } from './releaseRollout'
 import {
     CALENDAR_DAYS_AFTER,
     CALENDAR_DAYS_BEFORE,
     ReleaseEvent,
+    ReleaseFlagAudience,
     ReleaseRow,
     ReleaseSpan,
     STAGE_COLOR,
@@ -15,6 +18,7 @@ export const DAY = 30
 export const TOTAL = CALENDAR_DAYS_BEFORE + CALENDAR_DAYS_AFTER
 export const LANE = 34
 export const FLAG_LANE = 52
+export const DETAILED_LANE = 44
 const NO_STEPS: RolloutStep[] = []
 
 export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; color: string }> = {
@@ -58,6 +62,8 @@ export type Lane =
           events: ReleaseEvent[]
           span: ReleaseSpan
           href: string
+          flag: FeatureFlagApi
+          audience?: ReleaseFlagAudience
       }
     | {
           key: string
@@ -107,6 +113,8 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
                 href: urls.featureFlag(flag.id),
             },
             href: urls.featureFlag(flag.id),
+            flag,
+            audience: row.audiences.find((audience) => audience.flag.id === flag.id),
         })
     }
     for (const experiment of row.experiments) {
@@ -153,8 +161,8 @@ export function sendLabel(event: ReleaseEvent): string {
     return event.upcoming ? 'Scheduled' : kind ? kind[0].toUpperCase() + kind.slice(1) : 'Sent'
 }
 
-export function laneHeight(lane: Lane): number {
-    return lane.kind === 'flag' ? FLAG_LANE : LANE
+export function laneHeight(lane: Lane, detailed?: boolean): number {
+    return lane.kind === 'flag' ? FLAG_LANE : detailed ? DETAILED_LANE : LANE
 }
 
 export function statusLabel(status: string): string {
