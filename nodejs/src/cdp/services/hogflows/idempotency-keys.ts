@@ -114,16 +114,24 @@ const sortKeys = (value: unknown): unknown => {
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
-    | { status: 'replayed'; invocationId: string; scheduledAt?: string }
+    | { status: 'replayed'; invocationId: string; scheduledAt?: string; replayFields?: ReplayFields }
     // The first request with the key has not finished queueing yet.
     | { status: 'in_flight' }
     // The key was used for a different request.
     | { status: 'conflict' }
     | { status: 'unavailable' }
 
+export type ReplayFields = Record<string, number>
+
 // `scheduledAt` is set only for a run queued to wait, so a key for a run that starts at once keeps the
 // shape that older versions write and read.
-type StoredKey = { fingerprint: string; invocationId: string; queued: boolean; scheduledAt?: string }
+type StoredKey = {
+    fingerprint: string
+    invocationId: string
+    queued: boolean
+    scheduledAt?: string
+    replayFields?: ReplayFields
+}
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
@@ -205,7 +213,12 @@ export class IdempotencyKeys {
         if (!stored.queued) {
             return { status: 'in_flight' }
         }
-        return { status: 'replayed', invocationId: stored.invocationId, scheduledAt: stored.scheduledAt }
+        return {
+            status: 'replayed',
+            invocationId: stored.invocationId,
+            scheduledAt: stored.scheduledAt,
+            ...(stored.replayFields && { replayFields: stored.replayFields }),
+        }
     }
 
     async markQueued(
@@ -213,11 +226,18 @@ export class IdempotencyKeys {
         key: string,
         fingerprint: string,
         invocationId: string,
+        replayFields?: ReplayFields,
         scheduledAt?: string
     ): Promise<void> {
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
-            value: { fingerprint, invocationId, queued: true, ...(scheduledAt && { scheduledAt }) },
+            value: {
+                fingerprint,
+                invocationId,
+                queued: true,
+                ...(replayFields && { replayFields }),
+                ...(scheduledAt && { scheduledAt }),
+            },
             // A scheduled send keeps its key until a day after it is due, so a retry while it waits replays it.
             expiresAt: Math.max(Date.now(), scheduledAt ? Date.parse(scheduledAt) : 0) + QUEUED_TTL_SECONDS * 1000,
         }

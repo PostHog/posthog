@@ -459,11 +459,15 @@ def test_load_effective_policy(
     assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 1200)
 
 
-def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("digest", {"channel": "eng-merges"}), ("attestations", [])],
+)
+def test_a_section_the_engine_does_not_read_is_allowed_and_ignored(tmp_path: Path, key: str, value: object) -> None:
     # The hosted server declares a `digest:` top-level section it parses itself; the engine must
     # tolerate (not require, not read) it, or any repo with a digest channel crashes every review.
     data = _valid_policy_dict()
-    data["digest"] = {"channel": "eng-merges"}
+    data[key] = value
     path = tmp_path / "policy.yml"
     path.write_text(yaml.safe_dump(data))
     loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)

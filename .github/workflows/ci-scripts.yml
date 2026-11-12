@@ -121,6 +121,7 @@ jobs:
               run: |
                   python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
                       .github/scripts/test_*.py \
+                      .github/scripts/dependency_proof/test_*.py \
                       tools/test_snob_backend_test_selection_shadow.py \
                       tools/test_test_selection_verdict.py \
                       tools/test_manage_diagnostics.py

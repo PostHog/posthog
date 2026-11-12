@@ -15,6 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
@@ -122,7 +123,7 @@ class TestSplitChangedMidRun(TestCase):
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
-                f"after the change. {MIXED_ASSIGNMENTS}",
+                f"after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "suggested_start_rounded_up_to_the_next_minute",
@@ -131,7 +132,7 @@ class TestSplitChangedMidRun(TestCase):
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 "Reset the experiment, or move its start date to September 12, 2026 at 3:05 PM CEST to analyze "
-                f"only the people exposed after the change. {MIXED_ASSIGNMENTS}",
+                f"only the people exposed after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_with_unknown_exposure",
@@ -141,7 +142,7 @@ class TestSplitChangedMidRun(TestCase):
                 "The change came 3 hours after the start date. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
-                f"after the change. {MIXED_ASSIGNMENTS}",
+                f"after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_before_4_people",
@@ -158,7 +159,7 @@ class TestSplitChangedMidRun(TestCase):
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
-                f"after the change. {MIXED_ASSIGNMENTS}",
+                f"after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_before_any_group",
@@ -190,7 +191,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_removed", ExperimentHealthFindingSeverity.WARNING, "E4"),
                 f'Variant "blue" was removed on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
                 'control 50% / test 50%). The results leave out people who saw only "blue", and people who had '
-                f'"blue" may now get another variant. Reset the experiment, or move its start date to {FIRST_CHANGE}. '
+                f'"blue" may now get another variant. Reset the experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} '
                 f"{MIXED_ASSIGNMENTS}",
             ),
             (
@@ -199,7 +200,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_added", ExperimentHealthFindingSeverity.WARNING, "E4"),
                 f'Variant "blue" was added on {FIRST_CHANGE} (from control 50% / test 50% to control 34% / '
                 "test 33% / blue 33%). People exposed before the change may have switched variants. Reset the "
-                f"experiment, or move its start date to {FIRST_CHANGE}. {MIXED_ASSIGNMENTS}",
+                f"experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "variant_zeroed",
@@ -207,7 +208,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_zeroed", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f'Variant "blue" was set to 0% on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
                 "control 50% / test 50% / blue 0%). People exposed before the change may have switched variants, "
-                f'and no new users get "blue". Reset the experiment, or move its start date to {FIRST_CHANGE}. '
+                f'and no new users get "blue". Reset the experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} '
                 f"{MIXED_ASSIGNMENTS}",
             ),
             (
@@ -216,7 +217,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("reordered", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The order of the variants changed on {FIRST_CHANGE} (from control 50% / test 50% to test 50% / "
                 "control 50%). The order decides who gets which variant, so people exposed before the change may "
-                f"have switched variants. Reset the experiment, or move its start date to {FIRST_CHANGE}. "
+                f"have switched variants. Reset the experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} "
                 f"{MIXED_ASSIGNMENTS}",
             ),
             (
@@ -241,7 +242,8 @@ class TestSplitChangedMidRun(TestCase):
                 "test 50% to control 80% / test 20%. The first change came 8 days after the start date. People exposed "
                 "before the changes may have switched variants, so the results mix two assignments. Reset the "
                 f"experiment, or move its start date to {THIRD_CHANGE} to analyze only the people exposed after the "
-                "changes. A sample ratio mismatch or users in more than one variant can come from these changes.",
+                f"changes. {RESET_EFFECT} A sample ratio mismatch or users in more than one variant can come from these "
+                "changes.",
             ),
             (
                 "reverted_with_exposures_in_between",
@@ -249,7 +251,8 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back to control 50% / "
                 f"test 50% on {SECOND_CHANGE}. People exposed in between may have switched variants. Move the start "
-                f"date to {SECOND_CHANGE}, or reset the experiment.",
+                f"date to {SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
             (
                 "reverted_before_4_people",
@@ -265,7 +268,8 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back to control 50% / "
                 f"test 50% on {SECOND_CHANGE}. People exposed in between may have switched variants. Move the start "
-                f"date to {SECOND_CHANGE}, or reset the experiment.",
+                f"date to {SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
             (
                 "reverted_without_exposures_in_between",
@@ -280,7 +284,8 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split was set to no variants on {FIRST_CHANGE} and set back to control 50% / test 50% on "
                 f"{SECOND_CHANGE}. People exposed in between may have switched variants. Move the start date to "
-                f"{SECOND_CHANGE}, or reset the experiment.",
+                f"{SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
         ]
     )
@@ -790,8 +795,8 @@ class TestSrmAfterSplitChange(TestCase):
                 "not_checked",
                 RUNNING,
                 None,
-                f" Move the start date to {FIRST_CHANGE}, or reset the experiment. A reset returns it to draft, and "
-                "once you launch it again, the results count only users exposed from then on.",
+                f" Move the start date to {FIRST_CHANGE}, or reset the experiment. A reset returns the experiment to "
+                "draft, and once you launch it again, the results count only exposures from then on.",
                 FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
                 NOT_CHECKED_CAUSE,
             ),

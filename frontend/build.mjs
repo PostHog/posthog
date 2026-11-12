@@ -35,6 +35,10 @@ const PRELOAD_MIN_CHUNK_BYTES = 50 * 1024
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copyPublicFolder(
+    path.resolve(__dirname, '..', 'products', 'slack_app', 'backend', 'static'),
+    path.resolve(__dirname, 'dist')
+)
 
 copyPublicFolder(
     path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),

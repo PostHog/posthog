@@ -4,7 +4,9 @@ import json
 
 import pytest
 
-from migration_risk import migration_check_pending, safe_migration_files
+from migration_risk import PUBLISHER_APP_ID, migration_check_pending, safe_migration_files
+
+_GITHUB_ACTIONS_APP_ID = 15368
 
 
 def _check(
@@ -15,6 +17,8 @@ def _check(
     completed_at: str = "2026-04-30T12:00:00Z",
     analyzed_paths: list[str] | None = None,
     summary_override: str | None = None,
+    app_id: int = PUBLISHER_APP_ID,
+    run_id: int = 1,
 ) -> dict:
     """Build a fake check_run.
 
@@ -30,7 +34,9 @@ def _check(
     else:
         summary = f"<!-- stamphog:v1 {json.dumps(analyzed_paths)} -->\nreport body"
     return {
+        "id": run_id,
         "name": name,
+        "app": {"id": app_id},
         "status": status,
         "conclusion": conclusion,
         "completed_at": completed_at,
@@ -72,9 +78,10 @@ def test_bypass_scoped_to_intersection_of_marker_and_pr() -> None:
     files = [
         "posthog/migrations/1125_x.py",
         "posthog/clickhouse/migrations/0099_unrelated.py",
+        ".stamphog/policy.yml",
     ]
-    # Marker only lists the Django one — the analyzer doesn't touch ClickHouse.
-    check = _check(analyzed_paths=["posthog/migrations/1125_x.py"])
+    # The marker lists the Django migration and a path that is no migration, which lifts nothing.
+    check = _check(analyzed_paths=["posthog/migrations/1125_x.py", ".stamphog/policy.yml"])
 
     assert safe_migration_files([check], files) == {
         "posthog/migrations/1125_x.py",
@@ -129,6 +136,10 @@ def test_malformed_or_missing_marker_falls_back_to_no_bypass(summary: str) -> No
         pytest.param([], id="no-checks"),
         pytest.param([_check(name="other-ci")], id="different-check-name"),
         pytest.param(
+            [_check(analyzed_paths=["posthog/migrations/1125_x.py"], app_id=_GITHUB_ACTIONS_APP_ID)],
+            id="same-name-from-another-app",
+        ),
+        pytest.param(
             [_check(conclusion="failure", analyzed_paths=["posthog/migrations/1125_x.py"])], id="completed-failure"
         ),
         pytest.param(
@@ -145,19 +156,22 @@ def test_no_bypass_unless_check_completed_with_success(check_runs: list[dict]) -
 
 
 def test_latest_completed_run_wins_over_older_and_in_flight() -> None:
-    """CI re-runs leave duplicate checks. The most recent completed run wins,
-    even when a newer in-flight run is present (it has no completed_at)."""
+    """CI re-runs leave duplicate checks. The most recently created completed run
+    wins, even when a newer in-flight run is present. The publisher sets
+    completed_at, so a run that claims a later completion does not win."""
     older_failure = _check(
         conclusion="failure",
-        completed_at="2026-04-30T10:00:00Z",
+        completed_at="2099-01-01T00:00:00Z",
         analyzed_paths=["posthog/migrations/1125_x.py"],
+        run_id=1,
     )
     newer_success = _check(
         conclusion="success",
         completed_at="2026-04-30T12:00:00Z",
         analyzed_paths=["posthog/migrations/1125_x.py"],
+        run_id=2,
     )
-    in_flight = _check(status="in_progress", conclusion=None, completed_at="")
+    in_flight = _check(status="in_progress", conclusion=None, completed_at="", run_id=3)
 
     assert safe_migration_files([older_failure, newer_success, in_flight], ["posthog/migrations/1125_x.py"]) == {
         "posthog/migrations/1125_x.py",
@@ -174,6 +188,7 @@ def test_latest_completed_run_wins_over_older_and_in_flight() -> None:
         pytest.param([], id="no-check"),
         pytest.param([_check(status="in_progress", conclusion=None)], id="in-progress"),
         pytest.param([_check(status="queued", conclusion=None)], id="queued"),
+        pytest.param([_check(app_id=_GITHUB_ACTIONS_APP_ID)], id="completed-by-another-app"),
     ],
 )
 def test_pending_when_pr_has_migrations_and_no_completed_check(check_runs: list[dict]) -> None:

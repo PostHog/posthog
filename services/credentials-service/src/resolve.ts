@@ -1,14 +1,20 @@
 // Turns a verified token plus what the mount holds into a response.
 //
-// The `keys` claim alone bounds what a request may read. There is no per-deployment
-// allowlist, because a list bounds nothing the deployment's signing key does not already
-// bound: a compromised deployment is contained by revoking that key.
+// The `keys` claim bounds what a request may read. A deployment with an
+// `__ALLOWED_SECRETS_<DEPLOYMENT>` entry is also bounded by that list. A deployment with no
+// entry may read any name that is not reserved.
 //
-// `missing` covers both a name the mount does not carry and a reserved entry it refuses to
-// serve, reported per key rather than failing the batch.
+// A reserved name (`__` prefix, for example the `__PROVIDER_` OAuth client secrets and minter
+// keys) is never served to anyone. The mount already drops those entries, and this file
+// refuses them again so a change to the mount cannot expose one.
+//
+// `missing` covers a name the mount does not carry, a reserved name and a name outside the
+// allowlist, reported per key rather than failing the batch. The response does not say which,
+// so a caller cannot use it to learn what the mount holds.
 
 import { logger } from './lib/logging'
 import { observeResolve, previousVersionServedTotal } from './metrics'
+import { RESERVED_PREFIX } from './mount'
 import type { CallerIdentity, MountedSecrets, ResolveOutcome } from './types'
 
 /** Stand-in label for a name the mount does not carry, which is caller-supplied text. */
@@ -33,9 +39,16 @@ export function resolveKeys(identity: CallerIdentity, mounted: MountedSecrets): 
     const secrets: Record<string, WireSecret> = {}
     const missing: string[] = []
     const served: string[] = []
+    const refused: string[] = []
 
     for (const key of identity.requestedKeys) {
-        const secret = mounted.secrets[key]
+        if (key.startsWith(RESERVED_PREFIX) || (identity.allowedKeys !== null && !identity.allowedKeys.has(key))) {
+            missing.push(key)
+            refused.push(key)
+            observeResolve(identity.deployment, UNKNOWN_KEY, 'not_allowed')
+            continue
+        }
+        const secret = Object.prototype.hasOwnProperty.call(mounted.secrets, key) ? mounted.secrets[key] : undefined
         if (!secret) {
             missing.push(key)
             observeResolve(identity.deployment, UNKNOWN_KEY, 'missing')
@@ -64,7 +77,13 @@ export function resolveKeys(identity: CallerIdentity, mounted: MountedSecrets): 
 
     // One audit line per request rather than per key, so Loki keeps the whole request
     // together. The key list is bounded by the token scope, so it stays readable.
-    logger.info('secrets:resolved', { deployment: identity.deployment, caller: identity.caller, served, missing })
+    logger.info('secrets:resolved', {
+        deployment: identity.deployment,
+        caller: identity.caller,
+        served,
+        missing,
+        refused,
+    })
 
     return { secrets, missing }
 }

@@ -62,6 +62,7 @@ class HighlightMetricReason(LabeledStrEnum):
     BUILT = "built", "You created or edited this"
     EXPERIMENT = "experiment", "An experiment you run"
     AGENT = "agent", "Your agents query this"
+    EVALUATION = "evaluation", "An evaluation you created"
 
 
 class HighlightPinStatus(LabeledStrEnum):

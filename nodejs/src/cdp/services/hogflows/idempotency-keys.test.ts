@@ -58,7 +58,7 @@ describe('IdempotencyKeys', () => {
         await scopedKeys.reserve(1, key, 'request-a', 'run-1')
         const scheduledAt = scheduledInMs === null ? undefined : new Date(Date.now() + scheduledInMs).toISOString()
 
-        await scopedKeys.markQueued(1, key, 'request-a', 'run-1', scheduledAt)
+        await scopedKeys.markQueued(1, key, 'request-a', 'run-1', undefined, scheduledAt)
 
         expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
             status: 'replayed',
@@ -73,6 +73,17 @@ describe('IdempotencyKeys', () => {
         })
         expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
         expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
+    })
+
+    it('replays the fields recorded with the run', async () => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', { attachment_count: 2, attachment_bytes: 4_096 })
+
+        expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            replayFields: { attachment_count: 2, attachment_bytes: 4_096 },
+        })
     })
 
     it('frees a key only for the request that holds it', async () => {

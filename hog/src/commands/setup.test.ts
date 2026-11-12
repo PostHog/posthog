@@ -372,7 +372,11 @@ describe('hog setup', () => {
         expect(resumed.json()).toMatchObject({
             step: 'install',
             done: [{ step: 'purpose' }, { step: 'login' }, { step: 'project' }, { step: 'agents-md' }],
-            context: { warnings: [expect.stringContaining("PostHog didn't record your interest in Session replay")] },
+            context: {
+                warnings: [
+                    "PostHog didn't record your interest in Session replay: PostHog answered with HTTP 500: Intent refused.",
+                ],
+            },
         })
         expect(resumed.requests.some((request) => request.url.endsWith('/oauth/device-authorization/'))).toBe(false)
     })
