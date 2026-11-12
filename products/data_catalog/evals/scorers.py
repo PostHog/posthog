@@ -29,7 +29,6 @@ from products.posthog_ai.eval_harness.scorers import (
     GRADED_ALIGNMENT_CHOICE_SCORES,
     JUDGE_MODEL,
     JudgedScorer,
-    judge_model,
     reads_table,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -1265,7 +1264,7 @@ class SemanticLayerAnswer(JudgedScorer):
             name="semantic_layer_answer",
             prompt_template=SEMANTIC_LAYER_ANSWER_PROMPT,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=judge_model(),
+            model=JUDGE_MODEL,
             use_cot=True,
         )
 
