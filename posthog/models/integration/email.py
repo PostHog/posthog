@@ -1,13 +1,13 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError, connection, models, transaction
+from django.db import connection, models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -19,7 +19,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import IntegrationConflict, IntegrationPatch, IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -61,7 +62,7 @@ class EmailIntegration:
     @transaction.atomic
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         email_address: str = config["email"].lower()
         name: str = config["name"]
         domain = email_domain(email_address)
@@ -76,7 +77,7 @@ class EmailIntegration:
         with connection.cursor() as cursor:
             lock_sender_domain(cursor, domain)
 
-        if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
+        if row_writes.creator_accessor("email").exists(team_id, external_id=email_address):
             raise _duplicate_sender_error(email_address)
 
         # Check if any other integration already exists in a different team with the same domain,
@@ -113,26 +114,22 @@ class EmailIntegration:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
         try:
-            with transaction.atomic():
-                integration = model.Integration.objects.create(
-                    team_id=team_id,
-                    kind="email",
-                    integration_id=email_address,
-                    config={
-                        "email": email_address,
-                        "domain": domain,
-                        "mail_from_subdomain": mail_from_subdomain,
-                        "reply_to": config.get("reply_to", ""),
-                        "name": name,
-                        "provider": provider,
-                        "verified": True if provider == "maildev" else False,
-                    },
-                    created_by=created_by,
-                )
-        except IntegrityError:
+            return row_writes.creator_accessor("email").create(
+                team_id,
+                external_id=email_address,
+                config={
+                    "email": email_address,
+                    "domain": domain,
+                    "mail_from_subdomain": mail_from_subdomain,
+                    "reply_to": config.get("reply_to", ""),
+                    "name": name,
+                    "provider": provider,
+                    "verified": True if provider == "maildev" else False,
+                },
+                created_by_id=created_by.id if created_by else None,
+            )
+        except IntegrationConflict:
             raise _duplicate_sender_error(email_address)
-
-        return integration
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
         provider = self.integration.config.get("provider")
@@ -294,23 +291,18 @@ class EmailIntegration:
         raise ValueError(f"Invalid provider: {provider}")
 
     def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
-        with transaction.atomic():
-            senders = list(
-                model.Integration.objects.select_for_update()
-                .filter(
-                    team_id=self.integration.team_id,
-                    kind="email",
-                    config__domain=self.integration.config.get("domain"),
-                    config__provider=self.integration.config.get("provider", "ses"),
-                )
-                .order_by("id")
-            )
-            unverified_senders = [sender for sender in senders if not sender.config.get("verified")]
-            for sender in unverified_senders:
-                sender.config["verified"] = True
-                sender.save()
-
-        self.integration = model.integration_model(row_writes.reread_row(self.integration))
+        original = self.integration
+        senders = row_writes.row_accessor(original).update_where(
+            original.team_id,
+            where={"domain": original.config.get("domain"), "provider": original.config.get("provider", "ses")},
+            patch=IntegrationPatch(config_patch={"verified": True}),
+        )
+        fresh = next((sender for sender in senders.records if sender.id == original.id), None)
+        if fresh is None:
+            fresh = row_writes.reread_row(original)
+        else:
+            row_writes.keep_caller_row_current(original, fresh)
+        self.integration = model.integration_model(fresh)
 
         from products.workflows.backend.facade.api import (
             set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
@@ -319,13 +311,13 @@ class EmailIntegration:
         set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
 
         # A sender added to a domain that is already verified joins it, so only the first verification counts.
-        if on_domain_verified and len(unverified_senders) == len(senders):
+        if on_domain_verified and len(senders.changed_ids) == len(senders.records):
             on_domain_verified()
-        self._reload_senders_on_workers(senders)
+        self._reload_senders_on_workers(senders.records)
 
     # Workers also refresh integrations on their own schedule, so a failed reload only delays sending.
     # Failing the request instead would hide a verification that is already saved.
-    def _reload_senders_on_workers(self, senders: list[model.Integration]) -> None:
+    def _reload_senders_on_workers(self, senders: Sequence[IntegrationRecord]) -> None:
         try:
             reload_integrations_on_workers(self.integration.team_id, [sender.id for sender in senders])
         except Exception as error:
@@ -334,14 +326,20 @@ class EmailIntegration:
 
 @receiver(models.signals.post_delete, sender=model.Integration)
 def clear_default_email_sender_on_integration_delete(sender: Any, instance: model.Integration, **kwargs: Any) -> None:
-    if instance.kind != "email":
+    # The SDK calls the hook itself. This receiver is for the deletes that do not use the SDK, such as a team delete.
+    if not sdk_runs_hooks():
+        clear_default_email_sender_of_integration(instance)
+
+
+def clear_default_email_sender_of_integration(row: IntegrationRecord) -> None:
+    if row.kind != "email":
         return
 
     from products.workflows.backend.facade.api import (
         clear_default_email_sender,  # noqa: PLC0415 — keeps the workflows facade off the model import path
     )
 
-    clear_default_email_sender(instance.team_id, instance.id)
+    clear_default_email_sender(row.team_id, row.id)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)
@@ -350,9 +348,15 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: model.Inte
     # also cleaned up when integrations die via cascade, e.g. project or org deletion.
     # Leaving the identity behind permanently blocks the domain for every other
     # organization via the foreign-tenant guard in SESProvider.create_email_domain.
-    if instance.kind != "email" or instance.config.get("provider") != "ses":
+    # The SDK calls the hook itself, so this receiver is only for the deletes that do not use the SDK.
+    if not sdk_runs_hooks():
+        cleanup_ses_identity_of_integration(instance)
+
+
+def cleanup_ses_identity_of_integration(row: IntegrationRecord) -> None:
+    if row.kind != "email" or row.config.get("provider") != "ses":
         return
-    domain = instance.config.get("domain")
+    domain = row.config.get("domain")
     if not domain:
         return
 
@@ -361,3 +365,7 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: model.Inte
     )
 
     transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+
+
+register_delete_hook(clear_default_email_sender_of_integration)
+register_delete_hook(cleanup_ses_identity_of_integration)

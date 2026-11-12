@@ -15,6 +15,7 @@ import {
     sesClientFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
+import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
 import { FakeSes, FakeSesAttachment, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
@@ -53,7 +54,7 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
+import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -72,6 +73,7 @@ import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
+import { MESSAGE_MAX_BYTES } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
@@ -216,7 +218,7 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     let workflowsActivationReporter: WorkflowsActivationReporter
-    let activationEvents: { teamId: number; event: string; properties: Record<string, unknown> }[]
+    let analytics: FakePostHog
     let ses: FakeSes
     const createService = (
         config: Partial<EmailServiceConfig> = {},
@@ -307,9 +309,20 @@ describe('EmailService', () => {
         }
         throw new Error('the team budget did not run out')
     }
-    const settledActivationEvents = async (): Promise<typeof activationEvents> => {
+    const activationEvents = () =>
+        analytics.events.map(({ event, properties }) => ({
+            team: properties.team,
+            event,
+            properties: Object.fromEntries(
+                ['reason', 'channel', 'workflow_id', 'recipient_outside_org']
+                    .filter((key) => key in properties)
+                    .map((key) => [key, properties[key]])
+            ),
+        }))
+    const settledActivationEvents = async (): Promise<ReturnType<typeof activationEvents>> => {
         await new Promise((resolve) => setImmediate(resolve))
-        return activationEvents
+        await analytics.client.flush()
+        return activationEvents()
     }
     beforeEach(async () => {
         hub = await createHub({})
@@ -321,17 +334,13 @@ describe('EmailService', () => {
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
         await hub.teamManager.getTeam(team.id)
-        activationEvents = []
-        workflowsActivationReporter = new WorkflowsActivationReporter(
-            hub.teamManager,
-            (capturedTeam, event, properties = {}) => {
-                activationEvents.push({ teamId: capturedTeam.id, event, properties })
-            }
-        )
+        analytics = await startFakePostHog()
+        workflowsActivationReporter = new WorkflowsActivationReporter(hub.teamManager, hub.postgres, analytics.client)
         service = createService()
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        await analytics.close()
         await ses.close()
         await closeHub(hub)
     })
@@ -418,6 +427,11 @@ describe('EmailService', () => {
                     kind: 'slack',
                     config: {},
                 })
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(5),
+                    kind: 'email_sandbox',
+                    config: {},
+                })
             })
             it('should validate if the integration is not found', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -428,9 +442,12 @@ describe('EmailService', () => {
                     `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
-            it('should validate if the integration is not an email integration', async () => {
+            it.each([
+                ['slack', 3],
+                ['email_sandbox', 5],
+            ])('should validate if the integration is not an email integration (%s)', async (_kind, integrationId) => {
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 3 },
+                    from: { integrationId },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
@@ -466,7 +483,7 @@ describe('EmailService', () => {
                     )
                     expect(await settledActivationEvents()).toEqual(
                         Array(reports).fill({
-                            teamId: team.id,
+                            team: team.uuid,
                             event: 'workflows send failed',
                             properties: {
                                 reason: 'unverified_domain',
@@ -1785,6 +1802,24 @@ describe('EmailService', () => {
                 })
             })
 
+            it.each(['preheader', 'subject'])(
+                'sends nothing and fails as message_too_large when the %s carries the final message past the size limit',
+                async (field) => {
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        to: { email: recipient, name: 'Test User' },
+                        attachments: [pdf.metadata],
+                        [field]: 'x'.repeat((MESSAGE_MAX_BYTES * 3) / 4),
+                    })
+
+                    const result = await sender().executeSendEmail(invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toMatch(/^message_too_large: /)
+                    expect(ses.sent).toEqual([])
+                }
+            )
+
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
                 ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],
@@ -2274,7 +2309,7 @@ describe('EmailService', () => {
 
                 expect(await settledActivationEvents()).toEqual(
                     Array(reports).fill({
-                        teamId: team.id,
+                        team: team.uuid,
                         event: 'workflows send blocked',
                         properties: {
                             reason: 'missing_recipient',
@@ -2285,6 +2320,184 @@ describe('EmailService', () => {
                 )
             }
         )
+
+        describe('workflows message sent', () => {
+            let memberEmail: string
+            const workflowSend = () => ({
+                ...invocation,
+                hogFlow: new FixtureHogFlowBuilder().withTeamId(team.id).build(),
+            })
+            const messageSent = (recipientOutsideOrg: boolean) => ({
+                team: team.uuid,
+                event: 'workflows message sent',
+                properties: {
+                    workflow_id: invocation.functionId,
+                    channel: 'email',
+                    recipient_outside_org: recipientOutsideOrg,
+                },
+            })
+
+            const droppedEmailReports = async (): Promise<number> =>
+                (await register.getSingleMetric('cdp_workflows_activation_email_reports_dropped')?.get())?.values[0]
+                    ?.value ?? 0
+
+            beforeEach(async () => {
+                const members = await hub.postgres.query<{ email: string }>(
+                    PostgresUse.COMMON_READ,
+                    'SELECT email FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                    [team.organization_id],
+                    'testOrganizationMemberEmail'
+                )
+                memberEmail = members.rows[0].email
+            })
+
+            it.each([
+                ['an outside recipient', () => ({ to: 'outsider@example.com' }), true],
+                ['only organization members in another case', () => ({ to: memberEmail.toUpperCase() }), false],
+                ['an outside cc', () => ({ to: memberEmail, cc: 'Outsider <outsider@example.com>' }), true],
+                ['an outside bcc', () => ({ to: memberEmail, bcc: 'outsider@example.com' }), true],
+                [
+                    'a suppressed outside recipient replaced by a member',
+                    () => ({ to: 'bounced@example.com', cc: memberEmail, suppressed: 'bounced@example.com' }),
+                    false,
+                ],
+                [
+                    'a member stored with a quoted local part',
+                    () => ({
+                        to: `"Quoted Member ${team.id}"@example.com`,
+                        storedMemberEmail: `"quoted member ${team.id}"@example.com`,
+                    }),
+                    false,
+                ],
+                [
+                    'a member cc whose quoted local part holds angle brackets',
+                    () => ({
+                        to: `"member<${team.id}>"@example.com`,
+                        cc: `"member<${team.id}>"@example.com`,
+                        storedMemberEmail: `"member<${team.id}>"@example.com`,
+                    }),
+                    false,
+                ],
+            ])('reports an accepted workflow email to %s', async (_name, recipients, recipientOutsideOrg) => {
+                const { to, cc, bcc, suppressed, storedMemberEmail } = {
+                    cc: undefined,
+                    bcc: undefined,
+                    suppressed: undefined,
+                    storedMemberEmail: undefined,
+                    ...recipients(),
+                }
+                if (storedMemberEmail) {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_user SET email = $1 WHERE email = $2',
+                        [storedMemberEmail, memberEmail],
+                        'testStoreQuotedMemberEmail'
+                    )
+                }
+                if (suppressed) {
+                    await service['emailSuppressionService'].recordHardBounces(team.id, [suppressed])
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: to, name: 'Recipient' },
+                    cc,
+                    bcc,
+                })
+
+                const result = await service.executeSendEmail(workflowSend())
+
+                expect(result.emailSendResult).toEqual({ status: 'accepted' })
+                await waitForExpect(() => expect(activationEvents()).toEqual([messageSent(recipientOutsideOrg)]))
+            })
+
+            it.each([
+                ['a workflow test send', true, true, undefined],
+                ['a hog function send', false, false, undefined],
+                [
+                    'a workflow send the provider rejected',
+                    true,
+                    false,
+                    { status: 400, type: 'MessageRejected', message: 'Email address is not verified' },
+                ],
+            ])('reports nothing for %s', async (_name, fromWorkflow, isTest, fault) => {
+                if (fault) {
+                    ses.failWith(fault)
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: 'outsider@example.com', name: 'Recipient' },
+                })
+
+                await service.executeSendEmail(fromWorkflow ? workflowSend() : invocation, isTest)
+                ses.failWith(null)
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: memberEmail, name: 'Member' },
+                })
+                await service.executeSendEmail(workflowSend())
+
+                await waitForExpect(() => expect(activationEvents()).toEqual([messageSent(false)]))
+            })
+
+            it('reports no email sent beyond the pending limit while member reads are in flight', async () => {
+                const droppedBefore = await droppedEmailReports()
+                const pending = Array.from({ length: MAX_PENDING_EMAIL_REPORTS }, (_, index) =>
+                    workflowsActivationReporter.reportEmailSent(team.id, `flow-${index}`, [memberEmail])
+                )
+                const overLimit = workflowsActivationReporter.reportEmailSent(team.id, 'flow-over-limit', [
+                    'outsider@example.com',
+                ])
+                await Promise.all([...pending, overLimit])
+
+                expect(await settledActivationEvents()).toEqual([
+                    {
+                        team: team.uuid,
+                        event: 'workflows message sent',
+                        properties: { workflow_id: 'flow-0', channel: 'email', recipient_outside_org: false },
+                    },
+                ])
+                expect(await droppedEmailReports()).toBe(droppedBefore + 1)
+            })
+
+            it('reports no email sent for a minute after the organization members cannot be read', async () => {
+                let membersUnreadable = true
+                const membersDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => membersUnreadable)
+                const reporter = new WorkflowsActivationReporter(hub.teamManager, membersDb.postgres, analytics.client)
+                jest.useFakeTimers({
+                    now: Date.now(),
+                    doNotFake: [
+                        'nextTick',
+                        'queueMicrotask',
+                        'setImmediate',
+                        'clearImmediate',
+                        'setTimeout',
+                        'clearTimeout',
+                        'setInterval',
+                        'clearInterval',
+                        'hrtime',
+                        'performance',
+                    ],
+                })
+                try {
+                    await reporter.reportEmailSent(team.id, 'flow-unreadable', ['outsider@example.com'])
+                    membersUnreadable = false
+                    await reporter.reportEmailSent(team.id, 'flow-paused', ['outsider@example.com'])
+                    jest.setSystemTime(Date.now() + 60_000)
+                    await reporter.reportEmailSent(team.id, 'flow-recovered', [memberEmail])
+                } finally {
+                    jest.useRealTimers()
+                    await membersDb.close()
+                }
+
+                expect(await settledActivationEvents()).toEqual([
+                    {
+                        team: team.uuid,
+                        event: 'workflows message sent',
+                        properties: { workflow_id: 'flow-recovered', channel: 'email', recipient_outside_org: false },
+                    },
+                ])
+            })
+        })
 
         describe('SES tenant attribution', () => {
             it('attributes the send to the team tenant', async () => {

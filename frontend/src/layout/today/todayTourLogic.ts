@@ -78,6 +78,7 @@ export interface todayTourLogicValues {
     tour: TodayTourSession | null
     tourActive: boolean
     tourCompleted: boolean
+    tourJustCompleted: boolean
     tourStep: TodayTourStep | null
 }
 
@@ -86,6 +87,9 @@ export interface todayTourLogicActions {
     setHelpMenuOpen: (isOpen: boolean) => {
         isOpen: boolean
     } // helpMenuLogic
+    dismissNewNavDialog: () => {
+        value: true
+    } // navSwitchLogic
     setNewNavDialogOpen: (open: boolean) => {
         open: boolean
     } // navSwitchLogic
@@ -150,7 +154,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
             todayShellLogic,
             ['showPane', 'restoreView'],
             navSwitchLogic,
-            ['setNewNavDialogOpen', 'showAdvertisement'],
+            ['setNewNavDialogOpen', 'dismissNewNavDialog', 'showAdvertisement'],
             helpMenuLogic,
             ['setHelpMenuOpen'],
         ],
@@ -180,6 +184,17 @@ export const todayTourLogic = kea<todayTourLogicType>([
             { persist: true },
             {
                 markTourCompleted: () => true,
+                resetDesignTour: () => false,
+            },
+        ],
+        // The dialog that opens when the tour ends congratulates someone who saw every step. Once that dialog closes,
+        // a later dialog shows its usual copy, so this is not persisted.
+        tourJustCompleted: [
+            false,
+            {
+                markTourCompleted: () => true,
+                setNewNavDialogOpen: (state, { open }) => open && state,
+                dismissNewNavDialog: () => false,
                 resetDesignTour: () => false,
             },
         ],
