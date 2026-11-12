@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -48,6 +48,10 @@ LIMIT {{page_size}}
 """
 
 
+# A query that hits a time or read limit must fail rather than return a partial page, which would read as the last one.
+_COMPLETE_RESULTS_SETTINGS = HogQLGlobalSettings(timeout_overflow_mode="throw", read_overflow_mode="throw")
+
+
 def iter_distinct_intent_pages(
     team: Team, *, since: datetime, until: datetime, page_size: int = MAX_SELECT_RETURNED_ROWS
 ) -> Iterator[list[DistinctIntent]]:
@@ -67,7 +71,12 @@ def iter_distinct_intent_pages(
                 "page_size": ast.Constant(value=page_size),
             },
         )
-        rows = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE).results or []
+        rows = (
+            execute_hogql_query(
+                query=query, team=team, workload=Workload.OFFLINE, settings=_COMPLETE_RESULTS_SETTINGS
+            ).results
+            or []
+        )
         if rows:
             yield [DistinctIntent(hash=row[0], text=row[1], calls=int(row[2])) for row in rows]
         if len(rows) < page_size:

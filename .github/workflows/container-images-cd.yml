@@ -838,11 +838,12 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
-                      # Narrowed to intent_clustering only — backfill_sessions and
+                      # Narrowed to intent_clustering and intent_topics — backfill_sessions and
                       # summarize_session_intents run on GENERAL_PURPOSE_TASK_QUEUE, not
                       # MCPA_TASK_QUEUE, so changes there don't need to redeploy this worker.
                       mcpAnalytics:
                         - 'posthog/temporal/mcp_analytics/intent_clustering/**'
+                        - 'posthog/temporal/mcp_analytics/intent_topics/**'
                         - 'products/mcp_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'

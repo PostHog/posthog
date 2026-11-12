@@ -3,9 +3,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import Client
 
-from posthog.temporal.mcp_analytics.intent_topics.schedule import SCHEDULES, create_intent_topics_schedules
+from posthog.temporal.mcp_analytics.intent_clustering.schedule import FEATURE_FLAG_KEY as CLUSTERING_FLAG_KEY
+from posthog.temporal.mcp_analytics.intent_topics.schedule import (
+    FEATURE_FLAG_KEY,
+    SCHEDULES,
+    create_intent_topics_schedules,
+)
 
 MODULE = "posthog.temporal.mcp_analytics.intent_topics.schedule"
+FLAG_SDK = "posthog.temporal.mcp_analytics.intent_clustering.schedule.posthoganalytics.feature_enabled"
 
 
 @pytest.fixture
@@ -54,3 +60,27 @@ class TestCreateIntentTopicsSchedules:
             await create_intent_topics_schedules(MagicMock(spec=Client))
 
         assert schedule_helpers["create"].await_count == len(SCHEDULES)
+
+    @pytest.mark.asyncio
+    async def test_the_clustering_schedule_flag_does_not_start_the_topic_schedules(self, schedule_helpers) -> None:
+        # The topic pipeline has its own flag, so turning on the legacy clustering schedule leaves it off.
+        schedule_helpers["exists"].return_value = False
+
+        with patch(FLAG_SDK, side_effect=lambda key, _distinct_id: key == CLUSTERING_FLAG_KEY) as feature_enabled:
+            await create_intent_topics_schedules(MagicMock(spec=Client))
+
+        assert FEATURE_FLAG_KEY != CLUSTERING_FLAG_KEY
+        assert {call.args[0] for call in feature_enabled.call_args_list} == {FEATURE_FLAG_KEY}
+        schedule_helpers["create"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_flag_check_that_returns_none_keeps_the_existing_schedules(self, schedule_helpers) -> None:
+        # The SDK returns None instead of raising when the flag request times out.
+        schedule_helpers["exists"].return_value = True
+
+        with patch(FLAG_SDK, return_value=None):
+            await create_intent_topics_schedules(MagicMock(spec=Client))
+
+        schedule_helpers["delete"].assert_not_called()
+        schedule_helpers["create"].assert_not_called()
+        schedule_helpers["update"].assert_not_called()

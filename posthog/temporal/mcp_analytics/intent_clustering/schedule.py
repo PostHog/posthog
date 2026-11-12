@@ -45,7 +45,9 @@ FEATURE_FLAG_KEY = "mcp-analytics-clustering-schedule"
 FEATURE_FLAG_DISTINCT_ID = "internal_mcpa_clustering_schedule"
 
 
-def _schedule_enabled() -> tuple[bool, bool]:
+def _schedule_enabled(
+    flag_key: str = FEATURE_FLAG_KEY, distinct_id: str = FEATURE_FLAG_DISTINCT_ID
+) -> tuple[bool, bool]:
     """Return ``(enabled, check_succeeded)``.
 
     Three logical states the caller must distinguish:
@@ -56,10 +58,15 @@ def _schedule_enabled() -> tuple[bool, bool]:
     * ``(False, False)`` — FF check raised. **Preserve current state.** Do
       not register a new schedule (fail-closed on registration) and do not
       delete an existing one (a transient PostHog API outage shouldn't tear
-      down a properly-enabled production schedule).
+      down a properly-enabled production schedule). The SDK returns None
+      instead of raising when the flag request times out, so None counts
+      as a failed check too.
     """
     try:
-        enabled = posthoganalytics.feature_enabled(FEATURE_FLAG_KEY, FEATURE_FLAG_DISTINCT_ID)
+        enabled = posthoganalytics.feature_enabled(flag_key, distinct_id)
+        if enabled is None:
+            logger.warning("mcpa.intent_clustering.schedule.feature_flag_check_returned_none", flag_key=flag_key)
+            return False, False
         return bool(enabled), True
     except Exception:
         logger.warning("mcpa.intent_clustering.schedule.feature_flag_check_failed_defaulting_off", exc_info=True)
