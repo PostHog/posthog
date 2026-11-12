@@ -86,14 +86,26 @@ def import_resend_automation(
             notes=("You imported this automation before, so PostHog left it as it is.",),
         )
     access = _access(team, user)
-    step_types = {step.get("type") for step in automation.get("steps") or [] if isinstance(step, dict)}
+    # The import runs in the background, so the person who started it may have lost access since.
+    if not user.is_active or not access.check_access_level_for_resource("hog_flow", "editor"):
+        return ProviderAutomationResult(
+            status="failed",
+            workflow_id=None,
+            notes=("The person who started this import can't edit workflows in this project anymore.",),
+        )
+    steps = automation.get("steps")
+    step_types = {
+        step_type
+        for step in (steps if isinstance(steps, list) else [])
+        if isinstance(step, dict) and isinstance(step_type := step.get("type"), str)
+    }
     context = TranslationContext(
         step_emails=step_emails or {},
         segment_cohorts={
             segment_id: _segment_cohort(team_id, user, access, segment_id, name)
             for segment_id, name in (segments or {}).items()
         },
-        can_opt_out=access.check_access_level_for_resource("hog_flow", "editor"),
+        can_opt_out=True,
         unavailable_templates=frozenset(hidden_gated_template_ids(team))
         if step_types & {"add_to_segment", "contact_update"}
         else frozenset(),

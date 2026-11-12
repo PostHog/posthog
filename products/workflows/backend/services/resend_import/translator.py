@@ -436,14 +436,12 @@ class _Builder:
     def _with_variables(
         self, key: str, text: str, variables: Mapping[str, Any], contact_variables: tuple[str, ...]
     ) -> str:
-        for name, source in variables.items():
-            replacement = self._variable_source(key, name, source)
-            text = _fill_variable(text, name, replacement)
+        replacements = {name: self._variable_source(key, name, source) for name, source in variables.items()}
         # Resend fills these from the contact when a step doesn't, and a person's properties do the same job here.
         for name in contact_variables:
             if name not in variables:
-                text = _fill_variable(text, name, f"person.properties.{_CONTACT_VARIABLE_PROPERTIES.get(name, name)}")
-        return text
+                replacements[name] = f"person.properties.{_CONTACT_VARIABLE_PROPERTIES.get(name, name)}"
+        return _fill_variables(text, replacements)
 
     def _variable_source(self, key: str, name: str, source: Any) -> str:
         reference = source.get("var") if isinstance(source, dict) else None
@@ -698,15 +696,20 @@ _LIQUID_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _LIQUID_STRING = re.compile(r"(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')")
 
 
-def _fill_variable(text: str, name: str, replacement: str) -> str:
-    """Replaces references to `variables.NAME` inside Liquid tags, leaving body copy and quoted strings alone."""
-    reference = re.compile(rf"\bvariables\.{re.escape(name)}(?![\w-])")
+def _fill_variables(text: str, replacements: Mapping[str, str]) -> str:
+    """Replaces references to `variables.NAME` inside Liquid tags, leaving body copy and quoted strings alone. One pass,
+    so a replacement that names another variable isn't filled again."""
+    if not replacements:
+        return text
+    names = "|".join(re.escape(name) for name in sorted(replacements, key=len, reverse=True))
+    reference = re.compile(rf"\bvariables\.({names})(?![\w-])")
 
     def fill_tag(tag: re.Match[str]) -> str:
         # Odd parts are string literals. A callable keeps a backslash in the replacement from reading as an escape.
         parts = _LIQUID_STRING.split(tag.group(0))
         return "".join(
-            part if index % 2 else reference.sub(lambda _: replacement, part) for index, part in enumerate(parts)
+            part if index % 2 else reference.sub(lambda match: replacements[match.group(1)], part)
+            for index, part in enumerate(parts)
         )
 
     return _LIQUID_TAG.sub(fill_tag, text)
