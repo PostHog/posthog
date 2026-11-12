@@ -116,14 +116,14 @@ tools:
             idempotent: false
         title: Delete a warehouse destination
         description: >
-            Delete a warehouse destination and detach it from every source and table that syncs to it. Those tables
-            stop writing there from their next sync, and no new rows reach the destination. Rows already written stay
-            in the external system: PostHog does not delete them. A sync already running finishes its current run. The
-            PostHog warehouse destination cannot be deleted. Before you call it, read external-data-destinations-retrieve
-            and look at synced_sources: tell the user which sources and tables stop syncing there, and get their
+            Delete a warehouse destination and detach it from every source and table that syncs to it. Those tables stop
+            writing there from their next sync, and no new rows reach the destination. Rows already written stay in the
+            external system: PostHog does not delete them. A sync already running finishes its current run. The PostHog
+            warehouse destination cannot be deleted. Before you call it, read external-data-destinations-retrieve and
+            look at synced_sources: tell the user which sources and tables stop syncing there, and get their
             confirmation. If a source would then have no destination, it falls back to the PostHog warehouse, so check
-            that this is what the user wants. The call needs editor access to every table wired to the destination.
-            Get the id from external-data-destinations-list. Returns nothing on success.
+            that this is what the user wants. The call needs editor access to every table wired to the destination. Get
+            the id from external-data-destinations-list. Returns nothing on success.
     external-data-destinations-list:
         operation: external_data_destinations_list
         enabled: true
@@ -211,15 +211,14 @@ tools:
             destination_ids: the table then syncs only to those destinations, and ignores changes to its source's
             destinations. A destination left out of the list is detached from the table, and a link to a paused
             destination that external-data-schemas-destinations-retrieve does not list is deleted for good. Pass
-            destination_ids as null to clear the override: the table then inherits the destination set of its source.
-            An empty list is rejected, because a table must sync somewhere. To stop syncing a table, use
+            destination_ids as null to clear the override: the table then inherits the destination set of its source. An
+            empty list is rejected, because a table must sync somewhere. To stop syncing a table, use
             external-data-schemas-partial-update with should_sync false. Read the current state with
             external-data-schemas-destinations-retrieve first, and get destination ids from
             external-data-destinations-list. Do not call it while any destination in that list has status paused.
             Selecting a paused destination turns it back on, so do that only after the user fixed the cause. At most 10
-            destinations. The table's next sync writes to the new set, and a new destination only receives rows
-            from then on: it holds no history until the table is resynced. Returns destination_ids and
-            inherits_from_source.
+            destinations. The table's next sync writes to the new set, and a new destination only receives rows from
+            then on: it holds no history until the table is resynced. Returns destination_ids and inherits_from_source.
         param_overrides:
             id:
                 aliases:
