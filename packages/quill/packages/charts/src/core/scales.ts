@@ -566,7 +566,9 @@ function buildStackData(
             const row: Record<string, number> = Object.create(null)
             for (const s of axisSeries) {
                 const raw = s.data[i] ?? 0
-                row[s.key] = allowNegative ? raw : Math.max(0, raw)
+                // A non-finite value stacks as 0, so the series above it keep their place.
+                const value = Number.isFinite(raw) ? raw : 0
+                row[s.key] = allowNegative ? value : Math.max(0, value)
             }
             return row
         })
@@ -576,14 +578,22 @@ function buildStackData(
             stack.offset(offset)
         }
 
-        const stacked = stack(tableData)
-        for (const layer of stacked) {
-            // stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
+        stack(tableData).forEach((layer, seriesIndex) => {
+            const { data } = axisSeries[seriesIndex]
+            const edge = (stacked: number, i: number): number => {
+                const raw = data[i]
+                // A non-finite value is a gap in its own series: NaN edges break the line and the area there.
+                if (typeof raw === 'number' && !Number.isFinite(raw)) {
+                    return NaN
+                }
+                // stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
+                return Number.isFinite(stacked) ? stacked : 0
+            }
             result.set(layer.key, {
-                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
-                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
+                top: layer.map((d, i) => edge(d[1], i)),
+                bottom: layer.map((d, i) => edge(d[0], i)),
             })
-        }
+        })
     }
 
     return result
@@ -595,6 +605,13 @@ export function computeStackData(series: Series[], labels: string[]): Map<string
 
 export function computePercentStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
     return buildStackData(series, labels, { offset: stackOffsetExpand })
+}
+
+/** True when a stacked layout has a value the plain stack would clamp to 0. */
+export function hasNegativeStackValue(series: Series[]): boolean {
+    return series.some(
+        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay && s.data?.some((value) => value < 0)
+    )
 }
 
 /** Stack that preserves negative segments — positives accumulate upward from 0, negatives

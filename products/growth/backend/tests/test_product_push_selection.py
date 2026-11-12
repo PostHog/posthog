@@ -57,14 +57,14 @@ class TestSelectNextProduct(BaseTest):
 
     def test_any_intent_excludes_product_without_activation_criterion(self) -> None:
         # web_analytics has no activation criterion — a bare intent row is the usage signal. With
-        # both top products excluded, the walk lands on the next blessed entry (self_driving).
+        # both top products excluded, the walk lands on the next blessed entry (session_replay).
         ProductIntent.objects.create(team=self.team, product_type="product_analytics", activated_at=NOW)
         ProductIntent.objects.create(team=self.team, product_type="web_analytics")
 
         selection = select_next_product(self.organization, NOW)
 
         assert selection is not None
-        assert selection.product_key == "self_driving"
+        assert selection.product_key == "session_replay"
 
     @parameterized.expand(
         [
@@ -165,7 +165,6 @@ class TestSelectNextProduct(BaseTest):
 
         ProductIntent.objects.create(team=self.team, product_type="product_analytics", activated_at=NOW)
         ProductIntent.objects.create(team=self.team, product_type="web_analytics")
-        self._campaign("self_driving", ProductPushCampaign.Status.ADOPTED, ended_at=NOW - timedelta(days=200))
         self._campaign("session_replay", ProductPushCampaign.Status.ADOPTED, ended_at=NOW - timedelta(days=200))
 
         selection = select_next_product(self.organization, NOW)

@@ -59,6 +59,7 @@ pub fn test_context() -> RequestContext {
         capture_internal: false,
         historical_migration: false,
         gateway_signature: None,
+        legacy_property_splice: true,
     }
 }
 
@@ -594,6 +595,7 @@ pub struct TestStateBuilder {
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
     ai_max_event_bytes: u64,
+    legacy_property_splice: bool,
 }
 
 impl Default for TestStateBuilder {
@@ -618,6 +620,7 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
+            legacy_property_splice: true,
             ai_max_event_bytes: 0,
         }
     }
@@ -716,6 +719,11 @@ impl TestStateBuilder {
         self
     }
 
+    pub fn with_legacy_property_splice(mut self, enabled: bool) -> Self {
+        self.legacy_property_splice = enabled;
+        self
+    }
+
     pub fn build(self) -> TestState {
         let redis: Arc<dyn common_redis::Client + Send + Sync> = if self.quota_limited {
             let mut mock = MockRedisClient::new();
@@ -809,6 +817,7 @@ impl TestStateBuilder {
             ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,
             capture_v1_scatter_gather_min_batch: 8,
+            capture_v1_legacy_property_splice: self.legacy_property_splice,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,

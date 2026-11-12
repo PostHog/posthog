@@ -361,6 +361,8 @@ jobs:
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
+              env:
+                  SKIP_ELECTRON_REBUILD: '1'
 
             - name: Save pnpm store
               if: github.ref == 'refs/heads/master'

@@ -386,7 +386,6 @@ frontend/src/queries/nodes/HogQLQuery/HogQLQueryEditor.tsx -> frontend/src/scene
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic.tsx
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/savedQueryNameValidation.ts
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic.ts
-frontend/src/queries/nodes/HogQLX/render.tsx -> products/mcp_analytics/frontend/components/BrandMarkLabel.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/FlagCallsRetentionNotice.tsx -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
@@ -396,7 +395,6 @@ frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insi
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> products/product_analytics/frontend/insights/editor/EditorFilters.tsx
-frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> products/product_analytics/frontend/insights/shared/selectorMatchChange/SelectorMatchChangeNotice.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/dashboard/dashboardLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils.ts

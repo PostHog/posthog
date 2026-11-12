@@ -23,6 +23,7 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNoticeSlot } from '~/layout/navigation/ImpersonationNotice/ImpersonationNoticeSlot'
+import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
@@ -35,11 +36,9 @@ const importCommand = (): Promise<typeof import('lib/components/Command/Command'
     import('lib/components/Command/Command')
 const Command = lazyWithRetry(() => importCommand().then(({ Command }) => ({ default: Command })))
 // Off the eager path but fetched on idle, so the first open skips the network. The lazy component retries a failed import.
-function preloadCommand(withCommandKSearch: boolean): void {
+function preloadCommand(): void {
     void importCommand().catch(() => {})
-    if (withCommandKSearch) {
-        void import('lib/components/CommandKSearch/CommandKSearch').catch(() => {})
-    }
+    void import('lib/components/CommandKSearch/CommandKSearch').catch(() => {})
 }
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
@@ -57,11 +56,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { hasOpenedCommand } = useValues(commandLogic)
-    const newCommandKSearch = !!featureFlags[FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]
-    useEffect(
-        () => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand(newCommandKSearch))),
-        [newCommandKSearch]
-    )
+    useEffect(() => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand())), [])
 
     const toasts = (
         <ToastContainer
@@ -109,6 +104,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     </ErrorBoundary>
                 )}
                 <ImpersonationNoticeSlot />
+                <NewEventsTableBar />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

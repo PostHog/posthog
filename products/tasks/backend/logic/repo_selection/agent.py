@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
@@ -20,6 +21,14 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 from posthog.sync import database_sync_to_async
 
 from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
+from products.tasks.backend.logic.repo_selection.activity import (
+    ACTIVITY_PROMPT_GUIDE,
+    RepositoryFigures,
+    describe_figures,
+    load_candidate_figures,
+    order_by_activity,
+    same_tree_sources,
+)
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -36,6 +45,13 @@ logger = logging.getLogger(__name__)
 REPO_SELECTION_DUMMY_REPOSITORY = "PostHog/.github"
 
 _MAX_GITHUB_REPOS = 1000
+
+# Applied when a caller names no model, so the selector does not follow the agent server's
+# default model. No service tier is set, because the flex tier queues requests and Slack users
+# wait in the thread for the answer.
+DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER = "codex"
+DEFAULT_REPO_SELECTION_MODEL = "gpt-6-luna"
+DEFAULT_REPO_SELECTION_REASONING_EFFORT = "medium"
 
 # The prompt-injection guard shared by every optional guidance section rendered from stored,
 # member-written text. Keep it one definition so an edit cannot weaken one section silently.
@@ -134,7 +150,12 @@ def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
+    team_id: int,
+    team: Team | None = None,
+    requester_user_id: int | None = None,
+    team_only: bool = False,
+    *,
+    include_unavailable: bool = False,
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -162,7 +183,10 @@ def resolve_team_github_integration(
             for row in IntegrationManager.github.oauth.list(team_id)
             # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
             # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            if include_unavailable
+            or (
+                row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            )
         ),
         # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
         # first and `sorted` is stable.
@@ -176,10 +200,7 @@ def resolve_team_github_integration(
             for adapter in (
                 GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
             )
-            if not (
-                adapter.integration.repository_cache_updated_at is not None
-                and adapter.integration.repository_cache == []
-            )
+            if not adapter.repository_cache_confirmed_empty()
         ),
         None,
     )
@@ -306,6 +327,30 @@ def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> se
     return set(qs.values_list("full_name", flat=True))
 
 
+@frozen
+class _SelectorRuntime:
+    model: str | None
+    runtime_adapter: str | None
+    reasoning_effort: str | None
+
+
+def _resolve_repo_selection_runtime(
+    model: str | None, runtime_adapter: str | None, reasoning_effort: str | None
+) -> _SelectorRuntime:
+    """The caller's runtime, or the selector default when it names no model.
+
+    The default replaces the model and the adapter together, because the agent server derives the
+    provider from the adapter and a Codex model on the Claude adapter cannot be routed.
+    """
+    if model is not None or runtime_adapter is not None:
+        return _SelectorRuntime(model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort)
+    return _SelectorRuntime(
+        model=DEFAULT_REPO_SELECTION_MODEL,
+        runtime_adapter=DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER,
+        reasoning_effort=reasoning_effort or DEFAULT_REPO_SELECTION_REASONING_EFFORT,
+    )
+
+
 def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None:
     """Rendered prompt lines of the team's configured routing rules, or None when there are none.
 
@@ -335,6 +380,13 @@ def _visibility_label(private: bool | None) -> str:
     if private is None:
         return "visibility unknown"
     return "private" if private else "public"
+
+
+def _candidate_line(
+    number: int, repo: str, private: bool | None, figures: RepositoryFigures | None, same_files_as: str | None
+) -> str:
+    details = [_visibility_label(private), *describe_figures(figures, same_files_as)]
+    return f"{number}. `{repo}` ({'; '.join(details)})"
 
 
 def _candidate_visibility(github: GitHubIntegrationBase, repositories: list[str]) -> dict[str, bool | None]:
@@ -408,6 +460,7 @@ def _build_repo_selection_prompt(
     routing_rules: str | None = None,
     visibility: Mapping[str, bool | None] | None = None,
     source_repository: str | None = None,
+    figures: Mapping[str, RepositoryFigures] | None = None,
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -432,6 +485,9 @@ def _build_repo_selection_prompt(
     `source_repository` is a candidate the request was filed against (e.g. a GitHub issue's
     repository). It is the default answer, not the only one: an issue filed in one repository
     often asks for a change in another, such as an SDK.
+
+    `figures` maps candidates to their stored size and activity figures (see `load_candidate_figures`).
+    The list is ordered by activity, and a candidate missing from it renders with its visibility only.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -443,8 +499,11 @@ def _build_repo_selection_prompt(
     schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
+    figures = figures or {}
+    same_files_as = same_tree_sources(candidate_repos, figures)
     repo_list = "\n".join(
-        f"{i + 1}. `{repo}` ({_visibility_label(visibility.get(repo))})" for i, repo in enumerate(candidate_repos)
+        _candidate_line(i, repo, visibility.get(repo), figures.get(repo), same_files_as.get(repo))
+        for i, repo in enumerate(order_by_activity(candidate_repos, figures), start=1)
     )
 
     source_section = (
@@ -521,7 +580,9 @@ If no relevant private candidate exists, or the relevant candidate's visibility 
 
 {context_block}
 
-## Candidate repositories (lowercased; full_name format is `owner/repo`; visibility in parentheses)
+## Candidate repositories (lowercased; full_name format is `owner/repo`)
+
+{ACTIVITY_PROMPT_GUIDE}
 
 {repo_list}
 {source_section}{rules_section}{corrections_section}
@@ -577,7 +638,8 @@ that explicitly in `reason`.
 you MUST query the cache to disambiguate. Reasoning from prior knowledge — "this repo is more
 actively refactored," "this is the canonical one," "the other is a downstream mirror" — is **not
 acceptable evidence**. Only specific path matches or README/description content from the cache
-count. If you find yourself reaching for that kind of justification, run a query first.
+count, and so do the figures in the candidate list; prior knowledge still does not. If you find
+yourself reaching for that kind of justification, run a query first.
 
 **`gh` CLI as fallback.** When SQL alone is inconclusive (e.g. matching paths in two repos and
 you need to read the file to know which is the real subject), use
@@ -796,6 +858,9 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
+    figures = await database_sync_to_async(load_candidate_figures, thread_sensitive=False)(
+        github, team_id, candidate_repos
+    )
     prompt = _build_repo_selection_prompt(
         context,
         candidate_repos,
@@ -803,7 +868,9 @@ async def select_repository(
         routing_rules=routing_rules,
         visibility=visibility,
         source_repository=_eligible_source_repository(source_repository, candidate_repos),
+        figures=figures,
     )
+    runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -814,11 +881,10 @@ async def select_repository(
         github_read_access=True,
         disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
-        # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
-        # the agent-server default; threaded through from the caller's per-step resolution.
-        model=model,
-        runtime_adapter=runtime_adapter,
-        reasoning_effort=reasoning_effort,
+        # The caller's per-step runtime/model override, or the selector default when it names none.
+        model=runtime.model,
+        runtime_adapter=runtime.runtime_adapter,
+        reasoning_effort=runtime.reasoning_effort,
         service_tier=service_tier,
     )
 
@@ -874,7 +940,12 @@ async def select_repository(
             raise RepoSelectionRejectedError(result.repository, result.reason)
         logger.info(
             "repo selection completed",
-            extra={"repository": result.repository, "reason": result.reason, "candidates": len(candidate_repos)},
+            extra={
+                "repository": result.repository,
+                "reason": result.reason,
+                "candidates": len(candidate_repos),
+                "candidates_with_figures": len(figures),
+            },
         )
         return result
     finally:

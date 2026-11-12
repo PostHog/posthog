@@ -77,11 +77,18 @@ const FIXTURE_FILES: Record<string, string> = {
         'CREATE TABLE IF NOT EXISTS posthog_persons_row (id bigint);\n',
     'rust/cyclotron-node-migrations/20260101000001_initial.sql':
         'CREATE TABLE IF NOT EXISTS cyclotron_jobs (id uuid);\n',
-    // The latest version creates no table, but Node still needs the database at that version.
+    // These versions create no table, but they change cyclotron_jobs, which Node reads.
     'rust/cyclotron-node-migrations/20260201000001_add_index.sql': 'CREATE INDEX idx_jobs ON cyclotron_jobs (id);\n',
     'rust/cyclotron-node-migrations/20260301000001_add.batch.index.sql':
         'CREATE INDEX idx_batch ON cyclotron_jobs (id);\n',
     'rust/cyclotron-node-migrations/20260301000001_add.batch.index.down.sql': 'DROP INDEX idx_batch;\n',
+    // Node never reads cyclotron_attachments, so neither version is a requirement.
+    'rust/cyclotron-node-migrations/20260401000001_add_attachments.sql':
+        'CREATE TABLE cyclotron_attachments (id uuid);\n',
+    'rust/cyclotron-node-migrations/20260501000001_drop_attachments.sql':
+        'DROP TABLE IF EXISTS cyclotron_attachments;\n',
+    // Names no table, but the index may be on a table Node reads.
+    'rust/cyclotron-node-migrations/20260601000001_drop_index.sql': 'DROP INDEX IF EXISTS idx_jobs;\n',
     'rust/behavioral_cohorts_migrations/20260301000001_initial.sql': 'CREATE TABLE cohort_membership (id bigint);\n',
 
     'nodejs/src/reader.ts': [
@@ -141,7 +148,11 @@ describe('deriveSchemaRequirements', () => {
                 replaces: ['0001_initial', '0002_span_kind'],
             },
             { kind: 'django', database: 'default', app: 'widgets', migration: '0002_widget_table' },
-            { kind: 'sqlx', database: 'cyclotron-node', versions: [20260101000001, 20260201000001, 20260301000001] },
+            {
+                kind: 'sqlx',
+                database: 'cyclotron-node',
+                versions: [20260101000001, 20260201000001, 20260301000001, 20260601000001],
+            },
         ])
         expect(Object.fromEntries(tablesByRequirement)).toEqual({
             legacy: ['legacy_widget'],

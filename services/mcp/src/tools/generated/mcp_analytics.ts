@@ -132,6 +132,7 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
             query: {
                 date_from: params.date_from,
+                date_to: params.date_to,
                 filter_test_accounts: params.filter_test_accounts,
                 limit: params.limit,
                 offset: params.offset,
@@ -357,6 +358,12 @@ const MCPToolFailuresQuery = z.object({
 })
 
 const MCPToolFailureOccurrencesQuery = z.object({
+    cause: z
+        .string()
+        .describe(
+            'When set, only events whose masked message equals this failures-table `cause` match; "" selects events without a message.'
+        )
+        .optional(),
     dateRange: DateRange.optional(),
     errorStatus: z
         .string()

@@ -4,12 +4,12 @@ import datetime as dt
 from collections import Counter, defaultdict
 from typing import Any
 
-from django.conf import settings
 from django.db.models import BooleanField, Case, F, Q, Value, When
 
 from products.aeo.backend.brand import mention_filter
+from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engines import is_target_url, top_domains
-from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
+from products.aeo.backend.facade.contracts import CheckMode, CitationGap, EngineAnswer
 from products.aeo.backend.models import AEOCitationCheck, AEOPromptVersion
 from products.aeo.backend.seeding import prompt_hash
 
@@ -39,7 +39,7 @@ def _gap_keys(first_hashes: dict[str, str], current_hashes: dict[str, str]) -> d
 
 
 def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]:
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = own_domains(team_id)
     # Only the wording in use counts: checks of an older version describe a question nobody asks any more.
     # Checks recorded before versions existed carry no version and ran version 1.
     current_version = Q(prompt_version=F("prompt__current_version")) | Q(
@@ -47,7 +47,7 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     )
     checks_in_window = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(created_at__gte=since, check_failed=False, prompt__active=True)
+        .filter(created_at__gte=since, check_failed=False, prompt__active=True, mode=CheckMode.WEB_SEARCH)
         .filter(current_version)
     )
     rows = (

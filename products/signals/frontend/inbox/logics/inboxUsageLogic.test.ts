@@ -99,17 +99,16 @@ const mountWithUsage = async (
     return logic
 }
 
-const mockSpendBilling = (
-    cutoff: string | undefined,
-    discountPercent = 0,
-    amountUsd: string | null = '12.34'
-): void => {
+const mockSpendBilling = (cutoff: string | undefined, discountPercent = 0, credits: number | null = 1234): void => {
     useMocks({
         get: {
             '/api/billing': () => [
                 200,
                 {
-                    products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: amountUsd }],
+                    products: [
+                        PRICED_INBOX_PRODUCT,
+                        { type: 'inbox_usage', current_usage: credits, current_amount_usd: '12.34' },
+                    ],
                     discount_percent: discountPercent,
                     usage_summary: {
                         signals_spend_credits: { billing_start_date: cutoff },
@@ -148,19 +147,23 @@ describe('inboxUsageLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it.each<[number, string | null, number | null]>([
-        [0, '100', 100],
-        [30, '100', 70],
-        [100, '100', 0],
+    it.each<[number, number | null, number | null]>([
+        [0, 100, 100],
+        [30, 100, 100],
+        [100, 100, 100],
         [30, null, null],
-    ])('applies the account discount to spend (%s%%, $%s)', async (discountPercent, amountUsd, expected) => {
-        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-11T12:00:00Z') })
-        mockSpendBilling('2026-06-10', discountPercent, amountUsd)
-        logic = inboxUsageLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.spendAmountUsd).toBe(expected)
-    })
+        [0, 0, 0],
+    ])(
+        'shows recorded credits independently of the account discount (%s%%, %s credits)',
+        async (discountPercent, credits, expected) => {
+            jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-11T12:00:00Z') })
+            mockSpendBilling('2026-06-10', discountPercent, credits)
+            logic = inboxUsageLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.spendCredits).toBe(expected)
+        }
+    )
 
     it('switches meters and refreshes quota at UTC midnight, ignoring a pending legacy response', async () => {
         jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-09T23:59:00Z') })

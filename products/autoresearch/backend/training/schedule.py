@@ -7,6 +7,8 @@ or until ``EXPLORE_RUN_LIMIT`` research runs have run. Maintain starts one run
 
 A ``bootstrapping`` pipeline whose first champion rolled back follows the same schedule
 (``awaiting_first_champion()``).
+
+When a project has more runs due than free training runs, ``kickoff_rank()`` orders the due pipelines.
 """
 
 from collections.abc import Iterable
@@ -24,6 +26,13 @@ from ..models import AutoresearchModel, AutoresearchPipeline, AutoresearchTraini
 EXPLORE_RUN_LIMIT = 5
 
 TrainingPhase = Literal["explore", "maintain"]
+
+# The order in which a project's due pipelines take its free training runs, first to last.
+NO_CHAMPION_PRIORITY = 0
+RESCUE_PRIORITY = 1
+RESEARCH_PRIORITY = 2
+
+KickoffRank = tuple[int, datetime, str]
 
 
 @frozen
@@ -76,6 +85,26 @@ def research_schedule(
     # elapsed-time comparison would push each run one sweep later than the interval.
     gap = timedelta(days=1 if exploring else research_interval_days)
     return ResearchSchedule(phase=phase, next_research_at=_start_of_day(latest) + gap)
+
+
+def scheduled_kickoff_reason(schedule: ResearchSchedule, now: datetime) -> AutoresearchTrainingRun.KickoffReason | None:
+    """Why the sweep starts a research run now, or None when none is due."""
+    if schedule.next_research_at is None:
+        return None
+    if schedule.phase == "explore":
+        return AutoresearchTrainingRun.KickoffReason.EXPLORE
+    if schedule.is_due(now):
+        return AutoresearchTrainingRun.KickoffReason.SCHEDULED
+    return None
+
+
+def kickoff_rank(*, priority: int, next_research_at: datetime | None, pipeline_id: UUID) -> KickoffRank:
+    """The sort key of a due pipeline in the queue for the project's free training runs. Lower comes first.
+
+    A pipeline with no champion comes first, because it scores nobody until a run finds one. A champion
+    that cannot score comes next, then the pipeline whose research run has waited longest. The id breaks ties.
+    """
+    return (priority, next_research_at or datetime.max.replace(tzinfo=UTC), str(pipeline_id))
 
 
 def schedule_runs_for(pipeline_ids: Iterable[UUID], team_id: int) -> dict[UUID, list[ScheduleRun]]:

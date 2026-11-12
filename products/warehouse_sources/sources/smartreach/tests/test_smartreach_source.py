@@ -31,6 +31,20 @@ class TestSmartreachSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
+    @pytest.mark.parametrize(
+        "pinned_version, expected_tables",
+        [
+            # The tables added for v3 do not exist on v1, so a v1 pin must not offer them.
+            (SMARTREACH_API_V1, ["prospects", "campaigns"]),
+            (None, ["prospects", "campaigns", "campaign_prospects", "campaign_stats", "teams", "users"]),
+        ],
+    )
+    def test_get_schemas_lists_only_tables_on_the_pinned_version(
+        self, pinned_version: str | None, expected_tables: list[str]
+    ) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=pinned_version)
+        assert [schema.name for schema in schemas] == expected_tables
+
     @mock.patch("products.warehouse_sources.sources.smartreach.source.check_access")
     def test_validate_credentials_v3_requires_team_id(self, mock_check: mock.MagicMock) -> None:
         # v3 list endpoints reject requests without team_id, so fail fast (before probing) when it's

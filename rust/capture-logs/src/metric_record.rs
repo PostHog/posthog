@@ -501,7 +501,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
+pub(crate) fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };

@@ -255,9 +255,12 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    IP_RESTRICTIONS = 'ip_restrictions',
     MEMBER_GOVERNANCE = 'member_governance',
     SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = 'self_driving_trial_allowance_microusd',
+    SELF_DRIVING_TRIAL_REPORTS = 'self_driving_trial_reports',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -398,7 +401,14 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
+export type OnboardingSkippedReason =
+    | 'delegated'
+    | 'later'
+    | 'other'
+    | 'provisioned'
+    | 'connector'
+    | 'device_login'
+    | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -649,6 +659,9 @@ export interface OrganizationType extends OrganizationBasicType {
     read_only_mcp_access?: boolean
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
+    ip_restrictions?: string[]
+    ip_restrictions_enabled?: boolean
+    ip_restrictions_warning?: string | null
     metadata?: OrganizationMetadata
     member_count: number
     default_anonymize_ips?: boolean
@@ -4063,16 +4076,6 @@ export type ProductTourType = 'tour' | 'announcement'
 
 export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
-export interface ProductTourGeneratedStepContent {
-    step_id: string
-    title: string
-    description: string
-}
-
-export interface ProductTourAIGenerationResponse {
-    steps: ProductTourGeneratedStepContent[]
-}
-
 export interface ProductTourContent {
     type?: ProductTourType
     steps: ProductTourStep[]
@@ -4666,6 +4669,8 @@ export interface EarlyAccessFeatureType {
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
+    /** Image URL, such as a screenshot of the feature. Can be empty. */
+    image_url?: string
     /** Custom JSON payload for the early access feature */
     payload?: Record<string, any>
     created_at: string
@@ -4939,6 +4944,8 @@ export interface EventDefinition {
     is_action?: boolean
     is_data_warehouse?: boolean
     hidden?: boolean
+    /** Set after ingestion of the event is stopped. The definition is deleted after this time. */
+    scheduled_deletion_at?: string | null
     default_columns?: string[]
     enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
@@ -5058,6 +5065,8 @@ export interface GroupType {
     name_plural?: string | null
     detail_dashboard?: number | null
     default_columns?: string[]
+    /** When ingestion auto-created this group type. Null for types created before this was recorded. */
+    created_at?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -5280,8 +5289,6 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
     deferred?: boolean
-    /** The user's variant in the deferred app context experiment. Absent outside the experiment. */
-    deferred_app_context_variant?: string
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
@@ -6330,8 +6337,8 @@ export interface DataWarehouseSavedQuery {
     /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
      * for example on its first run or after the query changes. */
     is_incremental?: boolean
-    /** The view stores raw Trino SQL. Only hosted Trino can run it, and HogQL cannot reference it. */
-    is_raw_managed_trino?: boolean
+    /** The engine that runs this view, and what the product can do with it */
+    engine?: DataWarehouseSavedQueryApi['engine']
     /** Engine → suspension details */
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
@@ -6609,6 +6616,8 @@ export type SchemaIncrementalFieldsResponse = {
     primary_key_detection_supported?: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    /** Whether the organization can keep a history table for an incremental table. */
+    incremental_history_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6640,6 +6649,7 @@ export interface ExternalDataSourceSyncSchema {
     append_available: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    incremental_history_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks

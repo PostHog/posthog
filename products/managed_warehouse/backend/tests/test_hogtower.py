@@ -257,6 +257,14 @@ class TestWarehouseRoutes:
             },
         )
 
+    @_routes(
+        {("GET", W): _detail(data_store={"kind": "s3bucket", "bucket_name": "posthog-duckling-acme", "prefix": "lake"})}
+    )
+    def test_status_reports_the_data_store_prefix(self, fake: FakeHogtower) -> None:
+        body = _mapped("GET", "/warehouse/status").json()
+
+        assert (body["bucket"], body["bucket_prefix"]) == ("posthog-duckling-acme", "lake")
+
     @_routes({("GET", W): _detail(state="provisioning", ready_at=None, data_store={"kind": "external"})})
     def test_status_omits_connection_and_bucket_until_known(self, fake: FakeHogtower) -> None:
         body = _mapped("GET", "/warehouse/status").json()
@@ -392,6 +400,39 @@ class TestTrinoRoute:
     @_routes({("GET", f"{W}/trino"): (200, {"trino": {"org_id": ORG, "enabled": True}, "live": _TRINO_LIVE})})
     def test_live_detail_is_the_v1_body(self, fake: FakeHogtower) -> None:
         assert _mapped("GET", "/trino").json() == _TRINO_LIVE
+
+    @_routes(
+        {
+            ("GET", f"{W}/trino"): (
+                200,
+                {
+                    "trino": {"org_id": ORG, "enabled": True, "backend": "ducklake", "hoglake_initialized": False},
+                    "live": _TRINO_LIVE,
+                },
+            )
+        }
+    )
+    def test_live_detail_takes_the_backend_from_the_tenancy(self, fake: FakeHogtower) -> None:
+        # duckgres's live body can't tell a hoglake catalog from a DuckLake one; hogtower's row can.
+        body = _mapped("GET", "/trino").json()
+
+        assert body["backend"] == "ducklake"
+        assert body["hoglake_initialized"] is False
+        assert body["status"] == _TRINO_LIVE["status"]
+
+    @_routes(
+        {
+            ("GET", f"{W}/trino"): (
+                200,
+                {"trino": {"org_id": ORG, "enabled": True, "backend": "hoglake", "hoglake_initialized": True}},
+            )
+        }
+    )
+    def test_tenancy_alone_carries_hoglake_initialized(self, fake: FakeHogtower) -> None:
+        body = _mapped("GET", "/trino").json()
+
+        assert body["backend"] == "hoglake"
+        assert body["hoglake_initialized"] is True
 
     @_routes({("GET", f"{W}/trino"): (200, {"trino": None})})
     def test_no_tenancy_is_disabled(self, fake: FakeHogtower) -> None:

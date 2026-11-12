@@ -1,4 +1,4 @@
-import { type ScaleLinear, scaleLinear, scalePoint } from 'd3-scale'
+import { type ScaleLinear, scaleLinear, scaleLog, scalePoint } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
 import {
@@ -140,6 +140,16 @@ describe('hog-charts canvas-renderer', () => {
             expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
             expect(ctx.moveTo).toHaveBeenCalledTimes(expectedMoveTo)
             expect(ctx.lineTo).toHaveBeenCalledTimes(expectedLineTo)
+        })
+
+        it('breaks the path at a non-positive value on a log axis', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd']
+            const series = makeSeries({ key: 's1', data: [10, 0, 100, 1000] })
+            const yScale = scaleLog().domain([1, 1000]).range([368, 16]).clamp(true)
+            drawLine({ ...makeDrawContext(ctx, labels), yScale }, series)
+            // The clamp would draw the 0 on the axis floor and join all four points.
+            expect(ctx.lineTo).toHaveBeenCalledTimes(1)
         })
 
         it('uses yValues override instead of series.data when provided', () => {
@@ -760,6 +770,15 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawArea — gap handling', () => {
+        it('fills down to a zero bottom on a log axis', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b']
+            const series = makeSeries({ key: 's1', data: [10, 100], fill: {} })
+            const yScale = scaleLog().domain([1, 1000]).range([368, 16]).clamp(true)
+            drawArea({ ...makeDrawContext(ctx, labels), yScale }, series, undefined, [0, 0])
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+        })
+
         it.each([
             {
                 name: 'does not fill a segment with only a single point',

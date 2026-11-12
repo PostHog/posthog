@@ -27,6 +27,7 @@ from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
+    OpenApiResponse,
     PolymorphicProxySerializer,
     extend_schema,
     extend_schema_field,
@@ -43,6 +44,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -80,7 +82,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.facade.api import existing_action_ids, get_action_details, get_actions
 from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
@@ -95,6 +97,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.api.site_snapshot_serializers import SiteSnapshotQuerySerializer, SiteSnapshotSerializer
 from products.surveys.backend.llm import gemini_configured
 from products.surveys.backend.models import (
     MAX_ITERATION_COUNT,
@@ -116,6 +119,7 @@ from products.surveys.backend.responses import (
     process_survey_results,
     validate_and_parse_dates,
 )
+from products.surveys.backend.site_snapshot import SnapshotDevice, get_site_snapshot
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import SurveyEventProperties, get_archived_response_uuids
@@ -446,8 +450,6 @@ else:
 def get_survey_conditions_with_actions(
     survey: "Survey", action_serializer_class: type[serializers.Serializer] | None = None
 ) -> dict | None:
-    if action_serializer_class is None:
-        action_serializer_class = ActionSerializer
     conditions = survey.conditions
     actions = survey.actions.all()
     if len(actions) > 0:
@@ -455,14 +457,18 @@ def get_survey_conditions_with_actions(
             conditions = {}
         else:
             conditions = dict(conditions)
-        conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+        if action_serializer_class is None:
+            details = get_action_details(team_id=survey.team_id, action_ids=[action.id for action in actions])
+            conditions["actions"] = {"values": ActionSerializer(details, many=True).data}
+        else:
+            conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
     elif isinstance(conditions, dict) and isinstance(conditions.get("actions"), dict):
         # The actions M2M didn't resolve (e.g. the referenced actions were deleted) but a stale
         # actions blob still lives in `conditions`. That stored blob can carry fields this caller's
         # serializer would never expose — notably `created_by` on the public /surveys and /decide
         # payload — so project each value down to the serializer's own fields. Never surface more
         # than the serializer itself would.
-        meta = getattr(action_serializer_class, "Meta", None)
+        meta = getattr(action_serializer_class or ActionSerializer, "Meta", None)
         allowed_fields = getattr(meta, "fields", None)
         if isinstance(allowed_fields, list | tuple):
             allowed = set(allowed_fields)
@@ -3029,6 +3035,32 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             )
 
         return Response(status.HTTP_200_OK)
+
+    @validated_request(
+        query_serializer=SiteSnapshotQuerySerializer,
+        responses={200: OpenApiResponse(response=SiteSnapshotSerializer)},
+        summary="Get a site snapshot for the draft preview",
+        description=(
+            "Get an image of the customer's own site for the survey preview. The image is a frame from a recent "
+            "session recording of a page that matches the survey's URL condition. The first call starts rendering "
+            "it, so poll until the status is `ready` or `unavailable`."
+        ),
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        # The image is served by the exports content endpoint, so a caller who cannot read exports gets no snapshot.
+        required_scopes=["survey:read", "session_recording:read", "export:read"],
+        pagination_class=None,
+    )
+    def site_snapshot(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        snapshot = get_site_snapshot(
+            team=self.team,
+            survey=self.get_object(),
+            device=SnapshotDevice(request.validated_query_data["device"]),
+            user=cast(User, request.user),
+        )
+        return Response(SiteSnapshotSerializer(snapshot).data)
 
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=True, url_path="archived-response-uuids", required_scopes=["survey:read"])

@@ -2,7 +2,12 @@ import { track } from '@/lib/analytics'
 
 import { type NavPin, replacedNavPin, restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
 
-const LABELS: Record<NavPin, string> = { errors: 'Errors', replay: 'Sessions' }
+const LABELS: Record<NavPin, string> = {
+    errors: 'Errors',
+    replay: 'Sessions',
+    web_analytics: 'Web analytics',
+    live: 'Live',
+}
 
 /** Where a pin change started. `undo` is the toast's Undo, which reverses the change just before it. */
 export type NavPinSource = 'views_row' | 'list_menu' | 'undo'

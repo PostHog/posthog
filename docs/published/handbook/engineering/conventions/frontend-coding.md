@@ -57,6 +57,7 @@ Hence the explicit separation between the data and view layers.
   - Logics mounted by React components through the view layer unmount when the component unmounts. Use `useAttachedLogic(dataNodeLogic(propsFromComponent), mySceneLogic())` to attach a logic to the scene's logic so it persists until the scene's logic is unmounted, surviving React component remounts.
   - You can control what's shown on the tab via the `breadcrumbs` selector in your scene's logic. The last breadcrumb controls the title and the icon, the one before that controls the back button. If there are more breadcrumbs, they will be ignored.
 - Kea
+  - In asynchronous loaders, call `breakpoint()` after each request and before error handlers read logic state or dispatch actions. This discards responses after unmount or a newer invocation.
   - It's worth repeating: think of the data flow. Then work to simplify it. Derive as much state as possible via selectors, update the source via cascading actions, and avoid complex loops where a value triggers a subscription which calls an action which changes the value which triggers the subscription, ...
   - Use `subscriptions` and `propsChanged` sparingly, only if you can't find any other way. These have a high chance of leading to messy, cyclic or slow data flows.
   - Try to write your code such that you only use `urlToAction` in your scene's logic (e.g. `insightSceneLogic`), and never deeper down in e.g. `propertyFilterLogic`.
@@ -85,10 +86,8 @@ Every pattern below caused a real quarantine. Each one has a fix that removes th
 
 ##### What the runner already does
 
-`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits for a known loader to disappear, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
+`common/storybook/.storybook/test-runner.ts` turns off animations and transitions, makes lazy images eager and waits for them to decode, preloads fonts, waits until no known loader is visible, waits for network idle, waits for every quill chart canvas to finish painting, and sets the theme on `body[theme]` before each snapshot.
 Do not add your own waits for these.
-The loader wait checks only the first element that matches a loader selector.
-When a story shows more than one loader, set `waitForSelector` to content that renders after the last one.
 The runner does not know when your own async content is done, when a timer changes the UI, or when a component measured itself at the wrong size.
 
 ##### Pin the clock

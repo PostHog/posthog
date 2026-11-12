@@ -332,22 +332,16 @@ class TestNodeViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            # node target wins even when the saved-query interval disagrees (tiered v2 teams
-            # carry NULL intervals, so a saved-query-only read shows a blank frequency)
-            ("target_first", timedelta(hours=6), timedelta(hours=12), "6hour"),
-            ("saved_query_fallback", None, timedelta(hours=12), "12hour"),
-            ("neither", None, None, None),
+            ("target", timedelta(hours=6), "6hour"),
+            ("no_target", None, None),
         ]
     )
-    def test_node_sync_interval_reads_target_first(
+    def test_node_sync_interval_reads_the_node_target(
         self,
         _name: str,
         target: timedelta | None,
-        saved_query_interval: timedelta | None,
         expected: str | None,
     ):
-        self.saved_query.sync_frequency_interval = saved_query_interval
-        self.saved_query.save(update_fields=["sync_frequency_interval"])
         if target is not None:
             set_declared_target(self.view_node, target)
 
@@ -526,9 +520,18 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
 
-    @parameterized.expand([("materialize", {}), ("run", {"direction": "downstream"})])
+    @parameterized.expand(
+        [
+            ("materialize", {}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
+            ("run", {"direction": "downstream"}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
+            ("materialize", {}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),
+            ("run", {"direction": "downstream"}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),
+        ]
+    )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_a_manual_run_is_refused_soon_after_the_last_run(self, action, body, mock_sync_connect):
+    def test_a_manual_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
+        self, action, body, job_status, expected_status, mock_sync_connect
+    ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         self.view_node.type = NodeType.MAT_VIEW
@@ -536,7 +539,7 @@ class TestNodeViewSet(APIBaseTest):
         job = DataModelingJob.objects.create(
             team=self.team,
             saved_query=self.view_node.saved_query,
-            status=DataModelingJob.Status.COMPLETED,
+            status=job_status,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
         DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
@@ -546,8 +549,8 @@ class TestNodeViewSet(APIBaseTest):
             body,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, response.content)
-        mock_client.start_workflow.assert_not_called()
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == status.HTTP_200_OK else 0)
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(
@@ -738,7 +741,7 @@ class TestNodeViewSet(APIBaseTest):
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
             managed_viewset=_managed_viewset(self.team),
         )
-        return Node.objects.create(team=self.team, dag=self.dag, saved_query=sq, type=NodeType.VIEW, description="orig")
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=sq, type=NodeType.VIEW)
 
     @parameterized.expand(["node", "edge"])
     def test_deleting_the_last_reader_of_a_table_deletes_the_table_node(self, deleted):
@@ -941,7 +944,11 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         node.refresh_from_db()
-        self.assertEqual(node.description, "orig")
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=node.saved_query)
+            .exists()
+        )
 
 
 class TestMetricNodeAPI(APIBaseTest):
@@ -1022,13 +1029,13 @@ class TestMetricNodeAPI(APIBaseTest):
 
     @parameterized.expand(["name", "description"])
     def test_a_metric_node_cannot_be_updated_through_the_api(self, field):
-        before = getattr(self.metric_node, field)
+        before = getattr(self.metric_node, field, None)
 
         response = self.client.patch(f"{self.url}{self.metric_node.id}/", data={field: "changed"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.metric_node.refresh_from_db()
-        self.assertEqual(getattr(self.metric_node, field), before)
+        self.assertEqual(getattr(self.metric_node, field, None), before)
 
     def test_an_edge_into_a_metric_node_cannot_be_deleted_through_the_api(self):
         edge = Edge.objects.get(target=self.metric_node)
@@ -1167,7 +1174,7 @@ class TestNodeDescription(APIBaseTest):
             name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
         self.view_node = Node.objects.create(
-            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW, description="old text"
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
         )
 
     def _url(self, node: Node | None = None) -> str:
@@ -1204,12 +1211,6 @@ class TestNodeDescription(APIBaseTest):
         self.assertEqual(response.json()["description"], "AI text")
         self.assertEqual(response.json()["description_source"], "ai_generated")
 
-    def test_view_node_does_not_show_the_old_node_text(self):
-        response = self.client.get(self._url(self.view_node))
-
-        self.assertEqual(response.json()["description"], "")
-        self.assertIsNone(response.json()["description_source"])
-
     def test_view_node_write_stores_a_user_edit_longer_than_the_old_limit(self):
         self._view_annotation("AI text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED)
         text = "x" * 2000
@@ -1223,8 +1224,6 @@ class TestNodeDescription(APIBaseTest):
             saved_query=self.saved_query, column_name=""
         )
         self.assertTrue(annotation.is_user_edited)
-        self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.description, "old text")
 
     def test_empty_description_deletes_the_annotation(self):
         self._view_annotation("Text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED)
@@ -1527,7 +1526,11 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         edge.refresh_from_db()
         self.assertEqual(edge.properties, {})
         self.node.refresh_from_db()
-        self.assertNotEqual(self.node.description, "changed")
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=self.node.saved_query, description="changed")
+            .exists()
+        )
         self.assertNotEqual(suspension_state(self.node), {})
         mock_sync_connect.assert_not_called()
 

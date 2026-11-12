@@ -971,15 +971,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["1"],
             is_identified=True,
         )
-        sent_properties = {
-            "plan": None,
-            "billing": {"coupon": None, "seats": 3},
-            "items": [{"sku": "a", "note": None}],
-            "$set": {"email": None, "name": "n"},
-        }
-        event_id = _create_event(
-            team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), properties=sent_properties
-        )
+        event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
@@ -987,7 +979,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         assert response_json["event"] == "event"
         assert response_json["person"] is None
-        assert response_json["properties"] == sent_properties
 
         with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
         assert with_person_response.status_code == status.HTTP_200_OK

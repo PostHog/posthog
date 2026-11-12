@@ -16,6 +16,7 @@ jest.mock('./todayHighlightsLogic', () => ({ todayHighlightsLogic: {}, pulsePinL
 jest.mock('./TodaySampleBanner', () => ({ TodaySampleBanner: () => null }))
 jest.mock('./TodayForYou', () => ({ TodayForYou: () => null }))
 jest.mock('./TodayRecents', () => ({ TodayRecents: () => null }))
+jest.mock('./TodayHomeComposer', () => ({ TodayHomeComposer: () => null }))
 jest.mock('./TodayPulseHoverCard', () => ({
     TodayPulseHoverCard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))

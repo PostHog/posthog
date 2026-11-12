@@ -30,7 +30,7 @@ describe('AccountsTabFilters', () => {
     beforeEach(() => {
         manualViewsLogic = null
         savedViews = []
-        tagsRequest = jest.fn(() => [200, ['enterprise']])
+        tagsRequest = jest.fn(() => [200, { results: ['enterprise'], next: null, count: 1 }])
         viewsRequest = jest.fn(() => [200, { count: savedViews.length, results: savedViews }])
         useMocks({
             get: {
@@ -157,7 +157,6 @@ describe('AccountsTabFilters', () => {
 
         fireEvent.click(screen.getByText('All tags'))
         await waitFor(() => expect(tagsRequest).toHaveBeenCalled())
-        fireEvent.focus(screen.getByPlaceholderText('Select or type tags...'))
 
         expect(await screen.findByText('enterprise')).toBeInTheDocument()
     })

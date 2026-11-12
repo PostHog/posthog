@@ -38,10 +38,11 @@ from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_querie
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import MAX_DATE_BUCKETS, QueryDateRange
+from posthog.hogql_queries.utils.timestamp_utils import UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import ensure_utc, get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -171,6 +172,19 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # and the cache TTL governs refresh.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
+        # The window comes from the request, and every day in it costs one row per variant in _fill_date_gaps and one
+        # precompute window. The checks run before any timezone conversion, which raises OverflowError near year 1 or 9999.
+        latest_allowed = datetime.now(UTC) + timedelta(days=1)
+        if self.window_start is not None and ensure_utc(self.window_start) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
+            raise ValidationError("The experiment start date is before 2015. Set a later start date.")
+        if self.window_start is not None and ensure_utc(self.window_start) > latest_allowed:
+            raise ValidationError("Exposures can't be calculated for a start date in the future.")
+        if self.window_end_date is not None and ensure_utc(self.window_end_date) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
+            raise ValidationError("The experiment end date is before 2015. Set a later end date.")
+        if self.window_end_date is not None and ensure_utc(self.window_end_date) > latest_allowed:
+            raise ValidationError(
+                "Exposures can't be calculated for an end date in the future. Clear the end date to see exposures while the experiment runs."
+            )
         self.as_of = self.window_end_date or datetime.now(UTC)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
@@ -191,6 +205,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             raise ValidationError(
                 "This experiment's feature flag has no variants. Restore the flag's variants to see exposure data."
             )
+
+        if self.window_start is not None:
+            window_start = ensure_utc(self.window_start).astimezone(UTC)
+            window_end = ensure_utc(self.window_end_date or latest_allowed).astimezone(UTC)
+            if window_end < window_start:
+                raise ValidationError("The experiment end date is before its start date.")
+            # _fill_date_gaps counts team-local calendar days, which can span one more day than the UTC dates.
+            window_days = (window_end.date() - window_start.date()).days + 2
+            # The variants come from the request too, and _fill_date_gaps adds one more series for $multiple.
+            if window_days * (len(self.variants) + 1) > MAX_DATE_BUCKETS:
+                raise ValidationError("The exposure query has too many variants for its date range.")
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -258,7 +283,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
         tag_queries(experiment_exposures_path="direct_scan")
-        return builder.get_exposure_timeseries_query()
+        return builder.get_exposure_timeseries_query(with_library=True)
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
         """Chi-squared goodness-of-fit test of the observed variant counts against the rollout
@@ -534,7 +559,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
 
-        response.results = self._fill_date_gaps(response.results)
+        # The precomputed exposures carry no library, and with an activation the timeseries reads none.
+        reads_library = not self._reads_precomputed_exposures and exposure_params.activation_config is None
+        exposed_by_library = _exposed_by_library(response.results) if reads_library else None
+        response.results = self._fill_date_gaps([row[:3] for row in response.results])
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
 
         variant_data: dict[str, dict[str, int]] = {}
@@ -599,6 +627,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             bias_risk=bias_risk,
             health_findings=self._health_findings(health),
             health_checks=self._health_checks(health),
+            exposed_by_library=exposed_by_library,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -652,3 +681,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 _RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
     ExperimentHealthRuleTest.CHI_SQUARED: "chi_squared"
 }
+
+
+def _exposed_by_library(rows: list[Any]) -> dict[str, int]:
+    """Sums the `exposed_by_library` column of the timeseries rows over the days and the variants."""
+    exposed: dict[str, int] = {}
+    for *_, (libraries, counts) in rows:
+        for library, count in zip(libraries, counts):
+            exposed[library] = exposed.get(library, 0) + int(count)
+    return exposed

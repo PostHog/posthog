@@ -38,6 +38,23 @@ class TestSparkPostSource:
 
         assert result.requests[0].param("from") != "2026-01-01T00:00"
 
+    @pytest.mark.parametrize(
+        ("endpoint", "supports_incremental", "supports_append"),
+        [
+            ("events", True, True),
+            # Metrics totals change until their day ends and each run fetches the watermark again,
+            # so append mode would keep both the partial and the final totals.
+            ("deliverability_time_series", True, False),
+            ("bounce_reasons", True, False),
+            ("delay_reasons_by_domain", True, False),
+            ("templates", False, False),
+        ],
+    )
+    def test_schema_sync_modes(self, endpoint: str, supports_incremental: bool, supports_append: bool) -> None:
+        [schema] = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
+
+        assert (schema.supports_incremental, schema.supports_append) == (supports_incremental, supports_append)
+
     def _run(self, **inputs: Any) -> DriveResult:
         return SourceDriver(self.source, self.config).run(
             "events", [ScriptedResponse(json={"results": [], "links": []})], **inputs

@@ -42,7 +42,7 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 Generation evaluations extract message text without the per-message character cutoff.
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
-An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
+An exception applies when the judge sees attachments, which is the default unless the evaluation turns them off.
 Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
 The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line that names the rest.
 PDFs reach OpenAI, Anthropic and Gemini judges, up to 10 MB each.
@@ -222,7 +222,7 @@ Existing backfills keep their stored windows; **Retry remaining** applies the bo
 
 Generation references get up to three lookup attempts.
 A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
-Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+Live references marked `awaiting_ingestion` wait 30 seconds after the first miss and 90 seconds after the second, and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.

@@ -100,6 +100,8 @@ def export_asset_direct(
         if current_task and current_task.request and current_task.request.id
         else None,
     }
+    if source == EventSource.SUBSCRIPTION:
+        analytics_props["$update_person_last_seen_at"] = False
 
     logger.info(
         "export_asset.starting",

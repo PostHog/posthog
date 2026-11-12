@@ -183,6 +183,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
+        assert data["default_slack_notification_min_priority"] is None
         for field in STEERING_FIELDS.values():
             assert getattr(self.config, field) is None
             assert data[field] == ""
@@ -251,6 +252,16 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.default_slack_notification_channel == expected
         assert self.config.default_slack_notification_integration_id == (workspace.id if expect_bound else None)
+
+    def test_empty_slack_priority_clears_threshold(self):
+        self.config.default_slack_notification_min_priority = "P1"
+        self.config.save(update_fields=["default_slack_notification_min_priority"])
+        response = self.client.post(self._url(), {"default_slack_notification_min_priority": ""}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["default_slack_notification_min_priority"] is None
+        config = SignalTeamConfig.objects.get(pk=self.config.pk)
+        assert config.default_slack_notification_min_priority is None
+        assert self.client.get(self._url()).json()["default_slack_notification_min_priority"] is None
 
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"
@@ -412,6 +423,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("threshold", "default_autostart_priority", "P1", "project PR threshold", "changed", "P4", "P1"),
+            (
+                "slack_threshold",
+                "default_slack_notification_min_priority",
+                "P2",
+                "team Slack minimum priority",
+                "created",
+                None,
+                "P2",
+            ),
             ("pr_generation", "autostart_enabled", False, "PR generation", "created", None, False),
             (
                 "slack_channel",

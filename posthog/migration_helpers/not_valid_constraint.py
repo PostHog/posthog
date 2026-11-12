@@ -143,9 +143,10 @@ class ValidateConstraint(Operation):
         model = to_state.apps.get_model(app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
-        _disable_timeouts(schema_editor)  # statement_timeout must not kill the VALIDATE scan mid-flight
+        # Probe before the timeouts go, so a no-op leaves the session's lock_timeout in place for later operations.
         if _constraint_validity(schema_editor, model._meta.db_table, self.name):
             return  # already validated; a bin/migrate retry is a no-op
+        _disable_timeouts(schema_editor)  # statement_timeout must not kill the VALIDATE scan mid-flight
         table = schema_editor.quote_name(model._meta.db_table)
         name = schema_editor.quote_name(self.name)
         schema_editor.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {name}")
