@@ -5,7 +5,14 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import { COUNT_WORK_SQL, DEQUEUE_JOBS_SQL, LEGACY_COUNT_WORK_SQL, LEGACY_DEQUEUE_JOBS_SQL } from './due-rows-sql'
+import {
+    COUNT_WORK_SQL,
+    DEQUEUE_JOBS_SQL,
+    FAIR_DEQUEUE_JOBS_SQL,
+    LEGACY_COUNT_WORK_SQL,
+    LEGACY_DEQUEUE_JOBS_SQL,
+    LEGACY_FAIR_DEQUEUE_JOBS_SQL,
+} from './due-rows-sql'
 import { batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -244,6 +251,7 @@ export class CyclotronV2Worker {
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
     private readonly boundedPolls: boolean
+    private readonly boundedFairDequeue: boolean
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
 
     constructor(private config: CyclotronV2WorkerConfig) {
@@ -266,6 +274,7 @@ export class CyclotronV2Worker {
         this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         this.boundedPolls = config.boundedPolls ?? false
+        this.boundedFairDequeue = config.boundedFairDequeue ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
         // CyclotronV2Manager), so deriving this from the queue name keeps the
@@ -394,52 +403,13 @@ export class CyclotronV2Worker {
      * `CyclotronV2Manager.bulkCreateJobs` and the helper
      * `cyclotron_email_team_seq`); this method just reads them back in order.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_priority_fair_dequeue`
-     * (only indexes email-queue rows with status='available'). NULLS FIRST
-     * drains any pre-migration legacy rows ahead of new fair-ordered ones.
-     *
-     * Email-specific by intent — but mechanically just "ORDER BY different
-     * columns", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
-     * separate method so non-fair callers can read `dequeueJobs` end-to-end
-     * without following a conditional or an indirection.
+     * NULLS FIRST drains any pre-migration legacy rows ahead of new
+     * fair-ordered ones.
      */
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
-            `WITH available AS (
-                SELECT id
-                FROM cyclotron_jobs
-                WHERE status = 'available'
-                  AND queue_name = $1
-                  AND scheduled <= NOW()
-                ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
-                LIMIT $2
-                FOR UPDATE SKIP LOCKED
-            )
-            UPDATE cyclotron_jobs
-            SET status = 'running',
-                lock_id = $3,
-                last_heartbeat = NOW(),
-                last_transition = NOW(),
-                transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
-            FROM available
-            WHERE cyclotron_jobs.id = available.id
-            RETURNING
-                cyclotron_jobs.id,
-                cyclotron_jobs.team_id,
-                cyclotron_jobs.function_id,
-                cyclotron_jobs.queue_name,
-                cyclotron_jobs.priority,
-                cyclotron_jobs.scheduled,
-                cyclotron_jobs.created,
-                cyclotron_jobs.parent_run_id,
-                cyclotron_jobs.transition_count,
-                cyclotron_jobs.state,
-                cyclotron_jobs.distinct_id,
-                cyclotron_jobs.person_id,
-                cyclotron_jobs.action_id,
-                cyclotron_jobs.cancel_requested_at,
-                cyclotron_jobs.lock_id`,
+            this.boundedFairDequeue ? FAIR_DEQUEUE_JOBS_SQL : LEGACY_FAIR_DEQUEUE_JOBS_SQL,
             [this.config.queueName, limit, lockId]
         )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
