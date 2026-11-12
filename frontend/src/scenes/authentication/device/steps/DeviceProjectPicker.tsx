@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 
 import { oauthDeviceAuthorizeLogic } from '../oauthDeviceAuthorizeLogic'
+
+function byName(a: { name: string }, b: { name: string }): number {
+    return a.name.localeCompare(b.name)
+}
 
 export function DeviceProjectPicker(): JSX.Element {
     const { organizationId, organizations, projectId, projects, projectsLoading, projectsError } =
@@ -15,26 +19,34 @@ export function DeviceProjectPicker(): JSX.Element {
     return (
         <>
             <LemonField.Pure label="Organization">
-                <LemonSelect
+                <LemonInputSelect
+                    mode="single"
+                    fullWidth
                     data-attr="oauth-device-organization"
-                    placeholder="Select an organization"
-                    value={organizationId}
-                    onChange={setOrganizationId}
-                    options={organizations.map((organization) => ({
+                    placeholder="Search for an organization"
+                    value={organizationId ? [organizationId] : []}
+                    onChange={([key]) => setOrganizationId(key ?? null)}
+                    options={[...organizations].sort(byName).map((organization) => ({
+                        key: organization.id,
                         label: organization.name,
-                        value: organization.id,
                     }))}
                 />
             </LemonField.Pure>
             <LemonField.Pure label="Project" help="The login only works in this project.">
-                <LemonSelect
+                <LemonInputSelect
+                    mode="single"
+                    fullWidth
                     data-attr="oauth-device-project"
-                    placeholder="Select a project"
-                    value={projectId}
-                    onChange={setProjectId}
-                    disabledReason={organizationId ? undefined : 'Select an organization first'}
+                    placeholder={organizationId ? 'Search for a project' : 'Select an organization first'}
+                    value={projectId === null ? [] : [String(projectId)]}
+                    onChange={([key]) => setProjectId(key ? Number(key) : null)}
+                    disabled={!organizationId}
                     loading={projectsLoading}
-                    options={projects.map((project) => ({ label: project.name, value: project.id }))}
+                    virtualized={projects.length > 100}
+                    options={[...projects].sort(byName).map((project) => ({
+                        key: String(project.id),
+                        label: project.name,
+                    }))}
                 />
             </LemonField.Pure>
             {projectsError && organizationId && (
