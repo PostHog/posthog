@@ -14,7 +14,14 @@ const NEW_PIPELINE: LifecycleInput['pipeline'] = {
 }
 
 function scoringRun(day: string): LifecycleInput['runs'][number] {
-    return { run_type: 'inference', status: 'completed', created_at: `${day}T03:00:00Z`, rows_scored: 100, metrics: {} }
+    return {
+        run_type: 'inference',
+        status: 'completed',
+        created_at: `${day}T03:00:00Z`,
+        rows_scored: 100,
+        metrics: {},
+        model: 'champ',
+    }
 }
 
 function input(overrides: Partial<LifecycleInput>): LifecycleInput {
@@ -45,7 +52,7 @@ describe('pipelineLifecycle', () => {
                     experiment_count: 5,
                     last_scored_at: '2026-02-28T03:00:00Z',
                 },
-                champion: { is_preliminary: true, promoted_at: '2026-02-27T00:00:00Z' },
+                champion: { id: 'champ', is_preliminary: true, promoted_at: '2026-02-27T00:00:00Z' },
                 runs: [scoringRun('2026-02-28')],
             }),
             ['done', 'done', 'done', 'done', 'current'],
@@ -59,7 +66,7 @@ describe('pipelineLifecycle', () => {
                     experiment_count: 9,
                     last_scored_at: '2026-02-28T03:00:00Z',
                 },
-                champion: { is_preliminary: false, promoted_at: '2026-01-10T00:00:00Z' },
+                champion: { id: 'champ', is_preliminary: false, promoted_at: '2026-01-10T00:00:00Z' },
                 runs: [scoringRun('2026-02-10'), scoringRun('2026-02-11'), scoringRun('2026-02-28')],
                 validatedDates: ['2026-02-10', '2026-02-10'],
             }),
@@ -94,9 +101,20 @@ describe('pipelineLifecycle', () => {
             [],
             'First check 7 days after scoring',
         ],
+        [
+            'counts only the dates the live model scored',
+            [{ ...scoringRun('2026-02-09'), model: 'old' }, scoringRun('2026-02-10')],
+            ['2026-02-10'],
+            '1 of 1 matured date checked',
+        ],
     ])('%s', (_name, runs, validatedDates, expectedDetail) => {
         const steps = pipelineLifecycle(
-            input({ pipeline: { ...NEW_PIPELINE, last_scored_at: '2026-02-28T03:00:00Z' }, runs, validatedDates })
+            input({
+                pipeline: { ...NEW_PIPELINE, last_scored_at: '2026-02-28T03:00:00Z' },
+                champion: { id: 'champ', is_preliminary: false, promoted_at: null },
+                runs,
+                validatedDates,
+            })
         )
         expect(steps.find((step) => step.key === 'checked')?.detail.replace(/\s/g, ' ')).toEqual(expectedDetail)
     })

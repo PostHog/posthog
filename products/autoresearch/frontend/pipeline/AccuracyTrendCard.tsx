@@ -35,7 +35,7 @@ export function AccuracyTrendCard(): JSX.Element {
     const {
         pipeline,
         champion,
-        onlinePerformance,
+        liveModelPerformance,
         accuracyTrend,
         accuracyTrendMetric: metric,
         accuracyCutoff,
@@ -50,7 +50,7 @@ export function AccuracyTrendCard(): JSX.Element {
     const { dates } = accuracyTrend
     const panelDate =
         hoveredAccuracyDate && dates.includes(hoveredAccuracyDate) ? hoveredAccuracyDate : dates[dates.length - 1]
-    const summary = accuracyTrendSummary(onlinePerformance, metric, accuracyCutoff, targetEvent, holdoutAuc)
+    const summary = accuracyTrendSummary(liveModelPerformance, metric, accuracyCutoff, targetEvent)
 
     return (
         <SectionCard

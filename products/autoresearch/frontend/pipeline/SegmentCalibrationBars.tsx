@@ -1,4 +1,6 @@
-import { SegmentCalibration, percent } from '../onlinePerformance'
+import { pluralize } from 'lib/utils/strings'
+
+import { RankCalibration, percent } from '../onlinePerformance'
 
 function Bar({
     label,
@@ -22,27 +24,29 @@ function Bar({
     )
 }
 
-/** Predicted against actual rate for each likelihood segment on one matured date. */
-export function SegmentCalibrationBars({ segments }: { segments: SegmentCalibration[] }): JSX.Element {
-    const max = Math.max(...segments.flatMap((s) => [s.predicted, s.actual]), 0.01)
+/** Predicted against actual rate for each group of score ranks. */
+export function SegmentCalibrationBars({
+    groups,
+    unit,
+}: {
+    groups: RankCalibration[]
+    /** What a count is: people on one date, or predictions over several dates. */
+    unit: 'person' | 'prediction'
+}): JSX.Element {
+    const max = Math.max(...groups.flatMap((g) => [g.predicted, g.actual]), 0.01)
     return (
         <div className="space-y-3 max-w-2xl">
-            {segments.map(({ segment, people, predicted, actual }) => (
-                <div key={segment.key} className="space-y-1">
+            {groups.map(({ label, colorClassName, count, predicted, actual }) => (
+                <div key={label} className="space-y-1">
                     <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
-                        <span className={`inline-block w-2 h-2 rounded-full ${segment.colorClassName}`} />
-                        <span className="font-semibold">{segment.label}</span>
+                        <span className={`inline-block w-2 h-2 rounded-full ${colorClassName}`} />
+                        <span className="font-semibold">{label}</span>
                         <span className="text-xs text-muted">
-                            {segment.range} · {people.toLocaleString()} people
+                            {unit === 'person' ? pluralize(count, 'person', 'people') : pluralize(count, 'prediction')}
                         </span>
                     </div>
-                    <Bar
-                        label="Predicted"
-                        value={predicted}
-                        max={max}
-                        className={`${segment.colorClassName} opacity-50`}
-                    />
-                    <Bar label="Actual" value={actual} max={max} className={segment.colorClassName} />
+                    <Bar label="Predicted" value={predicted} max={max} className={`${colorClassName} opacity-50`} />
+                    <Bar label="Actual" value={actual} max={max} className={colorClassName} />
                 </div>
             ))}
         </div>

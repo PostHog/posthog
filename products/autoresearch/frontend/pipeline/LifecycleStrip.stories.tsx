@@ -24,7 +24,14 @@ const SCORED_PIPELINE: LifecycleInput['pipeline'] = {
 }
 
 function scoringRun(day: string): LifecycleInput['runs'][number] {
-    return { run_type: 'inference', status: 'completed', created_at: `${day}T03:00:00Z`, rows_scored: 100, metrics: {} }
+    return {
+        run_type: 'inference',
+        status: 'completed',
+        created_at: `${day}T03:00:00Z`,
+        rows_scored: 100,
+        metrics: {},
+        model: 'champion',
+    }
 }
 
 function steps(overrides: Partial<LifecycleInput>): ReturnType<typeof pipelineLifecycle> {
@@ -74,7 +81,7 @@ export const PreliminaryChampion: Story = {
         <LifecycleStrip
             steps={steps({
                 pipeline: SCORED_PIPELINE,
-                champion: { is_preliminary: true, promoted_at: '2026-02-27T00:00:00Z' },
+                champion: { id: 'champion', is_preliminary: true, promoted_at: '2026-02-27T00:00:00Z' },
                 runs: [scoringRun('2026-03-01')],
             })}
         />
@@ -86,7 +93,7 @@ export const ValidatedChampion: Story = {
         <LifecycleStrip
             steps={steps({
                 pipeline: SCORED_PIPELINE,
-                champion: { is_preliminary: false, promoted_at: '2026-01-10T00:00:00Z' },
+                champion: { id: 'champion', is_preliminary: false, promoted_at: '2026-01-10T00:00:00Z' },
                 runs: [scoringRun('2026-02-10'), scoringRun('2026-02-11'), scoringRun('2026-03-01')],
                 validatedDates: ['2026-02-10', '2026-02-11'],
             })}

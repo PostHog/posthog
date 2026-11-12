@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { isLiftAtCeiling, liftCeilingNote } from '../modelQuality'
-import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
-import { eventName } from '../pipelineQuestion'
+import { accuracyStats, checkedDateRange, holdoutSentence } from '../onlinePerformance'
 import { AccuracyTrendCard } from './AccuracyTrendCard'
+import { CheckedDatesHistory } from './CheckedDatesHistory'
 import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
 import { LiveModelDrivers } from './LiveModelDrivers'
@@ -18,31 +17,6 @@ import { MetricCard } from './MetricCard'
 import { ScoreNowButton } from './ScoreNowButton'
 import { SectionCard } from './SectionCard'
 import { SegmentCalibrationBars } from './SegmentCalibrationBars'
-
-const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; label: string }> = {
-    champion: { type: 'success', label: 'Champion' },
-    challenger: { type: 'highlight', label: 'Challenger' },
-    archived: { type: 'default', label: 'Archived' },
-}
-
-function fmt(value: number | null, decimals = 3): string {
-    return value != null ? value.toFixed(decimals) : '—'
-}
-
-function LiftCell({ lift, share, baseRate }: { lift: number | null; share: number; baseRate: number }): JSX.Element {
-    if (lift == null || !isLiftAtCeiling(lift, share, baseRate)) {
-        return <>{`${fmt(lift, 2)}×`}</>
-    }
-    return (
-        <Tooltip title={liftCeilingNote(share, baseRate)}>
-            <span className="whitespace-nowrap">{`${fmt(lift, 2)}× (near max)`}</span>
-        </Tooltip>
-    )
-}
-
-function fmtPercent(value: number | null | undefined): string {
-    return value != null ? percent(value) : '—'
-}
 
 function NotCheckedYet(): JSX.Element {
     const { pipeline, firstCheck } = useValues(autoresearchPipelineLogic)
@@ -62,15 +36,16 @@ function NotCheckedYet(): JSX.Element {
 export function OnlinePerformanceTab(): JSX.Element {
     const {
         pipeline,
+        champion,
         onlinePerformance,
         onlinePerformanceLoading,
         onlinePerformanceError,
-        latestChampionPerformance,
-        segmentCalibration,
-        accuracyCutoff,
-        championConfusion,
+        liveModelPerformance,
+        accuracyFrame,
+        accuracyFrameRows,
+        rankCalibration,
     } = useValues(autoresearchPipelineLogic)
-    const { loadOnlinePerformance } = useActions(autoresearchPipelineLogic)
+    const { loadOnlinePerformance, setAccuracyFrame } = useActions(autoresearchPipelineLogic)
 
     if (onlinePerformanceLoading && onlinePerformance.length === 0) {
         return <Spinner />
@@ -91,37 +66,67 @@ export function OnlinePerformanceTab(): JSX.Element {
         )
     }
 
-    if (!latestChampionPerformance || !pipeline) {
+    if (liveModelPerformance.length === 0 || !pipeline) {
         return (
             <div className="space-y-6">
                 <NotCheckedYet />
                 <LiveModelDrivers />
+                <CheckedDatesHistory />
             </div>
         )
     }
 
-    const target = eventName(pipeline.target_event)
-    const summary = championConfusion ? accuracySummary(championConfusion, accuracyCutoff, pipeline.target_event) : null
-    const latestDate = dayjs(latestChampionPerformance.prediction_date).format('MMM D')
+    const multiDate = accuracyFrameRows.length > 1
+    const predictions = accuracyFrameRows.reduce((total, row) => total + row.n_scored, 0)
+    const holdout = holdoutSentence(accuracyFrameRows, champion?.holdout_score ?? null)
 
     return (
         <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                {liveModelPerformance.length > 1 && (
+                    <LemonSegmentedButton
+                        size="small"
+                        value={accuracyFrame}
+                        onChange={setAccuracyFrame}
+                        options={[
+                            {
+                                value: 'all',
+                                label: `All ${liveModelPerformance.length} checked dates`,
+                                'data-attr': 'autoresearch-model-accuracy-frame-all',
+                            },
+                            {
+                                value: 'latest',
+                                label: `Latest: ${dayjs(liveModelPerformance[0].prediction_date).format('MMM D')}`,
+                                'data-attr': 'autoresearch-model-accuracy-frame-latest',
+                            },
+                        ]}
+                    />
+                )}
+                <span className="text-xs text-secondary">
+                    {checkedDateRange(accuracyFrameRows)} ·{' '}
+                    {multiDate ? pluralize(predictions, 'prediction') : pluralize(predictions, 'person', 'people')}
+                </span>
+            </div>
+
             <SectionCard>
                 <div className="@container">
                     <div className="grid grid-cols-1 @sm:grid-cols-2 @3xl:grid-cols-4 gap-2">
-                        {accuracyStats(latestChampionPerformance, pipeline.target_event).map(({ key, ...stat }) => (
+                        {accuracyStats(accuracyFrameRows, pipeline.target_event).map(({ key, ...stat }) => (
                             <MetricCard key={key} {...stat} />
                         ))}
                     </div>
                 </div>
-                {summary && <p className="text-sm mb-0">{summary}</p>}
+                {holdout && <p className="text-sm mb-0">{holdout}</p>}
             </SectionCard>
 
             <ConfusionMatrixCard />
 
-            {segmentCalibration.length > 0 && (
-                <SectionCard title={`Predicted and actual rate by segment, ${latestDate}`}>
-                    <SegmentCalibrationBars segments={segmentCalibration} />
+            {rankCalibration.length > 0 && (
+                <SectionCard
+                    title="Predicted and actual rate"
+                    description="People ranked by score, in groups of 10% of everyone scored."
+                >
+                    <SegmentCalibrationBars groups={rankCalibration} unit={multiDate ? 'prediction' : 'person'} />
                 </SectionCard>
             )}
 
@@ -129,78 +134,7 @@ export function OnlinePerformanceTab(): JSX.Element {
 
             <LiveModelDrivers />
 
-            <LemonCollapse
-                className="bg-surface-primary"
-                panels={[
-                    {
-                        key: 'history',
-                        header: `All checked dates (${onlinePerformance.length})`,
-                        content: (
-                            <div className="space-y-2">
-                                <LemonTable
-                                    dataSource={onlinePerformance}
-                                    rowKey={(row) => `${row.validation_run_id}-${row.model_id}`}
-                                    columns={[
-                                        {
-                                            title: 'Prediction date',
-                                            render: (_, row) => (
-                                                <span className="font-mono">{row.prediction_date}</span>
-                                            ),
-                                        },
-                                        {
-                                            title: 'Model',
-                                            tooltip: 'The role the model held when it made these predictions.',
-                                            render: (_, row) => (
-                                                <LemonTag type={MODEL_ROLE[row.emitted_role]?.type ?? 'default'}>
-                                                    {MODEL_ROLE[row.emitted_role]?.label ?? row.emitted_role}
-                                                </LemonTag>
-                                            ),
-                                        },
-                                        { title: 'Users scored', render: (_, row) => row.n_scored.toLocaleString() },
-                                        {
-                                            title: 'Realized AUC',
-                                            render: (_, row) => (
-                                                <span className="font-semibold">{fmt(row.realized_auc)}</span>
-                                            ),
-                                        },
-                                        { title: 'Brier score', render: (_, row) => fmt(row.brier_score) },
-                                        { title: 'Calibration error', render: (_, row) => fmt(row.calibration_error) },
-                                        {
-                                            title: 'Lift at 10%',
-                                            render: (_, row) => (
-                                                <LiftCell lift={row.lift_at_10} share={0.1} baseRate={row.base_rate} />
-                                            ),
-                                        },
-                                        {
-                                            title: 'Lift at 20%',
-                                            render: (_, row) => (
-                                                <LiftCell lift={row.lift_at_20} share={0.2} baseRate={row.base_rate} />
-                                            ),
-                                        },
-                                        {
-                                            title: 'Precision at 10%',
-                                            render: (_, row) => fmtPercent(row.confusion?.top_10.precision),
-                                        },
-                                        {
-                                            title: 'Recall at 10%',
-                                            render: (_, row) => fmtPercent(row.confusion?.top_10.recall),
-                                        },
-                                        { title: 'Average precision', render: (_, row) => fmt(row.average_precision) },
-                                    ]}
-                                />
-                                <p className="text-xs text-muted mb-0">
-                                    Realized AUC: higher is better. Brier score and calibration error (ECE): lower is
-                                    better. ECE measures how far predicted probabilities drift from observed rates. Lift
-                                    at k%: ratio of positives in the top k% vs a random sample, so 2× means twice as
-                                    many conversions as random. Precision at 10%: share of the top 10% who did {target}.
-                                    Recall at 10%: share of everyone who did it that the top 10% includes. Average
-                                    precision: precision averaged over every cutoff, higher is better.
-                                </p>
-                            </div>
-                        ),
-                    },
-                ]}
-            />
+            <CheckedDatesHistory />
         </div>
     )
 }
