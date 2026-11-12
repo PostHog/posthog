@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
+from posthog.dataclasses import frozen
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 from products.ai_observability.backend.logic.eval_suggestions import measure
@@ -364,7 +365,7 @@ def _generation_event(index: int, output: Any, model: str | None = "gpt-5-mini")
     )
 
 
-@dataclass
+@frozen
 class _NoModel:
     output: Any
 
@@ -421,7 +422,7 @@ _SEARCH_CALL = {"type": "function", "id": "c1", "function": {"name": "search", "
             "Found it.",
         ),
         ("no_text", [[{"role": "assistant", "content": ""}]], ""),
-        ("tool_result_logged_without_a_model", [_text("Found it."), _NoModel(_text("a@b.io"))], "Found it."),
+        ("tool_result_logged_without_a_model", [_text("Found it."), _NoModel(output=_text("a@b.io"))], "Found it."),
     ]
 )
 def test_python_and_hog_pick_the_same_final_answer(_name: str, outputs: list[Any], expected: str) -> None:
