@@ -35,7 +35,7 @@ export function workloadScopesHint(scopes: readonly string[]): string {
 }
 
 export function addToKeyHint(scopes: readonly string[]): string {
-    return `Add ${scopes.join(', ')} to the personal API key in PostHog under Settings, Personal API keys.`
+    return `Add ${scopes.join(', ')} to the personal API key in PostHog under Settings > Personal API keys.`
 }
 
 // RFC 6750 section 3.1. A newer PostHog can name a scope this hog doesn't know, so only the shape is checked.
