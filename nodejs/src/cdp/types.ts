@@ -554,6 +554,7 @@ export type HogFlowInvocationContext = {
         // Failed cohort membership lookups so far on this step. The step retries on a backoff while
         // this stays under the limit, because a lookup timeout is usually a short stall.
         cohortLookupAttempts?: number
+        renderTimeoutAttempts?: number
         // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
         // on_error says, because the default 'continue' takes the continue edge, and on a branch that
         // edge sends a member down the path for people outside the cohort.
