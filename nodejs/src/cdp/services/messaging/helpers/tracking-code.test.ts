@@ -268,6 +268,56 @@ describe('email tracking code', () => {
 
             expect(signer.parse(code)?.workflowVersion).toBeUndefined()
         })
+
+        it('signs the creation time of a message that carries one, next to its version and distinct id', () => {
+            const createdAtMs = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+            const code = signer.generate({
+                functionId: 'fn-1',
+                id: 'inv-2',
+                teamId: 3,
+                workflowVersion: 4,
+                distinctId: 'user:with:colons',
+                messageCreatedAtMs: createdAtMs,
+            })
+
+            expect(signer.parse(code)).toMatchObject({
+                functionId: 'fn-1',
+                invocationId: 'inv-2',
+                workflowVersion: 4,
+                distinctId: 'user:with:colons',
+                messageCreatedAtMs: createdAtMs,
+                format: 'signed',
+            })
+        })
+
+        it('still parses a v2 code minted before creation times were signed', () => {
+            const code = signer.generate({
+                functionId: 'fn-1',
+                id: 'inv-2',
+                teamId: 3,
+                workflowVersion: 3,
+                distinctId: 'd',
+            })
+
+            expect(signer.parse(code)).toMatchObject({
+                workflowVersion: 3,
+                distinctId: 'd',
+                messageCreatedAtMs: undefined,
+            })
+        })
+
+        it('takes no creation time from an unsigned code', () => {
+            const unsigned = encodeRaw(`v3:fn-1:inv-2:3::::4:${Date.UTC(2026, 0, 2)}:d`)
+
+            expect(signer.parse(unsigned)?.messageCreatedAtMs).toBeUndefined()
+        })
+
+        it('rejects a code whose signed creation time was changed', () => {
+            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, messageCreatedAtMs: 1000 })
+            const [, sig] = code.split('.')
+
+            expect(signer.parse(`${encodeRaw('v3:fn-1:inv-2:3::::' + ':2000:')}.${sig}`)).toBeNull()
+        })
     })
 
     describe('signed tracking codes', () => {

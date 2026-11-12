@@ -37,6 +37,7 @@ import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import {
     EmailStatusReason,
     EmailStatusService,
+    isKeyedMessageId,
     isTransactionalEmailSend,
     messageCreatedAtOf,
 } from './email-status.service'
@@ -48,7 +49,7 @@ import {
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG, sesMessageCreatedTags } from './helpers/ses'
+import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
     parseAddressList as parseMailboxList,
     quoteMailbox,
@@ -1474,8 +1475,11 @@ export class EmailService {
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
         const workflowVersion = result.invocation.state.renderedWorkflowVersion
+        const messageCreatedAtMs = isKeyedMessageId(result.invocation.id)
+            ? messageCreatedAtOf(result.invocation.state.globals.event)?.getTime()
+            : undefined
         const trackingCode = this.trackingCodeSigner.generate(
-            { ...result.invocation, distinctId, workflowVersion },
+            { ...result.invocation, distinctId, workflowVersion, messageCreatedAtMs },
             isTest
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
@@ -1527,7 +1531,6 @@ export class EmailService {
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [
                           { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
-                          ...sesMessageCreatedTags(messageCreatedAtOf(result.invocation.state.globals.event)),
                           ...(this.templateTagsTeams(result.invocation.teamId)
                               ? transactionalEmailIdentityTags(
                                     params.template ?? result.invocation.hogFunction?.metadata

@@ -1811,7 +1811,6 @@ describe('EmailService', () => {
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
-            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
             const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
@@ -1825,10 +1824,7 @@ describe('EmailService', () => {
                     subject: 'Test Subject',
                     charsets: { subject: 'UTF-8', text: 'UTF-8', html: 'UTF-8' },
                     to: ['"Test User" <test@example.com>'],
-                    tags:
-                        triggerEvent === TRANSACTIONAL_EMAIL_EVENT
-                            ? { ...expectedTags, ph_created_ms: String(Date.UTC(2026, 0, 2, 3, 4, 5, 678)) }
-                            : expectedTags,
+                    tags: expectedTags,
                     feedbackForwardingAddress: 'test@posthog-test.com',
                     from: '"Test User" <test@posthog-test.com>',
                 }),
@@ -1866,7 +1862,6 @@ describe('EmailService', () => {
             expect(ses.sent[0].tags).toEqual({
                 ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
                 ph_email_status: 'true',
-                ph_created_ms: expect.stringMatching(/^\d+$/),
             })
             expect(result.capturedPostHogEvents[0].properties).toMatchObject({
                 $email_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
@@ -3415,6 +3410,30 @@ describe('EmailService', () => {
             // 256-char tag-value limit even when distinct_id is long.
             expect(sent.tags.ph_id).toEqual(expect.any(String))
             expect(sent.tags.ph_id).not.toEqual(trackingCode)
+        })
+
+        it.each([
+            [
+                'signs the creation time of a keyed send into the code',
+                uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                Date.UTC(2026, 0, 2, 3, 4, 5, 678),
+            ],
+            ['leaves a send whose id holds its time unchanged', undefined, undefined],
+        ])('%s', async (_desc, keyedId, signedCreatedMs) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
+            if (keyedId) {
+                invocation.id = keyedId
+            }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const signer = new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            expect(signer.parse(ses.sent[0].headers['X-PostHog-Tracking-Code'])?.messageCreatedAtMs).toEqual(
+                signedCreatedMs
+            )
         })
 
         describe('per-send tracking gate (tracking_enabled)', () => {

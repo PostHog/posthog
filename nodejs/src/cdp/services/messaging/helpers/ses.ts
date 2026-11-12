@@ -5,7 +5,7 @@ import { MinimalAppMetric } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { type EmailStatus, type EmailStatusReason, MESSAGE_CREATED_AT_MAX_AHEAD_MS } from '../email-status.service'
+import { type EmailStatus, type EmailStatusReason } from '../email-status.service'
 import { removeWorkflowRunTag } from './link-tags'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
@@ -108,19 +108,6 @@ export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
 const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
     mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
-
-// A transactional email's creation time in Unix ms. It dates the status rows a keyed send's SES events write.
-export const SES_MESSAGE_CREATED_TAG = 'ph_created_ms'
-
-export const sesMessageCreatedTags = (createdAt: Date | undefined): { Name: string; Value: string }[] =>
-    createdAt ? [{ Name: SES_MESSAGE_CREATED_TAG, Value: String(createdAt.getTime()) }] : []
-
-const messageCreatedAtMs = (mail: { tags?: Record<string, string[]> }): number | undefined => {
-    const createdMs = Number(mail.tags?.[SES_MESSAGE_CREATED_TAG]?.[0])
-    return Number.isSafeInteger(createdMs) && createdMs > 0 && createdMs <= Date.now() + MESSAGE_CREATED_AT_MAX_AHEAD_MS
-        ? createdMs
-        : undefined
-}
 
 export type SesEmailStatusUpdate = {
     teamId: string
@@ -812,7 +799,8 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
-                    const createdMs = messageCreatedAtMs(rec.mail)
+                    // From the signed code only: the partition and TTL key must not come from an unsigned value.
+                    const createdMs = parsedCode?.messageCreatedAtMs
                     emailStatusUpdates.push({
                         teamId,
                         invocationId,
