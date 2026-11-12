@@ -76,7 +76,7 @@ class MemberProjectAccessQuerySerializer(serializers.Serializer):
     def to_internal_value(self, data: object) -> dict:
         # DRF drops blank optional fields from a QueryDict, so `?email=` would silently list every member
         if hasattr(data, "items"):
-            data = dict(data.items())  # type: ignore[attr-defined]
+            data = dict(data.items())
         return super().to_internal_value(data)
 
 
