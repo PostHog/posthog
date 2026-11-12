@@ -9,7 +9,7 @@ import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMi
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { QuillExportButton } from 'lib/components/ExportButton/QuillExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext, useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ExplainEmptyInsightContext } from 'lib/insights/explainEmptyInsightContext'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -259,7 +259,9 @@ export function InsightVizDisplay({
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const quillSurface = todayRailNav && !embedded
+    // An embedded viz is quill only when its host, such as a quill dashboard tile, says so.
+    const hostQuillSurface = useQuillSurface()
+    const quillSurface = todayRailNav && (!embedded || hostQuillSurface)
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
