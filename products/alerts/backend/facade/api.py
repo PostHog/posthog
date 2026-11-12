@@ -458,16 +458,27 @@ def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts
     ]
 
 
+ERRORED_ALERT_PAGE_GROWTH = 4
+
+
 def list_errored_alerts(team: Team, access: UserAccessControl, *, limit: int) -> list[contracts.ErroredAlert]:
     """Enabled alerts whose checks fail, on insights the reader can view, newest first, with or without
-    an insight row. Every errored alert is checked for access before the limit, because a team has few."""
-    rows = (
+    an insight row. Reads a page of candidates, and a larger one only while too few are viewable."""
+    now = timezone.now()
+    errored_rows = (
         _insight_owned_rows()
         .filter(team_id=team.id, enabled=True, state=AlertState.ERRORED, insight__deleted=False)
         .select_related("insight")
         .order_by("-created_at")
     )
-    owned = _platform_enabled_alerts(team_id=team.id, limit=None, errored_at=timezone.now())
+    candidates = limit * ERRORED_ALERT_PAGE_GROWTH
+    while True:
+        rows = list(errored_rows[:candidates])
+        owned = _platform_enabled_alerts(team_id=team.id, limit=candidates, errored_at=now)
+        viewable = list(islice(_newest_viewable(rows, owned, access=access, candidates=candidates), limit))
+        if len(viewable) >= limit or (len(rows) < candidates and len(owned) < candidates):
+            break
+        candidates *= ERRORED_ALERT_PAGE_GROWTH
     return [
         contracts.ErroredAlert(
             id=candidate.id,
@@ -476,7 +487,7 @@ def list_errored_alerts(team: Team, access: UserAccessControl, *, limit: int) ->
             insight_short_id=candidate.insight.short_id,
             last_checked_at=candidate.last_checked_at,
         )
-        for candidate in islice(_newest_viewable(rows, owned, access=access, candidates=None), limit)
+        for candidate in viewable
     ]
 
 
@@ -494,10 +505,10 @@ def _newest_viewable(
     native: Iterable[tuple[EnabledNativeConfiguration, Insight]],
     *,
     access: UserAccessControl,
-    candidates: int | None,
+    candidates: int,
 ) -> Iterator[_EnabledCandidate]:
-    """Alerts with and without an insight row, newest first, cut to `candidates` (None for all) before
-    the access check, then those on insights the user can view."""
+    """Alerts with and without an insight row, newest first, cut to `candidates` before the access
+    check, then those on insights the user can view."""
     merged = sorted(
         [
             *(
@@ -529,7 +540,7 @@ def _newest_viewable(
 def _platform_enabled_alerts(
     *,
     team_id: int,
-    limit: int | None,
+    limit: int,
     created_by_id: int | None = None,
     firing_at: datetime | None = None,
     errored_at: datetime | None = None,
