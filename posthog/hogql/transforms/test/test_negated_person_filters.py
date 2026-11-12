@@ -30,6 +30,8 @@ from posthog.models.person.util import create_person
 
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -117,12 +119,16 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
             )
         create_person_id_override_by_distinct_id("merged", "internal", self.team.pk)
 
-    def _run(self, select: str, filters: list[dict], mode: PersonsOnEventsMode, rewrite: bool) -> tuple[set[str], str]:
+    def _run(
+        self, select: str, filters: list[dict], mode: PersonsOnEventsMode, rewrite: bool, pushdown: bool = False
+    ) -> tuple[set[str], str]:
         response = execute_hogql_query(
             parse_select(f"{select} WHERE {{where}}"),
             self.team,
             placeholders={"where": property_to_expr(filters, self.team)},
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode, negatedPersonFiltersNotIn=rewrite),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=mode, negatedPersonFiltersNotIn=rewrite, personIdPushdown=pushdown
+            ),
         )
         assert response.clickhouse is not None
         return {row[0] for row in response.results}, response.clickhouse
@@ -158,6 +164,14 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
                 INTERNAL_PERSONS,
                 select="SELECT distinct_id FROM posthog.flag_evaluations",
             ),
+            param(
+                "flag_evaluations_under_person_id_pushdown",
+                # The pushdown copies only WHERE terms that read flag_evaluations.
+                [INTERNAL, {"key": "$browser", "type": "event", "operator": "is_not_set"}],
+                INTERNAL_PERSONS,
+                select="SELECT distinct_id FROM posthog.flag_evaluations",
+                pushdown=True,
+            ),
             param("dotted_events", [INTERNAL], INTERNAL_PERSONS, select="SELECT event FROM posthog.events"),
             param(
                 "select_alias_named_person_id",
@@ -182,13 +196,15 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
         excluded: set[str],
         mode: PersonsOnEventsMode = JOINED,
         select: str = "SELECT event FROM events",
+        pushdown: bool = False,
     ):
-        joined, joined_sql = self._run(select, filters, mode, rewrite=False)
-        rewritten, rewritten_sql = self._run(select, filters, mode, rewrite=True)
+        joined, joined_sql = self._run(select, filters, mode, rewrite=False, pushdown=pushdown)
+        rewritten, rewritten_sql = self._run(select, filters, mode, rewrite=True, pushdown=pushdown)
 
         assert joined == self.EVENTS - excluded
         assert rewritten == joined
         assert PERSONS_JOIN.search(joined_sql)
+        assert ("in(person.id, (SELECT" in joined_sql) == pushdown
         assert not PERSONS_JOIN.search(rewritten_sql)
         assert "where_optimization" in rewritten_sql
 
@@ -244,23 +260,40 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
 
     @parameterized.expand(
         [
-            param("flag_evaluations", "posthog.flag_evaluations", False, rewrites=True),
-            # The pushdown limits the persons join to the persons the selected flag calls reach. The exclusion would
-            # read every person in the team.
-            param("flag_evaluations_with_pushdown", "posthog.flag_evaluations", True, rewrites=False),
-            param("events_with_pushdown", "events", True, rewrites=True),
+            param("flag_evaluations", "posthog.flag_evaluations", False),
+            param("flag_evaluations_with_pushdown", "posthog.flag_evaluations", True),
+            param("events_with_pushdown", "events", True),
+            param(
+                "union_with_pushdown",
+                "events",
+                True,
+                union_filter="event IN ('$pageview', '$feature_flag_called') AND ",
+            ),
         ]
     )
-    def test_rewrite_on_event_row_tables(self, _name: str, table: str, person_id_pushdown: bool, rewrites: bool):
-        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+    def test_rewrite_on_event_row_tables(
+        self, _name: str, table: str, person_id_pushdown: bool, union_filter: str = ""
+    ):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
+        )
+        with (
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-union",
+            ),
+        ):
             sql = self._print(
-                f"SELECT event FROM {table} WHERE {{where}}",
+                f"SELECT event FROM {table} WHERE {union_filter}{{where}}",
                 {"where": property_to_expr([INTERNAL], self.team)},
                 person_id_pushdown=person_id_pushdown,
             )
 
-        assert bool(PERSONS_JOIN.search(sql)) != rewrites
-        assert ("where_optimization" in sql) == rewrites
+        assert not PERSONS_JOIN.search(sql)
+        assert "where_optimization" in sql
+        assert ("UNION ALL" in sql) == bool(union_filter)
 
     @parameterized.expand(
         [
