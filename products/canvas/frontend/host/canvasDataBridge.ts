@@ -10,7 +10,6 @@ import {
     canvasesActionsInvoke,
     canvasesActionsRetrieve,
     canvasesConnectorsCall,
-    canvasesRequestAgentCreate,
     canvasesStateRetrieve,
     canvasesStateSet,
     canvasesToolsInvoke,
@@ -422,14 +421,10 @@ export class CanvasDataBridge {
         return this.toolRegistry
     }
 
-    private async agentRequest(payload: unknown): Promise<{ requestOutcome: string; taskId: string }> {
-        const { prompt } = canvasAgentRequestInputSchema.parse(payload)
-        if (!(await this.prompts.confirmAgentRequest(prompt))) {
-            throw new Error('Agent request canceled')
-        }
-        const { projectId, canvasId } = this.context()
-        const result = await canvasesRequestAgentCreate(projectId, canvasId, { prompt })
-        return { requestOutcome: result.request_outcome, taskId: result.task_id }
+    // The API refuses agent requests from a web app session, so the request fails here before it asks the viewer to confirm it.
+    private agentRequest(payload: unknown): Promise<never> {
+        canvasAgentRequestInputSchema.parse(payload)
+        return Promise.reject(new Error('Agent requests run through the PostHog MCP server, not the web app'))
     }
 
     private async connectorCall(payload: unknown): Promise<Omit<CanvasConnectorCallResultApi, 'approval_token'>> {
