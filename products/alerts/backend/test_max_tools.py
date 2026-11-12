@@ -182,21 +182,38 @@ class TestUpsertAlertTool(BaseTest):
         )
         assert subscribers == {alert_id: (self.user.id,)}
 
-        updated_content, _ = await tool._arun_impl(
-            action=UpdateAlertAction(
-                alert_id=str(alert_id),
-                name="Daily signups below 50",
-                lower_threshold=50.0,
-                calculation_interval=AlertCalculationInterval.DAILY,
+        with mock.patch("posthog.event_usage.report_user_action") as report:
+            updated_content, _ = await tool._arun_impl(
+                action=UpdateAlertAction(
+                    alert_id=str(alert_id),
+                    name="Daily signups below 50",
+                    lower_threshold=50.0,
+                    calculation_interval=AlertCalculationInterval.DAILY,
+                    enabled=False,
+                )
             )
-        )
 
         assert "updated successfully" in updated_content, updated_content
+        reported = report.call_args.args[2]
+        assert (reported["alert_name"], reported["calculation_interval"], reported["enabled"]) == (
+            "Daily signups below 50",
+            AlertCalculationInterval.DAILY,
+            False,
+        )
         updated, _ = await sync_to_async(_stored)()
         assert updated is not None
         assert (updated.name, updated.check_interval_minutes) == ("Daily signups below 50", 60 * 24)
         assert updated.source_config["condition"]["threshold"]["bounds"]["lower"] == 50.0
         assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        refused_content, refused = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert_id), upper_threshold=10.0)
+        )
+
+        assert refused == {"error": "validation_failed"}, refused_content
+        unchanged, _ = await sync_to_async(_stored)()
+        assert unchanged is not None
+        assert unchanged.source_config["condition"]["threshold"]["bounds"]["upper"] is None
 
     @parameterized.expand(
         [

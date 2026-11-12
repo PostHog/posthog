@@ -602,7 +602,13 @@ class UpsertAlertTool(MaxTool):
             if action.skip_weekend is not None:
                 changes["skip_weekend"] = action.skip_weekend
             if self._has_threshold_changes(action):
-                changes["threshold"] = self._proposed_threshold_configuration(locked, action)
+                threshold = self._proposed_threshold_configuration(locked, action)
+                # The platform schema does not check that the lower bound is below the upper one.
+                try:
+                    Threshold(configuration=threshold).clean()
+                except ValidationError as e:
+                    return _SaveRefusal(message=str(e), error_code="validation_failed")
+                changes["threshold"] = threshold
             if not changes:
                 return _SaveRefusal(
                     message="No changes provided. Specify at least one field to update.", error_code="no_changes"
@@ -635,7 +641,6 @@ class UpsertAlertTool(MaxTool):
             ):
                 transaction.set_rollback(True)
                 return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
-        alert.name = changes.get("name", alert.name)
         return None
 
     @staticmethod
@@ -662,6 +667,9 @@ class UpsertAlertTool(MaxTool):
 
             if refusal := await sync_to_async(self._save_alert)(alert, action):
                 return refusal.message, {"error": refusal.error_code}
+            if alert.has_no_insight_row:
+                # The platform wrote the edit, so this object still holds the settings from before it.
+                alert = await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=str(alert.id)) or alert
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
             insight = await sync_to_async(lambda: alert.insight)()
