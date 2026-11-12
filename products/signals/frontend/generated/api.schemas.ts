@@ -12149,7 +12149,7 @@ export type SignalsReportsListParams = {
      */
     teammate_uuid?: string
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports that are free to work on. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed.
      */
     unclaimed?: boolean
     /**
@@ -12426,7 +12426,7 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     teammate_uuid?: string
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports that are free to work on. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed.
      */
     unclaimed?: boolean
     /**

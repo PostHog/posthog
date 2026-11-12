@@ -584,7 +584,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            'Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.'
+            'Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports that are free to work on. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed.'
         ),
     unread: zod.boolean().optional().describe("Filter by the current user's report read state."),
     use_priority_preference: zod

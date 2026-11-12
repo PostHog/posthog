@@ -35,7 +35,7 @@ Read only the reference for the task. Read it before you use its write tools.
 | Check what needs attention                                                  | Use the setup check and triage workflow below.                                                           |
 | Investigate an error, bug, metric change, or support ticket                 | Use the research search below. Skip the setup check for this search.                                     |
 | Read a report by ID or URL                                                  | Use the report detail workflow below.                                                                    |
-| Fix a report or open a pull request                                         | [Implementation and claims](references/implementation.md). Read before you claim or change code.         |
+| Fix a report or open a pull request, with a user or in a scheduled run      | [Implementation and claims](references/implementation.md). Read before you claim or change code.         |
 | Run Get it merged, Make it green, a suggested prompt, or Ask; file a report | [Report actions and filing](references/report-actions.md). Read before you start a run or file a report. |
 | Resolve, dismiss, snooze, or restore a report                               | [Report state](references/report-state.md). Read before any state change.                                |
 | Rank reports or use prediction filters                                      | [Ranking](references/ranking.md). Read before you use model predictions.                                 |
@@ -131,6 +131,21 @@ To find the reports about a topic, such as before filing one, use `inbox-reports
 It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
 The `search` filter on `inbox-reports-list` matches the exact text only.
 
+### Routing and claims
+
+A report is a finding. It does not mean that someone is working on the problem.
+Two sets of fields answer two different questions:
+
+- **Routing: who should read the report.** `suggested_reviewers` and `is_suggested_reviewer`.
+  A suggested reviewer has not accepted the report and is not working on it.
+- **Claims: who is working on the report.** `work_state` and `assignee`.
+  `work_state: unclaimed` with `assignee: null` means that nobody has claimed the report, so it is free to take, whoever its suggested reviewers are.
+  `working` means an active claim, and `in_review` means a draft, open, or unknown-state pull request.
+  `done` means the report is resolved, closed, or in monitoring.
+
+`inbox-reports-search` results do not carry the claim fields, so read a match with `inbox-reports-retrieve` before you decide.
+To list only the free reports, pass `unclaimed: true` to `inbox-reports-list`.
+
 ## Dismissed and held-back reports
 
 A `suppressed` report has one of two origins. The inbox shows each origin in its own view, and
@@ -194,17 +209,18 @@ How the flag is produced:
 
 Practical implications for triage:
 
-- A `true` value means "you are a suggested reviewer for this report": a plausible owner,
-  not an assignee. When the pipeline derived the reviewers, that usually means you wrote (or
+- A `true` value means "you are a suggested reviewer for this report": a person well placed
+  to act on it. It is routing, not a claim, and it does not mean that you or anyone else is
+  working on the report. When the pipeline derived the reviewers, that usually means you wrote (or
   recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it
-  means they judged you the owner. It's a recommendation, not authoritative.
-- A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else owns
+  means they judged you the right person to read it. It's a recommendation, not authoritative.
+- A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else wrote
   the code, (b) the suggested logins came from commit history and no org member has that
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
 - If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`. When no stored
   personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the
-  ones routed to the user as a likely owner. Mention the rest as a secondary group rather
+  ones routed to the user as a suggested reviewer. Mention the rest as a secondary group rather
   than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
@@ -280,8 +296,8 @@ If `count: 0` comes back, jump to the empty/unconfigured workflow above before s
 inbox is empty" — the right reply depends on whether sources are configured.
 
 A claimed report keeps its pipeline status, so this queue also returns work someone else already
-owns. Add `"unclaimed": true` when the user is asking what is free to pick up, and
-`"assignee": "me"` to list what the caller already owns and may want to resume.
+claimed. Add `"unclaimed": true` when the user is asking what is free to pick up, and
+`"assignee": "me"` to list what the caller already claimed and may want to resume.
 
 ### Step 2 — Summarize by source and actionability
 
@@ -298,8 +314,8 @@ For each report, the response includes:
 - `pull_requests` — if a PR has been opened against this report
 - `work_state` — `unclaimed`, `working`, `in_review`, or `done`
 - `assignee` — who claimed the report (a user, an internal task, or an external agent), or `null`
-  when nobody has. Say so when you list a report someone else owns, so it doesn't read as free
-  work
+  when nobody has. Say so when you list a report someone else claimed, so it doesn't read as free
+  work. A report with no claim is free to take, also when it has suggested reviewers
 - `_posthogUrl` — clickable deep-link to the report; **always include this in your response**
 
 Group the results so the user can scan quickly. **Lead with reports where
@@ -361,6 +377,9 @@ inbox-reports-list
 - No match: continue the investigation, and do not mention the check.
 - A match: read it with `inbox-reports-retrieve` before you read code.
   Use the research as a starting point, and verify it against the code.
+  A match is research, not a sign that someone is fixing the problem: `work_state` and `assignee` say whether someone is.
+- The report is unclaimed: the fix is free to take. Claim the report before you change code.
+- Someone else claimed the report: say who holds it and since when (`assignee.claimed_at`), and do not duplicate the work.
 - The report has an open pull request: continue that work. Do not open a second pull request.
 - The report is resolved or dismissed: read why before you reopen the question.
 - You fix the problem: attach your pull request with `inbox-reports-claim` and `pr_url`, as in
