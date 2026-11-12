@@ -8474,10 +8474,62 @@ snapshots:
         hash: v1.k794b7964.75044871dcc2faa507f449a17e07deb6e0cf20cc73cdc5fc3e656dbcf4baf31b.ANyIBMkLPcA_SBd96Nd2GVIfhyf97CbOy3za6mYR0z4
     products-web-analytics-content-autopilot-brief--missing-brief--light:
         hash: v1.k794b7964.d5e3b3a7b64a0ecf4023a55b0cf1a3c32c97fa70d31dd1da48d0d3da1c87a740.LImf4sGZGBFGBCuuNLggitGjsee4HyVuZ4UhkS1KOSI
+    products-web-analytics-content-autopilot-setup--ai-data-processing-not-approved--dark:
+        hash: v1.k794b7964.e585b8ac1c364183bb38fddfef5ea2165a28692f24933d002d86378375c4192f.9n3b9NEaUtzbsPoVLIuQNLTE0TBMBqnctT0EM3TEk30
+    products-web-analytics-content-autopilot-setup--ai-data-processing-not-approved--light:
+        hash: v1.k794b7964.1f933c4797bd7f25a346f26ba8ac0c15ffcdb21a11b30ba80f4b0bc55d3725be.F3m3X8W7bKQuQz1NfTNbJ0p3ZX1YHwzmLZA8pG09PkM
+    products-web-analytics-content-autopilot-setup--configured-no-run-yet--dark:
+        hash: v1.k794b7964.a700ff5c2e22368be452568ec93cd56148085107e7d5e9bcb095d8a46d73a0c3.YAsUB60XQEGVM186iTgocFtvekbRgtidZDCqiXHB0x8
+    products-web-analytics-content-autopilot-setup--configured-no-run-yet--light:
+        hash: v1.k794b7964.53e489460771e5e611b9666251f698bdccc3385ed3e4759af9cdba51d6703e4c.KUBEK_VkfBP0o6Vy6XnN58264fXXbJGhCDChly5Vq10
+    products-web-analytics-content-autopilot-setup--context-load-error--dark:
+        hash: v1.k794b7964.d6d23f99edbb4f6a5a35b6a9702d4ce4526d42b5c1c658661d95c8fa66f1672f.xD6cI6SzC536bp3NCg08hxykztI2VA5tAefY8qfp3Kg
+    products-web-analytics-content-autopilot-setup--context-load-error--light:
+        hash: v1.k794b7964.f4b5e50baac55b0da696e0ea72b47c7c8d79302e52bf61058a6dd96c77e746d7.XNu-8q1AC9K-gcYPa4WuACX4u8VxhxglMWu9n-Q_vgg
+    products-web-analytics-content-autopilot-setup--empty-state--dark:
+        hash: v1.k794b7964.406871dfcbd6fc29904118cc98e9e6caa021bc454e69a22646e14cb0b4b00ab4.e-Qh7xb2xpY8mB1kRj1-LEk5gQEJ3bNcXb4UnsxrAsI
+    products-web-analytics-content-autopilot-setup--empty-state--light:
+        hash: v1.k794b7964.5585e86e7cc0204d1ee8e123aae0fcdb0a7f0ea466d459b5144d49fbecb7b212.mCtbzpBuYjdPn1fq9OQE7g0jY4i-P7CqN-epVECSVuA
+    products-web-analytics-content-autopilot-setup--first-checks-running--dark:
+        hash: v1.k794b7964.96a2c4057033cc9d13ff84aabf635049a5ba8028a0206d93e5a36d0ed96a6757.KBx4vJXBXO_KJfWguJabI1Pm5U2UrAFovOq_UxTKt-4
+    products-web-analytics-content-autopilot-setup--first-checks-running--light:
+        hash: v1.k794b7964.57a849d1364012894589773c2be244518e569ade36e7362c5b4ca53301d40e1c.D8GjqY5kvo-98TfvRrLul4-nNESzNGluoaL0laYj18w
+    products-web-analytics-content-autopilot-setup--prompts-saved-paused--dark:
+        hash: v1.k794b7964.998fa3238af7eecd66a3e82bb54ba270bfa63128fddbdcffceea63e296bdd618.5D5mgAGt-v9_5kJDhWj2E8jQM518x_KzakUmjXcMU28
+    products-web-analytics-content-autopilot-setup--prompts-saved-paused--light:
+        hash: v1.k794b7964.b8ef4f6503963640776805903d59e369db8499e28394a69d9d9c3c3efcc3bf6d.-TkoIHj3fwsxFOFcqR9yQ3OyT2zlWlgY-jNbWUm7aO8
+    products-web-analytics-content-autopilot-setup--setup-finished--dark:
+        hash: v1.k794b7964.d26086e8d027c4257e609620a23cf540c1c1b15c5df4fd08a21b09c8ab420287.3rTyWzd5NzY6NPS5-V0gn7Dl2Hmd_CRGXPYAk1bcebI
+    products-web-analytics-content-autopilot-setup--setup-finished--light:
+        hash: v1.k794b7964.9ad1e1e237e054f27bc67cd2a65a2aba0401b6b201c91abc103cc2fd62abde46.TbfVLbZ2rW6IBudldjDMn8zMzSYzit4Xg3jSz_8xYmc
+    products-web-analytics-content-autopilot-setup--setup-running--dark:
+        hash: v1.k794b7964.94359e9a44b1b0b846f090028e39090fdced42fc5e92cbd14759c73b346a1657.p0R3LhqPyEpNuqfyeDTzjE1C0wlzgrrLPWZoZrEzD9g
+    products-web-analytics-content-autopilot-setup--setup-running--light:
+        hash: v1.k794b7964.f2ca8426d33d59c5663845beeb6afbfdd9217820aa588cb317bde2054ca763cd.rtpDqKCZx-mtQTRMuM769x9QcsBC_iRqnUIOAlyoBaU
+    products-web-analytics-content-autopilot-setup--unavailable-engine-chosen--dark:
+        hash: v1.k794b7964.a86364fe6d9c1f406bcb3c3f61aed50d19c0c8c920b7bc33cf96efc171bc504e.RSPQfgjaA6FEN7e93qfLprg-jnt6ciojVDi3HFz8s6I
+    products-web-analytics-content-autopilot-setup--unavailable-engine-chosen--light:
+        hash: v1.k794b7964.d1cb12c833bbb2e93d64d6e94f50c463d264b28e030ec94cc524b8a3b6a3a96a.IEbBVjQW7ocgCt1sjMN_mQHLfQ8r2EvU9ihx4nLGAH4
     products-web-analytics-content-autopilot-sources--with-research-notes--dark:
         hash: v1.k794b7964.2be0596eea5d943ea5154d78d076fb1ae33583f6d1a82bd61b23e91807004a6c.c2JSeWbl54pOJlq8Zu3slJG20JJVq25E1D9JX4yn8rw
     products-web-analytics-content-autopilot-sources--with-research-notes--light:
         hash: v1.k794b7964.2b00d07a8309e97b1db2efbeab13f07f9322b1f00469022426334f630e26f7e4.BsB6fMyHEZzCEBAtZJr3IZa8IJHJQOt_lwYHaMypv3A
+    products-web-analytics-content-autopilot-suggest-keywords--failed--dark:
+        hash: v1.k794b7964.628e963dd845b29ff5e7453527b56e471130ddf6b557e7e8271d732242e37813.R2ruBIhdEtNoUnwvpk6Nz9YG4YQIyYjJxtkE0v1QauQ
+    products-web-analytics-content-autopilot-suggest-keywords--failed--light:
+        hash: v1.k794b7964.c8482e936d4e998d1408cab63befca5d4dd86ddbcb3539cad6e415afd898fd15.DhoLrnY57laOoxnFMNNfgwMIDElO_5mVZD5ODG4Cio0
+    products-web-analytics-content-autopilot-suggest-keywords--form--dark:
+        hash: v1.k794b7964.c7452d5b8c2f5812d0525a8574a8be1068bc8a13a6ae5ed2159f7246b654b0f5.MPYn9QG3fs_yFgkd48QMdAqBu1c2qCRSm-RAe_GrKy8
+    products-web-analytics-content-autopilot-suggest-keywords--form--light:
+        hash: v1.k794b7964.5f4d6ca27f046163ccac42a05e9b8b2fcaf112f52a6d44e49a99ce8f7cd49a46.6B3HB2CIUliChCdIbuVfzKOuA7-1nwZdmVFmJKBt2vI
+    products-web-analytics-content-autopilot-suggest-keywords--review--dark:
+        hash: v1.k794b7964.b5143dea9432c8abfc408611647483bcdbcbaffe87e719cad7fb3c6d4671965e.TnIGxhYlVXZoh53YUHbPQ4Y3duJMiSSx9vIrR45XLlo
+    products-web-analytics-content-autopilot-suggest-keywords--review--light:
+        hash: v1.k794b7964.ea77772082232426f6c0747dc0834bfbeacdf5e404bbeaa22e4c099e14ab047d.jMr1UzhEN3EjxzNzj8wBjd4tm5BfWOSGYc1JryCN3x8
+    products-web-analytics-content-autopilot-suggest-keywords--working--dark:
+        hash: v1.k794b7964.4953ada94f409772d092d2163a21b37ff1b0d097f11d93d6ade3f577b3df7371.kCX1WSxIQgrPnBpYaOUacx2lSJhLRCdwE1d7QuOYKgc
+    products-web-analytics-content-autopilot-suggest-keywords--working--light:
+        hash: v1.k794b7964.b3a588ae11f16b001071ff8f2741b6585ecd44b3256df1e096dabc5d922d386d.N0i9Ww4CIIgGbbZjpDJtRjDA4GfTVmd0g3yYz2QIGX0
     products-web-analytics-content-autopilot-validation-summary--could-not-draft--dark:
         hash: v1.k794b7964.0346e971e925e9cc9e5eda113570520eae42f5806f5f6ece4e96cd403f78deef.H-TcmAsWmz8HVNF4BV9Thcrlt4K6pkep-H6fBlzN3YM
     products-web-analytics-content-autopilot-validation-summary--could-not-draft--light:
