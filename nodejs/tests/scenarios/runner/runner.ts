@@ -114,16 +114,41 @@ function writeEvidence(result: RunResult, judge: Judge): void {
     writeFileSync(path.join(result.evidenceDir, 'scorecard.json'), JSON.stringify(result, null, 2))
 }
 
-async function connectWithin(databaseUrl: string, withinMs: number): Promise<void> {
+async function connectWithin(databaseUrl: string, withinMs: number, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted()
     const client = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: withinMs })
+    let cancel = (): void => undefined
+    const aborted = new Promise<never>((_, reject) => {
+        cancel = () => {
+            void client.end().catch(() => undefined)
+            reject(signal.reason)
+        }
+        signal.addEventListener('abort', cancel, { once: true })
+    })
     try {
-        await client.connect()
+        await Promise.race([client.connect(), aborted])
     } catch (error) {
+        signal.throwIfAborted()
         throw new Error(
             `the seeding database did not finish connecting within ${withinMs} ms: ${(error as Error).message}`
         )
+    } finally {
+        signal.removeEventListener('abort', cancel)
     }
     await client.end()
+}
+
+async function closedWithin(postgres: PostgresRouter | undefined, withinMs: number): Promise<boolean> {
+    return (
+        postgres === undefined ||
+        (await Promise.race([
+            postgres.end().then(
+                () => true,
+                () => true
+            ),
+            sleep(withinMs, false, { ref: false }),
+        ]))
+    )
 }
 
 async function seedWithin(
@@ -192,7 +217,7 @@ export function createRunner(
                     throw error
                 })
                 const seedingUrl = seedingUrlOf(specs[0])
-                await connectWithin(seedingUrl, seedWithinMs)
+                await connectWithin(seedingUrl, seedWithinMs, signal)
                 postgres = new PostgresRouter(
                     { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
                     'posthog-scenarios'
@@ -229,8 +254,17 @@ export function createRunner(
                         status: 'invalid',
                         statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
                     }
-                } finally {
-                    await Promise.race([postgres?.end(), sleep(seedWithinMs, undefined, { ref: false })])
+                }
+                if (!(await closedWithin(postgres, seedWithinMs))) {
+                    restartRequired = new Error(
+                        `The seeding connections of run ${runId} did not close and may still write fixtures into the next card. Restart the runner, then run the card again.`
+                    )
+                    const failed = `the seeding connections did not close within ${seedWithinMs} ms`
+                    outcome = {
+                        ...outcome,
+                        status: 'invalid',
+                        statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
+                    }
                 }
             }
             const result: RunResult = {
