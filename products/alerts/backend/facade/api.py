@@ -13,7 +13,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -65,6 +65,7 @@ from products.alerts_platform.backend.facade.api import (
     enabled_native_configurations,
     native_configuration_team_id,
     native_source_config_values,
+    owned_copies_by_legacy_id,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -72,6 +73,7 @@ from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 
@@ -113,6 +115,12 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
     return native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
 
 
+def _insight_owned_rows() -> QuerySet[AlertConfiguration]:
+    """Rows of the alerts the insight stack still owns. The platform holds the settings and state of an
+    alert it owns, and the alert's row may not follow them, so its readers read the platform."""
+    return AlertConfiguration.objects.exclude(owner=PlatformAlertOwner.PLATFORM)
+
+
 def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     """Which of the given insights have at least one alert configured, with an insight row or without.
 
@@ -137,10 +145,10 @@ def insight_ids_with_enabled_alerts(*, team_id: int, insight_ids: Collection[int
     """Which of the team's given insights have at least one enabled alert, in one query."""
     wanted = set(insight_ids)
     return set(
-        AlertConfiguration.objects.filter(team_id=team_id, insight_id__in=insight_ids, enabled=True).values_list(
-            "insight_id", flat=True
-        )
-    ) | _native_enabled_insight_ids(team_ids=[team_id], insight_ids=wanted)
+        _insight_owned_rows()
+        .filter(team_id=team_id, insight_id__in=insight_ids, enabled=True)
+        .values_list("insight_id", flat=True)
+    ) | _platform_enabled_insight_ids(team_ids=[team_id], insight_ids=wanted)
 
 
 def enabled_alert_insight_ids(*, team_ids: Collection[int]) -> set[int]:
@@ -148,13 +156,13 @@ def enabled_alert_insight_ids(*, team_ids: Collection[int]) -> set[int]:
     if not team_ids:
         return set()
     return set(
-        AlertConfiguration.objects.filter(team_id__in=team_ids, enabled=True)
-        .values_list("insight_id", flat=True)
-        .distinct()
-    ) | _native_enabled_insight_ids(team_ids=team_ids)
+        _insight_owned_rows().filter(team_id__in=team_ids, enabled=True).values_list("insight_id", flat=True).distinct()
+    ) | _platform_enabled_insight_ids(team_ids=team_ids)
 
 
-def _native_enabled_insight_ids(*, team_ids: Collection[int], insight_ids: Collection[int] | None = None) -> set[int]:
+def _platform_enabled_insight_ids(*, team_ids: Collection[int], insight_ids: Collection[int] | None = None) -> set[int]:
+    """Insights with an enabled alert the platform owns, with or without an insight row. Whether an
+    alert the platform owns is enabled is read from the platform, not from its row."""
     return {
         insight_id
         for configuration in enabled_native_configurations(
@@ -162,6 +170,7 @@ def _native_enabled_insight_ids(*, team_ids: Collection[int], insight_ids: Colle
             source_kind=SourceKind.INSIGHT,
             source_config_key=None if insight_ids is None else "insight_id",
             values=() if insight_ids is None else insight_ids,
+            owned_copies=True,
         )
         if isinstance(insight_id := configuration.source_config.get("insight_id"), int)
     }
@@ -238,7 +247,7 @@ def snooze_alert_from_slack(
     if not _can_snooze_from_slack(alert, user=user):
         return "no_access"
 
-    if not alert.enabled:
+    if not _is_enabled(alert):
         # Fast path only — not the authoritative check. A concurrent disable between here and
         # the row-locked re-check below must still be caught, so this just avoids taking a lock
         # for the common case.
@@ -258,7 +267,7 @@ def snooze_alert_from_slack(
         except AlertConfiguration.DoesNotExist:
             return "not_found"
 
-        if not locked_alert.enabled:
+        if not _is_enabled(locked_alert):
             return "disabled"
 
         with ActingUserContext(user):
@@ -288,6 +297,18 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+def _is_enabled(alert: AlertConfiguration) -> bool:
+    """Whether the alert is on. An alert the platform owns needs its copy on as well, because the platform
+    holds whether it is on, and a snooze writes the row's settings to the copy, so a row that is off
+    would switch the copy off."""
+    if not alert.enabled or not alert.platform_owned:
+        return alert.enabled
+    copy = owned_copies_by_legacy_id(
+        team_id=alert.team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert.id]
+    ).get(alert.id)
+    return copy is None or copy.enabled
 
 
 def _can_snooze_from_slack(alert: AlertConfiguration, *, user: User) -> bool:
@@ -370,20 +391,24 @@ def list_firing_alerts_created_by(
 ) -> list[contracts.FiringAlert]:
     """Firing alerts the user created on insights they can view, newest first, with or without an insight row."""
     now = timezone.now()
-    alerts = AlertConfiguration.objects.filter(
-        team_id=team.id,
-        enabled=True,
-        state=AlertState.FIRING,
-        created_by_id=user.id,
-        insight__deleted=False,
-    ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+    alerts = (
+        _insight_owned_rows()
+        .filter(
+            team_id=team.id,
+            enabled=True,
+            state=AlertState.FIRING,
+            created_by_id=user.id,
+            insight__deleted=False,
+        )
+        .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+    )
     if not include_metrics_insights:
         alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
     access = UserAccessControl(user, team=team)
     rows = alerts.select_related("insight").order_by("-created_at")[:FIRING_ALERT_CANDIDATES]
     native = (
         (configuration, insight)
-        for configuration, insight in _native_enabled_alerts(
+        for configuration, insight in _platform_enabled_alerts(
             team_id=team.id, limit=FIRING_ALERT_CANDIDATES, created_by_id=user.id, firing_at=now
         )
         if include_metrics_insights or not _is_metrics_insight(insight)
@@ -414,11 +439,12 @@ def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts
     """Enabled alerts on insights the user can view, newest first, with or without an insight row."""
     access = UserAccessControl(user, team=team)
     rows = (
-        AlertConfiguration.objects.filter(team_id=team.id, enabled=True, insight__deleted=False)
+        _insight_owned_rows()
+        .filter(team_id=team.id, enabled=True, insight__deleted=False)
         .select_related("insight")
         .order_by("-created_at")[:ENABLED_ALERT_CANDIDATES]
     )
-    native = _native_enabled_alerts(team_id=team.id, limit=ENABLED_ALERT_CANDIDATES)
+    native = _platform_enabled_alerts(team_id=team.id, limit=ENABLED_ALERT_CANDIDATES)
     viewable = _newest_viewable(rows, native, access=access, candidates=ENABLED_ALERT_CANDIDATES)
     return [
         contracts.EnabledAlert(
@@ -431,12 +457,40 @@ def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts
     ]
 
 
+ERRORED_ALERT_CANDIDATES = 200
+
+
+def list_errored_alerts(team: Team, access: UserAccessControl, *, limit: int) -> list[contracts.ErroredAlert]:
+    """Enabled alerts whose checks fail, on insights the reader can view, newest first, with or without
+    an insight row."""
+    rows = (
+        _insight_owned_rows()
+        .filter(team_id=team.id, enabled=True, state=AlertState.ERRORED, insight__deleted=False)
+        .select_related("insight")
+        .order_by("-created_at")[:ERRORED_ALERT_CANDIDATES]
+    )
+    owned = _platform_enabled_alerts(team_id=team.id, limit=ERRORED_ALERT_CANDIDATES, errored_at=timezone.now())
+    return [
+        contracts.ErroredAlert(
+            id=candidate.id,
+            name=candidate.name,
+            insight_name=candidate.insight.name or candidate.insight.derived_name,
+            insight_short_id=candidate.insight.short_id,
+            last_checked_at=candidate.last_checked_at,
+        )
+        for candidate in islice(
+            _newest_viewable(rows, owned, access=access, candidates=ERRORED_ALERT_CANDIDATES), limit
+        )
+    ]
+
+
 @frozen
 class _EnabledCandidate:
     created_at: datetime
     id: uuid.UUID
     name: str
     insight: Insight
+    last_checked_at: datetime | None = None
 
 
 def _newest_viewable(
@@ -451,12 +505,21 @@ def _newest_viewable(
     merged = sorted(
         [
             *(
-                _EnabledCandidate(created_at=alert.created_at, id=alert.id, name=alert.name, insight=alert.insight)
+                _EnabledCandidate(
+                    created_at=alert.created_at,
+                    id=alert.id,
+                    name=alert.name,
+                    insight=alert.insight,
+                    last_checked_at=alert.last_checked_at,
+                )
                 for alert in rows
             ),
             *(
                 _EnabledCandidate(
-                    created_at=configuration.created_at, id=configuration.id, name=configuration.name, insight=insight
+                    created_at=configuration.created_at,
+                    id=configuration.public_id,
+                    name=configuration.name,
+                    insight=insight,
                 )
                 for configuration, insight in native
             ),
@@ -467,18 +530,26 @@ def _newest_viewable(
     return (candidate for candidate in merged if access.check_access_level_for_object(candidate.insight, "viewer"))
 
 
-def _native_enabled_alerts(
-    *, team_id: int, limit: int, created_by_id: int | None = None, firing_at: datetime | None = None
+def _platform_enabled_alerts(
+    *,
+    team_id: int,
+    limit: int,
+    created_by_id: int | None = None,
+    firing_at: datetime | None = None,
+    errored_at: datetime | None = None,
 ) -> list[tuple[EnabledNativeConfiguration, Insight]]:
-    """The team's newest `limit` enabled insight alerts with no insight row, newest first, each with its
-    insight. With `firing_at`, only the ones firing then. An alert whose insight is gone or deleted is
-    left out, as a row's is."""
+    """The team's newest `limit` enabled insight alerts the platform owns, with or without an insight
+    row, newest first, each with its insight. With `firing_at`, only the ones firing then, and with
+    `errored_at` only the ones errored then. An alert whose insight is gone or deleted is left out, as a
+    row's is."""
     configurations = enabled_native_configurations(
         team_ids=[team_id],
         source_kind=SourceKind.INSIGHT,
         created_by_id=created_by_id,
         limit=limit,
         firing_at=firing_at,
+        errored_at=errored_at,
+        owned_copies=True,
     )
     insight_ids = {
         insight_id
@@ -504,20 +575,21 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
     """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
     follows = AlertSubscription.objects.filter(alert_configuration=OuterRef("pk"), user_id=user_id, subscribed=True)
     rows = (
-        AlertConfiguration.objects.filter(team_id=team_id, enabled=True, insight__deleted=False)
+        _insight_owned_rows()
+        .filter(team_id=team_id, enabled=True, insight__deleted=False)
         .filter(Q(created_by_id=user_id) | Exists(follows))
         .order_by("-created_at")
         .values_list("created_at", "insight__short_id")[: limit * WATCHED_ROWS_PER_INSIGHT]
     )
     candidates = limit * WATCHED_ROWS_PER_INSIGHT
-    created = _native_enabled_alerts(team_id=team_id, created_by_id=user_id, limit=candidates)
-    # An alert with no insight row keeps its subscribers in encrypted destination configs, which the
-    # database cannot filter on, so only the newest alerts are checked for them.
-    newest = _native_enabled_alerts(team_id=team_id, limit=candidates)
+    created = _platform_enabled_alerts(team_id=team_id, created_by_id=user_id, limit=candidates)
+    # The platform keeps an alert's subscribers in encrypted destination configs, which the database
+    # cannot filter on, so only the newest alerts are checked for them.
+    newest = _platform_enabled_alerts(team_id=team_id, limit=candidates)
     subscribers = platform_subscribers.platform_subscriber_ids(
-        team_id=team_id, alert_ids=[configuration.id for configuration, _ in newest]
+        team_id=team_id, alert_ids=[configuration.public_id for configuration, _ in newest]
     )
-    subscribed = [pair for pair in newest if user_id in subscribers.get(pair[0].id, ())]
+    subscribed = [pair for pair in newest if user_id in subscribers.get(pair[0].public_id, ())]
     native = [(configuration.created_at, insight.short_id) for configuration, insight in [*created, *subscribed]]
     newest_first = sorted([*rows, *native], key=lambda row: row[0], reverse=True)
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]

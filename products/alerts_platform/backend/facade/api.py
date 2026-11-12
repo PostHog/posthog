@@ -270,11 +270,15 @@ def enabled_native_configurations(
     values: Collection[Any] = (),
     limit: int | None = None,
     firing_at: datetime | None = None,
+    errored_at: datetime | None = None,
+    owned_copies: bool = False,
 ) -> tuple[EnabledNativeConfiguration, ...]:
-    """The enabled alerts of a kind with no source row in these teams, newest first. With
+    """The enabled alerts of a kind with no source row in these teams, and with `owned_copies` also the
+    copies the platform owns, newest first. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
-    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds."""
+    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
+    `errored_at`, only the ones a reader sees errored then: the last check failed, and no mute holds."""
     return platform_reads.enabled_native_configurations(
         team_ids=team_ids,
         source_kind=source_kind.value,
@@ -283,6 +287,8 @@ def enabled_native_configurations(
         values=values,
         limit=limit,
         firing_at=firing_at,
+        errored_at=errored_at,
+        owned_copies=owned_copies,
     )
 
 

@@ -431,14 +431,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_row_with_a_slack_function", True, "hog_function", [_ROW_FIRST]),
-            ("a_native_alert_with_a_slack_function", False, "hog_function", [_SIBLING_FIRST]),
-            ("a_native_alert_with_a_platform_slack_destination", False, "platform", [_SIBLING_FIRST]),
-            ("a_native_alert_without_slack", False, None, []),
+            ("a_row_with_a_slack_function", "row", "hog_function", [_ROW_FIRST]),
+            # Its row's threshold drifted from the copy's, which the platform owns.
+            (
+                "a_moved_alert_with_a_slack_function",
+                "copy",
+                "hog_function",
+                [[("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]],
+            ),
+            ("a_native_alert_with_a_slack_function", "native", "hog_function", [_SIBLING_FIRST]),
+            ("a_native_alert_with_a_platform_slack_destination", "native", "platform", [_SIBLING_FIRST]),
+            ("a_native_alert_without_slack", "native", None, []),
         ]
     )
     def test_a_firing_chart_draws_the_threshold_of_every_enabled_alert_on_the_insight(
-        self, _name: str, has_row: bool, slack: str | None, rendered_lines: list[list[tuple[str, float]]]
+        self, _name: str, kind: str, slack: str | None, rendered_lines: list[list[tuple[str, float]]]
     ) -> None:
         alert = self._alert()
         for name, enabled in (("sibling", True), ("disabled", False)):
@@ -457,7 +464,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     },
                 },
             )
-        chart_alert_id = alert.id if has_row else self._native(alert).id
+        if kind == "copy":
+            self._copy(
+                alert,
+                owner=PlatformAlertOwner.PLATFORM,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 200.0}},
+                    },
+                },
+            )
+            AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM)
+        chart_alert_id = self._native(alert).id if kind == "native" else alert.id
         if slack == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
