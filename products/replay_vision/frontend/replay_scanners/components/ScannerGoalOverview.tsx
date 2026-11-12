@@ -553,7 +553,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 {overBudget && freeCreditsOnly ? (
                     <LemonBanner type="info">
                         Your free credits cover about <span>{freeCreditsCoverage(budgetCredits, monthlyCredits)}</span>{' '}
-                        of the month. After that it pauses until they reset.
+                        of the month, then it stops.
                     </LemonBanner>
                 ) : overBudget ? (
                     <LemonBanner type="warning">
