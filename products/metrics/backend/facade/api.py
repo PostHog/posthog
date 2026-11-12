@@ -56,6 +56,7 @@ from products.metrics.backend.facade.contracts import (
     MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
+    MetricInstantWindow,
     MetricPoint,
     MetricQueryClause,
     MetricQueryCount,
@@ -577,8 +578,11 @@ def run_metric_instant_query(
     so the value is the one the chart shows for that bucket.
     """
     resolved = interval or DEFAULT_INSTANT_INTERVAL
-    date_from, end = metric_instant_window(team=team, time=time, interval=resolved)
-    request = MetricQueryRequest(clauses=clauses, date_from=date_from, date_to=end, interval=resolved, formula=formula)
+    window = metric_instant_window(team=team, time=time, interval=resolved)
+    end = window.date_to
+    request = MetricQueryRequest(
+        clauses=clauses, date_from=window.date_from, date_to=end, interval=resolved, formula=formula
+    )
     # A bucket with no samples is missing from the series, so pick the last bucket by its start. Day and week
     # buckets follow the project timezone and can be an hour off a whole step across a DST change.
     step = _interval_step(resolved)
@@ -589,11 +593,11 @@ def run_metric_instant_query(
     ]
 
 
-def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None) -> tuple[dt.datetime, dt.datetime]:
+def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None) -> MetricInstantWindow:
     """The range an instant builder query at `time` reads: its value is the bucket that ends at the range's end."""
     resolved = interval or DEFAULT_INSTANT_INTERVAL
     end = _align_to_interval(time, resolved, tzinfo=team.timezone_info)
-    return end - _INSTANT_BUCKETS * _interval_step(resolved), end
+    return MetricInstantWindow(date_from=end - _INSTANT_BUCKETS * _interval_step(resolved), date_to=end)
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:

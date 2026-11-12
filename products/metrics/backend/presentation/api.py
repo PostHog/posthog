@@ -212,6 +212,11 @@ class MetricQueryInterval(models.TextChoices):
     WEEK = "week", "week"
 
 
+class MetricQueryOutput(models.TextChoices):
+    POINTS = "points", "points"
+    SUMMARY = "summary", "summary"
+
+
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
 _RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[Mhdwmy]$")
 # PostHog-wide, lowercase m is months and capital M is minutes, so "-30m" reads 30 months back.
@@ -359,7 +364,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant.",
     )
     output = serializers.ChoiceField(
-        choices=["points", "summary"],
+        choices=MetricQueryOutput.choices,
         required=False,
         help_text="'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.",
     )
@@ -707,8 +712,8 @@ def _viewer_url_params(request: Request, query_data: dict, team: Team) -> str:
             date_from, date_to = time - _VIEWER_INSTANT_WINDOW, time
         else:
             # The builder value is the last bucket of this window, which can end well before 'time'.
-            date_from, date_to = metric_instant_window(team=team, time=time, interval=query_data.get("interval"))
-            date_from = min(date_from, date_to - _VIEWER_INSTANT_WINDOW)
+            window = metric_instant_window(team=team, time=time, interval=query_data.get("interval"))
+            date_from, date_to = min(window.date_from, window.date_to - _VIEWER_INSTANT_WINDOW), window.date_to
         params |= {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}
     else:
         # Keep a relative range relative, so the link shows the latest data when it is opened.
