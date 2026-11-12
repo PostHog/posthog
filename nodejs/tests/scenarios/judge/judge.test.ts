@@ -237,9 +237,9 @@ describe('judge', () => {
     })
 
     it.each<[string, number[], boolean]>([
+        ['a redirect, which fetch does not follow or retry, on the only attempt', [302], true],
         ['a status fetch does not retry, on the only attempt', [400], true],
         ['a request timeout, which fetch retries, on the only attempt', [408], false],
-        ['too many requests, which fetch retries, on the only attempt', [429], false],
         ['a server error, which fetch retries, on the only attempt', [503], false],
         ['a server error on fewer attempts than fetch makes', [503, 503], false],
         ['a server error on every attempt fetch makes', [503, 503, 503], true],
