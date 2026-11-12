@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal, cast
 
-from confluent_kafka import Consumer, Producer, TopicPartition
+from confluent_kafka import Consumer, Message, Producer, TopicPartition
 
 from posthog.dataclasses import frozen
 from posthog.settings.kafka import KafkaProfileSettings
@@ -71,6 +71,26 @@ class ReplayResult:
     unparseable: int
     errors: int
     complete: bool
+
+
+@frozen(frozen=False)
+class _RunProgress:
+    """The counters of a run, and the ranges of the partitions it has not finished."""
+
+    remaining: dict[int, PartitionRange]
+    scanned: int = 0
+    replayed: int = 0
+    unparseable: int = 0
+    errors: int = 0
+
+    def result(self, *, complete: bool) -> ReplayResult:
+        return ReplayResult(
+            scanned=self.scanned,
+            replayed=self.replayed,
+            unparseable=self.unparseable,
+            errors=self.errors,
+            complete=complete,
+        )
 
 
 def default_group_id(*, window: ReplayWindow, criteria: ReplayCriteria) -> str:
@@ -266,8 +286,40 @@ class SuppressedExceptionReplayer:
         )
 
     def run(self, ranges: Sequence[PartitionRange]) -> ReplayResult:
-        remaining = {partition_range.partition: partition_range for partition_range in ranges}
-        scanned = replayed = unparseable = errors = 0
+        progress = _RunProgress(remaining={partition_range.partition: partition_range for partition_range in ranges})
+        self._consumer.assign(
+            [
+                TopicPartition(self._topic, partition_range.partition, partition_range.start_offset)
+                for partition_range in ranges
+            ]
+        )
+        idle = 0
+        while progress.remaining:
+            if self._should_stop():
+                self._log("stop requested; exiting after the last committed batch")
+                break
+            messages = self._consumer.consume(num_messages=self._batch_size, timeout=self._poll_timeout_seconds)
+            if not messages:
+                idle += 1
+                if idle >= self._idle_polls:
+                    self._log(f"no messages after {idle} polls with {len(progress.remaining)} partition(s) unfinished")
+                    break
+                continue
+            idle = 0
+
+            delivered = self._replay_batch(messages, progress)
+            self._log(
+                f"progress: scanned={progress.scanned} replayed={progress.replayed} "
+                f"unparseable={progress.unparseable} errors={progress.errors} "
+                f"partitions_left={len(progress.remaining)}"
+            )
+            if not delivered:
+                return progress.result(complete=False)
+
+        return progress.result(complete=not progress.remaining)
+
+    def _replay_batch(self, messages: Sequence[Message], progress: _RunProgress) -> bool:
+        """Replay one consumed batch and commit it. Return False when the broker rejected a record."""
         # confluent-kafka reports a rejected record through the delivery callback, not through
         # produce() or flush(). Without this list the run would commit past records the broker
         # never took.
@@ -277,86 +329,65 @@ class SuppressedExceptionReplayer:
             if err is not None:
                 delivery_failures.append(str(err))
 
-        self._consumer.assign(
-            [
-                TopicPartition(self._topic, partition_range.partition, partition_range.start_offset)
-                for partition_range in ranges
-            ]
-        )
-        idle = 0
-        while remaining:
-            if self._should_stop():
-                self._log("stop requested; exiting after the last committed batch")
-                break
-            messages = self._consumer.consume(num_messages=self._batch_size, timeout=self._poll_timeout_seconds)
-            if not messages:
-                idle += 1
-                if idle >= self._idle_polls:
-                    self._log(f"no messages after {idle} polls with {len(remaining)} partition(s) unfinished")
-                    break
+        produced = 0
+        next_offsets: dict[int, int] = {}
+        finished: list[TopicPartition] = []
+        for message in messages:
+            consume_error = message.error()
+            if consume_error is not None:
+                progress.errors += 1
+                self._log(f"consume error: {consume_error}")
                 continue
-            idle = 0
+            partition = cast(int, message.partition())
+            offset = cast(int, message.offset())
+            partition_range = progress.remaining.get(partition)
+            if partition_range is None:
+                continue
+            if offset < partition_range.end_offset:
+                next_offsets[partition] = offset + 1
+                produced += self._replay_message(message, progress, on_delivery)
+            if offset + 1 >= partition_range.end_offset:
+                del progress.remaining[partition]
+                finished.append(TopicPartition(self._topic, partition))
+        if finished:
+            self._consumer.pause(finished)
+        return self._deliver_batch(produced, next_offsets, delivery_failures, progress)
 
-            delivery_failures.clear()
-            produced = 0
-            next_offsets: dict[int, int] = {}
-            finished: list[TopicPartition] = []
-            for message in messages:
-                consume_error = message.error()
-                if consume_error is not None:
-                    errors += 1
-                    self._log(f"consume error: {consume_error}")
-                    continue
-                partition = cast(int, message.partition())
-                offset = cast(int, message.offset())
-                partition_range = remaining.get(partition)
-                if partition_range is None:
-                    continue
-                if offset < partition_range.end_offset:
-                    scanned += 1
-                    next_offsets[partition] = offset + 1
-                    headers = cast("Sequence[Header] | None", message.headers())
-                    value = cast("bytes | None", message.value())
-                    classification = classify_message(headers, value, self._criteria)
-                    if classification == "unparseable":
-                        unparseable += 1
-                    elif classification == "replay":
-                        if self._producer is None:
-                            replayed += 1
-                        else:
-                            self._produce(cast("bytes | None", message.key()), value, headers, on_delivery)
-                            produced += 1
-                if offset + 1 >= partition_range.end_offset:
-                    del remaining[partition]
-                    finished.append(TopicPartition(self._topic, partition))
-            if finished:
-                self._consumer.pause(finished)
-
-            if self._producer is not None:
-                self._producer.flush()
-                failed = len(delivery_failures)
-                replayed += produced - failed
-                errors += failed
-                if failed:
-                    self._log(f"delivery failed for {failed} record(s); stopping: {delivery_failures[0]}")
-                    return ReplayResult(
-                        scanned=scanned, replayed=replayed, unparseable=unparseable, errors=errors, complete=False
-                    )
-                if next_offsets:
-                    self._consumer.commit(
-                        offsets=[
-                            TopicPartition(self._topic, partition, offset) for partition, offset in next_offsets.items()
-                        ],
-                        asynchronous=False,
-                    )
-            self._log(
-                f"progress: scanned={scanned} replayed={replayed} unparseable={unparseable} "
-                f"errors={errors} partitions_left={len(remaining)}"
+    def _deliver_batch(
+        self, produced: int, next_offsets: Mapping[int, int], delivery_failures: Sequence[str], progress: _RunProgress
+    ) -> bool:
+        """Wait for the broker to take the batch, then commit it. Return False when it rejected a record."""
+        if self._producer is None:
+            return True
+        self._producer.flush()
+        failed = len(delivery_failures)
+        progress.replayed += produced - failed
+        progress.errors += failed
+        if failed:
+            self._log(f"delivery failed for {failed} record(s); stopping: {delivery_failures[0]}")
+            return False
+        if next_offsets:
+            self._consumer.commit(
+                offsets=[TopicPartition(self._topic, partition, offset) for partition, offset in next_offsets.items()],
+                asynchronous=False,
             )
+        return True
 
-        return ReplayResult(
-            scanned=scanned, replayed=replayed, unparseable=unparseable, errors=errors, complete=not remaining
-        )
+    def _replay_message(self, message: Message, progress: _RunProgress, on_delivery: Callable[[Any, Any], None]) -> int:
+        """Classify one message and produce it when it matches. Return the number of records produced."""
+        progress.scanned += 1
+        headers = cast("Sequence[Header] | None", message.headers())
+        value = cast("bytes | None", message.value())
+        classification = classify_message(headers, value, self._criteria)
+        if classification == "unparseable":
+            progress.unparseable += 1
+        if classification != "replay":
+            return 0
+        if self._producer is None:
+            progress.replayed += 1
+            return 0
+        self._produce(cast("bytes | None", message.key()), value, headers, on_delivery)
+        return 1
 
     def _offsets_at(self, partitions: Sequence[int], moment: datetime) -> dict[int, int | None]:
         timestamp_ms = int(moment.timestamp() * 1000)
