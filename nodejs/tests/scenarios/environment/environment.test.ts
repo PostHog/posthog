@@ -36,6 +36,7 @@ import {
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
     STACK,
+    downServices,
     forgetSesBucket,
     membersOf,
     pingRedis,
@@ -621,7 +622,12 @@ describe('scenario environment', () => {
     }, 4_000)
 
     it('reports a running Kafka as up when the probes run under tsx like the CLI', async () => {
-        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(undefined, 'postgres://127.0.0.1:1/none')).then((down) => console.log(JSON.stringify(down)))`
+        const args: Parameters<typeof downServices> = [
+            undefined,
+            'postgres://127.0.0.1:1/none',
+            { host: '127.0.0.1', port: 1 },
+        ]
+        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(...${JSON.stringify(args)})).then((down) => console.log(JSON.stringify(down)))`
         const { stdout } = await promisify(childProcess.execFile)(
             path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx'),
             ['-e', probe],
