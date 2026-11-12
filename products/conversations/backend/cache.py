@@ -15,6 +15,7 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.caching.cache_version import bump_cache_version, read_cache_version
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
@@ -37,25 +38,10 @@ def _make_cache_key(prefix: str, *args: str) -> str:
     return f"conversations:{prefix}:{key_parts}"
 
 
-def _get_or_create_cache_namespace(key: str, timeout: int | None) -> str | None:
-    new_namespace = uuid.uuid4().hex
-    try:
-        namespace = cache.get(key)
-        if namespace:
-            return str(namespace)
-        if cache.add(key, new_namespace, timeout=timeout):
-            return new_namespace
-        namespace = cache.get(key)
-        return str(namespace) if namespace else new_namespace
-    except Exception:
-        logger.warning("conversations_cache_get_error", key=key)
-        return None
-
-
 # Widget Messages Cache
 # Caches both initial load (after=None) and polling (after=timestamp).
 # When polling, 'after' stays constant until a new message arrives, so cache hits are common.
-# Every key carries a per-ticket version. A new message rotates the version, so the next poll
+# Every key carries a per-ticket version. A new message bumps the version, so the next poll
 # misses the cache instead of returning a stale "no new messages" response until the TTL ends.
 
 # Longer than MESSAGES_CACHE_TTL, so a version outlives the entries keyed on it.
@@ -66,21 +52,21 @@ def _messages_version_key(team_id: int, ticket_id: str) -> str:
     return _make_cache_key("messages_version", str(team_id), ticket_id)
 
 
-def get_messages_cache_version(team_id: int, ticket_id: str) -> str | None:
-    """Return the ticket's current messages cache version, or None when the cache is unavailable.
+def get_messages_cache_version(team_id: int, ticket_id: str) -> int:
+    """Read once per request and use for both the get and the set.
 
-    Read it once per request and use it for both the get and the set. A message that commits
-    during the database read rotates the version, so the stale response lands on a key no poll reads.
+    A message that commits during the database read bumps the version, so the stale response
+    lands on a key no later poll reads.
     """
-    return _get_or_create_cache_namespace(_messages_version_key(team_id, ticket_id), MESSAGES_VERSION_TTL)
+    return read_cache_version(_messages_version_key(team_id, ticket_id), MESSAGES_VERSION_TTL)
 
 
-def get_messages_cache_key(team_id: int, ticket_id: str, version: str, after: str | None = None) -> str:
+def get_messages_cache_key(team_id: int, ticket_id: str, version: int, after: str | None = None) -> str:
     """Cache key for widget messages endpoint."""
-    return _make_cache_key("messages", str(team_id), ticket_id, version, after or "initial")
+    return _make_cache_key("messages", str(team_id), ticket_id, str(version), after or "initial")
 
 
-def get_cached_messages(team_id: int, ticket_id: str, version: str, after: str | None = None) -> dict | None:
+def get_cached_messages(team_id: int, ticket_id: str, version: int, after: str | None = None) -> dict | None:
     """Get cached messages response."""
     key = get_messages_cache_key(team_id, ticket_id, version, after)
     try:
@@ -91,7 +77,7 @@ def get_cached_messages(team_id: int, ticket_id: str, version: str, after: str |
 
 
 def set_cached_messages(
-    team_id: int, ticket_id: str, version: str, response_data: dict, after: str | None = None
+    team_id: int, ticket_id: str, version: int, response_data: dict, after: str | None = None
 ) -> None:
     """Cache messages response."""
     key = get_messages_cache_key(team_id, ticket_id, version, after)
@@ -164,7 +150,19 @@ def _identity_tickets_cache_namespace_key(team_id: int) -> str:
 
 def get_identity_tickets_cache_namespace(team_id: int) -> str | None:
     """Return the namespace shared by identity-authenticated ticket list keys."""
-    return _get_or_create_cache_namespace(_identity_tickets_cache_namespace_key(team_id), None)
+    key = _identity_tickets_cache_namespace_key(team_id)
+    new_namespace = uuid.uuid4().hex
+    try:
+        namespace = cache.get(key)
+        if namespace:
+            return str(namespace)
+        if cache.add(key, new_namespace, timeout=None):
+            return new_namespace
+        namespace = cache.get(key)
+        return str(namespace) if namespace else new_namespace
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
 
 
 def invalidate_identity_tickets_cache(team_id: int) -> None:
@@ -215,12 +213,8 @@ def invalidate_unread_count_cache(team_id: int) -> None:
 
 
 def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
-    """Rotate the ticket's messages cache version so the initial load and every poll cursor miss."""
-    key = _messages_version_key(team_id, ticket_id)
-    try:
-        cache.set(key, uuid.uuid4().hex, timeout=MESSAGES_VERSION_TTL)
-    except Exception:
-        logger.warning("conversations_cache_invalidate_error", keys=[key])
+    """Bump the ticket's messages cache version so the initial load and every poll cursor miss."""
+    bump_cache_version(_messages_version_key(team_id, ticket_id), MESSAGES_VERSION_TTL)
 
 
 def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:

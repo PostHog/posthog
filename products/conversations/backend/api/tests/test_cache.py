@@ -50,7 +50,6 @@ class TestMessagesCacheVersion(SimpleTestCase):
     @parameterized.expand([(None,), ("2024-01-01T00:00:00",)])
     def test_invalidation_hides_entries_cached_under_the_old_version(self, after):
         version = get_messages_cache_version(team_id=1, ticket_id="abc-123")
-        assert version is not None
         set_cached_messages(
             team_id=1, ticket_id="abc-123", version=version, response_data={"messages": []}, after=after
         )
@@ -58,7 +57,6 @@ class TestMessagesCacheVersion(SimpleTestCase):
         invalidate_messages_cache(team_id=1, ticket_id="abc-123")
 
         new_version = get_messages_cache_version(team_id=1, ticket_id="abc-123")
-        assert new_version is not None
         assert new_version != version
         assert get_cached_messages(team_id=1, ticket_id="abc-123", version=new_version, after=after) is None
 
@@ -69,19 +67,15 @@ class TestMessagesCacheVersion(SimpleTestCase):
 
         assert get_messages_cache_version(team_id=1, ticket_id="other") == version
 
-    @patch("products.conversations.backend.cache.cache.get", side_effect=Exception("Redis error"))
-    def test_version_lookup_failure_disables_cache(self, _mock_get):
-        assert get_messages_cache_version(team_id=1, ticket_id="abc-123") is None
-
 
 class TestCacheKeyGeneration(SimpleTestCase):
     def test_messages_cache_key_without_after(self):
-        key = get_messages_cache_key(team_id=1, ticket_id="abc-123", version="v1")
-        assert key == "conversations:messages:1:abc-123:v1:initial"
+        key = get_messages_cache_key(team_id=1, ticket_id="abc-123", version=1)
+        assert key == "conversations:messages:1:abc-123:1:initial"
 
     def test_messages_cache_key_with_after(self):
-        key = get_messages_cache_key(team_id=1, ticket_id="abc-123", version="v1", after="2024-01-01T00:00:00")
-        assert key == "conversations:messages:1:abc-123:v1:2024-01-01T00:00:00"
+        key = get_messages_cache_key(team_id=1, ticket_id="abc-123", version=1, after="2024-01-01T00:00:00")
+        assert key == "conversations:messages:1:abc-123:1:2024-01-01T00:00:00"
 
     def test_tickets_cache_key_without_status(self):
         key = get_tickets_cache_key(team_id=1, widget_session_id="session-123")
@@ -101,7 +95,7 @@ class TestMessagesCacheOperations(SimpleTestCase):
     def test_get_cached_messages_returns_cached_data(self, mock_cache):
         mock_cache.get.return_value = {"messages": []}
 
-        result = get_cached_messages(team_id=1, ticket_id="abc", version="v1")
+        result = get_cached_messages(team_id=1, ticket_id="abc", version=1)
 
         assert result == {"messages": []}
         mock_cache.get.assert_called_once()
@@ -110,7 +104,7 @@ class TestMessagesCacheOperations(SimpleTestCase):
     def test_get_cached_messages_returns_none_on_miss(self, mock_cache):
         mock_cache.get.return_value = None
 
-        result = get_cached_messages(team_id=1, ticket_id="abc", version="v1")
+        result = get_cached_messages(team_id=1, ticket_id="abc", version=1)
 
         assert result is None
 
@@ -118,7 +112,7 @@ class TestMessagesCacheOperations(SimpleTestCase):
     def test_get_cached_messages_returns_none_on_exception(self, mock_cache):
         mock_cache.get.side_effect = Exception("Redis error")
 
-        result = get_cached_messages(team_id=1, ticket_id="abc", version="v1")
+        result = get_cached_messages(team_id=1, ticket_id="abc", version=1)
 
         assert result is None
 
@@ -126,7 +120,7 @@ class TestMessagesCacheOperations(SimpleTestCase):
     def test_set_cached_messages_sets_with_ttl(self, mock_cache):
         data = {"messages": [{"id": "1"}]}
 
-        set_cached_messages(team_id=1, ticket_id="abc", version="v1", response_data=data)
+        set_cached_messages(team_id=1, ticket_id="abc", version=1, response_data=data)
 
         mock_cache.set.assert_called_once()
         call_args = mock_cache.set.call_args
@@ -138,11 +132,11 @@ class TestMessagesCacheOperations(SimpleTestCase):
         mock_cache.set.side_effect = Exception("Redis error")
 
         # Should not raise
-        set_cached_messages(team_id=1, ticket_id="abc", version="v1", response_data={})
+        set_cached_messages(team_id=1, ticket_id="abc", version=1, response_data={})
 
     @patch("products.conversations.backend.cache.cache")
     def test_invalidate_messages_cache_swallows_exception(self, mock_cache):
-        mock_cache.set.side_effect = Exception("Redis error")
+        mock_cache.incr.side_effect = Exception("Redis error")
 
         # Should not raise
         invalidate_messages_cache(team_id=1, ticket_id="abc")

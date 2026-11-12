@@ -681,10 +681,10 @@ class WidgetMessagesView(APIView):
 
         # Check cache (after stays constant between polls until new message arrives)
         after_str = after.isoformat() if after else None
-        # Only cache the limit used by widget polling
-        cache_version = get_messages_cache_version(team.id, str(ticket.id)) if limit == 50 else None
-        if cache_version is not None:
-            cached = get_cached_messages(team.id, str(ticket.id), cache_version, after_str)
+        use_cache = limit == 50  # Only cache the limit used by widget polling
+        if use_cache:
+            cache_version = get_messages_cache_version(team.id, ticket_id)
+            cached = get_cached_messages(team.id, ticket_id, cache_version, after_str)
             if cached is not None:
                 return Response(cached)
 
@@ -747,8 +747,8 @@ class WidgetMessagesView(APIView):
         }
 
         # Cache the response
-        if cache_version is not None:
-            set_cached_messages(team.id, str(ticket.id), cache_version, response_data, after_str)
+        if use_cache:
+            set_cached_messages(team.id, ticket_id, cache_version, response_data, after_str)
 
         return Response(response_data)
 
