@@ -7,6 +7,7 @@ import structlog
 from anthropic import Anthropic
 from pydantic import BaseModel
 
+from .deadline import CheckDeadline
 from .gather import MergeEvidence, PathClass
 from .judge import (
     MIN_QUOTE_CHARACTERS,
@@ -101,7 +102,9 @@ class MergeFacts(BaseModel):
     changed_pages: list[ChangedPage]
 
 
-def extract_facts(anthropic_client: Anthropic, evidence: MergeEvidence) -> MergeFacts | None:
+def extract_facts(
+    anthropic_client: Anthropic, evidence: MergeEvidence, *, deadline: CheckDeadline | None = None
+) -> MergeFacts | None:
     parsed = parse_structured_output(
         anthropic_client,
         MergeFacts,
@@ -110,6 +113,7 @@ def extract_facts(anthropic_client: Anthropic, evidence: MergeEvidence) -> Merge
         max_retries=0,
         system=system_with_cached_page_list(FACTS_INSTRUCTIONS, evidence.docs_page_paths),
         content=facts_request(evidence),
+        deadline=deadline,
     )
     if isinstance(parsed, Declined):
         logger.warning("knowledge_writer_facts_declined", cause=parsed.cause)
@@ -138,23 +142,15 @@ def facts_diff(evidence: MergeEvidence) -> str:
 
 def verify_quotes(facts: MergeFacts, evidence: MergeEvidence) -> tuple[MergeFacts, bool]:
     diff = facts_diff(evidence)
+    diff_quotable = normalized("\n".join([diff, DIFF_LINE_MARKER_PATTERN.sub("", diff)]))
     quotable = normalized(
-        "\n".join(
-            [
-                evidence.title,
-                *evidence.labels,
-                evidence.body,
-                evidence.release_text,
-                diff,
-                DIFF_LINE_MARKER_PATTERN.sub("", diff),
-            ]
-        )
+        "\n".join([evidence.title, *evidence.labels, evidence.body, evidence.release_text, diff_quotable])
     )
     listed_page_paths = set(evidence.docs_page_paths)
 
-    def is_supported(quote: str) -> bool:
+    def is_quoted(quote: str, text: str) -> bool:
         normalized_quote = normalized(quote)
-        return len(normalized_quote) >= MIN_QUOTE_CHARACTERS and normalized_quote in quotable
+        return len(normalized_quote) >= MIN_QUOTE_CHARACTERS and normalized_quote in text
 
     fact_defaults: list[tuple[str, Callable[[Any], bool], BaseModel]] = [
         (
@@ -174,10 +170,13 @@ def verify_quotes(facts: MergeFacts, evidence: MergeEvidence) -> tuple[MergeFact
     updates: dict[str, object] = {
         name: default
         for name, is_off_default, default in fact_defaults
-        if is_off_default(getattr(facts, name)) and not is_supported(getattr(facts, name).quote)
+        if is_off_default(getattr(facts, name)) and not is_quoted(getattr(facts, name).quote, quotable)
     }
     verified_pages = [
-        page for page in facts.changed_pages if page.page_path in listed_page_paths and is_supported(page.quote)
+        # Changed-page quotes reach the writer as findings, and anyone can write a merged pull request's text.
+        page
+        for page in facts.changed_pages
+        if page.page_path in listed_page_paths and is_quoted(page.quote, diff_quotable)
     ]
     has_dropped_quotes = bool(updates)
     return facts.model_copy(update={**updates, "changed_pages": verified_pages}), has_dropped_quotes
@@ -202,7 +201,11 @@ class PageCheck(BaseModel):
 
 
 def verified_page_findings(
-    anthropic_client: Anthropic, evidence: MergeEvidence, *, page_text_by_key: dict[str, str]
+    anthropic_client: Anthropic,
+    evidence: MergeEvidence,
+    *,
+    page_text_by_key: dict[str, str],
+    deadline: CheckDeadline | None = None,
 ) -> list[PageFinding] | None:
     diff = facts_diff(evidence)
     page_texts = page_tags(page_text_by_key, separator="\n")
@@ -214,6 +217,7 @@ def verified_page_findings(
         max_retries=0,
         system=PAGE_CHECK_INSTRUCTIONS,
         content=f"Title: {evidence.title}\n\n{page_texts}\n<diff>\n{diff[:MAX_FACTS_DIFF_CHARACTERS]}\n</diff>",
+        deadline=deadline,
     )
     if isinstance(parsed, Declined):
         logger.warning("knowledge_writer_page_check_declined", cause=parsed.cause)

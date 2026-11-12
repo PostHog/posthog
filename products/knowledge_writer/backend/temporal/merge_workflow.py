@@ -19,8 +19,10 @@ from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
+from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 
 from ...merge_check.check import run_merge_check
+from ...merge_check.deadline import CheckDeadline, CheckDeadlineExceeded, DeadlineGitHub, deadline_http
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import (
     GitHubReader,
@@ -41,6 +43,8 @@ logger = structlog.get_logger(__name__)
 
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 NOT_ADMITTED_REASON = "not_admitted"
+CHECK_CAPPED_REASON = "check_capped"
+MERGE_CHECK_BUDGET = Budget(burst=200, per_hour=34)
 MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
@@ -50,7 +54,14 @@ GITHUB_READ_ERRORS = (
     GitHubRateLimitError,
     GitHubEgressBudgetExhausted,
 )
-MERGE_CHECK_RETRYABLE_ERRORS = (*GITHUB_READ_ERRORS, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
+MERGE_CHECK_RETRYABLE_ERRORS = (
+    *GITHUB_READ_ERRORS,
+    httpx.HTTPError,
+    APIError,
+    UnexpectedGitHubResponse,
+    CheckDeadlineExceeded,
+)
+SITEMAP_TIMEOUT_SECONDS = 30
 
 
 LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
@@ -130,6 +141,18 @@ def tell_docs_check_waiters(finished: FinishedDocsCheck) -> None:
             logger.exception("knowledge_writer_docs_check_hook_failed", waiter_ids=finished.waiter_ids)
 
 
+def merge_check_budget_key(team_id: int) -> str:
+    return f"knowledge_writer:merge_check_budget:{team_id}"
+
+
+def is_within_check_budget(team_id: int) -> bool:
+    decision = consume(merge_check_budget_key(team_id), MERGE_CHECK_BUDGET)
+    if isinstance(decision, BucketUnavailable):
+        logger.warning("knowledge_writer_merge_check_budget_unavailable", team_id=team_id, error=decision.error)
+        return True
+    return decision.allowed
+
+
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> FinishedDocsCheck:
     try:
         is_admitted = is_check_admitted(inputs)
@@ -144,14 +167,23 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         return record_unchecked_merge(inputs, reason=NOT_ADMITTED_REASON, failure_reason=None)
     if inputs.pull_request_number is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.NO_PULL_REQUEST_NUMBER)
+    if not is_within_check_budget(inputs.team_id):
+        return record_unchecked_merge(inputs, reason=CHECK_CAPPED_REASON, failure_reason=None)
     github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.NO_DOCS_GITHUB)
+    deadline = CheckDeadline.starting_now()
+    deadline_github = DeadlineGitHub(github, deadline)
     try:
-        change = landed_change_for(inputs, inputs.pull_request_number, github)
-        report = None if change is None else judged_report(change, github, is_final_attempt=is_final_attempt)
+        change = landed_change_for(inputs, inputs.pull_request_number, deadline_github)
+        report = (
+            None
+            if change is None
+            else judged_report(change, deadline_github, deadline, is_final_attempt=is_final_attempt)
+        )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
+            refund(merge_check_budget_key(inputs.team_id), MERGE_CHECK_BUDGET)
             raise
         capture_exception(error, {"commit_sha": inputs.commit_sha})
         return record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
@@ -170,20 +202,27 @@ def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github
     return landed_change(inputs.repository, read_pull_request(github, inputs.repository, pull_request_number))
 
 
-def judged_report(change: LandedChange, github: GitHubReader, *, is_final_attempt: bool) -> MergeCheckReport | None:
+def judged_report(
+    change: LandedChange, github: GitHubReader, deadline: CheckDeadline, *, is_final_attempt: bool
+) -> MergeCheckReport | None:
     try:
         anthropic_client = judge_client(change.after)
     except ValueError:
         return None
-    with httpx.Client(timeout=30) as http, anthropic_client:
+    with (
+        anthropic_client,
+        deadline_http(deadline, timeout_seconds=SITEMAP_TIMEOUT_SECONDS) as http,
+        anthropic_client.with_options(http_client=http) as deadline_anthropic_client,
+    ):
         return run_merge_check(
             change,
             is_final_attempt=is_final_attempt,
             github=github,
             http=http,
-            anthropic_client=anthropic_client,
+            anthropic_client=deadline_anthropic_client,
             source=docs_source(),
             writer_login=github_app_login(),
+            deadline=deadline,
         )
 
 
@@ -218,7 +257,8 @@ class MergeCheckWorkflow:
             finished = await workflow.execute_activity(
                 run_merge_check_activity,
                 inputs,
-                start_to_close_timeout=timedelta(minutes=10),
+                start_to_close_timeout=timedelta(minutes=5),
+                schedule_to_close_timeout=timedelta(minutes=20),
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(
                     initial_interval=MERGE_CHECK_RETRY_INTERVAL, maximum_attempts=MERGE_CHECK_ATTEMPTS

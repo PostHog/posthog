@@ -27,6 +27,8 @@ from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import SPECS, build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
+from posthog.redis import get_client
+from posthog.token_bucket import Budget
 
 from products.knowledge_writer.backend.facade import finished_check_hooks
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest, IntakeOutcome
@@ -42,6 +44,7 @@ from products.knowledge_writer.backend.temporal.merge_workflow import (
     MergeCheckNotAdmitted,
     MergeCheckWorkflow,
     check_merge,
+    merge_check_budget_key,
     tell_docs_check_waiters_activity,
 )
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
@@ -51,6 +54,7 @@ from products.knowledge_writer.backend.temporal.reconcile_workflow import (
 )
 from products.knowledge_writer.backend.webhook_consumers import WEBHOOK_CONSUMERS
 from products.knowledge_writer.merge_check.check import no_docs_report
+from products.knowledge_writer.merge_check.deadline import CheckDeadlineExceeded
 from products.knowledge_writer.merge_check.sources import LandedChange
 
 MERGE_COMMIT_SHA = "b" * 40
@@ -357,6 +361,26 @@ async def test_every_docs_command_that_joins_a_running_check_hears_how_it_ended(
         "joining-waiter",
     ]
     assert {finished.failure_reason for finished in told} == {failure_reason}
+
+
+@pytest.mark.django_db
+def test_a_team_past_its_check_budget_records_capped_merges_without_reading_github(team, writer_env) -> None:
+    inputs = MergeCheckInputs(commit_sha=MERGE_COMMIT_SHA, team_id=team.id, pull_request_number=PULL_REQUEST_NUMBER)
+    get_client().delete(merge_check_budget_key(team.id))
+    with (
+        patch(f"{MERGE_WORKFLOW_MODULE}.MERGE_CHECK_BUDGET", Budget(burst=1, per_hour=1)),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", side_effect=[MagicMock(), None]) as docs_github,
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.run_merge_check", side_effect=CheckDeadlineExceeded()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit") as submit,
+    ):
+        with pytest.raises(CheckDeadlineExceeded):
+            check_merge(inputs, is_final_attempt=False)
+        check_merge(inputs, is_final_attempt=True)
+        check_merge(inputs, is_final_attempt=True)
+
+    assert docs_github.call_count == 2
+    assert [call.args[0].reason for call in submit.call_args_list] == ["merge_check_failed", "check_capped"]
 
 
 @pytest.mark.django_db
