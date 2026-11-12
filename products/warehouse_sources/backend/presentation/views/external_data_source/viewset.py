@@ -7,7 +7,7 @@ from typing import Any, cast
 from django.db.models import Prefetch
 from django.utils.crypto import salted_hmac
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import filters, serializers, viewsets
 from rest_framework.decorators import action
@@ -31,7 +31,7 @@ from posthog.rate_limit import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
-from . import credential_store, helpers, oauth_accounts, source_setup
+from . import connection_options, credential_store, helpers, oauth_accounts, source_setup
 from .change_data_capture import ExternalDataSourceCDCMixin
 from .connection_options import ExternalDataSourceConnectionOptionsMixin
 from .credential_store import ExternalDataSourceCredentialStoreMixin
@@ -57,6 +57,12 @@ class ExternalDataSourceSyncStateSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    revenue_analytics_config=extend_schema(
+        request=connection_options.ExternalDataSourceRevenueAnalyticsConfigSerializer,
+        responses={200: source_setup.ExternalDataSourceSerializers},
+    ),
+)
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(
     ExternalDataSourceMigrationApplyMixin,

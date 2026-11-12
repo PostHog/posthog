@@ -17954,6 +17954,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable
+     */
+    export type AutoresearchValidationErrorCodeEnum = typeof AutoresearchValidationErrorCodeEnum[keyof typeof AutoresearchValidationErrorCodeEnum];
+
+
+    export const AutoresearchValidationErrorCodeEnum = {
+      InvalidDefinition: 'invalid_definition',
+      TooExpensive: 'too_expensive',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -50938,7 +50952,9 @@ export namespace Schemas {
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
+      /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
       enabled?: boolean;
+      /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
       include_invoiceless_charges?: boolean;
     }
 
@@ -87207,6 +87223,13 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedExternalDataSourceRevenueAnalyticsConfig {
+      /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+      enabled?: boolean;
+      /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+      include_invoiceless_charges?: boolean;
+    }
+
     export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
@@ -121187,6 +121210,12 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+       *
+       * * `invalid_definition` - Invalid definition
+       * * `too_expensive` - Too expensive
+       * * `unavailable` - Unavailable */
+      error_code: AutoresearchValidationErrorCodeEnum | null;
     }
 
     /**
