@@ -1,7 +1,10 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 
+import { Skeleton } from '@posthog/quill'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -44,6 +47,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, dashboardId } =
         useValues(insightSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // insightLogic
     const logic = insightLogic({
@@ -119,7 +123,11 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (
                         // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
-                        <LemonSkeleton className="h-100 w-full" />
+                        todayRailNav ? (
+                            <Skeleton className="h-100 w-full" />
+                        ) : (
+                            <LemonSkeleton className="h-100 w-full" />
+                        )
                     ) : (
                         <Query
                             attachTo={attachTo}

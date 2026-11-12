@@ -21,7 +21,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
+import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Text } from '@posthog/quill'
 
 import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -37,7 +37,7 @@ import { useExplainEmptyInsight } from 'lib/insights/explainEmptyInsightContext'
 import { getRetryCooldown } from 'lib/insights/sharedUtils'
 import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
@@ -63,6 +63,7 @@ import {
     AccessControlResourceType,
     DashboardPlacement,
     InsightLogicProps,
+    InsightModel,
     SavedInsightsTabs,
     SidePanelTab,
 } from '~/types'
@@ -75,8 +76,11 @@ import { InsightErrorLayout } from './InsightErrorLayout'
 import { QuillFunnelSingleStepState } from './QuillFunnelSingleStepState'
 import { QuillInsightEmptyStateIcon } from './QuillInsightEmptyStateIcon'
 import { QuillInsightEmptyStateNextSteps } from './QuillInsightEmptyStateNextSteps'
+import { QuillInsightLoadingProgress } from './QuillInsightLoadingProgress'
+import { QuillInsightLoadingState } from './QuillInsightLoadingState'
 import { QuillQueryDebuggerButton } from './QuillQueryDebuggerButton'
 import { QuillRetryButton } from './QuillRetryButton'
+import { QuillSlowQuerySuggestions } from './QuillSlowQuerySuggestions'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -338,6 +342,8 @@ const LOADING_MESSAGES = holidaysMatcher(
     BASE_LOADING_MESSAGES
 )
 
+const DEFAULT_LOADING_SUGGESTION = 'Need to speed things up? Try reducing the date range.'
+
 function LoadingDetails({
     pollResponse,
     queryId,
@@ -351,12 +357,30 @@ function LoadingDetails({
     bytesRead: number
     secondsElapsed: number
 }): JSX.Element {
+    const quillSurface = useQuillSurface()
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
     const cpuUtilization =
         (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
         (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
+
+    if (quillSurface) {
+        return (
+            <>
+                {rowsRead > 0 && bytesRead > 0 && (
+                    <QuillInsightLoadingProgress
+                        rowsRead={rowsRead}
+                        estimatedRows={estimatedRows}
+                        bytesRead={bytesRead}
+                        bytesPerSecond={bytesPerSecond}
+                        cpuUtilization={cpuUtilization}
+                    />
+                )}
+                <QueryIdDisplay queryId={queryId} />
+            </>
+        )
+    }
 
     return (
         <>
@@ -390,6 +414,8 @@ export function StatelessInsightLoadingState({
     setProgress,
     progress,
     renderEmptyStateAsSkeleton = false,
+    query,
+    reserveChartHeight = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
@@ -398,7 +424,12 @@ export function StatelessInsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
     setProgress?: (loadId: string, progress: number) => void
     progress?: number
+    /** Picks the shape of the chart skeleton on a quill surface. */
+    query?: InsightModel['query']
+    /** On a quill surface, takes the height the chart has once it loads. */
+    reserveChartHeight?: boolean
 }): JSX.Element {
+    const quillSurface = useQuillSurface()
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
     const [secondsElapsed, setSecondsElapsed] = useState(0)
@@ -465,11 +496,41 @@ export function StatelessInsightLoadingState({
         return () => clearInterval(interval)
     }, [isPageVisible])
 
+    const details = (
+        <LoadingDetails
+            pollResponse={pollResponse}
+            queryId={queryId}
+            rowsRead={rowsRead}
+            bytesRead={bytesRead}
+            secondsElapsed={secondsElapsed}
+        />
+    )
+
+    if (quillSurface) {
+        return (
+            <QuillInsightLoadingState
+                query={query}
+                message={LOADING_MESSAGES[loadingMessageIndex]}
+                suggestion={
+                    suggestion ? (
+                        suggestion
+                    ) : (
+                        <Text size="xs" variant="muted" className="m-0">
+                            {DEFAULT_LOADING_SUGGESTION}
+                        </Text>
+                    )
+                }
+                details={details}
+                reserveChartHeight={reserveChartHeight}
+            />
+        )
+    }
+
     const suggestions = suggestion ? (
         suggestion
     ) : (
         <div className="flex gap-3">
-            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+            <p className="text-xs m-0">{DEFAULT_LOADING_SUGGESTION}</p>
         </div>
     )
 
@@ -496,21 +557,26 @@ export function StatelessInsightLoadingState({
             >
                 <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                 {suggestions}
-                <LoadingDetails
-                    pollResponse={pollResponse}
-                    queryId={queryId}
-                    rowsRead={rowsRead}
-                    bytesRead={bytesRead}
-                    secondsElapsed={secondsElapsed}
-                />
+                {details}
             </div>
         </div>
     )
 }
 
-const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
-)
+const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => {
+    const quillSurface = useQuillSurface()
+    return (
+        <code
+            className={
+                quillSurface
+                    ? 'rounded-xs border border-border px-1 py-0.5 font-mono text-xs'
+                    : 'border border-1 border-primary rounded-xs text-xs px-1 py-0.5'
+            }
+        >
+            {props.children}
+        </code>
+    )
+}
 
 const SLOW_LOADING_TIME = 15
 
@@ -522,6 +588,7 @@ export function SlowQuerySuggestions({
     loadingTimeSeconds?: number
 }): JSX.Element | null {
     const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     // `loadingTimeSeconds` only advances on dataNodeLogic's wall-clock timer, which Storybook has no
     // way to fast-forward, so a story covering these suggestions would have to sit through
@@ -557,6 +624,10 @@ export function SlowQuerySuggestions({
         return null
     }
 
+    if (quillSurface) {
+        return <QuillSlowQuerySuggestions steps={steps} />
+    }
+
     return (
         <div className="flex items-center px-4 py-6 rounded bg-primary gap-x-3">
             <IconInfo className="text-xl shrink-0" />
@@ -575,17 +646,48 @@ export function InsightLoadingState({
     insightProps,
     renderEmptyStateAsSkeleton = false,
     suppressSlowQuerySuggestions = false,
+    reserveChartHeight = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
     suppressSlowQuerySuggestions?: boolean
+    reserveChartHeight?: boolean
 }): JSX.Element {
-    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
+    const { insightPollResponse, insightLoadingTimeSeconds, query } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
+    const quillSurface = useQuillSurface()
 
     const personsOnEventsMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
+
+    let suggestion: JSX.Element
+    if (suppressSlowQuerySuggestions) {
+        suggestion = <></>
+    } else if (personsOnEventsMode !== 'person_id_override_properties_joined') {
+        suggestion = <SlowQuerySuggestions insightProps={insightProps} loadingTimeSeconds={insightLoadingTimeSeconds} />
+    } else if (quillSurface) {
+        suggestion = (
+            <Text size="xs" variant="muted" className="m-0">
+                You can speed this query up by changing the{' '}
+                <Button
+                    variant="link"
+                    size="inline"
+                    render={<LinkPrimitive to="/settings/project#persons-on-events" />}
+                >
+                    person properties mode
+                </Button>{' '}
+                setting.
+            </Text>
+        )
+    } else {
+        suggestion = (
+            <div className="text-xs">
+                You can speed this query up by changing the{' '}
+                <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
+            </div>
+        )
+    }
 
     return (
         <StatelessInsightLoadingState
@@ -593,18 +695,9 @@ export function InsightLoadingState({
             pollResponse={insightPollResponse}
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
-            suggestion={
-                suppressSlowQuerySuggestions ? (
-                    <></>
-                ) : personsOnEventsMode === 'person_id_override_properties_joined' ? (
-                    <div className="text-xs">
-                        You can speed this query up by changing the{' '}
-                        <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
-                    </div>
-                ) : (
-                    <SlowQuerySuggestions insightProps={insightProps} loadingTimeSeconds={insightLoadingTimeSeconds} />
-                )
-            }
+            suggestion={suggestion}
+            query={query}
+            reserveChartHeight={reserveChartHeight}
         />
     )
 }
