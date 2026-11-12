@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 )
 
 from . import base, credential_store, helpers
+from .source_type_field import resolve_known_source_key
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -368,10 +369,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if source_type is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={
-                    "message": "Missing required parameter: source_type. "
-                    "Use external-data-sources-wizard to list the valid source types."
-                },
+                data={"message": "Missing required parameter: source_type"},
             )
 
         secret_ref_response = credential_store._unresolved_secret_ref_response(request.data)
@@ -379,31 +377,23 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
-
-        # A `credential_id` references connection details stored for this user via the connect flow.
-        # Discovery only reads the stored secrets: the credential stays so `setup` or `create` can still use it.
-        # `.items()` keeps scalar values when a form-encoded body arrives as a QueryDict.
-        resolved = self._resolve_stored_credential(source_type, dict(request.data.items()))
-        if resolved.error_response is not None:
-            return resolved.error_response
-        payload = resolved.payload
-
+        source_type = str(source_type_model)
         source = base.SourceRegistry.get_source(source_type_model)
-        is_valid, errors = source.validate_config(payload)
+        is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Invalid source config: {', '.join(errors)}"},
             )
-        source_config: Config = source.parse_config(payload)
+        source_config: Config = source.parse_config(request.data)
 
-        access_method = payload.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
