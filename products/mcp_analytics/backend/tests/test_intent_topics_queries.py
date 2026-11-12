@@ -217,6 +217,17 @@ class TestToolIntentProfileQuery(_Base):
             (topic, 30, [1] * 30) for topic in topics
         ]
 
+    def test_rejects_a_date_range_longer_than_the_daily_rollup_keeps(self) -> None:
+        runner = MCPToolIntentProfileQueryRunner(
+            query=MCPToolIntentProfileQuery(
+                dateRange=DateRange(date_from="2020-01-01", date_to="3020-12-31"), toolName="query-trends"
+            ),
+            team=self.team,
+        )
+
+        with self.assertRaisesRegex(QueryError, "at most 366 days"):
+            runner.calculate()
+
     def test_single_topic_is_fully_consolidated_and_drift_shares_count_unassigned_calls(self) -> None:
         _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 30)
         _daily(self.team.pk, TODAY, "query-trends", "", 30)

@@ -41,6 +41,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -71,6 +72,8 @@ TOP_TOOLS_PER_TOPIC = 5
 # Topics come from one clustering run per team, so a team never has this many; the limit only stops
 # HogQL from applying its default of 100 rows.
 MAX_TOPICS_READ = 10_000
+# The daily rollup keeps 12 months. A longer window adds no data, only zero-filled sparkline days.
+MAX_WINDOW_DAYS = 366
 UNASSIGNED = ""
 INTENT_PROPERTY = "$mcp_intent"
 
@@ -233,6 +236,11 @@ class _IntentTopicsBase:
         date_from = self.query_date_range.date_from().replace(hour=0, minute=0, second=0, microsecond=0)
         date_to = self.query_date_range.date_to().replace(hour=23, minute=59, second=59, microsecond=999999)
         days = (date_to.date() - date_from.date()).days + 1
+        if days > MAX_WINDOW_DAYS:
+            raise QueryError(
+                f"This date range spans {days:,} days, and intent topic queries cover at most {MAX_WINDOW_DAYS} days. "
+                "Choose a shorter date range."
+            )
         return QueryWindow(previous_from=date_from - timedelta(days=days), date_from=date_from, date_to=date_to)
 
     def _execute(self, query: ast.SelectQuery, name: str) -> list[Any]:
