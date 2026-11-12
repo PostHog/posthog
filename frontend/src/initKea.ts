@@ -102,6 +102,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'loadEvalSuggestions', // The suggested evals list shows its own retry line
+    'loadEvalSuggestionEstimate', // The judge suggestion confirm shows the estimate error and still lets the user add the eval
 ]
 
 /*
