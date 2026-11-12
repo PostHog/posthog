@@ -113,6 +113,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApi,
     ExternalDataSchemaApiAvailableColumnsItem,
     ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
@@ -6756,10 +6757,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     /** The requesting user's effective access level for this table (inherits the source). */
     user_access_level?: AccessControlLevel
-    /** Queryable live without syncing it. Synced tables are always queryable live. */
-    live_query_enabled?: boolean
-    /** Why the table can't be made queryable live, or null when it can. */
-    live_query_unavailable_reason?: string | null
+    live_query_enabled?: ExternalDataSchemaApi['live_query_enabled']
+    live_query_unavailable_reason?: ExternalDataSchemaApi['live_query_unavailable_reason']
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
