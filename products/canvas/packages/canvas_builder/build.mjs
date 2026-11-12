@@ -529,8 +529,6 @@ async function bundleEntry(project, entry) {
         sourcemap: false,
         logLevel: 'silent',
         outdir: 'out',
-        // Inside the posthog repo, the root tsconfig `paths` would resolve packages to monorepo sources.
-        tsconfigRaw: {},
         plugins: [plugin],
     })
 }
