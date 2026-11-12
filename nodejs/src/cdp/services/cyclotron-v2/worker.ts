@@ -6,7 +6,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { logger } from '~/common/utils/logger'
 
 import { COUNT_WORK_SQL, DEQUEUE_JOBS_SQL, LEGACY_COUNT_WORK_SQL, LEGACY_DEQUEUE_JOBS_SQL } from './due-rows-sql'
-import { batchEmailDequeueSeqs } from './manager'
+import { batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -103,8 +103,9 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
         actionIds.push(job.actionId ?? null)
     }
 
-    await client.query(
-        `INSERT INTO cyclotron_jobs
+    await timeEnqueuePhase('insert', 'worker', () =>
+        client.query(
+            `INSERT INTO cyclotron_jobs
          (id, team_id, function_id, queue_name, status, priority, scheduled, created,
           lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
           parent_run_id, state, distinct_id, person_id, action_id)
@@ -127,20 +128,21 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
             unnest($9::text[]),
             unnest($10::text[]),
             unnest($11::text[])`,
-        [
-            ids,
-            teamIds,
-            functionIds,
-            queueNames,
-            priorities,
-            scheduleds,
-            parentRunIds,
-            states,
-            distinctIds,
-            personIds,
-            actionIds,
-            now,
-        ]
+            [
+                ids,
+                teamIds,
+                functionIds,
+                queueNames,
+                priorities,
+                scheduleds,
+                parentRunIds,
+                states,
+                distinctIds,
+                personIds,
+                actionIds,
+                now,
+            ]
+        )
     )
 
     return ids
