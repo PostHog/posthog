@@ -10,7 +10,6 @@ export interface DecodedMetricRecords {
     meta: Record<string, Buffer>
     codec: string
     records: MetricRecord[]
-    /** Uncompressed size of the Avro blocks. */
     decodedBytes: number
 }
 
@@ -126,8 +125,7 @@ export function decodeMetricRecords(
     })
 }
 
-// avsc's `BlockEncoder` drops `logicalType: timestamp-micros` from the schema it writes, and ClickHouse
-// needs it to read the timestamps, so this writes the producer's header unchanged.
+// avsc's `BlockEncoder` drops `logicalType: timestamp-micros`, which ClickHouse needs, so keep the header.
 export async function encodeMetricRecords(
     container: Pick<DecodedMetricRecords, 'type' | 'meta' | 'codec'>,
     records: MetricRecord[]

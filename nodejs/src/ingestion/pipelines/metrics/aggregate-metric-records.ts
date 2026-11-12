@@ -5,8 +5,7 @@ export const AGGREGATION_BUCKET_MICROS = 15_000_000n
 
 type AggregationKind = 'delta' | 'cumulative'
 
-// A histogram's `count` is its number of observations, so a merged histogram point cannot record
-// how many points it replaces.
+// A histogram's `count` counts observations, so it cannot also count the points a merge replaces.
 function aggregationKind(record: MetricRecord): AggregationKind | null {
     if (unwrap<string>(record.metric_type) !== 'sum') {
         return null
@@ -82,8 +81,7 @@ function aggregateDelta(records: MetricRecord[]): MetricRecord[] {
     return [withValueAndCount(sorted[sorted.length - 1], value, count)]
 }
 
-// A cumulative value only rises within one start time, so the first and last points of each slice
-// keep every increase, and the points at each reset survive in whichever slice holds them.
+// A value only rises within one start time, so each slice's first and last points keep the increase.
 function aggregateCumulative(records: MetricRecord[]): MetricRecord[] {
     const sorted = sortByTimestamp(records)
     const first = sorted[0]

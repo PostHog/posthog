@@ -130,8 +130,7 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
     }
 }
 
-// Decodes one message at a time against a budget shared by the chunk, so a message whose rows expand far
-// past its request size cannot exhaust memory. A message that does not fit passes through unchanged.
+// Rows can expand far past their request size, so decoded bytes, not request bytes, bound memory.
 async function aggregateChunk<T extends AggregateMetricsInput>(
     values: T[],
     indices: number[],

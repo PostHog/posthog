@@ -124,7 +124,6 @@ describe('aggregateMetricRecords', () => {
     })
 
     it('keeps the increase exact when one cumulative series is split across slices', () => {
-        // 100, 800, 900 under start 1, then a reset to 5 and 1000 under start 2, alternating between slices.
         const points: Point[] = [
             { temporality: 'cumulative', start: 1n, ts: 1n, value: 100 },
             { temporality: 'cumulative', start: 1n, ts: 2n, value: 800 },
