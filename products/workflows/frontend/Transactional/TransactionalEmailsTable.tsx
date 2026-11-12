@@ -91,6 +91,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                 dataSource={filteredTransactionalTemplates}
                 loading={transactionalTemplatesLoading}
                 rowKey="id"
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 data-attr="transactional-emails-table"
                 columns={[
                     {
