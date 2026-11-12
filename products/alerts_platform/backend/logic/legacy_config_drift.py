@@ -6,7 +6,7 @@ Reads move to the copy, and the source rows stop being read and written, only on
 import json
 from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, cast
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -129,4 +129,8 @@ def _copies_of(batch: Collection[LegacyCopyExpectation]) -> dict[UUID, dict[str,
         )
         .values()
     )
-    return {row["legacy_configuration_id"]: row for row in rows}
+    return {
+        row["legacy_configuration_id"]: cast(dict[str, Any], row)
+        for row in rows
+        if row["legacy_configuration_id"] is not None
+    }

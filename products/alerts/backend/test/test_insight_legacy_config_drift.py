@@ -85,6 +85,7 @@ class TestInsightLegacyConfigDrift(APIBaseTest):
         assert output.count("setting=") == len(settings)
 
     def test_a_threshold_the_copy_missed_is_reported(self) -> None:
+        assert self.alert.threshold_id is not None
         Threshold.objects.filter(id=self.alert.threshold_id).update(
             configuration={"type": "absolute", "bounds": {"upper": 5.0}}
         )
