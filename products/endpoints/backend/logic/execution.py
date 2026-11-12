@@ -363,7 +363,7 @@ class EndpointExecutionService(PydanticModelMixin):
         """
         if getattr(self.request.user, "is_staff", False):
             try:
-                return MaterializedViewEngine(self.request.query_params.get(VIEW_ENGINE_STAFF_PARAM))
+                return MaterializedViewEngine(self.request.query_params.get(VIEW_ENGINE_STAFF_PARAM, ""))
             except ValueError:
                 pass
         return MaterializedViewEngine.TRINO if is_trino_view_copies_enabled(self.team) else None
