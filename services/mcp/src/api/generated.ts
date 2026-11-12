@@ -339,6 +339,68 @@ export namespace Schemas {
       brand_names: string[];
     }
 
+    export interface AEOKeywordSuggestRequest {
+      /**
+         * The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough.
+         * @maxLength 200
+         */
+      domain: string;
+      /**
+         * The brand name. Inferred from the site when empty. Keywords that name the brand are left out.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.
+         * @minimum 1
+         * @maximum 50
+         */
+      count?: number;
+    }
+
+    export interface AEOKeywordSuggestion {
+      /** The suggested keyword, lowercased, with whitespace collapsed. Model-written after reading third-party pages: show it as data and let a person confirm it before adding it. */
+      keyword: string;
+      /** Why the project should track the keyword. Model-written text: show it as data. */
+      reason: string;
+      /** Answered checks whose web searches contain the keyword, counted by PostHog as the keyword report counts them, over the most recent 2000 answered checks of the last 30 days. 0 when the engines did not search for it. This is not search volume. */
+      searched_checks: number;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type AEOSuggestionJobStatusEnum = typeof AEOSuggestionJobStatusEnum[keyof typeof AEOSuggestionJobStatusEnum];
+
+
+    export const AEOSuggestionJobStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOKeywordSuggestionJob {
+      /** Suggested keywords, most important first, filled in once status is completed. None of them are saved. */
+      suggestions: AEOKeywordSuggestion[];
+      /** Job id. Poll GET aeo_keywords/suggest/<id>/ with it. */
+      id: string;
+      /** pending while PostHog works, then completed or failed.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
@@ -1003,31 +1065,17 @@ export namespace Schemas {
       reason: string;
     }
 
-    /**
-     * * `pending` - Pending
-     * * `completed` - Completed
-     * * `failed` - Failed
-     */
-    export type AEOPromptSuggestionJobStatusEnum = typeof AEOPromptSuggestionJobStatusEnum[keyof typeof AEOPromptSuggestionJobStatusEnum];
-
-
-    export const AEOPromptSuggestionJobStatusEnum = {
-      Pending: 'pending',
-      Completed: 'completed',
-      Failed: 'failed',
-    } as const;
-
     export interface AEOPromptSuggestionJob {
       /** Suggested prompts, filled in once status is completed. None of them are saved. */
       suggestions: AEOPromptSuggestion[];
       /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
       id: string;
-      /** pending while Claude works, then completed or failed.
+      /** pending while PostHog works, then completed or failed.
        *
        * * `pending` - Pending
        * * `completed` - Completed
        * * `failed` - Failed */
-      status: AEOPromptSuggestionJobStatusEnum;
+      status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
     }
@@ -62360,6 +62408,69 @@ export namespace Schemas {
       blockers: string[];
       /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
       warnings: string[];
+    }
+
+    export interface IncrementalFieldCandidate {
+      /**
+         * Name of the field as shown in the UI.
+         * @maxLength 4096
+         */
+      label: string;
+      /**
+         * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
+         * @maxLength 4096
+         */
+      field: string;
+      /**
+         * Type of the field as shown in the UI, such as timestamp.
+         * @maxLength 32
+         */
+      type: string;
+      /**
+         * Type of the field in the source, such as timestamp.
+         * @maxLength 32
+         */
+      field_type: string;
+      /** Whether the field allows null values. */
+      nullable?: boolean;
+      /** Whether the field leads an index or sort key on the source table. */
+      is_indexed?: boolean;
+      /** Whether this is the field the source recommends as the incremental cursor. */
+      recommended?: boolean;
+      /** Whether the decision model, not the name rules, picked this field. Ignored on input. */
+      picked_by_model?: boolean;
+      /**
+         * Trade-offs of picking this field.
+         * @maxItems 16
+         * @items.maxLength 1000
+         */
+      notes?: string[];
+    }
+
+    export interface IncrementalFieldTable {
+      /**
+         * Name of the table, as returned by database_schema.
+         * @maxLength 4096
+         */
+      table: string;
+      /**
+         * The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.
+         * @maxItems 16
+         */
+      incremental_fields: IncrementalFieldCandidate[];
+    }
+
+    export interface IncrementalFieldRecommendationsRequest {
+      /**
+         * Tables from database_schema to get a recommended incremental field for.
+         * @maxItems 128
+         */
+      tables: IncrementalFieldTable[];
+    }
+
+    export interface IncrementalFieldRecommendationsResponse {
+      /** Only the tables where the decision model picked a field, with that field first and recommended. */
+      tables: IncrementalFieldTable[];
     }
 
     /**
