@@ -77,6 +77,7 @@ function extractGlobals(invocation: CyclotronJobInvocation): Record<string, any>
         return {
             event: invocation.state?.event,
             person: invocation.person,
+            groups: invocation.groups,
         }
     }
 
