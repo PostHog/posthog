@@ -20,7 +20,7 @@ from products.signals.backend.emission.github_secret_scanning_alerts import (
 )
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
-DEPENDABOT = {
+DEPENDABOT: dict[str, Any] = {
     "html_url": "https://github.com/acme/widgets/security/dependabot/7",
     "number": 7,
     "state": "open",
@@ -38,7 +38,7 @@ DEPENDABOT = {
     "dependency_scope": "runtime",
 }
 
-CODE_SCANNING = {
+CODE_SCANNING: dict[str, Any] = {
     "html_url": "https://github.com/acme/widgets/security/code-scanning/12",
     "number": 12,
     "state": "open",
@@ -54,7 +54,7 @@ CODE_SCANNING = {
     "location_start_line": "42",
 }
 
-SECRET_SCANNING = {
+SECRET_SCANNING: dict[str, Any] = {
     "html_url": "https://github.com/acme/widgets/security/secret-scanning/3",
     "number": 3,
     "state": "open",
