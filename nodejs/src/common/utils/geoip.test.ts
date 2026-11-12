@@ -4,7 +4,16 @@ import fs from 'fs/promises'
 import { PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../config/config'
-import { GeoIPService, GeoIp, MMDB_LOAD_TIMEOUT_MS, MmdbLoadTimeoutError } from './geoip'
+import {
+    GeoIPService,
+    GeoIp,
+    MMDB_LOAD_TIMEOUT_MS,
+    MmdbLoadTimeoutError,
+    MmdbMode,
+    geoipServerDefaultMode,
+    resolveMmdbMode,
+} from './geoip'
+import { logger } from './logger'
 
 describe('GeoIp', () => {
     let service: GeoIPService
@@ -49,6 +58,33 @@ describe('GeoIp', () => {
             commonCheck(res[1])
         })
 
+        it.each<{ mode: MmdbMode }>([{ mode: 'required' }, { mode: 'optional' }])(
+            'should load the mmdb when the mode is $mode',
+            async ({ mode }) => {
+                commonCheck(await new GeoIPService(config.MMDB_FILE_LOCATION, mode).get())
+            }
+        )
+
+        it('should fail the initial load if the MMDB is required and missing', async () => {
+            service = new GeoIPService('non-existent-file.mmdb', 'required')
+            await expect(service.get()).rejects.toThrow(
+                'GeoIP is required (MMDB_ENABLED), but the MMDB could not be loaded from non-existent-file.mmdb'
+            )
+        })
+
+        it('should not read the MMDB or warn if disabled', async () => {
+            const openSpy = jest.spyOn(Reader, 'open')
+            const warnSpy = jest.spyOn(logger, 'warn')
+            service = new GeoIPService('non-existent-file.mmdb', 'disabled')
+
+            const geoip = await service.get()
+
+            expect(geoip.city('216.160.83.56')).toBeNull()
+            expect(service.mmdbPath).toBeUndefined()
+            expect(openSpy).not.toHaveBeenCalled()
+            expect(warnSpy).not.toHaveBeenCalled()
+        })
+
         it('should fail the initial load if reading the MMDB hangs', async () => {
             jest.useFakeTimers()
             jest.spyOn(Reader, 'open').mockReturnValue(new Promise<never>(() => {}))
@@ -57,6 +93,38 @@ describe('GeoIp', () => {
             const assertion = expect(promise).rejects.toThrow(MmdbLoadTimeoutError)
             await jest.advanceTimersByTimeAsync(MMDB_LOAD_TIMEOUT_MS)
             await assertion
+        })
+    })
+
+    describe('mode', () => {
+        it.each<{ mmdbEnabled: string; serverDefault: MmdbMode; expected: MmdbMode }>([
+            { mmdbEnabled: '', serverDefault: 'required', expected: 'required' },
+            { mmdbEnabled: ' ', serverDefault: 'disabled', expected: 'disabled' },
+            { mmdbEnabled: 'true', serverDefault: 'disabled', expected: 'required' },
+            { mmdbEnabled: '1', serverDefault: 'optional', expected: 'required' },
+            { mmdbEnabled: 'false', serverDefault: 'required', expected: 'disabled' },
+            { mmdbEnabled: 'off', serverDefault: 'optional', expected: 'disabled' },
+        ])(
+            'resolves MMDB_ENABLED="$mmdbEnabled" with default $serverDefault to $expected',
+            ({ mmdbEnabled, serverDefault, expected }) => {
+                expect(resolveMmdbMode(mmdbEnabled, serverDefault)).toBe(expected)
+            }
+        )
+
+        it('rejects an MMDB_ENABLED value that is not a boolean', () => {
+            expect(() => resolveMmdbMode('ture', 'optional')).toThrow(
+                "MMDB_ENABLED must be true, false or empty, got 'ture'"
+            )
+        })
+
+        it.each<{ cloudDeployment: string | null; expected: MmdbMode }>([
+            { cloudDeployment: 'US', expected: 'required' },
+            { cloudDeployment: 'EU', expected: 'required' },
+            { cloudDeployment: 'DEV', expected: 'required' },
+            { cloudDeployment: 'E2E', expected: 'optional' },
+            { cloudDeployment: null, expected: 'optional' },
+        ])('defaults a GeoIP server on $cloudDeployment to $expected', ({ cloudDeployment, expected }) => {
+            expect(geoipServerDefaultMode(cloudDeployment)).toBe(expected)
         })
     })
 

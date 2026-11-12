@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { isTestEnv } from './env-utils'
+import { isHostedCloud, isTestEnv, stringToBoolean } from './env-utils'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
@@ -58,14 +58,39 @@ type MmdbMetadata = {
     date: string
 }
 
+// A failed load throws in `required` mode and logs a warning in `optional` mode. `disabled` never reads the MMDB.
+export type MmdbMode = 'required' | 'optional' | 'disabled'
+
+export function resolveMmdbMode(mmdbEnabled: string, serverDefault: MmdbMode): MmdbMode {
+    if (mmdbEnabled.trim() === '') {
+        return serverDefault
+    }
+    const enabled = stringToBoolean(mmdbEnabled, true)
+    if (enabled === null) {
+        throw new Error(`MMDB_ENABLED must be true, false or empty, got '${mmdbEnabled}'`)
+    }
+    return enabled ? 'required' : 'disabled'
+}
+
+// The node image has no MMDB, so on hosted cloud a missing mount must stop the server.
+export function geoipServerDefaultMode(cloudDeployment: string | null): MmdbMode {
+    return isHostedCloud(cloudDeployment) ? 'required' : 'optional'
+}
+
 export class GeoIPService {
     private _initialMmdbPromise?: Promise<void>
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
     private _mmdbMetadataTimedOut = false
 
-    constructor(private mmdbFileLocation: string) {
-        logger.info('🌎', 'GeoIPService created')
+    constructor(
+        private mmdbFileLocation: string,
+        readonly mode: MmdbMode = 'optional'
+    ) {
+        if (mode === 'disabled') {
+            return
+        }
+        logger.info('🌎', 'GeoIPService created', { mode })
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead
         if (!isTestEnv()) {
@@ -73,10 +98,14 @@ export class GeoIPService {
         }
     }
 
+    get mmdbPath(): string | undefined {
+        return this.mode === 'disabled' ? undefined : this.mmdbFileLocation
+    }
+
     private ensureMmdbLoaded() {
         // This is a lazy getter. If we don't have mmdb or the loading promise then we need to load it
         if (!this._initialMmdbPromise) {
-            this._initialMmdbPromise = this.loadMmdb('initial')
+            this._initialMmdbPromise = (this.mode === 'disabled' ? Promise.resolve(undefined) : this.loadInitialMmdb())
                 .then((mmdb) => {
                     this._mmdb = mmdb
                     if (mmdb) {
@@ -90,6 +119,16 @@ export class GeoIPService {
         }
 
         return this._initialMmdbPromise
+    }
+
+    private async loadInitialMmdb(): Promise<ReaderModel | undefined> {
+        const mmdb = await this.loadMmdb('initial')
+        if (!mmdb && this.mode === 'required') {
+            throw new Error(
+                `GeoIP is required (MMDB_ENABLED), but the MMDB could not be loaded from ${this.mmdbFileLocation}`
+            )
+        }
+        return mmdb
     }
 
     private async loadMmdb(reason: string): Promise<ReaderModel | undefined> {
