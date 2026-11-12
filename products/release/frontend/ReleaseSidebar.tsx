@@ -20,7 +20,7 @@ import { STAGE_COLOR_VARS } from './releaseUtils'
 const SECTION_LIMIT = 10
 
 export function ReleaseSidebar(): JSX.Element {
-    const { rows, decisionRows, flagCount, experimentCount, earlyAccessCount } = useValues(releaseLogic)
+    const { rows, decisionRows, flagCount, experimentCount, earlyAccessCount, dataLoading } = useValues(releaseLogic)
     const { setDecisionOnly } = useActions(releaseLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
@@ -97,7 +97,7 @@ export function ReleaseSidebar(): JSX.Element {
                         <SidebarRow
                             value="releases"
                             label="Releases"
-                            meta={String(rows.length)}
+                            meta={dataLoading && !rows.length ? undefined : String(rows.length)}
                             icon={<IconList />}
                             to={urls.releaseList()}
                             active={path === urls.releaseList()}

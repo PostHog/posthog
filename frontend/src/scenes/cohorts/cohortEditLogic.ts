@@ -106,11 +106,11 @@ const isBuildingHistory = (cohort: CohortType): boolean =>
     !!cohort.realtime && BUILDING_STATES.includes(cohort.realtime.state)
 
 // A queued build and a running one are recorded in two places that do not overlap: a Redis key
-// that expires exactly when the run-creation task fires, and the run row that task then writes. A
+// that expires exactly when the run-creation task fires, and the run row that task writes after sizing it. A
 // poll landing between the two reads `needs_attention` for a build that is fine, so a cohort seen
-// building keeps being checked for about a minute. Long enough to cross that gap, and bounded, so
+// building keeps being checked for about three minutes. Long enough to cross that gap, and bounded, so
 // a cohort nothing is preparing is not polled for as long as its page stays open.
-const READINESS_GRACE_POLLS = 4
+const READINESS_GRACE_POLLS = 12
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
     cohort.pending_version != null &&
