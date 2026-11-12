@@ -43,6 +43,8 @@ _LAZY = {
     "run_related_node_materializations": "logic.node_materialization",
     "run_trino_node_materializations": "logic.node_materialization",
     "run_saved_query_materialization": "logic.node_materialization",
+    "engine_table_ids": "logic.node_engine_tables",
+    "engine_tables_by_saved_query_id": "logic.node_engine_tables",
     "get_materialized_table_uri": "logic.saved_query_reads",
     "get_node_ids_for_saved_queries": "logic.saved_query_reads",
     "get_node_ids_for_posthog_tables": "logic.saved_query_reads",

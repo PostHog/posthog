@@ -178,6 +178,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import (
     DatabaseSerializedFieldType,
     DataWarehouseSavedQueryOrigin,
+    MaterializedViewEngine,
     PersonsOnEventsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -286,6 +287,8 @@ class HogQLDatabaseSources:
     # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
+    # The Trino copy of each materialized saved query, keyed by saved query id. Filled only for a Trino read.
+    engine_tables: dict[str, DataWarehouseTable] = dataclasses.field(default_factory=dict)
 
     def copy_for_request(
         self,
@@ -323,6 +326,7 @@ class HogQLDatabaseSources:
             data_warehouse_expressions=list(self.data_warehouse_expressions),
             event_modifier_saved_queries=dict(self.event_modifier_saved_queries),
             virtual_schemas=list(self.virtual_schemas),
+            engine_tables=dict(self.engine_tables),
         )
 
 
@@ -2085,6 +2089,11 @@ class Database(BaseModel):
         from posthog.models.team.team import Team  # noqa: PLC0415
         from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
+        from products.data_modeling.backend.facade.api import (  # noqa: PLC0415
+            engine_table_ids,
+            engine_tables_by_saved_query_id,
+        )
+        from products.data_modeling.backend.facade.contracts import MaterializationEngine  # noqa: PLC0415
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
@@ -2237,6 +2246,7 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
             all_saved_queries: list[DataWarehouseSavedQuery] = []
+            engine_tables: dict[str, DataWarehouseTable] = {}
             # Direct-connection queries do not expose saved queries.
             if not is_direct_query:
                 with timings.measure("select"):
@@ -2249,11 +2259,17 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
+                    if (
+                        modifiers.useMaterializedViews
+                        and modifiers.materializedViewEngine == MaterializedViewEngine.TRINO
+                    ):
+                        engine_tables = engine_tables_by_saved_query_id(team, MaterializationEngine.TRINO)
+                    # A view that runs raw Trino SQL has no ClickHouse copy, so only its Trino copy makes it readable.
                     saved_queries = [
                         sq
                         for sq in all_saved_queries
                         if (is_managed_viewset_enabled or sq.managed_viewset_id is None)
-                        and sq.engine.referenceable_from_clickhouse.available
+                        and (sq.engine.referenceable_from_clickhouse.available or str(sq.pk) in engine_tables)
                     ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
@@ -2346,6 +2362,7 @@ class Database(BaseModel):
                     )
                     if backing_table_ids:
                         tables_query = tables_query.exclude(id__in=backing_table_ids)
+                    tables_query = tables_query.exclude(id__in=engine_table_ids(team))
                     if is_direct_query:
                         tables_query = tables_query.filter(external_data_source_id=connection_id)
                     else:
@@ -2404,6 +2421,7 @@ class Database(BaseModel):
             credentialed_tables.extend(
                 sq.table for sq in endpoint_saved_queries if sq.table_id is not None and sq.table is not None
             )
+            credentialed_tables.extend(engine_tables.values())
             _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
@@ -2455,6 +2473,7 @@ class Database(BaseModel):
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
+            engine_tables=engine_tables,
         )
 
     @staticmethod
@@ -2670,7 +2689,7 @@ class Database(BaseModel):
                     views.add_child(
                         TableNode.create_nested_for_chain(
                             saved_query.name.split("."),
-                            table=saved_query.hogql_definition(modifiers),
+                            table=saved_query.hogql_definition(modifiers, sources.engine_tables),
                         ),
                         table_conflict_mode="ignore",
                     )
@@ -2692,7 +2711,7 @@ class Database(BaseModel):
                             views.add_child(
                                 TableNode(
                                     name=endpoint_saved_query.name,
-                                    table=endpoint_saved_query.hogql_definition(modifiers),
+                                    table=endpoint_saved_query.hogql_definition(modifiers, sources.engine_tables),
                                 ),
                                 table_conflict_mode="ignore",
                             )

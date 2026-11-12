@@ -1888,6 +1888,11 @@ class MaterializedColumnsOptimizationMode(StrEnum):
     OPTIMIZED = "optimized"
 
 
+class MaterializedViewEngine(StrEnum):
+    CLICKHOUSE = "clickhouse"
+    TRINO = "trino"
+
+
 class ParserMode(StrEnum):
     CPP_ONLY = "cpp_only"
     CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"

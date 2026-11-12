@@ -560,6 +560,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    /** Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients. */
+    materializedViewEngine?: 'clickhouse' | 'trino'
     /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]

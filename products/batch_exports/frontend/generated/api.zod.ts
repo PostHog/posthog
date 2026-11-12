@@ -580,6 +580,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
+                    materializedViewEngine: zod
+                        .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                        ),
                     mergeFederatedAggregateJoins: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1554,6 +1560,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
+                    materializedViewEngine: zod
+                        .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                        ),
                     mergeFederatedAggregateJoins: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2287,6 +2299,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
+                    materializedViewEngine: zod
+                        .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                        ),
                     mergeFederatedAggregateJoins: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3005,6 +3023,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
+                    materializedViewEngine: zod
+                        .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                        ),
                     mergeFederatedAggregateJoins: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3742,6 +3766,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
+                    materializedViewEngine: zod
+                        .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                        ),
                     mergeFederatedAggregateJoins: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4208,6 +4238,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
+                    materializedViewEngine: zod
+                        .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                        ),
                     mergeFederatedAggregateJoins: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4480,6 +4516,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                 materializedColumnsOptimizationMode: zod
                     .union([zod.enum(['disabled', 'optimized']), zod.null()])
                     .optional(),
+                materializedViewEngine: zod
+                    .union([zod.enum(['clickhouse', 'trino']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which engine's copy of a materialized view the query reads: `clickhouse` (the default) or `trino`. A `trino` read falls back to the ClickHouse copy of a view that has no Trino copy. Resolved server-side; not intended to be set by clients."
+                    ),
                 mergeFederatedAggregateJoins: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
