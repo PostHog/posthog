@@ -14,12 +14,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
 from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import is_anonymous_id
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 logger = structlog.get_logger(__name__)
@@ -341,7 +342,7 @@ class SessionStrategy(ActorStrategy):
         if search:
             where_exprs.append(
                 parse_expr(
-                    "person_id in (select id from persons where ilike(properties.email, {search}) or ilike(properties.name, {search}))",
+                    "person_id in (select id from persons where ilike(toString(properties.email), {search}) or ilike(toString(properties.name), {search}))",
                     {"search": ast.Constant(value=f"%{search}%")},
                 )
             )

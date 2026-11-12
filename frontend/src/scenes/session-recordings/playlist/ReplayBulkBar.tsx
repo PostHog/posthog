@@ -1,17 +1,40 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconEye } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenuItem, LemonMenuItemLeafCallback } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillMenuItems } from './QuillMenuItems'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { AddToCollectionModal, BulkScanMenuItem, ConfirmDeleteRecordings } from './SessionRecordingsPlaylistSettings'
+import { AddToCollectionModal, ConfirmDeleteRecordings } from './SessionRecordingsPlaylistSettings'
+import { useBulkScanMenuItems } from './useBulkScanMenuItems'
 
-export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection'; shortId?: string }): JSX.Element {
+interface ReplayBulkBarProps {
+    type: 'filters' | 'collection'
+    shortId?: string
+}
+
+export function ReplayBulkBar(props: ReplayBulkBarProps): JSX.Element {
+    const { isHobby } = useValues(preflightLogic)
+    // The scan menu mounts logics that call the vision API, which refuses every request on a self-hosted install
+    return isHobby ? <ReplayBulkBarMenus {...props} /> : <ReplayBulkBarWithScan {...props} />
+}
+
+function ReplayBulkBarWithScan(props: ReplayBulkBarProps): JSX.Element {
+    const bulkScan = useBulkScanMenuItems()
+    return <ReplayBulkBarMenus {...props} bulkScan={bulkScan} />
+}
+
+function ReplayBulkBarMenus({
+    type,
+    shortId,
+    bulkScan,
+}: ReplayBulkBarProps & { bulkScan?: ReturnType<typeof useBulkScanMenuItems> }): JSX.Element {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setIsAddToCollectionModalOpen,
@@ -40,40 +63,75 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
                   },
               ]
             : []),
-        { key: 'bulk-scan-recordings', label: () => <BulkScanMenuItem />, custom: true },
+        ...(bulkScan
+            ? [
+                  {
+                      label: 'Scan these recordings',
+                      icon: <IconEye />,
+                      items: bulkScan.items,
+                      disabledReason: bulkScan.disabledReason,
+                      tooltip: bulkScan.tooltip,
+                      'data-attr': 'vision-bulk-scan-recordings',
+                  },
+              ]
+            : []),
+    ]
+
+    const primaryItems: LemonMenuItemLeafCallback[] = [
+        {
+            label: 'Add to collection',
+            onClick: () => setIsAddToCollectionModalOpen(true),
+            disabledReason: accessControlDisabledReason,
+            'data-attr': 'add-to-collection',
+        },
+        { label: 'Mark watched', onClick: () => handleBulkMarkAsViewed(shortId), 'data-attr': 'mark-as-viewed' },
+        {
+            label: 'Delete',
+            status: 'danger',
+            onClick: () => setIsDeleteSelectedRecordingsDialogOpen(true),
+            disabledReason: accessControlDisabledReason,
+            'data-attr': 'delete-recordings',
+        },
     ]
 
     return (
-        <div className="flex flex-1 items-center gap-1 flex-wrap text-xs" data-attr="list-bulk-bar">
-            <span className="font-semibold px-1">{selectedRecordingsIds.length} selected</span>
-            <LemonButton
-                size="xsmall"
-                onClick={() => setIsAddToCollectionModalOpen(true)}
-                disabledReason={accessControlDisabledReason}
-                data-attr="add-to-collection"
-            >
-                Add to collection
-            </LemonButton>
-            <LemonButton size="xsmall" onClick={() => handleBulkMarkAsViewed(shortId)} data-attr="mark-as-viewed">
-                Mark watched
-            </LemonButton>
-            <LemonButton
-                size="xsmall"
-                status="danger"
-                onClick={() => setIsDeleteSelectedRecordingsDialogOpen(true)}
-                disabledReason={accessControlDisabledReason}
-                data-attr="delete-recordings"
-            >
-                Delete
-            </LemonButton>
-            <LemonMenu items={moreItems} placement="bottom-end" buttonSize="xsmall">
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconEllipsis />}
-                    aria-label="More actions"
-                    data-attr="bulk-action-menu"
-                />
-            </LemonMenu>
+        <div className="flex flex-1 min-w-0 items-center gap-1 text-xs" data-attr="list-bulk-bar">
+            <span className="font-semibold px-1 shrink-0">{selectedRecordingsIds.length} selected</span>
+            <div className="hidden @min-[24rem]/list-header:flex items-center gap-1">
+                {primaryItems.map((item) => (
+                    <Button
+                        key={item['data-attr']}
+                        variant={item.status === 'danger' ? 'destructive-outline' : 'default'}
+                        onClick={item.onClick}
+                        disabledReason={item.disabledReason}
+                        data-attr={item['data-attr']}
+                    >
+                        {item.label}
+                    </Button>
+                ))}
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={<Button size="icon" aria-label="More actions" data-attr="bulk-action-menu" />}
+                    >
+                        <IconEllipsis />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <QuillMenuItems items={moreItems} />
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+            <div className="@min-[24rem]/list-header:hidden">
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={<Button size="icon" aria-label="Bulk actions" data-attr="bulk-action-menu-narrow" />}
+                    >
+                        <IconEllipsis />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <QuillMenuItems items={[...primaryItems, ...moreItems]} />
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
             <ConfirmDeleteRecordings shortId={shortId} />
             <AddToCollectionModal shortId={shortId} />
         </div>

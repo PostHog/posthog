@@ -1,4 +1,6 @@
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn, Optional, Self, TypedDict, cast
 
@@ -127,11 +129,26 @@ ROLE_CHOICES = (
 )
 
 
+_join_current_organization: ContextVar[bool] = ContextVar("user_join_current_organization", default=False)
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     def get_queryset(self):
-        return super().get_queryset().defer(*DEFERED_ATTRS)
+        queryset = super().get_queryset().defer(*DEFERED_ATTRS)
+        if _join_current_organization.get():
+            queryset = queryset.select_related("current_organization")
+        return queryset
+
+    @contextmanager
+    def joining_current_organization(self) -> Iterator[None]:
+        # Authentication backends load the user through this manager, and we cannot pass them a queryset.
+        token = _join_current_organization.set(True)
+        try:
+            yield
+        finally:
+            _join_current_organization.reset(token)
 
     use_in_migrations = True
 
@@ -242,13 +259,7 @@ class OnboardingSkippedReason(models.TextChoices):
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
     CONNECTOR = "connector", "Signed up through an OAuth connector"
-
-
-class OnboardingFlowVariant(models.TextChoices):
-    # pinned: analytics property values. "legacy" names the default flow, because funnel
-    # insights filter on it.
-    LEGACY = "legacy", "Default onboarding"
-    SIMPLE = "simple", "Simple onboarding"
+    DEVICE_LOGIN = "device_login", "Signed up through an OAuth device login"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -381,6 +392,25 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         instance._original_is_active = instance.is_active
         return instance
 
+    # The stored `is_staff` of an instance whose staff rights are withheld, or None when nothing is withheld.
+    _withheld_is_staff: bool | None = None
+
+    def withhold_staff_rights(self) -> None:
+        """Make this instance act as non-staff without changing the stored value."""
+        self._withheld_is_staff = self.is_staff
+        self.is_staff = False
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._withheld_is_staff is None:
+            super().save(*args, **kwargs)
+            return
+        # Write the stored value back, so a save neither drops the person's staff rights nor logs a change.
+        self.is_staff = self._withheld_is_staff
+        try:
+            super().save(*args, **kwargs)
+        finally:
+            self.is_staff = False
+
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]
         return self.is_staff
@@ -454,17 +484,19 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return None
 
     def _get_github_login_from_team_integration(self) -> str | None:
+        # The SDK imports the Integration model, which imports this module.
+        from posthog.integrations import CrossTeamFilter, IntegrationManager  # noqa: PLC0415
+
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         team_github_integrations = (
             prefetched_integrations
             if prefetched_integrations is not None
-            else self.integration_set.filter(kind="github")
-            .exclude(config__connecting_user_github_login=None)
-            .only("config")
-            .order_by("id")[:1]
+            else IntegrationManager.github.any.list_across_teams(
+                CrossTeamFilter(created_by_ids=(self.id,), has_config_key="connecting_user_github_login")
+            )
         )
         for integration in team_github_integrations:
-            if isinstance(integration.config, dict):
+            if isinstance(integration.config, Mapping):
                 login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)

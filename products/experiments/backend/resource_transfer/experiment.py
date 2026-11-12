@@ -4,11 +4,11 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.types import ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import build_edges_for_ids
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.resource_transfer.experiment_payload import (
     collect_cohort_and_action_ids_from_experiment_json,
@@ -54,6 +54,8 @@ class ExperimentVisitor(
             build_edges_for_ids(collected.cohort_ids, Cohort, "json_cohort", rewrite_cohort_in_experiment_payload)
         )
         edges.extend(
-            build_edges_for_ids(collected.action_ids, Action, "json_action", rewrite_action_in_experiment_payload)
+            build_edges_for_ids(
+                collected.action_ids, registered_model("Action"), "json_action", rewrite_action_in_experiment_payload
+            )
         )
         return edges

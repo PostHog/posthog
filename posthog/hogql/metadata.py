@@ -25,7 +25,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import FLAG_CALLED_EVENT, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
@@ -35,7 +35,15 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT, flag_called_on_events_warnings
+from posthog.hogql.flag_called_warnings import (
+    FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
+    FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
+    LiteralSpan,
+    flag_called_on_events_warnings,
+    flag_called_spans_read_from_flag_evaluations,
+    flag_called_spans_read_from_union,
+)
 from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -53,6 +61,7 @@ from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
@@ -106,6 +115,7 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
+    use_cached_sources = not query.freshSources
     source = get_direct_connection_source(team, query.connectionId, user=user)
     if query.connectionId and source is None:
         response.isValid = False
@@ -120,7 +130,7 @@ def get_hogql_metadata(
             modifiers=query_modifiers,
             connection_id=str(source.id),
             # Editor-assist only: query execution never reads cached sources.
-            use_cached_sources=True,
+            use_cached_sources=use_cached_sources,
         )
 
     heuristic_warnings: list[HogQLNotice] = []
@@ -136,7 +146,7 @@ def get_hogql_metadata(
             modifiers=query_modifiers,
             enable_select_queries=True,
             # Editor-assist only: query execution never reads cached sources.
-            use_cached_sources=True,
+            use_cached_sources=use_cached_sources,
             # A resolved direct-connection source prints with its engine dialect (below), so the
             # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
             # fires and metadata/autocomplete reports a false "can only be queried through its direct
@@ -170,7 +180,7 @@ def get_hogql_metadata(
                             team=team,
                             user=user,
                             modifiers=query_modifiers,
-                            use_cached_sources=True,
+                            use_cached_sources=use_cached_sources,
                             trigger="metadata",
                         )
                         context.database = database
@@ -217,7 +227,10 @@ def get_hogql_metadata(
                 response.ch_table_names = get_table_names(prepared_ast)
 
             if source is None and FLAG_CALLED_EVENT in query.query:
-                heuristic_warnings.extend(_flag_called_on_events_warnings(hogql_ast, context, team))
+                flag_called_notices = _flag_called_notices(hogql_ast, prepared_ast, context, team)
+                heuristic_warnings.extend(flag_called_notices.move_warnings)
+                context.notices.extend(flag_called_notices.flag_evaluations_notices)
+                context.notices.extend(flag_called_notices.both_tables_notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
@@ -243,6 +256,8 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
         else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
+        if not isinstance(e, ExposedHogQLError):
+            response.internalError = True
     finally:
         if context is not None:
             response.warnings = [*context.warnings, *heuristic_warnings]
@@ -325,23 +340,60 @@ def _flag_called_announcement_url(payload: object) -> str | None:
     return None
 
 
-def _flag_called_on_events_warnings(
-    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery], context: HogQLContext, team: Team
-) -> list[HogQLNotice]:
+@frozen
+class _FlagCalledNotices:
+    move_warnings: tuple[HogQLNotice, ...] = ()
+    flag_evaluations_notices: tuple[HogQLNotice, ...] = ()
+    both_tables_notices: tuple[HogQLNotice, ...] = ()
+
+
+def _flag_called_notices(
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
+    prepared_ast: ast.AST | None,
+    context: HogQLContext,
+    team: Team,
+) -> _FlagCalledNotices:
+    """The move warning on each flag-call literal that reads events, a notice on each literal whose query reads
+    posthog.flag_evaluations instead, and a notice on each literal whose scan reads events and
+    posthog.flag_evaluations together. `prepared_ast` is what the printer ran, so it says which scans it swapped."""
     try:
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
-            return []
+            return _FlagCalledNotices()
         warnings = flag_called_on_events_warnings(hogql_ast, context)
         if not warnings:
-            return []
+            return _FlagCalledNotices()
         url = _flag_called_announcement_url(move_notices.payload)
-        return [warning.model_copy(update={"url": url}) for warning in warnings]
+        swapped = flag_called_spans_read_from_flag_evaluations(prepared_ast) if prepared_ast is not None else set()
+        move_warnings: list[HogQLNotice] = []
+        flag_evaluations_notices: list[HogQLNotice] = []
+        both_tables_notices: list[HogQLNotice] = []
+        read_from_both_tables = flag_called_spans_read_from_union(context)
+        both_tables_message = (
+            FLAG_CALLED_FROM_BOTH_TABLES_NOTICE
+            if context.flag_calls_only_in_flag_evaluations()
+            else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
+        )
+        for warning in warnings:
+            span = LiteralSpan(start=warning.start, end=warning.end)
+            if span in swapped:
+                flag_evaluations_notices.append(
+                    warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
+                )
+            elif span in read_from_both_tables:
+                both_tables_notices.append(warning.model_copy(update={"message": both_tables_message, "url": url}))
+            else:
+                move_warnings.append(warning.model_copy(update={"url": url}))
+        return _FlagCalledNotices(
+            move_warnings=tuple(move_warnings),
+            flag_evaluations_notices=tuple(flag_evaluations_notices),
+            both_tables_notices=tuple(both_tables_notices),
+        )
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this
         # check failed, and the caller turns any exception here into an invalid query.
         logger.exception("hogql_flag_called_warning_failed", team_id=context.team_id)
-        return []
+        return _FlagCalledNotices()
 
 
 def _attach_index_usage(

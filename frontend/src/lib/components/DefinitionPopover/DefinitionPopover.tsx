@@ -6,6 +6,8 @@ import { useActions, useValues } from 'kea'
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
+import { DefinitionPopoverCard } from 'lib/components/DefinitionPopover/DefinitionPopoverCard'
+import { DefinitionPopoverGrid } from 'lib/components/DefinitionPopover/DefinitionPopoverGrid'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -46,8 +48,17 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, type, definition, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
-        useValues(definitionPopoverLogic)
+    const {
+        state,
+        type,
+        definition,
+        viewFullDetailUrl,
+        hideView,
+        hideEdit,
+        isViewable,
+        isEditable,
+        openDetailInNewTab,
+    } = useValues(definitionPopoverLogic)
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
@@ -88,7 +99,7 @@ function Header({
                 )}
                 {state === DefinitionPopoverState.View && (
                     <div className="definition-popover-header-row-buttons flex gap-4 text-[0.8125rem] click-outside-block">
-                        {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
+                        {!hideEdit && isEditable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && viewFullDetailUrl && (
                             <Link
                                 target={openDetailInNewTab ? '_blank' : undefined}
@@ -231,46 +242,8 @@ function HorizontalLine({ className, label }: { className?: string; label?: stri
     )
 }
 
-interface GridProps {
-    children: React.ReactNode
-    cols?: number
-}
-
-function Grid({ children, cols }: GridProps): JSX.Element {
-    return (
-        <div
-            className="definition-popover-grid"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}
-        >
-            {children}
-        </div>
-    )
-}
-
-function Section({ children }: GridProps): JSX.Element {
-    return <Grid cols={1}>{children}</Grid>
-}
-
-function Card({
-    title,
-    value,
-    alignItems = 'baseline',
-}: {
-    title: string | JSX.Element
-    value: React.ReactNode | null
-    alignItems?: 'baseline' | 'center' | 'end'
-}): JSX.Element {
-    return (
-        <div
-            className="definition-popover-grid-card"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ alignItems }}
-        >
-            <div className="definition-popover-grid-card-title">{title}</div>
-            {value && <div className="definition-popover-grid-card-content">{value}</div>}
-        </div>
-    )
+function Section({ children }: { children: React.ReactNode }): JSX.Element {
+    return <DefinitionPopoverGrid cols={1}>{children}</DefinitionPopoverGrid>
 }
 
 export const DefinitionPopover = {
@@ -281,7 +254,7 @@ export const DefinitionPopover = {
     Example,
     TimeMeta,
     HorizontalLine,
-    Grid,
+    Grid: DefinitionPopoverGrid,
     Section,
-    Card,
+    Card: DefinitionPopoverCard,
 }

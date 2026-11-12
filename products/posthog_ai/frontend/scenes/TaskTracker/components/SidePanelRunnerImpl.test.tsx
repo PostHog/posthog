@@ -3,8 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
+
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
-import type { ActiveCreation } from '../../../logics/runnerPanelLogic'
 import { SidePanelRunnerImpl } from './SidePanelRunnerImpl'
 
 jest.mock('kea', () => ({

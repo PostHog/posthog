@@ -1,5 +1,6 @@
 import type { ProjectScope } from '@/api/reports'
 import type { TaskRunStatusApi, TaskSummaryApi } from '@/api/tasks'
+import type { ConversationMinimalApi } from '../../../../posthog_ai/frontend/generated/api.schemas'
 
 import type { ChatListItem, ChatOrigin, ChatSessionStatus } from '../types'
 
@@ -21,8 +22,59 @@ function titleOr(title: string | null | undefined, fallback: string): string {
     return title?.trim() || fallback
 }
 
-function taskWebUrl(scope: ProjectScope | null, taskId: string): string | undefined {
-    return scope ? `${scope.host}/project/${scope.projectId}/ai?task=${encodeURIComponent(taskId)}` : undefined
+export function taskWebUrl(scope: ProjectScope | null, taskId: string | null): string | undefined {
+    return scope && taskId
+        ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}/ai?task=${encodeURIComponent(taskId)}`
+        : undefined
+}
+
+export function conversationWebUrl(scope: ProjectScope | null, conversationId: string | null): string | undefined {
+    return scope && conversationId
+        ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}/ai?chat=${encodeURIComponent(conversationId)}`
+        : undefined
+}
+
+export function mergeChatLists(
+    sessions: TaskSummaryApi[] | undefined,
+    conversations: ConversationMinimalApi[] | undefined,
+    scope: ProjectScope | null
+): ChatListItem[] {
+    const visibleConversations = (conversations ?? []).filter((conversation) => !conversation.task?.archived)
+    const taskIds = new Set(sessions?.map((session) => session.id))
+    const linkedConversations = new Map(
+        visibleConversations.flatMap((conversation) =>
+            conversation.task ? [[conversation.task.id, conversation.id] as const] : []
+        )
+    )
+    const classic = visibleConversations.filter(
+        (conversation) => !conversation.task || !taskIds.has(conversation.task.id)
+    )
+    return [
+        ...chatListFromSessions(sessions, scope).map((item) => {
+            const conversationId = linkedConversations.get(item.sourceId)
+            return conversationId
+                ? { ...item, conversationId, webUrl: conversationWebUrl(scope, conversationId) }
+                : item
+        }),
+        ...classic.map(
+            (conversation): ChatListItem => ({
+                id: `conversation:${conversation.id}`,
+                kind: 'conversation',
+                sourceId: conversation.id,
+                origin: 'chat',
+                title: titleOr(conversation.title, 'Untitled chat'),
+                updatedAt: conversation.updated_at ?? conversation.created_at ?? '',
+                status:
+                    conversation.status === 'in_progress'
+                        ? 'working'
+                        : conversation.status === 'canceling'
+                          ? 'stopped'
+                          : 'idle',
+                pullRequestUrl: null,
+                webUrl: conversationWebUrl(scope, conversation.id),
+            })
+        ),
+    ].sort((a, b) => sortTime(b) - sortTime(a))
 }
 
 function sessionStatus(session: TaskSummaryApi): ChatSessionStatus {

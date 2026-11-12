@@ -81,6 +81,35 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
                 extra={"source_id": str(source.id), "slot_name": cdc_config.stream_name},
             )
 
+    def _record_cdc_snapshot_position(
+        self, schema: ExternalDataSchema, inputs: SourceInputs, *, rebuild: bool, resuming: bool
+    ) -> None:
+        """Record the source's log position before a snapshot in a history mode reads the table.
+
+        Only a rebuild replaces a recorded position, because an earlier attempt may already have
+        written rows. A position that cannot be read is recorded as unknown, and the history lane
+        then replays the whole buffer.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import is_history_table_mode
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_SNAPSHOT_POSITION_KEY
+
+        if not is_history_table_mode(schema.cdc_table_mode):
+            return
+        recorded = CDC_SNAPSHOT_POSITION_KEY in (schema.sync_type_config or {})
+        if not rebuild and (recorded or resuming):
+            return
+        try:
+            adapter = get_cdc_adapter(schema.source)
+            with adapter.management_connection(schema.source) as conn:
+                position = adapter.position_to_seq(adapter.current_position(conn))
+        except Exception:
+            inputs.logger.warning("cdc_snapshot_position_unread", schema_id=str(schema.id), exc_info=True)
+            update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_SNAPSHOT_POSITION_KEY: None})
+            return
+        update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_SNAPSHOT_POSITION_KEY: position})
+        inputs.logger.info("cdc_snapshot_position_recorded", schema_id=str(schema.id), position=position)
+
     def _buffered_cdc_source(self, schema: ExternalDataSchema, inputs: SourceInputs) -> SourceResponse:
         """A `SourceResponse` reading this streaming, seeded schema's S3 change buffer."""
         from asgiref.sync import async_to_sync
@@ -89,6 +118,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
         from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
@@ -100,7 +130,8 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
             served_lanes,
         )
 
-        if not served_lanes(schema):
+        history = kept_history_naming(schema)
+        if not served_lanes(schema, history):
             raise ValueError(
                 f"CDC schema {schema.name} has cdc_table_mode {schema.cdc_table_mode!r}, which no buffer lane "
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
@@ -113,7 +144,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
             # of that attempt failing later would leave a Completed job proving a listing nothing
             # drained.
             clear_listing(inputs.job_id, inputs.team_id)
-            first_lane = served_lanes(schema)[0]
+            first_lane = served_lanes(schema, history)[0]
             return SourceResponse(
                 name=first_lane.resource_name,
                 items=lambda: iter(()),
@@ -167,7 +198,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
 
         # Every table this schema's changes feed, written from one read of the buffer. Each lane
         # carries where its own table stops, because a failed run can leave one ahead of the other.
-        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
+        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger, history)
         manager = CDCSourceManager(
             inputs,
             inputs.logger,

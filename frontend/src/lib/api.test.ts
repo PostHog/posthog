@@ -4,12 +4,12 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import * as oauthClient from 'lib/oauth/oauthClient'
+import * as oauthClient from 'lib/utils/oauthClient'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-// Mirrors SESSION_KEY in lib/oauth/oauthClient — the localStorage key its real getStoredSession reads.
+// Mirrors SESSION_KEY in lib/utils/oauthClient — the localStorage key its real getStoredSession reads.
 const OAUTH_SESSION_KEY = 'ph_oauth_session'
 
 describe('API helper', () => {
@@ -32,6 +32,29 @@ describe('API helper', () => {
         })
         jest.spyOn(posthog, 'get_session_id').mockReturnValue('fake-session-id')
         ApiConfig.setCurrentTeamId(2)
+    })
+
+    describe('conversation queue', () => {
+        it.each([
+            { messages: [], max_queue_messages: 2 },
+            {
+                messages: [{ id: 'queue-2', content: 'Next message', created_at: '2026-01-01T00:00:00Z' }],
+                max_queue_messages: 2,
+            },
+        ])('parses the queue delete response with messages $messages', async (queue) => {
+            fakeFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify(queue), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+
+            await expect(api.conversations.queue.delete('conversation-1', 'queue-1')).resolves.toEqual(queue)
+            expect(fakeFetch).toHaveBeenCalledWith(
+                '/api/projects/2/conversations/conversation-1/queue/queue-1/',
+                expect.objectContaining({ method: 'DELETE' })
+            )
+        })
     })
 
     describe('events', () => {
@@ -85,7 +108,7 @@ describe('API helper', () => {
                 expect(fakeFetch).toHaveBeenCalledWith(
                     path === 'proxy'
                         ? 'https://example.com/v1/runs/run-1/stream?resync=1'
-                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'logs' : 'stream'}/`,
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'log_entries' : 'stream'}/`,
                     expect.objectContaining({
                         signal: controller.signal,
                         ...(path !== 'history' ? { headers: streamHeaders } : {}),
@@ -313,6 +336,30 @@ describe('API helper', () => {
             expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts_table_query/')
         })
 
+        it('uses the account persons endpoint for the users widget and preserves request options', async () => {
+            const onRequestTiming = jest.fn()
+            const query = {
+                kind: NodeKind.ActorsQuery,
+                source: { kind: NodeKind.AccountUsersQuery, accountId: 'account-demo' },
+                select: ['persons.id', 'properties.email'],
+            }
+            const result = await api.query(query, {
+                refresh: 'blocking',
+                requestOptions: { onRequestTiming },
+            })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts/account-demo/persons/')
+            expect(JSON.parse(fakeFetch.mock.calls[0][1].body)).toEqual({ query, refresh: 'blocking' })
+            expect(result).toEqual(FAKE_FETCH_RESULT)
+            expect(onRequestTiming).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps other actor queries on the query endpoint', async () => {
+            await api.query({ kind: NodeKind.ActorsQuery, select: ['persons.id'] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/ActorsQuery/')
+        })
+
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 
@@ -443,6 +490,28 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    it('reports the DRF error code of a failed response as a client_request_failure', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: '',
+            headers: new Headers(),
+            json: () =>
+                Promise.resolve({ type: 'validation_error', code: 'token_invalid', detail: 'Token is not valid' }),
+        })
+
+        await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch(() => null)
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'client_request_failure',
+            expect.objectContaining({
+                pathname: '/api/users/@me/two_factor_validate/',
+                status: 400,
+                code: 'token_invalid',
+            })
+        )
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(
@@ -504,6 +573,30 @@ describe('API helper', () => {
             const [url, options] = fakeFetch.mock.calls[0]
             expect(url).toEqual('/some/local/path/')
             expect(options.headers.Authorization).toBeUndefined()
+        })
+    })
+
+    describe('client build header', () => {
+        const existingAppContext = window.POSTHOG_APP_CONTEXT
+
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = { ...existingAppContext, commit_sha: 'abc123def0' } as any
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = existingAppContext
+        })
+
+        it('sends the frontend build with same-origin requests', async () => {
+            await api.get('/api/projects/2/insights/')
+            const [, options] = fakeFetch.mock.calls[0]
+            expect(options.headers['X-PostHog-Client-Build']).toEqual('abc123def0')
+        })
+
+        it('omits the frontend build on cross-origin requests, whose CORS allowlists do not include it', async () => {
+            await api.get('https://agent-proxy.example.com/v1/runs/1/stream')
+            const [, options] = fakeFetch.mock.calls[0]
+            expect(options.headers['X-PostHog-Client-Build']).toBeUndefined()
         })
     })
 

@@ -24,10 +24,10 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -36,6 +36,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AgentMode,
@@ -67,7 +69,6 @@ import {
 } from '~/types'
 
 import {
-    attachedContextLogic,
     getRandomThinkingMessage,
     getWebSearchResultsByToolUseId,
     isTerminalRunStatus,
@@ -75,6 +76,7 @@ import {
     runStreamLogic,
     WebSearchResultsByToolUseId,
 } from 'products/posthog_ai/frontend/api/logics'
+import type { ReplySuggestions } from 'products/posthog_ai/frontend/api/types'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
@@ -94,8 +96,8 @@ import {
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
-import { AttachedContext, MaxUIContext } from './maxTypes'
+import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
+import { AttachedContext, MaxContextItem, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'
@@ -104,6 +106,7 @@ import {
     activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
+    getContextSourceProperties,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
@@ -166,6 +169,7 @@ export interface maxThreadLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     billingContext: MaxBillingContext | null // maxBillingContextLogic
     compiledContext: MaxUIContext | null // maxContextLogic
+    sceneContext: MaxContextItem[] // maxContextLogic
     availableStaticTools: ToolRegistration[] // maxGlobalLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     toolMap: {
@@ -182,6 +186,7 @@ export interface maxThreadLogicValues {
     sandboxAttachments: AttachedContext[] // posthogAiContextLogic
     pendingSandboxPermissionRequest: PermissionRequestRecord | null // runStreamLogic
     sandboxCurrentMode: string | null // runStreamLogic
+    sandboxReplySuggestions: ReplySuggestions | null // runStreamLogic
     sceneId: string | null // sceneLogic
     activeDangerousOperationApproval: {
         payload: Record<string, any>
@@ -782,7 +787,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'pendingBindTaskId',
             ],
             maxContextLogic,
-            ['compiledContext'],
+            ['compiledContext', 'sceneContext'],
             maxBillingContextLogic,
             ['billingContext'],
             billingLogic,
@@ -802,7 +807,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).
             runStreamLogic({ streamKey: conversationId, conversationId }),
-            ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
+            [
+                'pendingPermissionRequest as pendingSandboxPermissionRequest',
+                'currentMode as sandboxCurrentMode',
+                'replySuggestions as sandboxReplySuggestions',
+            ],
         ],
         actions: [
             maxLogic({ panelId }),
@@ -1286,6 +1295,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // otherwise invisible outside session recordings, because no send event records a length.
             // Null content means resume/continue rather than a new message.
             const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
+            // Snapshot on the user's send only. A retry may run after the user navigated away, and a
+            // reconnect or resume sends no `ui_context`, yet both continue the same turn.
+            if (generationAttempt === 0 && streamData.content !== null) {
+                cache.turnContextSourceProperties = getContextSourceProperties(
+                    streamData.ui_context,
+                    values.sceneContext
+                )
+            }
+            const contextSourceProperties: ReturnType<typeof getContextSourceProperties> =
+                cache.turnContextSourceProperties ?? getContextSourceProperties(undefined, [])
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
@@ -1527,6 +1546,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
 
@@ -1546,7 +1566,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   Safari:      "Load failed"
                     //   handleFetch: ApiError with status === undefined (fetch itself threw)
                     const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof Error &&
+                            /failed to fetch|network\s*error|load failed|error in input stream/i.test(e.message)) ||
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
@@ -1642,6 +1663,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                   ? 'api_error'
                                   : 'unknown_error',
                             prompt_length: promptLength,
+                            ...contextSourceProperties,
                         })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
@@ -1667,6 +1689,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
                 actions.completeThreadGeneration()

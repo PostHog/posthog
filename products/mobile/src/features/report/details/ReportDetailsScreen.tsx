@@ -1,11 +1,13 @@
-import { useRouter } from 'expo-router'
+import { BlurTargetView } from 'expo-blur'
+import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
-import { Text, View } from 'react-native'
+import { Text, View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import type { ReportView } from '@/model/types'
+import { ChartCanvasBudget } from '@/ui/chart/budget/ChartCanvasBudget'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
@@ -15,6 +17,7 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { headlineText } from '../Headline'
 import { useReport } from '../hooks'
+import { ReportCharts } from '../metrics/ReportCharts'
 import { HEADLINE_GAP, TopChrome } from '../TopChrome'
 import { useReportReadTracking } from '../useReportReadTracking'
 import { DetailsFooter } from './DetailsFooter'
@@ -33,6 +36,7 @@ export function ReportDetailsScreen({ reportId }: ReportDetailsScreenProps): Rea
     const styles = useStyles()
     const colors = useColors()
     const router = useRouter()
+    const focused = useIsFocused()
     const demo = useDataMode() === 'demo'
     const valid = isReportId(reportId, demo)
     // A deep link can open this screen with nothing under it, so Back then lands on the report itself.
@@ -47,21 +51,23 @@ export function ReportDetailsScreen({ reportId }: ReportDetailsScreenProps): Rea
     }
     return (
         <View style={styles.screen} testID="report-details-screen">
-            {valid ? (
-                <DetailsContent reportId={reportId} onBack={goBack} />
-            ) : (
-                <>
-                    <TopChrome onBack={goBack} withPager={false} />
-                    <StateView
-                        icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                        title="Couldn't find this report"
-                        message="This link doesn't point to a report. Go back and open the report from your inbox."
-                        actionLabel="Go back"
-                        onAction={goBack}
-                        testID="report-details-not-found"
-                    />
-                </>
-            )}
+            <ChartCanvasBudget active={focused}>
+                {valid ? (
+                    <DetailsContent reportId={reportId} onBack={goBack} />
+                ) : (
+                    <>
+                        <TopChrome onBack={goBack} withPager={false} />
+                        <StateView
+                            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                            title="Couldn't find this report"
+                            message="This link doesn't point to a report. Go back and open the report from your inbox."
+                            actionLabel="Go back"
+                            onAction={goBack}
+                            testID="report-details-not-found"
+                        />
+                    </>
+                )}
+            </ChartCanvasBudget>
         </View>
     )
 }
@@ -115,6 +121,7 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
     const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineBottom, setHeadlineBottom] = useState(0)
+    const blurTarget = useRef<ViewInstance>(null)
     const scrollY = useSharedValue(0)
     const reading = useReportReadTracking(report.id, 'mobile_report_details_read')
     const { maxScrollY } = reading
@@ -124,36 +131,40 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
     })
     return (
         <>
-            <Animated.ScrollView
-                style={styles.scroll}
-                contentContainerStyle={[
-                    styles.content,
-                    {
-                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
-                        paddingBottom: bottomOffset(insets, CONTENT_BOTTOM),
-                    },
-                ]}
-                onScroll={onScroll}
-                onLayout={reading.onLayout}
-                onContentSizeChange={reading.onContentSizeChange}
-                scrollEventThrottle={16}
-                testID="report-details-scroll"
-            >
-                <DetailsHeader report={report} onHeadlineBottom={setHeadlineBottom} />
-                {hasReportDetail(report) ? (
-                    <>
-                        {report.summary ? <DetailsSummary summary={report.summary} reportId={report.id} /> : null}
-                        <SignalsSection signals={report.signals} reportId={report.id} />
-                    </>
-                ) : (
-                    <Text style={styles.empty} testID="report-details-empty">
-                        This report has no more detail yet.
-                    </Text>
-                )}
-                {report.webUrl ? <DetailsFooter webUrl={report.webUrl} reportId={report.id} /> : null}
-            </Animated.ScrollView>
+            <BlurTargetView ref={blurTarget} style={styles.scroll}>
+                <Animated.ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={[
+                        styles.content,
+                        {
+                            paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                            paddingBottom: bottomOffset(insets, CONTENT_BOTTOM),
+                        },
+                    ]}
+                    onScroll={onScroll}
+                    onLayout={reading.onLayout}
+                    onContentSizeChange={reading.onContentSizeChange}
+                    scrollEventThrottle={16}
+                    testID="report-details-scroll"
+                >
+                    <DetailsHeader report={report} onHeadlineBottom={setHeadlineBottom} />
+                    {hasReportDetail(report) ? (
+                        <>
+                            {report.summary ? <DetailsSummary summary={report.summary} reportId={report.id} /> : null}
+                            <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
+                            <SignalsSection signals={report.signals} reportId={report.id} />
+                        </>
+                    ) : (
+                        <Text style={styles.empty} testID="report-details-empty">
+                            This report has no more detail yet.
+                        </Text>
+                    )}
+                    {report.webUrl ? <DetailsFooter webUrl={report.webUrl} reportId={report.id} /> : null}
+                </Animated.ScrollView>
+            </BlurTargetView>
             <TopChrome
                 refreshing={refreshing}
+                blurTarget={blurTarget}
                 onBack={onBack}
                 withPager={false}
                 title={{

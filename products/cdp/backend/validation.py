@@ -18,11 +18,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import email_domain
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -50,6 +53,8 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+# Matches the cap the tasks API puts on a task's repositories.
+MAX_TASK_REPOSITORIES = 20
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
@@ -79,12 +84,14 @@ def masked_secret_input_keys(stored_inputs: object) -> list[str]:
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
+    rotation = from_value.get("integrationIds")
     return {
         integration_id
-        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        for integration_id in [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
 
@@ -95,10 +102,75 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+    # Warehouse source rows must be read too, so the guard below can reject them.
+    rows = IntegrationManager.any.with_source_rows().get_many(get_team().id, integration_ids).values()
+    if any(row.kind == POSTHOG_CONNECT_KIND for row in rows):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
         )
+    # A row that a data warehouse source created holds the source's typed-in credentials (passwords,
+    # keys). The runtime passes an input's secrets to the function code, so no function may use it.
+    if any(WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in (row.config or {}) for row in rows):
+        raise serializers.ValidationError(
+            {"input": "This integration can't be used as a function input. Choose a different integration."}
+        )
+
+
+@frozen
+class _SenderRow:
+    kind: str
+    domain: str
+
+
+_NO_SENDER_ROW = _SenderRow(kind="", domain="")
+
+
+def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> dict[int, _SenderRow]:
+    shared_cache = context.get("email_integration_domain_cache")
+    cache: dict[int, _SenderRow] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
+    if missing_ids:
+        for row in IntegrationManager.any.with_source_rows().get_many(team_id, missing_ids).values():
+            config = row.config or {}
+            domain = (
+                (config.get("domain") or email_domain(config.get("email") or "") or "") if row.kind == "email" else ""
+            )
+            cache[row.id] = _SenderRow(kind=row.kind, domain=domain.lower())
+        for integration_id in missing_ids:
+            cache.setdefault(integration_id, _NO_SENDER_ROW)
+    return {integration_id: cache[integration_id] for integration_id in integration_ids}
+
+
+def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
+    get_team = context.get("get_team")
+    if get_team is None:
+        return
+    existing = context.get("live_email_from") or []
+    stored_ids: set[int] = set()
+    for stored in existing if isinstance(existing, list) else [existing]:
+        if isinstance(stored, dict):
+            stored_ids |= _sender_integration_ids(stored)
+    new_ids = _sender_integration_ids(from_value) - stored_ids
+    if not new_ids:
+        return
+    senders = _load_senders(new_ids, context, team_id=get_team().id)
+    if any(sender.kind and sender.kind != "email" for sender in senders.values()):
+        raise serializers.ValidationError(
+            {"input": "This sender can't send email from a workflow. Choose a verified email sender."}
+        )
+
+
+def reject_new_non_email_senders(inputs_schema: list[dict] | None, inputs: dict | None, context: dict) -> None:
+    if not isinstance(inputs, dict):
+        return
+    for schema in inputs_schema or []:
+        if not isinstance(schema, dict) or schema.get("type") not in ("email", "native_email"):
+            continue
+        email_input = inputs.get(schema.get("key"))
+        value = email_input.get("value") if isinstance(email_input, dict) else None
+        from_value = value.get("from") if isinstance(value, dict) else None
+        if isinstance(from_value, dict):
+            _validate_email_sender_kind(from_value, context)
 
 
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
@@ -134,7 +206,16 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
         # enforces the domain.
         return
 
-    if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
+    if len(override) > MAX_FROM_OVERRIDE_EMAIL_LENGTH:
+        raise serializers.ValidationError(
+            {
+                "input": "The custom sender address is too long. "
+                f"Use an address with {MAX_FROM_OVERRIDE_EMAIL_LENGTH} characters or fewer."
+            }
+        )
+
+    override_domain = email_domain(override.lower())
+    if override_domain is None or not FROM_OVERRIDE_EMAIL_REGEX.match(override):
         raise serializers.ValidationError(
             {
                 "input": f'The custom sender address "{override}" is not a valid email address. '
@@ -146,21 +227,10 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    override_domain = override.split("@")[1].lower()
-    # An empty cached domain means the id resolved to no email integration for this team; the
-    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
-    shared_cache = context.get("email_integration_domain_cache")
-    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
-    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
-    if missing_ids:
-        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
-            config = integration.config or {}
-            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
-        for integration_id in missing_ids:
-            domain_cache.setdefault(integration_id, "")
+    senders = _load_senders(integration_ids, context, team_id=get_team().id)
 
     for integration_id in sorted(integration_ids):
-        integration_domain = domain_cache.get(integration_id) or ""
+        integration_domain = senders[integration_id].domain
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
@@ -220,6 +290,85 @@ def build_html_wrap_design(html: str) -> dict:
             "values": {},
         },
     }
+
+
+_UNLAYER_BODY_CLASS = re.compile(r"\bu_body\b")
+_UNLAYER_LAYOUT_TAGS = frozenset({"!doctype", "html", "body", "table", "tbody", "tr", "td", "div"})
+_TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
+_SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
+
+
+_CONDITIONAL_COMMENT_START = "<!--[if"
+_CONDITIONAL_COMMENT_MARKERS = ("<![endif]-->", "<!-->")
+
+
+# Outlook renders what a conditional comment holds, so the scan skips only its markers.
+def _position_after_conditional_marker(html: str, position: int) -> int | None:
+    if html.startswith(_CONDITIONAL_COMMENT_START, position):
+        end = html.find("]>", position + len(_CONDITIONAL_COMMENT_START))
+        return -1 if end == -1 else end + 2
+    for marker in _CONDITIONAL_COMMENT_MARKERS:
+        if html.startswith(marker, position):
+            return position + len(marker)
+    return None
+
+
+def _position_after_layout_markup(html: str, position: int) -> int:
+    after_marker = _position_after_conditional_marker(html, position)
+    if after_marker is not None:
+        return after_marker
+    if html.startswith("<!--", position):
+        end = html.find("-->", position + 4)
+        return -1 if end == -1 else end + 3
+    tag = _TAG_NAME.match(html, position)
+    end = html.find(">", position)
+    if tag is None or end == -1:
+        return -1
+    closing = _SKIPPED_ELEMENT_ENDS.get(tag.group(1))
+    if closing is not None:
+        end = html.find(closing, end)
+        return -1 if end == -1 else end + len(closing)
+    return end + 1 if tag.group(1) in _UNLAYER_LAYOUT_TAGS else -1
+
+
+def _is_only_unlayer_layout(html: str) -> bool:
+    html = html.lower()
+    position = 0
+    while position < len(html):
+        if html[position] == "<":
+            position = _position_after_layout_markup(html, position)
+            if position == -1:
+                return False
+        elif html.startswith("&nbsp;", position):
+            position += 6
+        elif html[position].isspace():
+            position += 1
+        else:
+            return False
+    return True
+
+
+def _is_unlayer_render_of(html: str, block_html: str) -> bool:
+    start = html.find(block_html)
+    if start == -1:
+        return False
+    around_block = html[:start] + html[start + len(block_html) :]
+    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and _is_only_unlayer_layout(around_block)
+
+
+def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
+    if not design:
+        return True
+    try:
+        wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return (
+        isinstance(wrapped_html, str)
+        and wrapped_html != html
+        and design == build_html_wrap_design(wrapped_html)
+        and not _is_unlayer_render_of(html, wrapped_html)
+    )
 
 
 def register_supported_function(name: str) -> None:
@@ -646,6 +795,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_repository",
             "task_mcp_installations",
             "signals_scout",
+            "posthog_survey",
             "task_skills",
             "replay_vision_scan",
         ]
@@ -813,8 +963,17 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
-            if not isinstance(value, str):
-                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+            repositories = [value] if isinstance(value, str) else value
+            if (
+                not isinstance(repositories, list)
+                or not all(isinstance(v, str) for v in repositories)
+                or len(repositories) > MAX_TASK_REPOSITORIES
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": f"Value must be a list of up to {MAX_TASK_REPOSITORIES} repository names like your-org/your-repo."
+                    }
+                )
         elif item_type == "task_model":
             # A non-empty value means a model was chosen (an empty value returned above as "use the
             # default model"), so it must name a usable model. Otherwise the run-time consumer drops
@@ -839,6 +998,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "posthog_survey":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a survey ID."})
         elif item_type == "replay_vision_scan":
             if not isinstance(value, dict) or not isinstance(value.get("type"), str):
                 raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
@@ -894,9 +1056,14 @@ class InputsItemSerializer(serializers.Serializer):
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
 
+                _validate_email_sender_kind(from_value, self.context)
                 _validate_email_sender_override(from_value, self.context)
 
-            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+            if (
+                isinstance(value.get("html"), str)
+                and value["html"]
+                and html_wrap_design_needs_refresh(value["html"], value.get("design"))
+            ):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.
                 value = {**value, "design": build_html_wrap_design(value["html"])}
@@ -1189,7 +1356,7 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not added_ids:
         return
 
-    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
+    actions = get_actions(project_id=context["get_team"]().project_id, action_ids=added_ids)
     denied_ids = user_access_control.denied_object_ids(
         "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
     )
@@ -1339,8 +1506,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         collected = set(filter_cohort_ids(data))
         action_ids = filter_action_ids(data)
         if action_ids:
-            # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
-            for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
+            for action in get_actions(project_id=team.project_id, action_ids=action_ids, include_deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
         validate_realtime_cohorts(collected, team, require_ready=require_ready)

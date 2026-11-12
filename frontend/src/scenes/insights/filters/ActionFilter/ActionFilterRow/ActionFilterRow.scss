@@ -24,6 +24,13 @@
         height: 40px;
     }
 
+    &.ActionFilterRow--quill {
+        .ActionFilterRow__start,
+        .ActionFilterRow__end {
+            height: 28px;
+        }
+    }
+
     .ActionFilterRow__center {
         flex: 1;
         flex-wrap: wrap;

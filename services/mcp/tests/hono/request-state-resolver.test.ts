@@ -23,6 +23,7 @@ const {
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
         mcp_allowed_tools: undefined as string[] | undefined,
+        supports_step_up: undefined as boolean | undefined,
     },
     mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
     // Records the keys passed to every session-scoped refreshTtl call (only the
@@ -162,7 +163,6 @@ import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
@@ -221,6 +221,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
         mockApiKey.mcp_allowed_tools = undefined
+        mockApiKey.supports_step_up = undefined
     })
 
     it.each([
@@ -621,31 +622,23 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it.each([
-        MCP_EXEC_SKILLS_FEATURE_FLAG,
-        MCP_INTERVIEW_RECRUITMENT_FLAG,
-        MCP_INTENT_PROMPT_FLAG,
-        MCP_NO_DATA_INSTALL_NOTICE_FLAG,
-    ])('evaluates %s even though no generated tool declares it', async (flag) => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
+    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
+        'evaluates %s even though no generated tool declares it',
+        async (flag) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
-        const result = await makeResolver().resolve(makeProps())
+            const result = await makeResolver().resolve(makeProps())
 
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
-        expect(result.toolFeatureFlags?.[flag]).toBe(true)
-    })
+            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+            expect(result.toolFeatureFlags?.[flag]).toBe(true)
+        }
+    )
 
-    // Unknown must stay unknown: the no-data notice only fires on an explicit false.
-    it.each([
-        [{ projectHasData: false }, false],
-        [{ projectHasData: true }, true],
-        [undefined, undefined],
-    ])('carries the analytics context and its ingestion state %j', async (analyticsContext, expectedHasData) => {
+    it.each([[{ projectId: '1' }], [undefined]])('carries the analytics context %j', async (analyticsContext) => {
         mockAnalyticsContext.current = analyticsContext
 
         const result = await makeResolver().resolve(makeProps())
 
-        expect(result.projectHasData).toBe(expectedHasData)
         expect(result.analyticsContext).toBe(mockAnalyticsContext.current)
     })
 

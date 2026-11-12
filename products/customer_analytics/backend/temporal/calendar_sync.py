@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.client import (
@@ -24,8 +26,12 @@ with workflow.unsafe.imports_passed_through():
     import structlog
 
     from posthog.sync import database_sync_to_async
+    from posthog.temporal.common.errors import NonReportableApplicationError
     from posthog.temporal.common.heartbeat import Heartbeater
     from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+
+if TYPE_CHECKING:
+    from posthog.integrations import IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -33,8 +39,10 @@ CALENDAR_SYNC_COORDINATOR_SCHEDULE_ID = "customer-analytics-calendar-sync-coordi
 CALENDAR_SYNC_COORDINATOR_WORKFLOW_NAME = "customer-analytics-calendar-sync-coordinator"
 COORDINATOR_INTERVAL_MINUTES = 5
 MAX_SYNCS_PER_RUN = 200
+CALENDAR_PAGE_SIZE = 500
 BACKFILL_PAGES_PER_RUN = 100
 GOOGLE_WORKSPACE_RETRY_DELAY = timedelta(hours=1)
+GOOGLE_TRANSPORT_RETRY_DELAY = timedelta(seconds=30)
 
 
 @dataclass
@@ -108,8 +116,6 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
     # Deferred: keeps Django models out of the workflow sandbox import path.
     from django.utils import timezone  # noqa: PLC0415
 
-    from posthog.models.integration import Integration  # noqa: PLC0415
-
     from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
         LAST_SYNCED_AT_CONFIG_KEY,
         SYNC_ATTEMPTED_AT_CONFIG_KEY,
@@ -121,8 +127,8 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
 
     now = timezone.now()
     due: list[tuple[datetime, int, int]] = []
-    for integration in Integration.objects.filter(kind="google-calendar").only("id", "team_id", "config").iterator():
-        config = integration.config or {}
+    for integration in _iter_calendar_integrations():
+        config = integration.config
         last_sync = _calendar_config_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         attempted = _calendar_config_datetime(config.get(SYNC_ATTEMPTED_AT_CONFIG_KEY))
         started = _calendar_config_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
@@ -141,6 +147,21 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
         CalendarSyncInput(integration_id=integration_id, team_id=team_id)
         for _, integration_id, team_id in due[:MAX_SYNCS_PER_RUN]
     ]
+
+
+def _iter_calendar_integrations() -> Iterator[IntegrationRecord]:
+    # Deferred: keeps Django models out of the workflow sandbox import path.
+    from posthog.integrations import CrossTeamFilter, IntegrationManager  # noqa: PLC0415
+
+    after_id: int | None = None
+    while True:
+        page = IntegrationManager.google_calendar.oauth.list_across_teams(
+            CrossTeamFilter(limit=CALENDAR_PAGE_SIZE, after_id=after_id)
+        )
+        yield from page
+        if len(page) < CALENDAR_PAGE_SIZE:
+            return
+        after_id = page[-1].id
 
 
 def _calendar_config_datetime(value: object) -> datetime | None:
@@ -171,8 +192,19 @@ def _create_google_workspace_budget_error(integration_id: int, team_id: int, err
     return ApplicationError(str(error), next_retry_delay=GOOGLE_WORKSPACE_RETRY_DELAY)
 
 
+def _create_google_transport_error(error: Exception) -> ApplicationError:
+    # A proxy or network blip usually clears on the next attempt, so report it only when the retries run out.
+    info = activity.info()
+    max_attempts = info.retry_policy.maximum_attempts if info.retry_policy else 0
+    if max_attempts and info.attempt >= max_attempts:
+        return ApplicationError(str(error), next_retry_delay=GOOGLE_TRANSPORT_RETRY_DELAY)
+    return NonReportableApplicationError(str(error), next_retry_delay=GOOGLE_TRANSPORT_RETRY_DELAY)
+
+
 def _run_calendar_sync(input: CalendarSyncInput) -> CalendarSyncOutput:
     # Deferred: the sync logic pulls requests/HogQL layers that don't belong in the sandbox.
+    import requests  # noqa: PLC0415
+
     from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted  # noqa: PLC0415
 
     from products.conversations.backend.facade import api as conversations  # noqa: PLC0415
@@ -189,6 +221,8 @@ def _run_calendar_sync(input: CalendarSyncInput) -> CalendarSyncOutput:
         raise ApplicationError(str(e), non_retryable="refresh failed" in str(e).lower()) from e
     except GoogleWorkspaceEgressBudgetExhausted as error:
         raise _create_google_workspace_budget_error(input.integration_id, input.team_id, error) from error
+    except (requests.ConnectionError, requests.Timeout) as error:
+        raise _create_google_transport_error(error) from error
     return CalendarSyncOutput(
         fetched=counts.fetched,
         upserted=counts.upserted,

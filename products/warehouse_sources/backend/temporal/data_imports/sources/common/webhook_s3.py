@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
-from typing import Optional
+from enum import StrEnum
+from typing import Any, Optional
 
 from django.conf import settings
+from django.db import transaction
 
 import orjson
 import pyarrow as pa
@@ -24,24 +26,117 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
+# Informational key on a job's `schema_snapshot`. The job keeps `sync_type: webhook`, because the next
+# run compares it with the schema's sync type to decide whether it may continue this job's cursor.
+WEBHOOK_FALLBACK_SNAPSHOT_KEY = "webhook_fallback"
+
+
+class WebhookState(StrEnum):
+    # Read the rows that the webhook delivered.
+    ACTIVE = "active"
+    # The run polls the API by design: the table is not on webhook sync, or the run seeds or rebuilds it.
+    POLL = "poll"
+    # The table is on webhook sync, but the source has no enabled webhook, so nothing delivers rows.
+    NO_WEBHOOK = "no_webhook"
+
+
+class WebhookFallback(StrEnum):
+    """How a webhook-sync run with no enabled webhook polls the API instead."""
+
+    FULL_REFRESH = "full_refresh"
+    INCREMENTAL = "incremental"
+
+
+def _stamp_webhook_fallback(job_id: str, team_id: int, fallback: WebhookFallback) -> None:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    with transaction.atomic():
+        job = (
+            ExternalDataJob.objects.select_for_update()
+            .filter(id=job_id, team_id=team_id)
+            .only("id", "schema_snapshot")
+            .first()
+        )
+        if job is None:
+            return
+        snapshot = {**dict(job.schema_snapshot or {}), WEBHOOK_FALLBACK_SNAPSHOT_KEY: fallback.value}
+        ExternalDataJob.objects.filter(id=job.id, team_id=team_id).update(schema_snapshot=snapshot)
+
+
+def _webhook_folder(team_id: int, schema_id: str) -> str:
+    return f"{settings.DATAWAREHOUSE_BUCKET}/source_webhook_producer/{team_id}/{schema_id}"
+
+
+def _consumed_manifest_folder(team_id: int, schema_id: str) -> str:
+    # A subfolder, so the non-recursive `.parquet` listing of the webhook folder never reads a manifest.
+    return f"{_webhook_folder(team_id, schema_id)}/_consumed"
+
+
+def _attempt_manifest_folder(team_id: int, schema_id: str, job_id: str, attempt: int) -> str:
+    # One folder for each attempt, because two attempts of one job can run at the same time and
+    # list different files. The attempt that completes the job must delete only the files it queued.
+    return f"{_consumed_manifest_folder(team_id, schema_id)}/{job_id}-a{attempt}"
+
+
+async def delete_consumed_webhook_files(team_id: int, schema_id: str, job_id: str, attempt: int) -> int:
+    """Delete the webhook files that one completed attempt of a job loaded, and then all manifests.
+
+    Call this only after the attempt completed the job. Until then, the files are the only copy of
+    their events, so a run that fails keeps them and the next run reads them again.
+
+    Also deletes the manifests of other jobs and attempts. A manifest of a failed job is never used
+    again. If an attempt that still runs loses its manifest, it deletes nothing when it completes.
+    Its files then stay for the next run, which reads them again. Webhook tables merge on the
+    primary key, so the second read changes no rows.
+
+    Returns the number of files deleted, or 0 when the attempt has no manifest.
+    """
+    attempt_folder = _attempt_manifest_folder(team_id, schema_id, job_id, attempt)
+    async with aget_s3_client() as s3:
+        try:
+            # `refresh`, because the cached listing of this client can predate the parts that the
+            # extraction worker wrote.
+            parts = await s3._ls(attempt_folder, detail=False, refresh=True)
+        except FileNotFoundError:
+            return 0
+
+        files: list[str] = []
+        for part in parts:
+            async with await s3.open_async(part, "rb") as f:
+                files.extend(orjson.loads(await f.read())["files"])
+
+        if files:
+            # A list of literal keys goes to bulk deletes, which ignore a key that is already gone.
+            await s3._rm(files)
+        try:
+            await s3._rm(_consumed_manifest_folder(team_id, schema_id), recursive=True)
+        except FileNotFoundError:
+            pass
+    return len(files)
+
 
 class WebhookSourceManager:
     _inputs: SourceInputs
     _logger: FilteringBoundLogger
+    _state: WebhookState | None
 
     def __init__(self, inputs: SourceInputs, logger: FilteringBoundLogger) -> None:
         self._inputs = inputs
         self._logger = logger
+        self._state = None
 
     def _get_webhook_s3_prefix(self) -> str:
-        return f"s3://{settings.DATAWAREHOUSE_BUCKET}/source_webhook_producer/{self._inputs.team_id}/{self._inputs.schema_id}"
+        return f"s3://{_webhook_folder(self._inputs.team_id, self._inputs.schema_id)}"
 
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
     async def webhook_enabled(self, webhook_only: bool = False) -> bool:
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        return await self.webhook_state(webhook_only=webhook_only) is WebhookState.ACTIVE
+
+    async def webhook_state(self, webhook_only: bool = False) -> WebhookState:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.webhook_registration import source_has_enabled_webhook
 
         schema = await database_sync_to_async_pool(db_read_with_retry)(
             lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
@@ -60,19 +155,37 @@ class WebhookSourceManager:
                 f"schema.initial_sync_complete={schema.initial_sync_complete}. "
                 f"webhook_only={webhook_only}. reset_pipeline={self._inputs.reset_pipeline}"
             )
-            return False
+            self._state = WebhookState.POLL
+            return self._state
 
         has_webhook_function = await database_sync_to_async_pool(db_read_with_retry)(
-            lambda: HogFunction.objects.filter(
-                inputs__source_id__value=self._inputs.source_id,
-                team_id=self._inputs.team_id,
-                type="warehouse_source_webhook",
-                enabled=True,
-                deleted=False,
-            ).exists()
+            lambda: source_has_enabled_webhook(self._inputs.team_id, self._inputs.source_id)
         )
 
-        return has_webhook_function
+        self._state = WebhookState.ACTIVE if has_webhook_function else WebhookState.NO_WEBHOOK
+        return self._state
+
+    @property
+    def webhook_missing(self) -> bool:
+        """Whether the last `webhook_state` check found a webhook-sync table with no enabled webhook."""
+        return self._state is WebhookState.NO_WEBHOOK
+
+    async def record_webhook_fallback(self, fallback: WebhookFallback) -> None:
+        """Mark this run's job as one that polls the API because the table has no enabled webhook.
+
+        Call it after `webhook_enabled` returns False and the source starts to poll. It does nothing
+        unless that check found a webhook-sync table with no enabled webhook, so an initial sync or a
+        reset, which poll by design, stay unmarked. Without the mark, the job still reads as a webhook
+        sync, so its rows count as webhook rows.
+        """
+        if not self.webhook_missing:
+            return
+        await self._logger.awarning(
+            "This table uses webhook sync, but the source has no active webhook, so this sync reads the "
+            "source API instead. Set up the webhook on the source's Webhook tab, or change the sync method.",
+            webhook_fallback=fallback.value,
+        )
+        await database_sync_to_async_pool(_stamp_webhook_fallback)(self._inputs.job_id, self._inputs.team_id, fallback)
 
     async def schema_is_webhook(self) -> bool:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -130,6 +243,10 @@ class WebhookSourceManager:
             return table_transformer(merged) if table_transformer else merged
 
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
+        # The files of a queued batch are not deleted here, because the batch can still fail to load,
+        # and the files are then the only copy of its events. They are recorded in a manifest, and
+        # the loader deletes them with `delete_consumed_webhook_files` when the job completes.
+        batch_number = 0
 
         async with aget_s3_client() as s3:
             for file in files:
@@ -141,9 +258,9 @@ class WebhookSourceManager:
                         data = await f.read()
                         table = pq.read_table(pa.BufferReader(data))
                 except FileNotFoundError:
-                    # A concurrent run (or a retry of this same activity) can have already
-                    # read and deleted this file between our listing and this open, since
-                    # this is a plain listing snapshot, not a lease on the listed files.
+                    # A concurrent job that read this file can complete and delete it between our
+                    # listing and this open, since this is a plain listing snapshot, not a lease on
+                    # the listed files. That job loaded the file's rows, so skipping it loses nothing.
                     await self._logger.adebug("webhook_file_already_consumed", path=path)
                     continue
 
@@ -166,8 +283,8 @@ class WebhookSourceManager:
 
                     yield merged
 
-                    for p in batch.items:
-                        await s3._rm(p)
+                    await self._record_consumed_files(s3, batch_number, batch.items)
+                    batch_number += 1
                     batch.reset()
 
             # Yield any remaining rows
@@ -182,8 +299,15 @@ class WebhookSourceManager:
 
                 yield merged
 
-                for p in batch.items:
-                    await s3._rm(p)
+                await self._record_consumed_files(s3, batch_number, batch.items)
+
+    async def _record_consumed_files(self, s3: Any, batch_number: int, files: list[str]) -> None:
+        # One part for each batch, written after the batch is queued, so a part never lists a file of
+        # a batch that is not queued, and a large backlog does not rewrite the same list again.
+        folder = _attempt_manifest_folder(
+            self._inputs.team_id, self._inputs.schema_id, self._inputs.job_id, self._inputs.activity_attempt
+        )
+        await s3._pipe_file(f"{folder}/{batch_number:06d}.json", orjson.dumps({"files": files}))
 
     async def _validate_webhook_table(self, table: pa.Table) -> pa.Table:
         expected_team_id = self._inputs.team_id

@@ -33,7 +33,18 @@ env:
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
     # Shard counts — change here to resize the matrix. CHROMIUM_SHARDS also caps narrowed PR runs.
-    CHROMIUM_SHARDS: 28
+    #
+    # Chromium shards are sized from the timing manifest, not from a target wall. Each shard
+    # pays about a minute of fixed setup (checkout, pnpm restore and install, artifact
+    # download), then divides the story time left over by its shard count and two Jest workers.
+    # At 28 shards the median shard spent 5.9 of its 7.8 minutes in the test runner (with slowest
+    # shard around 9 minutes); at 40 the same story time spread over 40 shards puts the median
+    # shard wall near 6.4 minutes (test runner ~4.2 minutes, slowest shard 8.1 minutes). The shards run
+    # on GitHub-hosted runners, which are free for this public repository, so the extra shards
+    # cost queue slots rather than money.
+    #
+    # WEBKIT_SHARDS stays at 8: those shards run on 2-CPU Depot runners that bill per minute.
+    CHROMIUM_SHARDS: 40
     WEBKIT_SHARDS: 8
 
 jobs:
@@ -299,6 +310,27 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
@@ -331,7 +363,9 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-build
-                  path: common/storybook/dist
+                  path: |
+                      common/storybook/dist
+                      !common/storybook/dist/module-graph.json
                   retention-days: 1
 
             # Consumed by the select-stories job below. Uploaded separately so
@@ -657,6 +691,27 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
@@ -670,6 +725,15 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+            # The container's cache path and recorded checkout path differ from the host.
+            # Each runner provider needs a master shard to seed its separate cache.
+            - name: Save pnpm lockfile verdict
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && steps.pnpm-cache.outputs.path != '' && steps.pnpm-verdict.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -682,16 +746,13 @@ jobs:
               # (no global install) and cd's into the package — `dist` is relative to common/storybook.
               run: |
                   retries=5
-                  max_timeout=30
+                  max_timeout=30000
                   pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                   server_pid=$!
                   echo "Started http-server with PID: $server_pid"
 
-                  # Give the server a moment to start
-                  sleep 2
-
                   while [ $retries -gt 0 ]; do
-                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}s)..."
+                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}ms)..."
                       if pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
                           echo "✅ Storybook is available at http://127.0.0.1:6006"
                           break
@@ -705,7 +766,6 @@ jobs:
                               pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                               server_pid=$!
                               echo "Restarted http-server with PID: $server_pid"
-                              sleep 2
                           fi
                       fi
                   done
@@ -933,14 +993,19 @@ jobs:
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots and webkit-only breaks before they land on master.
+    # Story files the diff affects without changing them run too, warn only (see the script).
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
-        needs: [changes, build-storybook]
+        needs: [changes, build-storybook, select-stories]
         # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
         # which on a queue branch is the same set the PR's own run already verified.
+        # `!cancelled()` keeps the job running when select-stories is skipped (run-ci-frontend
+        # label) or fails. The affected list is then empty and only changed story files run.
         if: |
-            needs.changes.outputs.frontend == 'true'
+            !cancelled()
+            && needs.build-storybook.result == 'success'
+            && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
             && needs.changes.outputs.merge_queue != 'true'
         timeout-minutes: 45
@@ -988,6 +1053,27 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
@@ -1001,8 +1087,7 @@ jobs:
               # Resolve http-server/wait-on from common/storybook's devDependencies (no global install).
               run: |
                   pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
-                  sleep 2
-                  pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout 30
+                  pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout 30000
 
             - name: Verify changed stories are stable
               id: flake-verify
@@ -1012,6 +1097,7 @@ jobs:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json || '[]' }}
               # The merge base comes from the API because the depth-1 checkout cannot compute it.
               # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |
@@ -1335,6 +1421,8 @@ jobs:
                   fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  sparse-checkout: .nvmrc
+                  sparse-checkout-cone-mode: false
 
             - name: Check out trusted story selector
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1344,7 +1432,13 @@ jobs:
                   path: story-selector
                   ref: ${{ github.event.pull_request.base.ref }}
                   repository: ${{ github.event.pull_request.base.repo.full_name }}
-                  sparse-checkout: bin/find-affected-stories
+                  # The timing manifest sizes the shard count, so a narrow diff is not
+                  # given a quarter of the runners to do the full run's work. It comes
+                  # from the base branch with the selector: the nightly refresh lands
+                  # there, and a fork cannot steer the shard count through it.
+                  sparse-checkout: |
+                      bin/find-affected-stories
+                      common/storybook/storybook-timings.json
                   sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
@@ -1386,7 +1480,9 @@ jobs:
 
                   RESULT=$(story-selector/bin/find-affected-stories \
                       --graph /tmp/storybook-graph/module-graph.json \
-                      --base-ref "base/$BASE_REF")
+                      --base-ref "base/$BASE_REF" \
+                      --timings story-selector/common/storybook/storybook-timings.json \
+                      --max-shards "$CHROMIUM_SHARDS")
                   echo "$RESULT" > /tmp/selection-result.json
                   # Stash compact form in step output (single line) for the summary step.
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
@@ -1460,7 +1556,9 @@ jobs:
                   echo "affected_files_json=$AFFECTED_FILES_JSON" >> "$GITHUB_OUTPUT"
 
                   # Est. minutes saved vs the full chromium run — same formula as the
-                  # "Write summary" step (SHARD_OVERHEAD_MINUTES=3).
+                  # "Write summary" step (SHARD_OVERHEAD_MINUTES=3). Runner minutes, not
+                  # wall: the story time sums to the same total either way, so the saving
+                  # is the shards that no longer pay their own setup.
                   AFFECTED_DUR=$(jq -r '.affected_duration_seconds' /tmp/selection-result.json)
                   TOTAL_DUR=$(jq -r '.total_duration_seconds' /tmp/selection-result.json)
                   FULL_MINUTES=$(( (CHROMIUM_SHARDS * 3) + (TOTAL_DUR / 60) ))
@@ -1489,6 +1587,10 @@ jobs:
                       FULL_MINUTES=$(( (CURRENT_SHARDS * SHARD_OVERHEAD_MINUTES) + (TOTAL_DUR / 60) ))
                       SELECTIVE_MINUTES=$(( (SHARDS * SHARD_OVERHEAD_MINUTES) + (AFFECTED_DUR / 60) ))
                       SAVED_MINUTES=$((FULL_MINUTES - SELECTIVE_MINUTES))
+                      # A shard runs two workers, so its test wall is its share of the story
+                      # time over two. This is the number a person waits for.
+                      FULL_WALL_MINUTES=$(( TOTAL_DUR / (2 * CURRENT_SHARDS) / 60 ))
+                      SELECTIVE_WALL_MINUTES=$(( AFFECTED_DUR / (2 * SHARDS) / 60 ))
 
                       cat >> "$GITHUB_STEP_SUMMARY" << EOF
                   ## Story selection
@@ -1497,6 +1599,7 @@ jobs:
                   |---|---|---|---|
                   | Story files | $TOTAL | $COUNT | **$SAVED_STORIES** |
                   | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
+                  | Est. shard wall | ~${FULL_WALL_MINUTES}m | ~${SELECTIVE_WALL_MINUTES}m | **~$((FULL_WALL_MINUTES - SELECTIVE_WALL_MINUTES))m** |
                   | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
                   | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
 

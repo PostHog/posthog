@@ -1168,7 +1168,6 @@
     --danger-3000-frame-bg: var(--danger-3000-frame-bg-dark);
     --danger-3000-button-border: var(--danger-3000-button-border-dark);
     --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-dark);
-    --tooltip-bg: var(--tooltip-bg-dark);
     --data-color-2: #7f26d9;
     --data-color-3: #3e7a76;
     --data-color-4: #bf0d6c;
@@ -1595,6 +1594,16 @@
     }
 
     // Bottom notice (DEBUG=1 mode)
+
+    // DebugNotice removes the fixed bar when it mounts in the classic navbar. A layout without DebugNotice keeps the
+    // bar, so the app layout subtracts this height to stop the bar from covering its bottom edge.
+    :root:has(#bottom-notice.tricolor) {
+        --bottom-notice-height: 1.5rem;
+
+        @media screen and (min-width: 750px) {
+            --bottom-notice-height: 2rem;
+        }
+    }
 
     #bottom-notice {
         position: fixed;

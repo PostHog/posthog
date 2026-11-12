@@ -291,7 +291,8 @@ A backlog, a failure or a slow catalog refresh makes it longer.
 
 - The part of the boundary day the processor received before it loaded the leaf.
 - History older than the seeder's lookback cap.
-  Longer windows are truncated and the run records a warning.
+  Django keeps a cohort with a longer window off realtime at save.
+  A run that still truncates and records a warning means `REALTIME_COHORT_MAX_HISTORY_DAYS` is set above the seeder's cap, or an absolute start date passed the limit after the cohort's criteria were last saved.
 - History for `performed_event` leaves with an hour or minute window.
   Only live events fill them.
 - Leaves the pipeline cannot represent at all, such as count windows under a day.
@@ -306,5 +307,6 @@ A backlog, a failure or a slow catalog refresh makes it longer.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
-- Behavioral chunks are claimed newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
-  They are claimed only once no newer day waits, so under sustained load the wait has no bound.
+- Behavioral claims share a replica's slots between teams first, then between a team's runs, and only then take the newest day.
+  A claim never takes a slot back, so a run that arrives while a heavy run holds every slot waits at least until one of that run's chunks ends.
+  When more teams wait than slots free, the newest day decides between them, so the older days of a long-window run can still wait behind the newer days of other runs.

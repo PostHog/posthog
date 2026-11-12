@@ -23,6 +23,9 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "model_override_match": OfflineScorer(kind="boolean", version=UUID("01a1557c-ee78-7412-9b90-2ecf80591aa0")),
         "no_unasked_override": OfflineScorer(kind="boolean", version=UUID("01a1557c-fd45-7a93-8852-b64bcf13eeb8")),
     },
+    "needs_repo": {
+        "needs_repo": OfflineScorer(kind="boolean", version=UUID("01a1cb12-ad4f-7cb7-ab46-c1ed42db9cc7")),
+    },
     "posthog_first": {
         "docs_searched": OfflineScorer(kind="boolean", version=UUID("01a1557d-0f40-7999-9f55-d969442fe434")),
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-0682-75c3-bb88-5a620ba6ce5d")),
@@ -38,11 +41,12 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         ),
         "project_route_match": OfflineScorer(kind="boolean", version=UUID("01a1557d-37df-756c-a5fb-73edde0b1561")),
     },
-    "reply_suggestions": {
-        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-49a7-7417-aa9f-4dbe00ec7b47")),
-        "no_unasked_buttons": OfflineScorer(kind="boolean", version=UUID("01a1557d-5b16-755e-ab88-b824e5103a97")),
-        "reply_offer": OfflineScorer(kind="boolean", version=UUID("01a1557d-5266-7853-a431-6213cfba1b5a")),
-        "suggested_replies_fit": OfflineScorer(kind="boolean", version=UUID("01a1557d-bcc0-7a96-8d22-4d6e91998d5d")),
+    "repo_selection_routing": {
+        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1a29b-30cf-7fef-907b-69efc56159bb")),
+        "routing_stage_correct": OfflineScorer(kind="boolean", version=UUID("01a1a29b-32a3-7dfc-b5b7-33931ddc73ac")),
+        "routing_repository_correct": OfflineScorer(
+            kind="boolean", version=UUID("01a1a29b-3447-794a-afcb-83778635c273")
+        ),
     },
     "untagged_question": {
         "untagged_question": OfflineScorer(kind="boolean", version=UUID("01a15a43-79f8-76bd-98ad-aaacc69b7059")),

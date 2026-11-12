@@ -27,8 +27,7 @@ import {
 } from '../evaluationReportLogic'
 import type { ReportDestination, ReportScheduleCadence, ReportScheduleWeekday } from '../evaluationReportLogic'
 
-export const GUIDANCE_PLACEHOLDER =
-    "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
+export const GUIDANCE_PLACEHOLDER = 'For example: focus on cost changes between models, and keep it to 2 sections.'
 
 const FREQUENCY_OPTIONS = [
     { value: 'every_n' as const, label: <span className="whitespace-normal">Every N evaluations</span> },
@@ -138,8 +137,8 @@ function CooldownConfig({
             />
             {error && <p className="text-xs text-danger mt-1">{error}</p>}
             <p className="text-xs text-muted mt-1">
-                After a report is generated, wait this many hours before generating another — even if the threshold is
-                crossed again. Min {COOLDOWN_HOURS_MIN}, max {COOLDOWN_HOURS_MAX}.
+                After a report, wait this many hours before the next one, even if the threshold is crossed again.
+                {COOLDOWN_HOURS_MIN} to {COOLDOWN_HOURS_MAX} hours.
             </p>
         </div>
     )

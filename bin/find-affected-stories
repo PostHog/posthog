@@ -67,24 +67,39 @@ const NON_RUNTIME_FILE_RE =
     /(^|\/)(__tests__|tests?)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)README\.md$|^(frontend|playwright)\/snapshots\.yml$/
 
 const MAX_CHANGED_FILES = 100
-// Rough per-story render cost (see ci-storybook.yml matrix); used only for
-// the savings-estimate row in the job summary.
+// Fallback per-story render cost, used only when the timing manifest is absent.
+// The manifest is the real source; this keeps the estimate in the right order of
+// magnitude rather than sizing from zero.
 const AVG_STORY_DURATION_SECONDS = 6
-const TARGET_SHARD_SECONDS = 10 * 60
+// Shards the full chromium matrix uses, i.e. CHROMIUM_SHARDS in ci-storybook.yml.
+// Overridden by --max-shards, which the workflow passes.
+const DEFAULT_FULL_SHARDS = 40
 const STORY_RE = /\.stories\.(tsx?|mdx|jsx?)$/
+// Per-story render times, keyed by story path, refreshed nightly by
+// ci-storybook-update-test-timing.yml. The same file the test sequencer balances with.
+const DEFAULT_TIMINGS_PATH = 'common/storybook/storybook-timings.json'
 
 // -----------------------------------------------------------------------------
 // CLI
 // -----------------------------------------------------------------------------
 
 function parseArgs(argv) {
-    const args = { graph: null, baseRef: null }
+    const args = { graph: null, baseRef: null, timings: DEFAULT_TIMINGS_PATH, maxShards: DEFAULT_FULL_SHARDS }
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i]
         if (a === '--graph') args.graph = argv[++i]
         else if (a === '--base-ref') args.baseRef = argv[++i]
+        else if (a === '--timings') args.timings = argv[++i]
+        else if (a === '--max-shards') {
+            // A missing or non-numeric value must not reach the matrix as NaN.
+            const value = Number(argv[++i])
+            args.maxShards = Number.isFinite(value) && value >= 1 ? Math.floor(value) : DEFAULT_FULL_SHARDS
+        }
         else if (a === '--help' || a === '-h') {
-            process.stderr.write('Usage: find-affected-stories --graph <path> --base-ref <git-ref>\n')
+            process.stderr.write(
+                'Usage: find-affected-stories --graph <path> --base-ref <git-ref> ' +
+                    '[--timings <path>] [--max-shards <n>]\n'
+            )
             process.exit(0)
         } else {
             process.stderr.write(`Unknown argument: ${a}\n`)
@@ -115,11 +130,53 @@ function emitFull(reason, totalStories) {
     process.stdout.write(JSON.stringify({ mode: 'full', reason, total_story_count: totalStories }) + '\n')
 }
 
-function emitSelective(affected, totalStories, unresolved) {
-    const affectedDuration = affected.length * AVG_STORY_DURATION_SECONDS
-    const totalDuration = totalStories * AVG_STORY_DURATION_SECONDS
-    // 2x safety factor keeps selective shards below the target under variance.
-    const suggestedShards = Math.max(1, Math.floor((affectedDuration * 2) / TARGET_SHARD_SECONDS) + 1)
+export function loadTimings(path) {
+    try {
+        const data = JSON.parse(fs.readFileSync(path, 'utf-8'))
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            return null
+        }
+        const entries = Object.entries(data).filter(([, v]) => v && typeof v.chromium === 'number')
+        return entries.length > 0 ? new Map(entries) : null
+    } catch {
+        return null
+    }
+}
+
+// Render seconds for a set of stories. A story the nightly refresh has not timed
+// yet costs the manifest median, which is far closer than the old flat constant.
+export function workloadSeconds(stories, timings) {
+    if (!timings) {
+        return stories.length * AVG_STORY_DURATION_SECONDS
+    }
+    const known = [...timings.values()]
+        .map((v) => v.chromium)
+        .sort((a, b) => a - b)
+    const fallback = known[Math.floor(known.length / 2)]
+    let total = 0
+    for (const story of stories) {
+        const entry = timings.get(story)
+        total += entry ? entry.chromium : fallback
+    }
+    return total
+}
+
+export function suggestShards(affectedDuration, totalDuration, maxShards) {
+    // Give the narrowed run the shard density the full matrix has, so a selective
+    // run finishes its tests in about the wall time a full run does. Sizing from a
+    // flat per-story constant instead put the full run's story time on a quarter of
+    // its runners, and a narrowed run took twice as long per shard as a full one.
+    if (!(totalDuration > 0) || !(affectedDuration > 0)) {
+        return 1
+    }
+    const proportional = Math.ceil((affectedDuration / totalDuration) * maxShards)
+    return Math.max(1, Math.min(maxShards, proportional))
+}
+
+function emitSelective(affected, totalStories, unresolved, allStories, maxShards, timings) {
+    const affectedDuration = workloadSeconds(affected, timings)
+    const totalDuration = workloadSeconds(allStories, timings)
+    const suggestedShards = suggestShards(affectedDuration, totalDuration, maxShards)
     process.stdout.write(
         JSON.stringify({
             mode: 'selective',
@@ -275,7 +332,20 @@ export function main() {
         return
     }
     process.stderr.write(`Affected stories: ${affected.length} / ${totalStories} (unresolved: ${unresolved.length})\n`)
-    emitSelective(affected, totalStories, unresolved)
+
+    const timings = loadTimings(args.timings)
+    if (!timings) {
+        process.stderr.write(`No timing manifest at ${args.timings}; sizing shards from the flat estimate\n`)
+    } else {
+        // A key format drift would send every story to the median without failing,
+        // so the hit rate is printed where the job log shows it.
+        const timed = affected.filter((story) => timings.has(story)).length
+        process.stderr.write(
+            `Timed ${timed} of ${affected.length} affected stories from ${args.timings}; the rest cost the median\n`
+        )
+    }
+    const allStories = graph.modules.map((m) => normalize(m.name)).filter((name) => STORY_RE.test(name))
+    emitSelective(affected, totalStories, unresolved, allStories, args.maxShards, timings)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

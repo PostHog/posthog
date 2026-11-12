@@ -62,7 +62,7 @@
             ]
         },
         "BillingUsageTypesSchema": {
-            "description": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
+            "description": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
             "anyOf": [
                 {
                     "type": "array",
@@ -290,7 +290,8 @@
                                         "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -312,7 +313,8 @@
                                         "description": "Partial column fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -334,7 +336,8 @@
                                         "description": "Partial row fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -352,7 +355,8 @@
                                         "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
                                     }
                                 },
-                                "required": ["op", "patch"]
+                                "required": ["op", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -380,7 +384,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "column_id", "content"]
+                                "required": ["op", "column_id", "content"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -394,7 +399,8 @@
                                         "description": "Id of the content block to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -418,7 +424,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "id", "column_id"]
+                                "required": ["op", "id", "column_id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -442,7 +449,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "row"]
+                                "required": ["op", "row"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -456,14 +464,16 @@
                                         "description": "Id of the row to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             }
                         ]
                     },
                     "description": "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design."
                 }
             },
-            "required": ["id", "operations"]
+            "required": ["id", "operations"],
+            "additionalProperties": false
         },
         "EventDefinitionCreateSchema": {
             "type": "object",
@@ -623,7 +633,7 @@
                     "description": "The final SQL query to be executed."
                 },
                 "context": {
-                    "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+                    "description": "Why this query runs, and the governed-catalog outcome behind it. Write \"governed catalog consulted: no match\" here only after a catalog check found no approved metric for the measure: a `metric-list` call, or a metric listing that your instructions provide. Without that check, leave the phrase out. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
                     "type": "string"
                 },
                 "truncate": {
@@ -641,6 +651,16 @@
                 }
             },
             "required": ["query"]
+        },
+        "ExperimentHealthGetSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "number",
+                    "description": "The ID of the experiment to check"
+                }
+            },
+            "required": ["id"]
         },
         "ExperimentResultsGetSchema": {
             "type": "object",
@@ -695,7 +715,7 @@
                     ]
                 },
                 "query": {
-                    "description": "A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.",
+                    "description": "A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.",
                     "type": "object",
                     "propertyNames": {
                         "type": "string"
@@ -704,7 +724,7 @@
                 },
                 "series": {
                     "default": 0,
-                    "description": "Index of the series in the chart's results that the story follows. Defaults to the first one.",
+                    "description": "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one.",
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
@@ -731,10 +751,10 @@
                             "start": {
                                 "type": "string",
                                 "minLength": 1,
-                                "description": "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+                                "description": "The first point the chapter covers. On a trends chart, copy it from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart). On a funnel, give the step number, where `1` is the first step."
                             },
                             "end": {
-                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point.",
+                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point. A funnel chapter about the drop between two steps starts at the earlier step and ends at the later one.",
                                 "type": "string",
                                 "minLength": 1
                             },
@@ -779,11 +799,15 @@
                                             },
                                             "additionalProperties": {}
                                         },
-                                        "url": {
-                                            "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
+                                        "insightShortId": {
+                                            "description": "The `short_id` of a saved insight that shows this. The explanation links to it.",
                                             "type": "string",
-                                            "format": "uri",
-                                            "pattern": "^https:\\/\\/.*"
+                                            "pattern": "^[A-Za-z0-9]{8}$"
+                                        },
+                                        "url": {
+                                            "description": "A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.",
+                                            "type": "string",
+                                            "pattern": "^https:\\/\\/github\\.com\\/[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+\\/(pull\\/\\d+|commit\\/[0-9a-fA-F]{7,40})\\/?$"
                                         }
                                     },
                                     "required": ["text"]
@@ -793,6 +817,133 @@
                         "required": ["title", "start"]
                     },
                     "description": "The moments that stand out, in the order to read them. At most 8."
+                }
+            },
+            "required": ["headline", "chapters"]
+        },
+        "ExplainChartSaveInputSchema": {
+            "type": "object",
+            "properties": {
+                "insightId": {
+                    "description": "The saved insight to explain: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
+                },
+                "query": {
+                    "description": "A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.",
+                    "type": "object",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "additionalProperties": {}
+                },
+                "series": {
+                    "default": 0,
+                    "description": "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                },
+                "headline": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**."
+                },
+                "chapters": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "description": "A short title, for example \"A spike on October 2\" or \"Lower since September 28\"."
+                            },
+                            "start": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The first point the chapter covers. On a trends chart, copy it from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart). On a funnel, give the step number, where `1` is the first step."
+                            },
+                            "end": {
+                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point. A funnel chapter about the drop between two steps starts at the earlier step and ends at the later one.",
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "summary": {
+                                "description": "What happened, in one or two sentences. Do not repeat the chart's own numbers: the app works them out from the chart and shows them above this.",
+                                "type": "string",
+                                "maxLength": 400
+                            },
+                            "cause": {
+                                "description": "The most likely cause, in one or two sentences. Say whether it is a real change in behavior or an artifact of the data. Wrap the name behind it, such as a referrer or a country, in **double asterisks**. Omit it when you found no cause.",
+                                "type": "string",
+                                "maxLength": 600
+                            },
+                            "confidence": {
+                                "description": "How sure you are of the cause. high: independent signals agree. medium: one signal, or a strong pattern without a cross-check. low: a guess.",
+                                "type": "string",
+                                "enum": ["high", "medium", "low"]
+                            },
+                            "confidence_reason": {
+                                "description": "Why you gave that confidence, in one sentence.",
+                                "type": "string",
+                                "maxLength": 200
+                            },
+                            "evidence": {
+                                "description": "What you checked, at most 6 findings.",
+                                "maxItems": 6,
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "text": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 400,
+                                            "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
+                                        },
+                                        "query": {
+                                            "description": "The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.",
+                                            "type": "object",
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "additionalProperties": {}
+                                        },
+                                        "insightShortId": {
+                                            "description": "The `short_id` of a saved insight that shows this. The explanation links to it.",
+                                            "type": "string",
+                                            "pattern": "^[A-Za-z0-9]{8}$"
+                                        },
+                                        "url": {
+                                            "description": "A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.",
+                                            "type": "string",
+                                            "pattern": "^https:\\/\\/github\\.com\\/[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+\\/(pull\\/\\d+|commit\\/[0-9a-fA-F]{7,40})\\/?$"
+                                        }
+                                    },
+                                    "required": ["text"]
+                                }
+                            }
+                        },
+                        "required": ["title", "start"]
+                    },
+                    "description": "The moments that stand out, in the order to read them. At most 8."
+                },
+                "explanationId": {
+                    "description": "The id an earlier `explain-chart-save` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.",
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 }
             },
             "required": ["headline", "chapters"]
@@ -1836,6 +1987,381 @@
             },
             "description": "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
         },
+        "ScannerEstimateRecordingsFilterSchema": {
+            "description": "Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
+        "ScannerRecordingsFilterSchema": {
+            "description": "Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
+        "ScannerUpdateRecordingsFilterSchema": {
+            "description": "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time.",
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "default": "RecordingsQuery",
+                    "type": "string",
+                    "const": "RecordingsQuery"
+                },
+                "events": {
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "actions": {
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "properties": {
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "having_predicates": {
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "console_log_filters": {
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`.",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "operand": {
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": ["AND", "OR"]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "filter_test_accounts": {
+                    "description": "Leave out recordings from internal and test accounts.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": {}
+        },
         "ScoreDefinitionConfigSchema": {
             "anyOf": [
                 {
@@ -2711,7 +3237,8 @@
                                         "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2733,7 +3260,8 @@
                                         "description": "Partial column fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2755,7 +3283,8 @@
                                         "description": "Partial row fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2773,7 +3302,8 @@
                                         "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
                                     }
                                 },
-                                "required": ["op", "patch"]
+                                "required": ["op", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2801,7 +3331,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "column_id", "content"]
+                                "required": ["op", "column_id", "content"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2815,7 +3346,8 @@
                                         "description": "Id of the content block to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2839,7 +3371,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "id", "column_id"]
+                                "required": ["op", "id", "column_id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2863,7 +3396,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "row"]
+                                "required": ["op", "row"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2877,7 +3411,8 @@
                                         "description": "Id of the row to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             }
                         ]
                     }

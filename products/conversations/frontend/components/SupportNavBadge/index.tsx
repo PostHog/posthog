@@ -10,8 +10,13 @@ export interface SupportNavBadgeProps {
     className?: string
 }
 
+/** The unread ticket count. It mounts the counter logic, which polls only while Support is on. */
+export function useSupportUnreadCount(): number {
+    return useValues(supportTicketCounterLogic).unreadCount
+}
+
 export function SupportNavBadge({ className }: SupportNavBadgeProps): JSX.Element {
-    const { unreadCount } = useValues(supportTicketCounterLogic)
+    const unreadCount = useSupportUnreadCount()
 
     return (
         <IconWithCount count={unreadCount} showZero={false} className={className}>

@@ -9,8 +9,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
+import { agentClaim, myAgentClaim, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, SignalReport, SignalReportStatus } from '../../types'
 import { ReportContextMenu } from './ReportContextMenu'
 
@@ -153,6 +154,12 @@ describe('ReportContextMenu', () => {
             item: 'Unclaim',
             body: { release: true },
         },
+        {
+            name: 'releases the claim made by the user through their agent',
+            report: makeReport({ assignee: myAgentClaim }),
+            item: 'Unclaim',
+            body: { release: true },
+        },
     ])('$name', async ({ report, item, body }) => {
         openMenu(report)
 
@@ -191,12 +198,38 @@ describe('ReportContextMenu', () => {
         }
     })
 
-    it('does not let the user claim a report a teammate is working on', () => {
-        openMenu(makeReport({ assignee: teammateClaim }))
+    // A silent takeover would move a teammate's work to the user without the teammate knowing.
+    it.each([
+        { holder: 'a teammate', assignee: teammateClaim, description: 'Robin is working on this report.' },
+        {
+            holder: "a teammate's agent",
+            assignee: agentClaim(teammateClaim.user!, 'codex'),
+            description: "Robin's agent is working on this report.",
+        },
+    ])('asks before it takes over a report $holder is working on', async ({ assignee, description }) => {
+        // The list keeps its logic mounted after the menu closes for the dialog.
+        reportListLogic(sectionListLogicProps('needs-decision')).mount()
+        openMenu(makeReport({ assignee }))
 
-        fireEvent.click(screen.getByText('Claim'))
+        fireEvent.click(screen.getByText('Take over'))
 
+        expect(await screen.findByText(new RegExp(description))).toBeInTheDocument()
         expect(claimRequests).toEqual([])
+        fireEvent.click(screen.getAllByText('Take over').at(-1)!)
+
+        await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body: { takeover: true } }]))
+    })
+
+    // Only a run in flight blocks Create PR. A claim leads to a dialog instead, so it must not disable the item.
+    it.each([
+        { name: "a teammate's claim", report: { assignee: teammateClaim }, disabled: false },
+        { name: "the user's agent claim", report: { assignee: myAgentClaim }, disabled: false },
+        { name: "the user's own claim", report: { assignee: myClaim }, disabled: false },
+        { name: 'a run in flight', report: { assignee: myClaim, implementation_in_flight: true }, disabled: true },
+    ])('gates Create PR on $name', ({ report, disabled }) => {
+        openMenu(makeReport(report))
+
+        expect(screen.getByText('Create PR').closest('[role="menuitem"]')?.hasAttribute('data-disabled')).toBe(disabled)
     })
 
     // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.
@@ -295,5 +328,7 @@ describe('ReportContextMenu', () => {
 
         expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
+        fireEvent.click(screen.getByText('Cancel'))
+        await waitFor(() => expect(screen.queryByText(dialog)).not.toBeInTheDocument())
     })
 })

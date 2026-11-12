@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-1110",
+    "kind": "native",
+    "runtimeVersion": "1.11.0",
+    "previousRelease": "native-1100",
+    "notes": "This release adds the Chart home screen widget on iOS and Android. It shows a pinned insight from the Views tab as a number, chart or compact rows, including SQL values and a dashboard's selected tile, in small, medium and large sizes, and refreshes by itself every 30 minutes with a read-only copy of the session. Verify: add the widget from the home screen, pick a pin in the iOS Edit widget sheet or the Android setup screen, check formatted currency, percentages, text, tables, funnels and retention against the app, change a dashboard's selected tile and confirm the widget updates, check the large centered number, chart labels and headline in light and dark appearances, check the value and age against the app, sign out and confirm the widget asks to sign in, switch project and confirm the widget says the pin is in another project, and confirm the Hedgehog widget still plays."
+}

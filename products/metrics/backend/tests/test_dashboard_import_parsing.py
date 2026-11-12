@@ -709,6 +709,19 @@ def test_maps_colors_to_theme_tokens(color: str, token: str) -> None:
     assert map_color(color) == token
 
 
+@pytest.mark.parametrize(
+    "color, token",
+    [
+        ("warning", "warning"),
+        ("data-color-3", "data-color-3"),
+        ("orange", "warning"),
+        ("chartreuse", "data-color-1"),
+    ],
+)
+def test_a_threshold_stores_a_theme_token(color: str, token: str) -> None:
+    assert Threshold(color=color, value=0).color == token
+
+
 def test_base_threshold_sits_below_every_other_step() -> None:
     assert map_thresholds([{"color": "red", "value": None}, {"color": "green", "value": 10}]) == [
         Threshold(color="danger", value=9),

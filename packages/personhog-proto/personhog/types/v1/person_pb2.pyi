@@ -68,6 +68,7 @@ class DistinctIdWriteAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: _ClassVar[DistinctIdWriteAction]
     DISTINCT_ID_WRITE_ACTION_INSERT: _ClassVar[DistinctIdWriteAction]
     DISTINCT_ID_WRITE_ACTION_RAISE: _ClassVar[DistinctIdWriteAction]
+    DISTINCT_ID_WRITE_ACTION_TOMBSTONE: _ClassVar[DistinctIdWriteAction]
 
 class DistinctIdWriteOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -104,6 +105,7 @@ RESTORE_OUTCOME_NO_DISTINCT_ID: RestoreOutcome
 DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_INSERT: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_RAISE: DistinctIdWriteAction
+DISTINCT_ID_WRITE_ACTION_TOMBSTONE: DistinctIdWriteAction
 DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED: DistinctIdWriteOutcome
 DISTINCT_ID_WRITE_OUTCOME_APPLIED: DistinctIdWriteOutcome
 DISTINCT_ID_WRITE_OUTCOME_UNCHANGED: DistinctIdWriteOutcome
@@ -452,6 +454,26 @@ class UpdatePersonPropertiesResponse(_message.Message):
     person: Person
     updated: bool
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
+
+class RaisePersonVersionRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "min_version")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    min_version: int
+    def __init__(
+        self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...
+    ) -> None: ...
+
+class RaisePersonVersionResponse(_message.Message):
+    __slots__ = ("person", "raised")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    RAISED_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+    raised: bool
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., raised: bool = ...) -> None: ...
 
 class DeletePersonsRequest(_message.Message):
     __slots__ = ("team_id", "person_uuids", "mode")

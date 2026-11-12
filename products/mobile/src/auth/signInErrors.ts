@@ -1,4 +1,5 @@
 import { ApiError, NotSignedInError } from '@/api/client'
+import { TransportError } from '@/api/transport'
 
 import type { AuthMethod } from './authStore'
 import { OAuthError, type OAuthErrorKind } from './oauth'
@@ -19,7 +20,7 @@ export function accountLoadKind(error: unknown): AccountLoadKind {
     if (error instanceof ApiError) {
         return error.status === 403 ? 'forbidden' : 'api_error'
     }
-    if (error instanceof TypeError) {
+    if (error instanceof TransportError) {
         return 'network'
     }
     return 'unknown'

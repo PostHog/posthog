@@ -1,4 +1,5 @@
 import { createSseParser, readSse, type SseEvent } from './sse'
+import { RequestTimeoutError } from './transport'
 
 function parse(chunks: string[]): SseEvent[] {
     const events: SseEvent[] = []
@@ -61,5 +62,36 @@ describe('sse', () => {
         const events: SseEvent[] = []
         await readSse(response, (event) => events.push(event))
         expect(events).toEqual([{ event: 'message', data: '"Größe"', id: undefined }])
+    })
+    test.each(['stalled', 'active'])('bounds %s readers while allowing heartbeat activity', async (kind) => {
+        jest.useFakeTimers()
+        const reader = {
+            read: jest.fn(() => new Promise<ReadableStreamReadResult<Uint8Array>>(() => undefined)),
+            cancel: jest.fn(async () => undefined),
+        }
+        let heartbeat!: (value: ReadableStreamReadResult<Uint8Array>) => void
+        if (kind === 'active')
+            reader.read.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        heartbeat = resolve
+                    })
+            )
+        const response = { body: { getReader: () => reader } } as unknown as Response
+        const pending = readSse(response, jest.fn(), undefined, 60_000)
+        const rejected = expect(pending).rejects.toBeInstanceOf(RequestTimeoutError)
+        try {
+            await jest.advanceTimersByTimeAsync(59_000)
+            if (kind === 'active') {
+                heartbeat({ value: new TextEncoder().encode(': ping\n\n'), done: false })
+                await jest.advanceTimersByTimeAsync(59_000)
+                expect(reader.cancel).not.toHaveBeenCalled()
+            }
+            await jest.advanceTimersByTimeAsync(1_000)
+            await rejected
+            expect(reader.cancel).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

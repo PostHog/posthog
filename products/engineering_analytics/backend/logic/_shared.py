@@ -1,17 +1,14 @@
-"""Caller-input resolution shared by the domain orchestration modules."""
-
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
-# Default recency window when a caller omits date_from. Relative strings (-30d) and
-# ISO8601 are both accepted and resolved against the team's timezone.
-_DEFAULT_WINDOW = "-30d"
+DEFAULT_WINDOW = timedelta(days=30)
+_DEFAULT_WINDOW = f"-{DEFAULT_WINDOW.days}d"
 
-# workflow_health zero-fills one daily entry per workflow per day in the window, so an
-# unbounded range would materialize an enormous response. A year is plenty for trends.
+# workflow_health zero-fills one entry per workflow per day in the window, so the response
+# grows with the range.
 _MAX_WINDOW_DAYS = 366
 
 
@@ -22,7 +19,8 @@ def _parse_date(team: Team, value: str) -> datetime:
 def _parse_window(
     team: Team, date_from: str | None, date_to: str | None, *, default: str, max_days: int = _MAX_WINDOW_DAYS
 ) -> tuple[datetime, datetime | None]:
-    """Resolve a caller's date window against the team timezone, capping the span at max_days."""
+    """Resolve the window in the team's timezone. Raises ValueError when it is reversed or spans
+    more than ``max_days``."""
     parsed_from = _parse_date(team, date_from or default)
     parsed_to = _parse_date(team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
@@ -35,7 +33,7 @@ def _parse_window(
 
 @frozen
 class ScanWindow:
-    """The resolved window end and the start of the equal-length prior twin."""
+    """``scan_from`` is the start of the equal-length window before the requested one."""
 
     scan_from: datetime
     resolved_to: datetime
@@ -43,21 +41,16 @@ class ScanWindow:
 
 @frozen
 class WindowedCount:
-    """A per-key figure with its prior-window twin, for enrichment joins."""
-
     current: int | None
     prior: int | None
 
 
 def _prior_window(date_from: datetime, date_to: datetime | None) -> ScanWindow:
-    """Resolve the prior-twin scan bounds in one place so every *_prior figure on a row
-    shares the same boundary."""
     resolved_to = date_to or datetime.now(tz=date_from.tzinfo)
     return ScanWindow(scan_from=date_from - (resolved_to - date_from), resolved_to=resolved_to)
 
 
 def _require_repo(repo: str | None) -> tuple[str, str]:
-    """`_split_repo` for builders whose repo argument is mandatory."""
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
@@ -68,8 +61,7 @@ def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not repo:
         return None, None
     owner, _, name = repo.partition("/")
-    # A half-specified repo (bare org, trailing/leading slash) would otherwise drop
-    # the filter silently and return a PR from the wrong repo — fail loudly instead.
+    # A half-specified repo would otherwise drop the filter and return rows from the wrong repo.
     if not (owner and name):
         raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
     return owner, name

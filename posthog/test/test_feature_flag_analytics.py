@@ -17,9 +17,10 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog import redis
 from posthog.constants import FlagRequestType
@@ -29,7 +30,10 @@ from posthog.helpers.dashboard_templates import (
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
 )
 from posthog.models.team.team import Team
-from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
+from posthog.tasks.tasks import (
+    calculate_decide_usage,
+    find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task,
+)
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
@@ -44,6 +48,7 @@ from products.feature_flags.backend.flag_analytics import (
     get_cached_evaluations_7d_by_team,
     get_evaluations_7d_by_team,
     get_team_request_library_key,
+    increment_local_evaluation_request_counts,
     increment_request_count,
     report_django_local_evaluation_usage,
 )
@@ -97,8 +102,16 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
 
+    @override_settings(FLAGS_BILLING_COUNTERS_ENABLED=False)
+    def test_disabled_counters_write_nothing_to_redis(self):
+        increment_request_count(3)
+        increment_request_count(3, 1, FlagRequestType.REMOTE_CONFIG)
+        increment_local_evaluation_request_counts(3)
+
+        self.assertEqual(list(redis.get_client().scan_iter("*")), [])
+
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_increment_request_count_remote_config_uses_own_bucket(self):
+    def test_increment_request_count_uses_one_bucket_per_request_type(self):
         team_id = 3
 
         with time_machine.travel("2022-05-07 12:23:07", tick=False):
@@ -106,11 +119,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 increment_request_count(team_id)
             for _ in range(6):
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
+            for _ in range(2):
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
 
             client = redis.get_client()
 
             # Remote config fetches are telemetry-only, so they must never leak into the
-            # decide bucket that billing consumes.
+            # decide bucket that billing consumes. The literal keys are the contract with the
+            # Rust service, which writes them, so a drift would leave those requests unbilled.
             self.assertEqual(
                 client.hgetall(f"posthog:decide_requests:{team_id}"),
                 {b"165192618": b"4"},
@@ -118,6 +134,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(
                 client.hgetall(f"posthog:remote_config_requests:{team_id}"),
                 {b"165192618": b"6"},
+            )
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_not_modified_requests:{team_id}"),
+                {b"165192618": b"2"},
             )
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
@@ -136,6 +156,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(7):
                 # 7 requests for other team
@@ -147,6 +168,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(3):
                 # 3 requests for other team
@@ -158,6 +180,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
                 increment_request_count(other_team_id)
 
@@ -165,7 +188,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             # these other requests should not add duplicate counts
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
-            assert mock_capture.capture.call_count == 3
+            assert mock_capture.capture.call_count == 4
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="decide usage",
@@ -181,6 +204,18 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="local evaluation usage",
+                properties={
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
+            )
+            mock_capture.capture.assert_any_call(
+                distinct_id=team_id,
+                event="local evaluation not modified usage",
                 properties={
                     "count": 15,
                     "team_id": team_id,
@@ -283,6 +318,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 )
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    @patch("products.feature_flags.backend.flag_analytics.TEAM_KEY_CHECK_BATCH_SIZE", 2)
     def test_efficient_querying_of_team_decide_usage_data(self):
         mock_capture = MagicMock()
         team_id = 3901
@@ -297,6 +333,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         Team.objects.create(
             id=other_team_id, organization=self.organization, api_token=f"token:::{other_team_id}", uuid=other_team_uuid
         )
+        local_evaluation_team_id = Team.objects.create(organization=self.organization).id
+        remote_config_team_id = Team.objects.create(organization=self.organization).id
+        not_modified_team_id = Team.objects.create(organization=self.organization).id
 
         with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             for _ in range(10):
@@ -305,6 +344,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             for _ in range(7):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
+            increment_request_count(local_evaluation_team_id, request_type=FlagRequestType.LOCAL_EVALUATION)
+            increment_request_count(remote_config_team_id, request_type=FlagRequestType.REMOTE_CONFIG)
+            increment_request_count(not_modified_team_id, request_type=FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
 
             frozen_datetime.shift(datetime.timedelta(seconds=5))
 
@@ -321,8 +363,18 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(other_team_id)
+            increment_request_count(local_evaluation_team_id, request_type=FlagRequestType.LOCAL_EVALUATION)
+            increment_request_count(remote_config_team_id, request_type=FlagRequestType.REMOTE_CONFIG)
+            increment_request_count(not_modified_team_id, request_type=FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
 
-            with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"), snapshot_postgres_queries_context(self):
+            with (
+                self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
+                snapshot_postgres_queries_context(self),
+                patch(
+                    "products.feature_flags.backend.flag_analytics.capture_team_decide_usage",
+                    wraps=capture_team_decide_usage,
+                ) as team_export,
+            ):
                 capture_usage_for_all_teams(mock_capture)
 
                 mock_capture.capture.assert_any_call(
@@ -350,7 +402,39 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                         "token": "token",
                     },
                 )
-                assert mock_capture.capture.call_count == 2
+                exported = {
+                    (call.kwargs["distinct_id"], call.kwargs["event"]) for call in mock_capture.capture.call_args_list
+                }
+                assert exported == {
+                    (team_id, "decide usage"),
+                    (other_team_id, "decide usage"),
+                    (local_evaluation_team_id, "local evaluation usage"),
+                    (remote_config_team_id, "remote config usage"),
+                    (not_modified_team_id, "local evaluation not modified usage"),
+                }
+                assert mock_capture.capture.call_count == 5
+                assert {call.args[1] for call in team_export.call_args_list} == {
+                    team_id,
+                    other_team_id,
+                    local_evaluation_team_id,
+                    remote_config_team_id,
+                    not_modified_team_id,
+                }
+
+    def test_failed_key_check_exports_every_team_in_the_batch(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        client = MagicMock()
+        client.pipeline.return_value.execute.side_effect = RedisConnectionError("Redis unavailable")
+
+        with (
+            patch("products.feature_flags.backend.flag_analytics.get_client", return_value=client),
+            patch("products.feature_flags.backend.flag_analytics.capture_team_decide_usage") as team_export,
+            patch("products.feature_flags.backend.flag_analytics.capture_exception") as capture_error,
+        ):
+            capture_usage_for_all_teams(MagicMock())
+
+        assert {self.team.id, other_team.id} <= {call.args[1] for call in team_export.call_args_list}
+        capture_error.assert_called_once()
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."
@@ -650,6 +734,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-go-mcp",
             "posthog-ruby-mcp",
             "posthog-php",
+            "posthog-laravel",
             "posthog-ruby",
             "posthog-rails",
             "posthog-go",
@@ -1353,3 +1438,16 @@ class TestEnrichedFlagKeyExprSQL(SimpleTestCase):
         ):
             sql = _enriched_flag_key_expr_sql()
         assert sql == "ifNull(`mat_feature_flag`, '')"
+
+
+class TestCalculateDecideUsage(SimpleTestCase):
+    @patch(
+        "products.feature_flags.backend.flag_analytics.capture_usage_for_all_teams",
+        side_effect=ConnectionError("redis"),
+    )
+    @patch("posthog.tasks.tasks.get_regional_ph_client")
+    def test_shuts_down_the_client_when_the_export_fails(self, get_regional_ph_client, _capture):
+        with pytest.raises(ConnectionError):
+            calculate_decide_usage()
+
+        get_regional_ph_client.return_value.shutdown.assert_called_once()

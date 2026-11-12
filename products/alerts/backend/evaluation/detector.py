@@ -71,6 +71,7 @@ def extract_detector_series(
     detector_config: dict[str, Any],
     execution_mode: ExecutionMode,
     *,
+    cache_age_seconds: int | None = None,
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
@@ -103,7 +104,12 @@ def extract_detector_series(
         filters_override = _date_range_override_for_detector(query, min_samples)
 
     calculation_result = calculate_for_query_based_insight(
-        insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
+        user=user,
+        filters_override=filters_override,
     )
 
     if calculation_result.result is None:
@@ -265,6 +271,12 @@ def _earlier_flags(alert: AlertConfiguration) -> tuple[EarlierFlag, ...]:
 
 def _saved_alert_flags(team: Team, alert_id: Any) -> tuple[EarlierFlag, ...]:
     alert = AlertConfiguration.objects.filter(team_id=team.id, id=alert_id).first()
+    if alert is None:
+        # Imported here for the same reason as `_platform_fired_checks`'s import.
+        from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+
+        view = native_insight_alert_view(team.id, alert_id)
+        alert = AlertConfiguration.from_platform_view(view, team_id=team.id) if view is not None else None
     return _earlier_flags(alert) if alert is not None else ()
 
 
@@ -508,7 +520,12 @@ class TrendsDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
@@ -521,6 +538,7 @@ class TrendsDetectorExtractor:
             trends_query,
             detector_config,
             execution_mode,
+            cache_age_seconds=cache_age_seconds,
             series_index=series_index,
             user=alert.created_by,
             evaluation_delay_intervals=alert.evaluation_delay_intervals,

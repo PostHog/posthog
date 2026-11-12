@@ -29,6 +29,10 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
+Without this key, PostHog cannot create OAuth applications.
+Django's system checks print warning `posthog.oauth.W001` at startup.
+Client ID metadata document clients, dynamic client registration and toolbar sign-in get an OAuth `server_error` that names the missing setting.
+
 ### 2. Set Up Your Environment
 
 First, generate demo data which includes a test OAuth application:
@@ -228,7 +232,7 @@ See [Client Types](#client-types) section for detailed explanation.
    {
      "access_token": "...",
      "token_type": "Bearer",
-     "expires_in": 36000,
+     "expires_in": 3600,
      "refresh_token": "...",
      "id_token": "...",
      "scope": "openid experiment:read query:read",
@@ -236,6 +240,9 @@ See [Client Types](#client-types) section for detailed explanation.
      "scoped_organizations": ["org-uuid"]
    }
    ```
+
+   An access token expires after 1 hour.
+   Before it expires, use the refresh token to get a new one.
 
 ## Available Scopes
 
@@ -262,6 +269,16 @@ When authorizing an application, users can scope access to:
 3. **Team**: Access limited to specific teams/projects
 
 This is configured during the authorization step, not in the application settings.
+
+OAuth bearer requests, including provisioning requests, must satisfy the IP policy of the organization targeted by the request. Credential scopes still limit which organizations and projects a token can reach. OAuth consent, automatic approval, and first-party approval check every organization reachable by the grant before issuing an authorization code. Declining consent remains available. Device and CLI approvals check the selected project before issuing scoped credentials. Setup runs and account-linking actions check the resolved project or organization before starting work. Staff impersonation retains its existing exemption.
+
+Personal API key creation, scope changes, expiry changes, and rotation check the organizations named by both organization and project scopes. Unscoped keys check all of the owner's current organizations. A denied request leaves the credential unchanged. New GitHub team integrations require project membership; updating an existing integration requires management access. Both paths check the target organization's IP policy before consuming authorization state.
+
+Organization listing and account recovery remain available from a blocked IP. Blocked organizations expose only their ID, name, slug, and membership level in these responses; their team and project lists are empty, and their credentials and settings are omitted. The selected team is null when its organization blocks the request. Plain app and toolbar requests enforce the current team's organization policy even when the selected organization differs. Creating a project or environment updates both selections together. Updating an allowlist rechecks the resulting policy under its configuration-row lock before saving. GitHub team OAuth returns recheck project access and the target organization's policy before consuming authorization state. MCP OAuth callbacks check the installation's organization before consuming state or exchanging the authorization code, including development callbacks.
+
+The blocked-organization decision is reused only within the same request, principal, authentication context, and client IP.
+
+The native `/oauth/userinfo/` endpoint verifies the access token and `openid` scope before applying the same IP policy to the token's user. This applies to both GET and POST requests. A policy denial returns HTTP 403 with `error: access_denied` and `code: ip_not_allowed`; invalid or expired tokens retain the OAuth provider's error responses.
 
 If you would like to force the user to pick a single team or an organization you can use the `required_access_level=project` or `required_access_level=organization` query parameter in the authorization url.
 
@@ -328,14 +345,14 @@ print(tokens)
 
 PostHog's own public clients (hogli, the Visual Review Chrome extension, and internal tools) authenticate with client ID metadata documents (CIMD) rather than a registered application or dynamic client registration. Their documents live in the [posthog.com repo](https://github.com/PostHog/posthog.com) at `static/.well-known/oauth/<app>/client-metadata.json`, served at `https://posthog.com/.well-known/oauth/<app>/client-metadata.json`. That URL is the `client_id`, so one ID works on US, EU, and self-hosted.
 
-To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
+To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A client that only signs people in can list only `openid`, `profile`, and `email`, and gets no resource scope. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
 
 ## Self-registered client logos
 
-Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
+Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client without a logo gets the first letter of its name instead.
 
 - Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
-- Client ID metadata documents: put `logo_uri` in the document.
+- Client ID metadata documents: put `logo_uri` in the document. A document without one gets `https://<client_id host>/apple-touch-icon.png`, the touch icon of the host that serves the document. It never comes from `client_uri`, which the document asserts about itself, so a client cannot borrow another site's icon. Where the host has no such icon, the screens fall back to the first letter. A refresh keeps a stored logo when the document still has none.
 
 The URI must be `https` and must pass `is_url_allowed`, the same SSRF guard the rest of the codebase uses. That rejects a loopback, private, metadata or internal-domain host, and it resolves the name, so a public hostname pointing at a private address is rejected too. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
 
@@ -356,7 +373,18 @@ An account created while the cookie is present skips in-app onboarding. Signup s
 
 While the cookie is present, the auth page pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
 
-Analytics: `/login` and `/signup` render the same page, which asks for the email first and then shows the login or the signup steps. The frontend captures `auth step viewed` for every step, with `step` (`email`, `login`, `login_code`, `signup_credentials`, `signup_profile`, `signup_pending_invite`, or `verify_email`), `entry` (`login` or `signup`), and `oauth_client_name` and `oauth_client_id` while the cookie is present. `auth email submitted` records the routing decision with `routed_to` and `account_exists`. `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
+To try these screens locally, run `generate_demo_data`. It registers the Claude and ChatGPT connectors from their public client ID metadata documents, the same way production registers them. Then open **Login tools** on `/login` and pick a connector under **Start an OAuth connection**. That sets the cookie and a `next` link to the consent screen, as the redirect above does. **Clear** deletes the cookie again.
+
+Analytics: `/login` and `/signup` render the same page, which asks for the email first and then opens the login or the signup password under it. The frontend captures `auth step viewed` for every step, with `step` (`email`, `login`, `login_code`, `signup_credentials`, `signup_profile`, `signup_pending_invite`, or `verify_email`), `entry` (`login` or `signup`), and `oauth_client_name` and `oauth_client_id` while the cookie is present. `auth email submitted` records the routing decision with `routed_to` and `account_exists`. `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
+
+### Signed-out device logins
+
+The device approval page `/device` follows the same path. A visitor without a session who opens `/device?code=<user code>` is redirected to `/login?next=<the device URL>`, so the code comes back with them after login, signup, and email verification. A visitor who opens `/device` without a code sees the code form first, and submitting it loads `/device?code=<user code>`, which redirects the same way.
+
+- The redirect sets the same cookie when the code belongs to a pending grant of a verified app. It adds `"flow": "device"`, and it never carries the user code.
+- The redirect looks up the code without a session, so it is limited per IP address. Past the limit, the redirect still happens, without the cookie.
+- An account created while that cookie is present gets `onboarding_skipped_reason` set to `device_login` instead of `connector`. It skips onboarding and goes to `/welcome` the same way.
+- Approving or denying the device login clears the cookie.
 
 ## Endpoints
 

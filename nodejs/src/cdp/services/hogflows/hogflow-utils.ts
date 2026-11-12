@@ -13,6 +13,9 @@ import { captureException } from '~/common/utils/posthog'
 // executor catches it and finishes the run as a graceful exit instead of a failure.
 export class WorkflowChangedError extends Error {}
 
+export const canSendEmail = (action: HogFlowAction | undefined): boolean =>
+    action?.type === 'function_email' || action?.type === 'function'
+
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
     const action = hogFlow.actions.find((action) => action.id === id)
     if (!action) {
@@ -110,6 +113,21 @@ export async function shouldSkipAction(
 }
 
 // Special format which the frontend understands and can render as a link
+// The logs UI renders this token as a "View task" link, so a workflow author can jump from a run's
+// logs to the task it kicked off.
+export function aiTaskLogToken(action: HogFlowAction, value: unknown): string | null {
+    const isCreateAiTaskAction =
+        action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+    if (!isCreateAiTaskAction || !value || typeof value !== 'object') {
+        return null
+    }
+    const { id, run_id: runId } = value as Record<string, unknown>
+    if (typeof id !== 'string' || id === '') {
+        return null
+    }
+    return `[Task:${id}|${typeof runId === 'string' ? runId : ''}]`
+}
+
 export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string => {
     return `[Action:${action.id}]`
 }

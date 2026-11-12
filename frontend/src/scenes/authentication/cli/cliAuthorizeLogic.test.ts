@@ -43,7 +43,7 @@ describe('cliAuthorizeLogic', () => {
         const scopes = logic.values.authorize.scopes
         // Covers the agent surface (reads + the writes that are allowed on a key)
         expect(scopes).toEqual(expect.arrayContaining(['user:read', 'project:read', 'query:read', 'insight:write']))
-        // But drops writes the product withholds from manually-created keys
+        // But drops writes the product withholds from keys by default
         expect(scopes).not.toContain('file_system:write')
         expect(scopes).not.toContain('integration:write')
         expect(scopes).not.toContain('user:write')
@@ -119,8 +119,9 @@ describe('cliAuthorizeLogic', () => {
 
         logic.actions.setSearchTerm('feature flag')
         await expectLogic(logic).toMatchValues({ searchTerm: 'feature flag' })
-        expect(logic.values.filteredScopes.map((scope) => scope.key)).toContain('feature_flag')
-        expect(logic.values.filteredScopes.every((scope) => scope.key === 'feature_flag')).toBe(true)
+        const keys = logic.values.filteredScopes.map((scope) => scope.key)
+        expect(keys).toContain('feature_flag')
+        expect(keys).not.toContain('insight')
     })
 
     it('surfaces the invalid_scope error from the backend on submit', async () => {

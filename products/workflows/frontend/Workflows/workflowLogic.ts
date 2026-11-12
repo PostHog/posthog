@@ -11,12 +11,12 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
-import { LiquidRenderer } from 'lib/utils/liquid'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
@@ -25,12 +25,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
     hogFlowsResumeEmailSending,
+    hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
 } from 'products/workflows/frontend/generated/api'
@@ -56,7 +57,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
-import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
+import { getRegisteredTriggerTypes, getTriggerDisplayType } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
     isOneTimeSchedule,
@@ -65,12 +66,8 @@ import {
     stateToRRule,
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
-import {
-    HogFlowActionSchema,
-    SCHEDULED_TRIGGER_TYPES,
-    isFunctionAction,
-    isTriggerFunction,
-} from './hogflows/steps/types'
+import { getTemplatingError } from './hogflows/steps/templatingError'
+import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
     type HogFlow,
     type HogFlowAction,
@@ -80,6 +77,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
@@ -102,10 +100,45 @@ export interface WorkflowLogicProps {
     entrySource?: string
 }
 
+export function workflowLogicKey(props: WorkflowLogicProps): string {
+    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
+}
+
 export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
+// A tile matches on the first event only, so each event of a linked trigger gets its own tile.
+function getEventTriggerTiles(config: TriggerAction['config']): string[] {
+    if (config.type !== 'event' && config.type !== 'internal-event') {
+        return [getTriggerDisplayType(config)]
+    }
+    const { filters } = config
+    const events: unknown[] = Array.isArray(filters?.events) ? filters.events : []
+    if (events.length < 2) {
+        return [getTriggerDisplayType(config)]
+    }
+    return events.map((event) => {
+        const singleEventConfig = { ...config, filters: { ...filters, events: [event] } }
+        return getTriggerDisplayType(singleEventConfig)
+    })
+}
+
+function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
+    const templateTriggerConfig = workflow.actions.find((action) => action.type === 'trigger')?.config
+    const templateTile = templateTriggerConfig ? getTriggerDisplayType(templateTriggerConfig) : null
+    const keepsTriggerType = getEventTriggerTiles(config).every((tile) => tile === templateTile)
+    return {
+        ...workflow,
+        // A frequency hash such as {person.id} fits only some trigger types. After a type change it can resolve
+        // empty, and an empty hash skips masking, so the workflow would run without its entry limit. Compare the
+        // trigger tiles, as the editor does, because tiles such as "Account property changed" store an `event` config.
+        trigger_masking: keepsTriggerType ? workflow.trigger_masking : null,
+        trigger: config,
+        actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
+    }
+}
 
 export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
@@ -182,16 +215,6 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     }
 }
 
-function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
-    if (templating === 'liquid' && typeof value === 'string') {
-        try {
-            LiquidRenderer.parse(value)
-        } catch (e: any) {
-            return `Liquid template error: ${e.message}`
-        }
-    }
-}
-
 export function sanitizeWorkflow(
     workflow: HogFlow,
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
@@ -252,6 +275,91 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+function aiEmailDraftToRequest(
+    props: WorkflowLogicProps,
+    alreadyRequested: boolean,
+    workflow: HogFlow
+): EmailDraftRequestApi | null {
+    const draftSource = parseEmailDraftSource(props.draftSource)
+    const isNewWorkflow = !props.id || props.id === 'new'
+    return draftSource && !alreadyRequested && isNewWorkflow && prefilledEmailContent(workflow) ? draftSource : null
+}
+
+function editsKeptOverReload(
+    baseBeforeExternalEdit: HogFlow | null,
+    local: HogFlow,
+    loaded: HogFlow
+): Partial<HogFlow> {
+    return baseBeforeExternalEdit ? rebaseWorkflowEdits(withStagedDraft(baseBeforeExternalEdit), local, loaded) : {}
+}
+
+function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = rebaseStepsWithEdges(base, local, remote)
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        if (field === 'actions' || field === 'edges' || objectsEqual(local[field], base[field])) {
+            continue
+        }
+        result[field] = local[field]
+    }
+    return result as Partial<HogFlow>
+}
+
+function rebaseStepsWithEdges(
+    base: HogFlow,
+    local: HogFlow,
+    remote: HogFlow
+): Pick<Partial<HogFlow>, 'actions' | 'edges'> {
+    const editedById = editedStepsById(base, local)
+    const reshapedLocally = !hasSameShape(base, local)
+    if (!reshapedLocally && editedById.size === 0) {
+        return {}
+    }
+    const editsFitServerGraph = [...editedById.keys()].every((id) => stepFitsBothGraphs(id, local, remote))
+    if (!reshapedLocally && editsFitServerGraph) {
+        return { actions: remote.actions.map((action) => editedById.get(action.id) ?? action) }
+    }
+    const remoteById = new Map(remote.actions.map((action) => [action.id, action]))
+    return {
+        actions: local.actions.map((action) =>
+            !editedById.has(action.id) && stepFitsBothGraphs(action.id, local, remote)
+                ? (remoteById.get(action.id) ?? action)
+                : action
+        ),
+        edges: local.edges,
+    }
+}
+
+function stepFitsBothGraphs(actionId: string, local: HogFlow, remote: HogFlow): boolean {
+    if (!remote.actions.some((action) => action.id === actionId)) {
+        return false
+    }
+    const localEdges = outgoingEdges(local, actionId)
+    const remoteEdges = outgoingEdges(remote, actionId)
+    const branchConfigIndexesEdges = [...localEdges, ...remoteEdges].some((edge) => edge.type === 'branch')
+    return !branchConfigIndexesEdges || objectsEqual(localEdges, remoteEdges)
+}
+
+function outgoingEdges(workflow: HogFlow, actionId: string): HogFlow['edges'] {
+    return workflow.edges.filter((edge) => edge.from === actionId)
+}
+
+function editedStepsById(base: HogFlow, local: HogFlow): Map<string, HogFlowAction> {
+    const baseById = new Map(base.actions.map((action) => [action.id, action]))
+    return new Map(
+        local.actions
+            .filter((action) => !objectsEqual(action, baseById.get(action.id)))
+            .map((action) => [action.id, action])
+    )
+}
+
+function hasSameShape(base: HogFlow, local: HogFlow): boolean {
+    return objectsEqual(base.actions.map(stepId), local.actions.map(stepId)) && objectsEqual(base.edges, local.edges)
+}
+
+function stepId(action: HogFlowAction): string {
+    return action.id
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -265,6 +373,19 @@ interface SaveContext {
     movedToBroadcasts?: number
     // A status change made while the form had unsaved edits. The edits stay in the form, unsaved.
     keepsFormEdits: boolean
+    // The form's edit version when this save was dispatched. Its response compares against it to
+    // tell whether the user kept editing, including while an earlier save was still in flight.
+    editVersion: number
+}
+
+// Putting the edits back adds no new content, so a queued save that already sent them stays current.
+// Without this, every save in the queue would look edited when it lands.
+function keepQueuedSavesCurrent(queuedSaves: SaveContext[], fromVersion: number, toVersion: number): void {
+    for (const queued of queuedSaves) {
+        if (queued.editVersion === fromVersion) {
+            queued.editVersion = toVersion
+        }
+    }
 }
 
 /** The schedule editor state, kept across a status change so unsaved schedule edits survive it. */
@@ -318,6 +439,7 @@ export interface workflowLogicValues {
     isSyncingExternalEdit: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
+    keepsLocalEditsOnExternalEdit: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
     manualTriggerDisabledReason: string | undefined
@@ -405,7 +527,13 @@ export interface workflowLogicActions {
     duplicate: () => {
         value: true
     }
+    enableBlocked: () => {
+        value: true
+    }
     keepMyWorkflowVersion: () => {
+        value: true
+    }
+    leaveConfirmed: () => {
         value: true
     }
     loadAiEmailDraft: (request: EmailDraftRequestApi) => EmailDraftRequestApi
@@ -642,6 +770,7 @@ export interface workflowLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -701,8 +830,9 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -764,6 +894,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -1318,6 +1449,7 @@ export interface workflowLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -1528,6 +1660,7 @@ export interface workflowLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -1587,8 +1720,9 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -1650,6 +1784,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -2204,6 +2339,7 @@ export interface workflowLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -2399,6 +2535,7 @@ export interface workflowLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
                                           | 'replay_vision_scan'
                                           | 'signals_scout'
@@ -2489,22 +2626,6 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
               }
@@ -2532,6 +2653,24 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
+                  template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -2809,6 +2948,7 @@ export interface workflowLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
                                           | 'replay_vision_scan'
                                           | 'signals_scout'
@@ -2899,22 +3039,6 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
               }
@@ -2942,6 +3066,24 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
+                  template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -3026,6 +3168,9 @@ export interface workflowLogicActions {
     triggerManualWorkflow: (variables: Record<string, any>) => {
         variables: Record<string, any>
     }
+    workflowCreated: (workflowId: string) => {
+        workflowId: string
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -3080,6 +3225,7 @@ export interface workflowLogicMeta {
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
             triggerAction:
@@ -3242,7 +3388,8 @@ export interface workflowLogicMeta {
         manualTriggerDisabledReason: (
             workflow: HogFlow,
             originalWorkflow: HogFlow | null,
-            hasUnsavedChanges: boolean
+            hasUnsavedChanges: boolean,
+            workflowUserAccessLevel: AccessControlLevel | null
         ) => string | undefined
     }
 }
@@ -3281,10 +3428,7 @@ function getSaveQueue(
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
-    key(
-        (props) =>
-            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
-    ),
+    key(workflowLogicKey),
     connect(() => ({
         values: [
             userLogic,
@@ -3348,6 +3492,9 @@ export const workflowLogic = kea<workflowLogicType>([
         publishDraft: true,
         confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
         discardDraft: true,
+        enableBlocked: true,
+        workflowCreated: (workflowId: string) => ({ workflowId }),
+        leaveConfirmed: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         replayDeferredResourceEdited: true,
@@ -3392,7 +3539,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            return (await withDefaultEmailSender(newWorkflow as HogFlow)) as typeof newWorkflow
+                            const templateTriggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                            const templated = templateTriggerConfig
+                                ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
+                                : (newWorkflow as HogFlow)
+                            return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
@@ -3436,6 +3587,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         scheduleId: values.currentSchedule?.id,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
+                        editVersion: values.workflowEditVersion,
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -3461,6 +3613,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
+                            actions.workflowCreated(result.id)
 
                             if (props.templateId) {
                                 posthog.capture('hog_flow_created_from_template', {
@@ -3495,6 +3648,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                 posthog.capture('workflow draft created', {
                                     workflow_id: result.id,
                                     entry_source: props.entrySource ?? null,
+                                    start_path: workflowStartPath(props),
+                                    template_id: props.templateId ?? null,
                                 })
                             }
                             return result
@@ -4074,6 +4229,14 @@ export const workflowLogic = kea<workflowLogicType>([
                                     channels: 'Select at least one channel to send this notification',
                                 }
                             }
+                            const title = action.config.inputs?.title?.value
+                            if (
+                                action.config.inputs?.delivery?.value !== 'silent' &&
+                                !(typeof title === 'string' && title.trim())
+                            ) {
+                                result.valid = false
+                                result.errors = { ...result.errors, title: 'Add a notification title' }
+                            }
                         }
 
                         if (
@@ -4172,6 +4335,10 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        keepsLocalEditsOnExternalEdit: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
+        ],
 
         triggerAction: [
             (s) => [s.workflow],
@@ -4287,8 +4454,21 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         manualTriggerDisabledReason: [
-            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges],
-            (workflow: HogFlow, originalWorkflow: HogFlow | null, hasUnsavedChanges: boolean): string | undefined => {
+            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges, s.workflowUserAccessLevel],
+            (
+                workflow: HogFlow,
+                originalWorkflow: HogFlow | null,
+                hasUnsavedChanges: boolean,
+                workflowUserAccessLevel: AccessControlLevel | null
+            ): string | undefined => {
+                const accessDisabledReason = getAccessControlDisabledReason(
+                    AccessControlResourceType.Workflow,
+                    AccessControlLevel.Editor,
+                    workflowUserAccessLevel ?? undefined
+                )
+                if (accessDisabledReason) {
+                    return accessDisabledReason
+                }
                 if (workflow?.status !== 'active') {
                     return 'Must enable workflow to use trigger'
                 }
@@ -4304,7 +4484,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props, cache }) => ({
+    listeners(({ actions, values, props, cache, selectors }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -4334,11 +4514,10 @@ export const workflowLogic = kea<workflowLogicType>([
             if (getSaveQueue(cache, values, props).classify(event) !== 'external') {
                 return
             }
-            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
-            // a few seconds old, so reconcile silently instead of interrupting with a conflict
-            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
-            // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose.
+            // While auto-save can flush the local buffer, reconcile silently instead of interrupting
+            // with a conflict banner. When auto-save can't flush (toggled off, no name to save under,
+            // or a pending schedule change, which only a manual save persists), the buffer can hold
+            // real work, so the banner lets the user choose.
             const autoSaveCanFlush =
                 values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
@@ -4488,6 +4667,7 @@ export const workflowLogic = kea<workflowLogicType>([
             const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
+                actions.enableBlocked()
                 return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
@@ -4497,25 +4677,31 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
-        loadWorkflowSuccess: async ({ originalWorkflow }) => {
+        loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
-            const draftSource = parseEmailDraftSource(props.draftSource)
-            if (
-                draftSource &&
-                !cache.aiEmailDraftRequested &&
-                (!props.id || props.id === 'new') &&
-                prefilledEmailContent(originalWorkflow)
-            ) {
+            const draftSource = aiEmailDraftToRequest(props, !!cache.aiEmailDraftRequested, originalWorkflow)
+            if (draftSource) {
                 cache.aiEmailDraftRequested = true
                 actions.loadAiEmailDraft(draftSource)
             }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
-            actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            const loaded = withStagedDraft(originalWorkflow)
+            const baseBeforeExternalEdit =
+                values.keepsLocalEditsOnExternalEdit && selectors.isSyncingExternalEdit(previousState)
+                    ? selectors.originalWorkflow(previousState)
+                    : null
+            const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
+            actions.resetWorkflow(loaded)
+            if (Object.keys(unsavedEdits).length > 0) {
+                actions.setWorkflowValues(unsavedEdits)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
-            const triggerType = originalWorkflow.trigger?.type
-            if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
+            // Load schedules whatever the trigger is. A schedule outlives a switch to another trigger,
+            // and a save that cannot see it creates a second one that fires next to it.
+            if (originalWorkflow.id) {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
@@ -4524,11 +4710,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
             }
         },
-        loadWorkflowFailure: () => {
+        loadWorkflowFailure: (_, __, ___, previousState) => {
+            if (
+                values.keepsLocalEditsOnExternalEdit &&
+                selectors.isSyncingExternalEdit(previousState) &&
+                values.workflowChanged
+            ) {
+                actions.setExternallyEdited(true)
+            }
             actions.replayDeferredResourceEdited()
-        },
-        saveWorkflow: () => {
-            cache.saveEditVersion = values.workflowEditVersion
         },
         saveWorkflowFailure: () => {
             // Keep the queue aligned with the saves still in flight.
@@ -4576,20 +4766,20 @@ export const workflowLogic = kea<workflowLogicType>([
                         // Each write answers with the saved schedule, so the editor rebaselines from
                         // the response. Re-reading the list instead would leave a created schedule
                         // unknown whenever that read failed, and the next save would add a second one.
+                        // A workflow can hold several schedules, so each write only swaps the one it touched.
                         if (pendingSchedule === null && existingScheduleId) {
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                            actions.setSchedules([])
+                            actions.setSchedules(values.schedules.filter((s) => s.id !== existingScheduleId))
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            actions.setSchedules([
-                                // The generated client answers with HogFlowScheduleApi, whose untyped
-                                // `variables` does not satisfy the HogFlowSchedule the editor holds.
-                                // nosemgrep: prefer-codegen-api-namespaced-workflows
-                                await api.hogFlows.updateHogFlowSchedule(
-                                    workflowId,
-                                    existingScheduleId,
-                                    pendingSchedule
-                                ),
-                            ])
+                            // The generated client answers with HogFlowScheduleApi, whose untyped
+                            // `variables` does not satisfy the HogFlowSchedule the editor holds.
+                            // nosemgrep: prefer-codegen-api-namespaced-workflows
+                            const updated = await api.hogFlows.updateHogFlowSchedule(
+                                workflowId,
+                                existingScheduleId,
+                                pendingSchedule
+                            )
+                            actions.setSchedules(values.schedules.map((s) => (s.id === updated.id ? updated : s)))
                         } else if (pendingSchedule !== null) {
                             actions.setSchedules([
                                 // nosemgrep: prefer-codegen-api-namespaced-workflows
@@ -4692,7 +4882,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
                 !!saveContext?.keepsFormEdits ||
-                (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
+                (saveContext !== undefined && values.workflowEditVersion !== saveContext.editVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             const scheduleEdits: ScheduleEdits | null = !wroteSchedule
                 ? {
@@ -4712,8 +4902,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 // The response only reflects the payload that was sent. Anything typed while it was
                 // in flight (the live email editor writes on every pause) must survive the reset and
                 // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
+                const versionBeforeReapply = values.workflowEditVersion
                 actions.setWorkflowValues(editsDuringSave)
-                actions.autoSaveWorkflow()
+                const queuedSaves = (cache.saveContexts as SaveContext[] | undefined) ?? []
+                keepQueuedSavesCurrent(queuedSaves, versionBeforeReapply, values.workflowEditVersion)
+                // A queued save runs this same check when it lands, so only the last one starts another.
+                if (queuedSaves.length === 0) {
+                    actions.autoSaveWorkflow()
+                }
             }
             actions.replayDeferredResourceEdited()
         },
@@ -4893,7 +5089,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 props.id === 'new' ||
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
-                values.autoSaveBlockedByValidation
+                values.autoSaveBlockedByValidation ||
+                (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()
@@ -4918,27 +5115,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
-
             lemonToast.info('Triggering workflow...')
 
             try {
-                const response = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: values.user?.email,
-                        $variables: variables,
-                    }),
-                    credentials: 'omit',
-                })
-
-                // fetch rejects only on a network failure, so a refused webhook resolves here too.
-                if (!response.ok) {
-                    throw new Error(`the webhook returned ${response.status}`)
-                }
+                // An authenticated call, so only a user who can edit the workflow starts a run.
+                await hogFlowsRunCreate(String(ApiConfig.getCurrentTeamId()), values.workflow.id, { variables })
 
                 lemonToast.success('Workflow triggered', {
                     button: {
@@ -4947,7 +5128,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     },
                 })
             } catch (e) {
-                lemonToast.error('Error triggering workflow: ' + (e as Error).message)
+                lemonToast.error('Error triggering workflow: ' + (e as Error).message, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
                 return
             }
         },
@@ -4998,6 +5184,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         message: 'Leave workflow?\nChanges you made will be discarded.',
         onConfirm: () => {
+            logic.actions.leaveConfirmed()
             if (logic.values.originalWorkflow) {
                 logic.actions.resetWorkflow(logic.values.originalWorkflow)
             }

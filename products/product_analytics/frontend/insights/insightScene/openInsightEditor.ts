@@ -2,8 +2,8 @@ import { combineUrl, router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/utils'
 import { DashboardType, InsightShortId } from '~/types'
 
 export function openInsightEditor({

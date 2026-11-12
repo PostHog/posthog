@@ -24,6 +24,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 import {
     conversionGoalToSeries,
     createMarketingTile,
+    externalTableTypeLabel,
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
     getOrderBy,
@@ -756,6 +757,15 @@ describe('marketing analytics utils', () => {
             expect(nativeSourceConnectionStatus(source).status).toBe('Needs attention')
         }
     )
+
+    it.each([
+        ['BigQuery', 'Data warehouse'],
+        ['FileUpload', 'Files'],
+        ['google-cloud', 'Self-managed'],
+        ['Postgres', null],
+    ])('labels a %s table as %s in the source settings', (sourceType, label) => {
+        expect(externalTableTypeLabel(sourceType)).toBe(label)
+    })
 
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {

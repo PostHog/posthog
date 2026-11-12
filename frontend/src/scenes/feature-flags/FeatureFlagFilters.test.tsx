@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 
@@ -155,6 +156,28 @@ describe('FeatureFlagFiltersSection', () => {
         expect(container.querySelector('[data-attr="feature-flag-select-status"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="feature-flag-select-created-by"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="feature-flag-select-runtime"]')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['into deleted from archived', { archived: 'true', active: 'false' }, 'deleted', { deleted: 'true' }],
+        ['out of deleted to all', { deleted: 'true' }, 'all', {}],
+        ['out of deleted to archived', { deleted: 'true' }, 'archived', { archived: 'true' }],
+    ])('switches status %s and drops the other status filters', async (_label, start, option, expected) => {
+        const { container } = render(
+            <FeatureFlagFiltersSection
+                filters={{ ...mockFilters, ...start }}
+                setFeatureFlagsFilters={mockSetFilters}
+                searchPlaceholder="Search"
+                filtersConfig={{ status: true }}
+            />
+        )
+
+        await userEvent.click(container.querySelector('[data-attr="feature-flag-select-status"]')!)
+        // Dropdowns opened by earlier cases can linger in the body, so click the option in the newest one.
+        const options = document.querySelectorAll(`[data-attr="feature-flag-select-status-${option}"]`)
+        await userEvent.click(options[options.length - 1])
+
+        expect(mockSetFilters).toHaveBeenCalledWith({ search: '', page: 1, ...expected }, true)
     })
 
     it('ignores false values in config', () => {

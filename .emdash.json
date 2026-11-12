@@ -1,0 +1,6 @@
+{
+    "scripts": {
+        "setup": "bin/devbox-worktree-hook created emdash",
+        "teardown": "bin/devbox-worktree-hook archiving"
+    }
+}

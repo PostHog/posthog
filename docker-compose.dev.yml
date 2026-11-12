@@ -65,6 +65,7 @@ services:
 
                     @capture-logs {
                         path /i/v1/logs
+                        path /i/v1/logs/*
                         path /i/v1/traces
                     }
 
@@ -312,11 +313,10 @@ services:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
-            # The image runs as production, so the in-code dev defaults do not apply. Set both
-            # secrets to the values Django uses under DEBUG so local calls authenticate and exercise
-            # the JWT path. These live here rather than in docker-compose.base.yml because hobby
-            # extends that file, and hobby's Django resolves both secrets to empty, so inheriting
-            # them there would make recording-api reject every hobby call.
+            # The image runs as production, so the in-code dev defaults do not apply. Set
+            # RECORDING_API_JWT_SECRET to the key Django uses under DEBUG, so that local recording
+            # calls authenticate. Keep these known dev values out of docker-compose.base.yml, which
+            # hobby extends, so that a hobby install never runs with them.
             INTERNAL_API_SECRET: 'posthog123'
             RECORDING_API_JWT_SECRET: 'dev-recording-api-jwt-secret'
         depends_on:
@@ -542,6 +542,7 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./docker/clickhouse/config.d/dev-system-logs.xml:/etc/clickhouse-server/config.d/dev-system-logs.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -790,6 +791,8 @@ services:
             # FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED is set.
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
+            # Answer /flags?v=4 with the v4 response, as production does
+            FLAGS_V4_RESPONSE_ENABLED: 'true'
 
     usage-ingestion:
         extends:
@@ -948,6 +951,30 @@ services:
             test: ['CMD', 'etcdctl', 'endpoint', 'health']
             interval: 5s
             timeout: 5s
+            retries: 10
+
+    # A second, empty Kafka cluster for personhog's cross-cluster changelog
+    # tests; only the PersonHog e2e gate CI job starts it.
+    kafka-secondary:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        profiles: [personhog-secondary]
+        restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr 0.0.0.0:29092
+            - --advertise-kafka-addr 127.0.0.1:29092
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --overprovisioned
+            - --set redpanda.auto_create_topics_enabled=true
+        ports:
+            - '127.0.0.1:29092:29092'
+        healthcheck:
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            interval: 3s
+            timeout: 10s
             retries: 10
 
 networks:

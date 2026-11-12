@@ -10,7 +10,7 @@ follows ``Subject``, a case in each function below, and the kind to the commands
 
 from typing import Any, Protocol, assert_never
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.utils import absolute_uri
 
 from products.error_tracking.backend.facade import api as error_tracking
@@ -37,6 +37,12 @@ class Subject(Protocol):
         ...
 
 
+def _wrong_state_message(declaration: CommandDeclaration[Any]) -> str:
+    if "open" in declaration.pull_request_states:
+        return "This pull request isn't open, so I won't run commands on it."
+    return f"`{declaration.verb}` only runs on merged pull requests."
+
+
 class PullRequestSubject:
     not_member_message = "You aren't a member of a PostHog project that uses pull request commands on this repository."
 
@@ -60,10 +66,8 @@ class PullRequestSubject:
                 outcome="pull_request_unavailable",
                 message="I couldn't read this pull request from GitHub. Try again in a few minutes.",
             )
-        if pull_request.state != "open":
-            return Answer(
-                outcome="pull_request_closed", message="This pull request isn't open, so I won't run commands on it."
-            )
+        if pull_request.state not in declaration.pull_request_states:
+            return Answer(outcome="pull_request_closed", message=_wrong_state_message(declaration))
         if pull_request.is_fork and not declaration.allows_forks:
             return Answer(
                 outcome="fork_refused", message=f"`{declaration.verb}` doesn't run on pull requests from forks."
@@ -104,13 +108,8 @@ def candidate_team_ids(ref: SubjectRef) -> tuple[int, ...]:
     """
     match ref:
         case PullRequestRef():
-            return tuple(
-                dict.fromkeys(
-                    Integration.objects.filter(kind="github", integration_id=ref.installation_id)
-                    .order_by("id")
-                    .values_list("team_id", flat=True)
-                )
-            )
+            rows = IntegrationManager.github.oauth.list_by_external_id(ref.installation_id)
+            return tuple(dict.fromkeys(row.team_id for row in sorted(rows, key=lambda row: row.id)))
         case ErrorTrackingIssueRef():
             return (ref.team_id,)
         case _:

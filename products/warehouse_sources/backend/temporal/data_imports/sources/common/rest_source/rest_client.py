@@ -86,6 +86,10 @@ class RESTClientNonRetryableError(NonReportableError):
 _JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
 
 
+def _is_empty_body(response: Response) -> bool:
+    return not response.content or not response.content.strip()
+
+
 def _looks_like_json(content: bytes) -> bool:
     stripped = content.lstrip()
     return bool(stripped) and stripped[0] in _JSON_START_BYTES
@@ -653,9 +657,14 @@ class RESTClient:
             except IgnoreResponseException:
                 break
 
-            data = self._extract_response(
-                body, data_selector, required=data_selector_required, empty_body_ok=data_selector_empty_ok
-            )
+            # An empty 2xx body is a complete "no data" answer, not a changed response shape, so
+            # ``required`` must not reject it. A literal JSON ``null`` body still fails loud.
+            if body is None and _is_empty_body(response):
+                data: list[Any] = []
+            else:
+                data = self._extract_response(
+                    body, data_selector, required=data_selector_required, empty_body_ok=data_selector_empty_ok
+                )
 
             if paginator is not None:
                 paginator.update_state(response, data)
@@ -821,7 +830,7 @@ class RESTClient:
             # answer (e.g. an endpoint with nothing to return), not a truncated page —
             # retrying can't conjure rows, so treat it as an empty page and let the
             # paginator stop.
-            if not response.content or not response.content.strip():
+            if _is_empty_body(response):
                 return response, None
             # A body that doesn't even begin with a JSON value is not a truncated page:
             # the endpoint returned non-JSON content (an HTML or plain-text error page, a
@@ -875,8 +884,9 @@ class RESTClient:
             # the response shape changed (e.g. an error object on a 200) — fail loud rather than
             # wrapping the stray object as a single row.
             if required and not isinstance(body, list):
+                keys = f" (body keys: {sorted(body.keys())[:20]})" if isinstance(body, dict) else ""
                 raise ValueError(
-                    f"Required a list response body, got {type(body).__name__}. "
+                    f"Required a list response body, got {type(body).__name__}{keys}. "
                     "The API response shape may have changed."
                 )
             data = body

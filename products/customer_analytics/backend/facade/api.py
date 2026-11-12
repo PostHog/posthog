@@ -17,6 +17,7 @@ Do NOT:
 
 import asyncio
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -27,7 +28,7 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Aggregate,
@@ -38,7 +39,6 @@ from django.db.models import (
     Exists,
     ExpressionWrapper,
     F,
-    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -52,7 +52,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Left
 from django.utils import timezone
 
 import structlog
@@ -63,13 +63,16 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Integration, OrganizationMembership, Tag
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.facade.api import (
@@ -106,6 +109,7 @@ from products.customer_analytics.backend.facade.enums import (
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
+    account_automations as _account_automations_logic,
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     account_views as _account_views_logic,
@@ -124,10 +128,10 @@ from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
     apply_account_filters,
+    filter_valid_account_filters,
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
-from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -184,7 +188,10 @@ from products.customer_analytics.backend.models.custom_property_definition impor
     NUMERIC_DISPLAY_TYPES,
     DataType,
 )
+from products.customer_analytics.backend.models.custom_property_value import SORT_VALUE_STR_PREFIX_LENGTH
 from products.customer_analytics.backend.tasks.tasks import send_announcement
+from products.data_modeling.backend.facade import api as data_modeling_facade
+from products.data_modeling.backend.facade.contracts import SavedQuerySchedule
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
@@ -198,6 +205,7 @@ from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, sa
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
+    get_viewable_workflow_ids,
 )
 from products.workflows.backend.facade.contracts import HogFlowReference
 
@@ -394,8 +402,7 @@ def _resolve_accessible_account(
 
 
 def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
-    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
-    get_account_users_organization_id(team=team, user=user, account_id=account_id)
+    raise PermissionDenied("Run the account-user query synchronously.")
 
 
 def get_account(
@@ -1011,7 +1018,13 @@ def _set_tags(
         if created:
             added_tags.append(tag_instance)
     removed_tags: list[Tag] = []
-    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
+    # Activity logging reads each deleted item's tag, its team and the tagged object.
+    removed_items = (
+        account.tagged_items.exclude(tag__name__in=deduped_tags)
+        .select_related("tag__team")
+        .prefetch_related("uuid_object")
+    )
+    for tagged_item in removed_items:
         removed_tags.append(tagged_item.tag)
         tagged_item.delete()
     if removed_tags:
@@ -1133,14 +1146,10 @@ def _log_customer_profile_config_activity(
     )
 
 
-def list_customer_profile_configs(
-    team_id: int, offset: int, limit: int
-) -> tuple[list[contracts.CustomerProfileConfigView], int]:
-    """Profile configs for the team. Returns ``(page, total_count)``."""
+def list_customer_profile_configs(team_id: int, *, page: PageRequest) -> Page[contracts.CustomerProfileConfigView]:
+    """One page of the team's profile configs."""
     queryset = CustomerProfileConfig.objects.filter(team_id=team_id)
-    total_count = queryset.count()
-    page = queryset[offset : offset + limit]
-    return [_to_customer_profile_config_view(c) for c in page], total_count
+    return select_page(queryset, page).map(_to_customer_profile_config_view)
 
 
 def get_customer_profile_config(team_id: int, config_id: str) -> contracts.CustomerProfileConfigView | None:
@@ -1511,28 +1520,20 @@ def _definition_source_view(
     return _to_custom_property_source_view(source, user_access_control, enrichment)
 
 
-def list_custom_property_definitions(
-    team_id: int,
-    offset: int,
-    limit: int,
-    *,
-    user_access_control: "UserAccessControl",
-    exclude_group_targets: bool = False,
-    target_type: str | None = None,
-) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
-    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
-
-    ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
-    metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
-    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
-    that wants a single target doesn't page over every definition to find it."""
-    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
+def _custom_property_definitions_queryset(
+    team_id: int, exclude_group_targets: bool, target_type: str | None
+) -> QuerySet[CustomPropertyDefinition]:
+    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name", "pk")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     if target_type is not None:
         queryset = queryset.filter(target_type=target_type)
-    total_count = queryset.count()
-    page = list(queryset[offset : offset + limit])
+    return queryset
+
+
+def _to_custom_property_definition_views(
+    team_id: int, page: list[CustomPropertyDefinition], user_access_control: "UserAccessControl"
+) -> list[contracts.CustomPropertyDefinitionView]:
     workflow_references = _custom_property_references_by_definition_id(team_id)
     references = filter_hog_flow_references_by_access_level(team_id, workflow_references, user_access_control)
     sources: list[CustomPropertySource] = []
@@ -1551,7 +1552,38 @@ def list_custom_property_definitions(
             enrichment_by_source_id=enrichment,
         )
         for d in page
-    ], total_count
+    ]
+
+
+def list_custom_property_definitions(
+    team_id: int,
+    *,
+    page: PageRequest,
+    user_access_control: "UserAccessControl",
+    exclude_group_targets: bool = False,
+    target_type: str | None = None,
+) -> Page[contracts.CustomPropertyDefinitionView]:
+    """One page of the team's custom property definitions, ordered by name.
+
+    ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
+    metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
+    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
+    that wants a single target doesn't page over every definition to find it."""
+    queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, target_type)
+    selected = select_page(queryset, page)
+    views = _to_custom_property_definition_views(team_id, selected.results, user_access_control)
+    return Page(results=views, count=selected.count)
+
+
+def list_all_custom_property_definitions(
+    team_id: int,
+    *,
+    user_access_control: "UserAccessControl",
+    exclude_group_targets: bool = False,
+) -> list[contracts.CustomPropertyDefinitionView]:
+    """All of the team's custom property definitions, ordered by name, for a caller that needs the whole list."""
+    queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, None)
+    return _to_custom_property_definition_views(team_id, list(queryset), user_access_control)
 
 
 def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
@@ -1768,7 +1800,7 @@ def _to_sync_run_view(
         sync_phase=run.phase,
         attempt=run.attempt,
         workflow_id=run.workflow_id if include_temporal_url else None,
-        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id,
         temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
@@ -1846,11 +1878,16 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
     return saved_query
 
 
-def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
+def _saved_query_meta(saved_query: Any, schedule: SavedQuerySchedule | None = None) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
-    unknown rather than guessable — so both schedule fields stay None."""
-    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
+    no table-name resolution. A view's frequency lives on its DAG node rather than on the view, so the
+    schedule is resolved separately and is None for a view the scheduler doesn't run."""
+    return _ProfileWarehouseMeta(
+        table_name=saved_query.name,
+        saved_query_name=saved_query.name,
+        sync_frequency_interval_seconds=schedule.interval.total_seconds() if schedule else None,
+        next_sync_at=schedule.next_run_at if schedule else None,
+    )
 
 
 def _resolve_profile_warehouse_meta(
@@ -1863,7 +1900,10 @@ def _resolve_profile_warehouse_meta(
         return None
     if binding.is_saved_query:
         saved_query = _resolve_saved_query(source.team_id, binding.id, user_access_control)
-        return _saved_query_meta(saved_query) if saved_query is not None else None
+        if saved_query is None:
+            return None
+        schedule = data_modeling_facade.saved_query_schedules(source.team_id, [saved_query]).get(str(saved_query.id))
+        return _saved_query_meta(saved_query, schedule)
     schema = _resolve_schema(source.team_id, binding.id, user_access_control)
     return _schema_meta(schema) if schema is not None else None
 
@@ -1992,6 +2032,10 @@ def _batch_source_enrichment(
             )
         }
 
+    schedules_by_saved_query_id = (
+        data_modeling_facade.saved_query_schedules(team_id, saved_queries_by_id.values()) if saved_queries_by_id else {}
+    )
+
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
         run.source_id: run
@@ -2005,7 +2049,9 @@ def _batch_source_enrichment(
     for source in profile_sources:
         binding = bindings[source.id]
         assert binding is not None  # profile_sources is filtered on exactly this
-        meta = _batched_meta(binding, schemas_by_id, saved_queries_by_id, user_access_control)
+        meta = _batched_meta(
+            binding, schemas_by_id, saved_queries_by_id, schedules_by_saved_query_id, user_access_control
+        )
         latest = latest_run_by_source_id.get(source.id) if meta is not None else None
         # Only mutate runs the caller can view; expiring runs for hidden warehouse objects would let a
         # denied viewer flip their status through the source-list endpoint.
@@ -2020,6 +2066,7 @@ def _batched_meta(
     binding: "WarehouseBinding",
     schemas_by_id: dict[str, Any],
     saved_queries_by_id: dict[str, Any],
+    schedules_by_saved_query_id: dict[str, SavedQuerySchedule],
     user_access_control: "UserAccessControl | None",
 ) -> _ProfileWarehouseMeta | None:
     """One binding's metadata from the prefetched maps, or None when it is missing or access-denied.
@@ -2033,7 +2080,7 @@ def _batched_meta(
             saved_query, required_level="viewer"
         ):
             return None
-        return _saved_query_meta(saved_query)
+        return _saved_query_meta(saved_query, schedules_by_saved_query_id.get(binding.id))
 
     schema = schemas_by_id.get(binding.id)
     if schema is None:
@@ -2430,13 +2477,12 @@ def trigger_person_property_backfill(
 
 def list_custom_property_sources(
     team_id: int,
-    offset: int,
-    limit: int,
-    user_access_control: "UserAccessControl | None" = None,
     *,
+    page: PageRequest,
+    user_access_control: "UserAccessControl | None" = None,
     exclude_group_targets: bool = False,
-) -> tuple[list[contracts.CustomPropertySourceView], int]:
-    """Custom-property sources for the team, newest first. Returns ``(page, total_count)``. Warehouse
+) -> Page[contracts.CustomPropertySourceView]:
+    """One page of the team's custom-property sources, newest first. Warehouse
     schedule/run enrichment per source is gated on the caller's warehouse-source viewer access.
 
     ``exclude_group_targets`` hides sources feeding a group-target definition from callers without
@@ -2444,13 +2490,13 @@ def list_custom_property_sources(
     queryset = CustomPropertySource.objects.for_team(team_id).select_related("definition").order_by("-created_at")
     if exclude_group_targets:
         queryset = queryset.exclude(definition__target_type=TargetType.GROUP.value)
-    total_count = queryset.count()
-    page = list(queryset[offset : offset + limit])
-    enrichment = _batch_source_enrichment(team_id, page, user_access_control)
-    return [
-        _to_custom_property_source_view(s, user_access_control, enrichment.get(s.id, _RESOLVE_ENRICHMENT_INLINE))
-        for s in page
-    ], total_count
+    selected = select_page(queryset, page)
+    enrichment = _batch_source_enrichment(team_id, selected.results, user_access_control)
+    return selected.map(
+        lambda s: _to_custom_property_source_view(
+            s, user_access_control, enrichment.get(s.id, _RESOLVE_ENRICHMENT_INLINE)
+        )
+    )
 
 
 def get_custom_property_source(
@@ -2656,13 +2702,13 @@ def delete_custom_property_source(
 def list_custom_property_sync_runs(
     team_id: int,
     source_id: str,
-    offset: int,
-    limit: int,
+    *,
+    page: PageRequest,
     user_access_control: "UserAccessControl | None" = None,
     include_temporal_urls: bool = False,
     search: str | None = None,
-) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
-    """Warehouse-backed custom property sync runs for a source, newest first. Returns ``(page, total_count)``.
+) -> Page[contracts.CustomPropertySyncRunView]:
+    """One page of the warehouse-backed custom property sync runs of a source, newest first.
     Scoped by team and source, so another team's or source's runs are never returned. Profile-source
     histories require viewer access to their warehouse object; account-source histories are visible to
     the same callers who can view the source."""
@@ -2686,10 +2732,9 @@ def list_custom_property_sync_runs(
             ),
         )
     queryset = queryset.order_by("-created_at")
-    total_count = queryset.count()
-    page = list(queryset[offset : offset + limit])
-    _expire_stale_running_runs(team_id, page)
-    return [_to_sync_run_view(run, include_temporal_url=include_temporal_urls) for run in page], total_count
+    selected = select_page(queryset, page)
+    _expire_stale_running_runs(team_id, selected.results)
+    return selected.map(lambda run: _to_sync_run_view(run, include_temporal_url=include_temporal_urls))
 
 
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
@@ -2739,15 +2784,13 @@ def list_feature_requests(
     team_id: int,
     user_access_control: "UserAccessControl",
     filters: contracts.FeatureRequestListFilters,
-    offset: int,
-    limit: int,
-) -> tuple[list[contracts.FeatureRequestView], int]:
+    page: PageRequest,
+) -> Page[contracts.FeatureRequestView]:
     return _feature_requests_logic.list_feature_requests(
         team_id=team_id,
         user_access_control=user_access_control,
         filters=filters,
-        offset=offset,
-        limit=limit,
+        page=page,
     )
 
 
@@ -3013,12 +3056,10 @@ def insight_belongs_to_team(team_id: int, insight_id: int) -> bool:
 
 
 def list_customer_journeys(
-    team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl"
-) -> tuple[list[contracts.CustomerJourneyView], int]:
+    team_id: int, *, page: PageRequest, user_access_control: "UserAccessControl"
+) -> Page[contracts.CustomerJourneyView]:
     queryset = user_access_control.filter_queryset_by_access_level(_customer_journeys_queryset(team_id))
-    total_count = queryset.count()
-    page = queryset[offset : offset + limit]
-    return [_to_customer_journey_view(j) for j in page], total_count
+    return select_page(queryset, page).map(_to_customer_journey_view)
 
 
 def get_customer_journey(
@@ -3195,13 +3236,53 @@ def _account_table_field_values(
     return values
 
 
+@frozen
+class _AccountTableDefinitions:
+    selection: contracts.AccountTableColumnSelection
+    sort: contracts.AccountTableSort | None
+    relationships: dict[UUID, AccountRelationshipDefinition]
+    custom_properties: dict[UUID, CustomPropertyDefinition]
+
+    def filter_supported_filters(
+        self,
+        filters: tuple[contracts.AccountTableFilter, ...],
+        *,
+        ignore_invalid_custom_property_filters: bool,
+    ) -> tuple[contracts.AccountTableFilter, ...]:
+        known_filters = tuple(
+            filter_
+            for filter_ in filters
+            if (
+                not isinstance(
+                    filter_, contracts.AccountTableRelationshipFilter | contracts.AccountTableCustomPropertyFilter
+                )
+                or (
+                    isinstance(filter_, contracts.AccountTableRelationshipFilter)
+                    and filter_.definition_id in self.relationships
+                )
+                or (
+                    isinstance(filter_, contracts.AccountTableCustomPropertyFilter)
+                    and filter_.definition_id in self.custom_properties
+                )
+            )
+        )
+        if ignore_invalid_custom_property_filters:
+            return filter_valid_account_filters(known_filters, custom_property_display_types=self.display_types)
+        return known_filters
+
+    @property
+    def display_types(self) -> dict[UUID, DisplayType]:
+        return {id_: DisplayType(definition.display_type) for id_, definition in self.custom_properties.items()}
+
+
 def _validate_account_table_definitions(
     *,
     team_id: int,
     selection: contracts.AccountTableColumnSelection,
     filters: tuple[contracts.AccountTableFilter, ...],
     sort: contracts.AccountTableSort | None,
-) -> dict[UUID, DisplayType]:
+    ignore_missing_definitions: bool = False,
+) -> _AccountTableDefinitions:
     relationship_ids = set(selection.relationship_definition_ids)
     relationship_ids.update(
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
@@ -3209,18 +3290,28 @@ def _validate_account_table_definitions(
     if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
-        relationship_ids.add(sort.definition_id)
-    if relationship_ids:
-        valid_relationship_ids = set(
-            AccountRelationshipDefinition.objects.for_team(team_id)
-            .filter(id__in=relationship_ids)
-            .values_list("id", flat=True)
-        )
-        invalid_relationship_ids = relationship_ids - valid_relationship_ids
-        if invalid_relationship_ids:
-            invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
-            raise InvalidAccountTableColumn(f"Unknown relationship definitions: {invalid_ids}")
-
+        if sort.definition_id:
+            relationship_ids.add(sort.definition_id)
+    relationships = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name", "id")
+    if not selection.use_default_columns:
+        relationships = relationships.filter(id__in=relationship_ids)
+    relationship_definitions = {definition.id: definition for definition in relationships}
+    invalid_relationship_ids = relationship_ids - relationship_definitions.keys()
+    if invalid_relationship_ids and not ignore_missing_definitions:
+        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
+        raise InvalidAccountTableColumn(f"Unknown relationship definitions: {invalid_ids}")
+    selected_relationship_ids = set(selection.relationship_definition_ids) & relationship_definitions.keys()
+    if selection.use_default_columns:
+        selected_relationship_ids.update(relationship_definitions)
+    selection = replace(
+        selection,
+        relationship_definition_ids=frozenset(selected_relationship_ids),
+        account_fields=frozenset({contracts.AccountTableField.NAME})
+        if selection.use_default_columns
+        else selection.account_fields,
+        include_tags=selection.use_default_columns or selection.include_tags,
+        include_note_count=selection.use_default_columns or selection.include_note_count,
+    )
     custom_property_ids = set(selection.custom_property_definition_ids) | set(selection.custom_property_history_windows)
     custom_property_ids.update(
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableCustomPropertyFilter)
@@ -3229,20 +3320,38 @@ def _validate_account_table_definitions(
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
         custom_property_ids.add(sort.definition_id)
-    if not custom_property_ids:
-        return {}
-
-    custom_property_display_types = {
-        definition_id: DisplayType(display_type)
-        for definition_id, display_type in CustomPropertyDefinition.objects.for_team(team_id)
+    custom_properties = {
+        definition.id: definition
+        for definition in CustomPropertyDefinition.objects.for_team(team_id)
         .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
-        .values_list("id", "display_type")
+        .select_related("source")
+    }
+    custom_property_display_types = {
+        id_: DisplayType(definition.display_type) for id_, definition in custom_properties.items()
     }
     invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
-    if invalid_custom_property_ids:
+    if invalid_custom_property_ids and not ignore_missing_definitions:
         invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
         raise InvalidAccountTableColumn(f"Unknown account custom property definitions: {invalid_ids}")
 
+    selection = replace(
+        selection,
+        custom_property_definition_ids=frozenset(selection.custom_property_definition_ids & custom_properties.keys()),
+        custom_property_history_windows={
+            id_: days for id_, days in selection.custom_property_history_windows.items() if id_ in custom_properties
+        },
+    )
+    if sort and sort.definition_id is not None:
+        if (
+            sort.kind == contracts.AccountTableSortKind.RELATIONSHIP
+            and sort.definition_id not in relationship_definitions
+        ) or (
+            sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY and sort.definition_id not in custom_properties
+        ):
+            sort = None
+    definitions = _AccountTableDefinitions(
+        selection=selection, sort=sort, relationships=relationship_definitions, custom_properties=custom_properties
+    )
     non_numeric_history_ids = {
         definition_id
         for definition_id in selection.custom_property_history_windows
@@ -3251,7 +3360,7 @@ def _validate_account_table_definitions(
     if non_numeric_history_ids:
         invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
         raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
-    return custom_property_display_types
+    return definitions
 
 
 LIFECYCLE_ACCOUNT_TABLE_FIELDS = frozenset(
@@ -3342,7 +3451,6 @@ def _apply_account_table_sort(
     *,
     team_id: int,
     sort: contracts.AccountTableSort | None,
-    custom_property_display_types: dict[UUID, DisplayType],
 ) -> QuerySet[Account]:
     if sort is None:
         return queryset.order_by("-created_at", "-id")
@@ -3399,27 +3507,6 @@ def _apply_account_table_sort(
         queryset = queryset.annotate(
             _account_table_sort=Subquery(relationship_values, output_field=ArrayField(IntegerField()))
         )
-    elif sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
-        if sort.definition_id is None:
-            raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
-        display_type = custom_property_display_types[sort.definition_id]
-        value_field = {
-            DataType.STRING: "value_str",
-            DataType.NUMERIC: "value_num",
-            DataType.BOOLEAN: "value_bool",
-            DataType.DATETIME: "value_datetime",
-        }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        queryset = queryset.annotate(
-            _custom_property_sort_value=FilteredRelation(
-                "custom_property_values",
-                condition=Q(
-                    custom_property_values__team_id=team_id,
-                    custom_property_values__definition_id=sort.definition_id,
-                    custom_property_values__is_deleted=False,
-                ),
-            ),
-            _account_table_sort=F(f"_custom_property_sort_value__{value_field}"),
-        )
 
     order = F("_account_table_sort")
     primary_order = (
@@ -3430,9 +3517,61 @@ def _apply_account_table_sort(
     return queryset.order_by(primary_order, "id")
 
 
+def _list_accounts_sorted_by_custom_property(
+    queryset: QuerySet[Account],
+    *,
+    team_id: int,
+    sort: contracts.AccountTableSort,
+    custom_property_display_types: dict[UUID, DisplayType],
+    offset: int,
+    limit: int,
+) -> list[Account]:
+    if sort.definition_id is None:
+        raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
+    value_field = {
+        DataType.STRING: "value_str",
+        DataType.NUMERIC: "value_num",
+        DataType.BOOLEAN: "value_bool",
+        DataType.DATETIME: "value_datetime",
+    }[DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[sort.definition_id]]]
+    sort_value = F(f"custom_property_values__{value_field}")
+    with_value = queryset.filter(
+        custom_property_values__team_id=team_id,
+        custom_property_values__definition_id=sort.definition_id,
+        custom_property_values__is_deleted=False,
+        **{f"custom_property_values__{value_field}__isnull": False},
+    ).annotate(
+        _account_table_sort=(
+            Left(sort_value, SORT_VALUE_STR_PREFIX_LENGTH) if value_field == "value_str" else sort_value
+        ),
+    )
+    sort_keys = [F("_account_table_sort"), *([sort_value] if value_field == "value_str" else [])]
+    if sort.direction == contracts.AccountTableSortDirection.ASCENDING:
+        with_value = with_value.order_by(*(key.asc() for key in sort_keys), "id")
+    else:
+        with_value = with_value.order_by(*(key.desc() for key in sort_keys), "-id")
+    accounts: list[Account] = list(with_value[offset : offset + limit])
+    if len(accounts) == limit:
+        return accounts
+
+    with_value_count = offset + len(accounts) if accounts or offset == 0 else with_value.count()
+    without_value = queryset.exclude(
+        Exists(
+            CustomPropertyValue.objects.for_team(team_id).filter(
+                account_id=OuterRef("pk"),
+                definition_id=sort.definition_id,
+                is_deleted=False,
+                **{f"{value_field}__isnull": False},
+            )
+        )
+    ).order_by("id")
+    without_value_offset = max(offset - with_value_count, 0)
+    return accounts + list(without_value[without_value_offset : without_value_offset + limit - len(accounts)])
+
+
 class _PercentileCont(Aggregate):
     function = "PERCENTILE_CONT"
-    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
     output_field = FloatField()
 
 
@@ -3445,21 +3584,41 @@ def query_accounts_metrics(
     filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...] = (),
     include_churned: bool = False,
     include_ignored: bool = False,
+    ignore_missing_definitions: bool = False,
 ) -> list[float | int | None]:
     definition_ids = frozenset(
         metric.definition_id
         for metric in metrics
         if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
     )
-    custom_property_display_types = _validate_account_table_definitions(
+    definitions = _validate_account_table_definitions(
         team_id=team_id,
         selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
         filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=None,
+        ignore_missing_definitions=ignore_missing_definitions,
     )
-    for definition_id in definition_ids:
-        if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
-            raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
+    filters = definitions.filter_supported_filters(
+        filters, ignore_invalid_custom_property_filters=ignore_missing_definitions
+    )
+    filter_groups = tuple(
+        known
+        for group in filter_groups
+        if (
+            known := definitions.filter_supported_filters(
+                group, ignore_invalid_custom_property_filters=ignore_missing_definitions
+            )
+        )
+    )
+    custom_property_display_types = definitions.display_types
+    non_numeric_definition_ids = {
+        definition_id
+        for definition_id in definition_ids
+        if definition_id in custom_property_display_types
+        and DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC
+    }
+    if non_numeric_definition_ids and not ignore_missing_definitions:
+        raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
     accounts = _accounts_queryset(team_id, user_access_control)
     if not filter_groups:
@@ -3484,6 +3643,11 @@ def query_accounts_metrics(
     aggregate_expressions: dict[str, Aggregate] = {}
     for index, metric in enumerate(metrics):
         alias = f"metric_{index}"
+        if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric) and (
+            metric.definition_id not in custom_property_display_types
+            or metric.definition_id in non_numeric_definition_ids
+        ):
+            continue
         if isinstance(metric, contracts.AccountTableAggregateMetric):
             aggregate_type = {
                 contracts.AccountTableAggregation.SUM: Sum,
@@ -3518,6 +3682,8 @@ def query_accounts_metrics(
         )
         aggregated = values.aggregate(**aggregate_expressions)
         for index, metric in enumerate(metrics):
+            if f"metric_{index}" not in aggregated:
+                continue
             value = aggregated.get(f"metric_{index}")
             if isinstance(metric, contracts.AccountTableAggregateMetric) and value is not None:
                 results[index] = float(value) * (metric.scale if metric.scale is not None else 1)
@@ -3546,13 +3712,31 @@ def query_accounts_table(
     filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...] = (),
     include_churned: bool = False,
     include_ignored: bool = False,
+    ignore_missing_definitions: bool = False,
 ) -> contracts.AccountTablePage:
-    custom_property_display_types = _validate_account_table_definitions(
+    definitions = _validate_account_table_definitions(
         team_id=team_id,
         selection=selection,
         filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=sort,
+        ignore_missing_definitions=ignore_missing_definitions,
     )
+
+    filters = definitions.filter_supported_filters(
+        filters, ignore_invalid_custom_property_filters=ignore_missing_definitions
+    )
+    filter_groups = tuple(
+        known
+        for group in filter_groups
+        if (
+            known := definitions.filter_supported_filters(
+                group, ignore_invalid_custom_property_filters=ignore_missing_definitions
+            )
+        )
+    )
+    custom_property_display_types = definitions.display_types
+    selection = definitions.selection
+    sort = definitions.sort
 
     queryset = _accounts_queryset(team_id, user_access_control)
     if not filter_groups:
@@ -3569,13 +3753,18 @@ def query_accounts_table(
         include_churned=include_churned,
         include_ignored=include_ignored,
     )
-    queryset = _apply_account_table_sort(
-        queryset,
-        team_id=team_id,
-        sort=sort,
-        custom_property_display_types=custom_property_display_types,
-    )
-    fetched_accounts = list(queryset[offset : offset + limit + 1])
+    if sort is not None and sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
+        fetched_accounts = _list_accounts_sorted_by_custom_property(
+            queryset,
+            team_id=team_id,
+            sort=sort,
+            custom_property_display_types=custom_property_display_types,
+            offset=offset,
+            limit=limit + 1,
+        )
+    else:
+        queryset = _apply_account_table_sort(queryset, team_id=team_id, sort=sort)
+        fetched_accounts = list(queryset[offset : offset + limit + 1])
     has_more = len(fetched_accounts) > limit
     accounts = fetched_accounts[:limit]
     account_ids = [account.id for account in accounts]
@@ -3681,15 +3870,56 @@ def query_accounts_table(
         )
         for account in accounts
     ]
-    return contracts.AccountTablePage(rows=rows, has_more=has_more, limit=limit, offset=offset)
+    workflow_reference_ids: frozenset[str] = (
+        frozenset(
+            cast(
+                list[str],
+                cache.get_or_set(
+                    f"customer_analytics:account_table_workflow_references:{team_id}",
+                    lambda: list(_custom_property_references_by_definition_id(team_id)),
+                    timeout=60,
+                ),
+            )
+        )
+        if definitions.custom_properties
+        else frozenset()
+    )
+    property_definitions = []
+    for definition in definitions.custom_properties.values():
+        try:
+            source_id = definition.source.id
+        except CustomPropertySource.DoesNotExist:
+            source_id = None
+        property_definitions.append(
+            contracts.AccountTableCustomPropertyDefinition(
+                id=definition.id,
+                name=definition.name,
+                description=definition.description,
+                display_type=definition.display_type,
+                is_big_number=definition.is_big_number,
+                is_canonical=definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME,
+                has_workflow_reference=str(definition.id) in workflow_reference_ids,
+                source_id=source_id,
+                options=definition.options,
+            )
+        )
+    return contracts.AccountTablePage(
+        rows=rows,
+        has_more=has_more,
+        limit=limit,
+        offset=offset,
+        relationship_definitions=[
+            _to_account_relationship_definition(definition) for definition in definitions.relationships.values()
+        ],
+        custom_property_definitions=property_definitions,
+    )
 
 
 def list_accounts_for_view(
     *,
     team_id: int,
     user_access_control: "UserAccessControl",
-    offset: int,
-    limit: int,
+    page: PageRequest,
     search: str | None = None,
     tags: list[str] | None = None,
     all_roles_unassigned: bool = False,
@@ -3697,10 +3927,10 @@ def list_accounts_for_view(
     include_ignored: bool = False,
     ordering: str | None = None,
     inactive_last: bool = False,
-) -> tuple[list[contracts.AccountDetails], int]:
+) -> Page[contracts.AccountDetails]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
-    pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
+    pagination. ``tags``/``ordering`` are pre-validated by
     the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
     queryset = _accounts_queryset(team_id, user_access_control).prefetch_related(
         Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
@@ -3736,10 +3966,7 @@ def list_accounts_for_view(
         )
         order_fields.insert(0, "is_inactive")
     queryset = queryset.order_by(*order_fields)
-
-    total_count = queryset.count()
-    page = list(queryset[offset : offset + limit])
-    return [_to_account_details(a) for a in page], total_count
+    return select_page(queryset, page).map(_to_account_details)
 
 
 def get_account_for_view(
@@ -3750,6 +3977,22 @@ def get_account_for_view(
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     return _to_account_details(account)
+
+
+def list_account_automations(
+    *, team: Team, account_id: str, user_access_control: UserAccessControl, page: PageRequest
+) -> Page[contracts.AccountAutomation]:
+    account = get_account_for_view(
+        team_id=team.pk, account_id=account_id, user_access_control=user_access_control, required_level="viewer"
+    )
+    return _account_automations_logic.list_account_runs(
+        team=team,
+        account_id=str(account.id),
+        external_id=account.external_id,
+        workflow_ids=get_viewable_workflow_ids(team_id=team.pk, user_access_control=user_access_control),
+        user_access_control=user_access_control,
+        page=page,
+    )
 
 
 def get_account_for_view_by_external_id(
@@ -4159,6 +4402,7 @@ def _to_account_notebook_view(notebook: "notebook_contracts.AccountNotebook") ->
         created_by=_notebook_user_to_basic_info(notebook.created_by),
         last_modified_at=notebook.last_modified_at,
         last_modified_by=_notebook_user_to_basic_info(notebook.last_modified_by),
+        tags=list(notebook.tags),
     )
 
 
@@ -4230,12 +4474,11 @@ def list_account_channel_summaries(
     account_id: str,
     user_access_control: "UserAccessControl",
     *,
-    offset: int,
-    limit: int,
-) -> tuple[list[contracts.AccountChannelSummaryView], int] | None:
-    """Stored Slack channel summaries for an accessible account, newest period first.
+    page: PageRequest,
+) -> Page[contracts.AccountChannelSummaryView] | None:
+    """One page of the stored Slack channel summaries of an accessible account, newest period first.
 
-    Returns ``(page, total_count)``, or None when the parent account isn't accessible (→ 404)."""
+    None when the parent account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     queryset = (
@@ -4243,8 +4486,7 @@ def list_account_channel_summaries(
         .filter(account_id=account_id)
         .order_by("-period_start", "-generated_at")
     )
-    total_count = queryset.count()
-    return [_to_channel_summary_view(s) for s in queryset[offset : offset + limit]], total_count
+    return select_page(queryset, page).map(_to_channel_summary_view)
 
 
 def _to_channel_summary_view(summary: AccountChannelSummary) -> contracts.AccountChannelSummaryView:
@@ -4402,9 +4644,8 @@ def get_account_support_ticket_messages(
     ticket_id: str,
     user_access_control: "UserAccessControl",
     *,
-    offset: int = 0,
-    limit: int = 50,
-) -> tuple[list[SupportTicketMessage], int] | None:
+    page: PageRequest,
+) -> Page[SupportTicketMessage] | None:
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
@@ -4412,14 +4653,18 @@ def get_account_support_ticket_messages(
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return None
-    return list_account_ticket_messages(
+    result = list_account_ticket_messages(
         team_id,
         account.external_id,
         ticket_id,
         user_access_control,
-        offset=offset,
-        limit=limit,
+        offset=page.offset,
+        limit=page.limit,
     )
+    if result is None:
+        return None
+    messages, count = result
+    return Page(results=messages, count=count)
 
 
 def get_account_email_threads(
@@ -4427,14 +4672,14 @@ def get_account_email_threads(
     account_id: str,
     user_access_control: "UserAccessControl",
     *,
-    offset: int = 0,
-    limit: int = 50,
-) -> tuple[list[AccountEmailThreadSummary], int] | None:
+    page: PageRequest,
+) -> Page[AccountEmailThreadSummary] | None:
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
-    return list_account_email_threads(team_id, account_id, offset=offset, limit=limit)
+    threads, count = list_account_email_threads(team_id, account_id, offset=page.offset, limit=page.limit)
+    return Page(results=threads, count=count)
 
 
 def get_account_email_thread_messages(
@@ -4443,14 +4688,17 @@ def get_account_email_thread_messages(
     thread_id: str,
     user_access_control: "UserAccessControl",
     *,
-    offset: int = 0,
-    limit: int = 50,
-) -> tuple[list[AccountEmailThreadMessage], int] | None:
+    page: PageRequest,
+) -> Page[AccountEmailThreadMessage] | None:
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
-    return list_account_email_thread_messages(team_id, account_id, thread_id, offset=offset, limit=limit)
+    result = list_account_email_thread_messages(team_id, account_id, thread_id, offset=page.offset, limit=page.limit)
+    if result is None:
+        return None
+    messages, count = result
+    return Page(results=messages, count=count)
 
 
 AccountTrackRuleValidationError = _account_track_rules_logic.AccountTrackRuleValidationError
@@ -4489,10 +4737,8 @@ def preview_account_track_rules(
     return _account_track_rules_logic.preview_account_track_rules(team_id, raw_config)
 
 
-def list_account_track_rule_runs(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.AccountTrackRuleRunView], int]:
-    return _account_track_rules_logic.list_account_track_rule_runs(team_id, offset=offset, limit=limit)
+def list_account_track_rule_runs(team_id: int, *, page: PageRequest) -> Page[contracts.AccountTrackRuleRunView]:
+    return _account_track_rules_logic.list_account_track_rule_runs(team_id, page=page)
 
 
 def trigger_account_track_rule_run(
@@ -4555,7 +4801,7 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
     )
 
     statuses = []
-    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+    for integration in sorted(IntegrationManager.google_calendar.oauth.list(team_id), key=lambda row: row.id):
         config = integration.config or {}
         last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
@@ -4588,7 +4834,7 @@ def update_calendar_sync_interval(team_id: int, integration_id: int, interval_mi
 
     try:
         update_calendar_sync_config(integration_id, team_id, {SYNC_INTERVAL_CONFIG_KEY: interval_minutes})
-    except Integration.DoesNotExist:
+    except IntegrationNotFound:
         return False
     return True
 
@@ -4613,12 +4859,9 @@ def trigger_calendar_sync(
     schedule. Returns 'started', 'already_running' (a sync for this calendar is in
     flight; the workflow id is deterministic per integration), or None when the
     integration doesn't exist for this team (→ 404)."""
-    integration = (
-        Integration.objects.only("id", "kind", "created_by_id")
-        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
-        .first()
-    )
-    if integration is None:
+    try:
+        integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
         return None
     if not has_management_access and not integration.can_be_managed_by_creator(user_id):
         raise ResourceForbiddenError
@@ -4655,12 +4898,9 @@ def trigger_google_account_backfill(
     end_date: date,
     has_management_access: bool,
 ) -> str | None:
-    integration = (
-        Integration.objects.only("id")
-        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
-        .first()
-    )
-    if integration is None:
+    try:
+        IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
         return None
     if not has_management_access:
         raise ResourceForbiddenError
@@ -4701,10 +4941,9 @@ def list_account_meetings(
     account_id: str,
     user_access_control: "UserAccessControl",
     *,
-    offset: int = 0,
-    limit: int = 100,
+    page: PageRequest,
     search: str | None = None,
-) -> tuple[list[contracts.MeetingView], int] | None:
+) -> Page[contracts.MeetingView] | None:
     """Synced calendar meetings for an accessible account, newest first, optionally
     filtered by ``search`` (title or attendee email/name). A recurring series shows each
     past occurrence but only its next upcoming one. None when the account isn't
@@ -4730,8 +4969,8 @@ def list_account_meetings(
             | Q(participants__email__icontains=search)
             | Q(participants__display_name__icontains=search)
         ).distinct()
-    count = queryset.count()
-    meetings = list(queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit])
+    selected = select_page(queryset.order_by("-start_time").prefetch_related("participants"), page)
+    meetings = selected.results
 
     from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
         get_gong_urls_by_meeting_id,
@@ -4765,7 +5004,7 @@ def list_account_meetings(
         )
         for meeting in meetings
     ]
-    return views, count
+    return Page(results=views, count=selected.count)
 
 
 def list_account_notebooks(
@@ -4775,33 +5014,57 @@ def list_account_notebooks(
     *,
     search: str | None = None,
     order: str | None = None,
+    tags: list[str] | None = None,
+    created_by_ids: list[int] | None = None,
 ) -> list[contracts.AccountNotebookView] | None:
     """Internal notebooks linked to an accessible account. Optionally full-text filtered by
-    ``search`` (title + content) and sorted by ``order`` (creation date or author); defaults to
-    newest first. None when the parent account isn't accessible (→ 404)."""
+    ``search`` (title + content), narrowed to notes carrying any of ``tags`` or written by any of
+    ``created_by_ids``, and sorted by ``order``; defaults to newest first. None when the parent
+    account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     return [
-        _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
+        _to_account_notebook_view(n)
+        for n in notebooks.list_account_notebooks(
+            account_id, search=search, order=order, tags=tags, created_by_ids=created_by_ids
+        )
     ]
+
+
+def update_account_notebook(
+    *,
+    team_id: int,
+    account_id: str,
+    short_id: str,
+    input: contracts.UpdateAccountNotebookInput,
+    user: "User",
+    user_access_control: "UserAccessControl",
+) -> contracts.AccountNotebookView | None:
+    """Replace the tags of an internal notebook linked to an accessible account. None when the
+    account isn't accessible or no such notebook exists (→ 404)."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    updated = notebooks.update_account_notebook(account_id, short_id, tags=input.tags)
+    return _to_account_notebook_view(updated) if updated is not None else None
 
 
 def list_account_notes_for_view(
     *,
     team_id: int,
     user_access_control: "UserAccessControl",
-    offset: int,
-    limit: int,
+    page: PageRequest,
     search: str | None = None,
     account_id: UUID | str | None = None,
     created_by_ids: list[int] | None = None,
     assigned_to_ids: list[int] | None = None,
-) -> tuple[list[contracts.AccountNoteView], int]:
+    tags: list[str] | None = None,
+    order: str | None = None,
+) -> Page[contracts.AccountNoteView]:
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
     notes authored by the given users, ``assigned_to_ids`` to notes on accounts where one of the
-    given users actively holds a relationship. Returns ``(page, total_count)``."""
+    given users actively holds a relationship, ``tags`` to notes carrying any of the tags."""
     accounts = _accounts_queryset(team_id, user_access_control)
     if assigned_to_ids:
         # "Assigned to" means any active relationship, matching the accounts list HogQL
@@ -4818,10 +5081,12 @@ def list_account_notes_for_view(
         account_id=account_id,
         created_by_ids=created_by_ids,
         search=search,
-        offset=offset,
-        limit=limit,
+        tags=tags,
+        order=order,
+        offset=page.offset,
+        limit=page.limit,
     )
-    return [
+    views = [
         contracts.AccountNoteView(
             short_id=note.short_id,
             title=note.title,
@@ -4830,9 +5095,11 @@ def list_account_notes_for_view(
             account_id=note.account_id,
             account_name=note.account_name,
             created_by=_notebook_user_to_basic_info(note.created_by),
+            tags=list(note.tags),
         )
         for note in notes
-    ], count
+    ]
+    return Page(results=views, count=count)
 
 
 def get_account_notebook(
@@ -4861,15 +5128,21 @@ def create_account_notebook(
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     content = input.synthesized_content if input.synthesized_content is not None else input.content
-    created = notebooks.create_account_notebook(
-        team_id,
-        account_id,
-        title=input.title,
-        content=content,
-        text_content=input.text_content,
-        created_by_id=user.id,
-        last_modified_by_id=user.id,
-    )
+    with transaction.atomic():
+        created = notebooks.create_account_notebook(
+            team_id,
+            account_id,
+            title=input.title,
+            content=content,
+            text_content=input.text_content,
+            created_by_id=user.id,
+            last_modified_by_id=user.id,
+        )
+        tags: list[str] = []
+        if input.tags:
+            updated = notebooks.update_account_notebook(account_id, created.short_id, tags=input.tags)
+            if updated is not None:
+                tags = list(updated.tags)
     # The creator is also the (only) modifier of a just-created notebook, so the user the
     # caller already holds is both `created_by` and `last_modified_by` — no extra fetch.
     author = _to_user_basic_info(user)
@@ -4883,6 +5156,7 @@ def create_account_notebook(
         created_by=author,
         last_modified_at=created.last_modified_at,
         last_modified_by=author,
+        tags=tags,
     )
 
 
@@ -5101,12 +5375,15 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
 
 
 def list_account_relationship_definitions(
-    team_id: int, offset: int = 0, limit: int = 100
-) -> tuple[list[contracts.AccountRelationshipDefinition], int]:
+    team_id: int, *, page: PageRequest
+) -> Page[contracts.AccountRelationshipDefinition]:
     queryset = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
-    total_count = queryset.count()
-    page = queryset[offset : offset + limit]
-    return [_to_account_relationship_definition(definition) for definition in page], total_count
+    return select_page(queryset, page).map(_to_account_relationship_definition)
+
+
+def list_all_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
+    queryset = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name", "pk")
+    return [_to_account_relationship_definition(definition) for definition in queryset]
 
 
 def create_account_relationship_definition(
@@ -5412,17 +5689,15 @@ def list_customer_tasks(
     team_id: int,
     user_access_control: "UserAccessControl",
     filters: contracts.CustomerTaskListFilters,
-    offset: int,
-    limit: int,
-) -> tuple[list[contracts.CustomerTaskView], int]:
-    tasks, count = _customer_tasks_logic.list_customer_tasks(
+    page: PageRequest,
+) -> Page[contracts.CustomerTaskView]:
+    tasks = _customer_tasks_logic.list_customer_tasks(
         team_id=team_id,
         user_access_control=user_access_control,
         filters=filters,
-        offset=offset,
-        limit=limit,
+        page=page,
     )
-    return [_to_customer_task_view(task, user_access_control) for task in tasks], count
+    return tasks.map(lambda task: _to_customer_task_view(task, user_access_control))
 
 
 def get_customer_task(
@@ -5529,21 +5804,18 @@ def list_customer_task_activities(
     team_id: int,
     task_id: UUID | str,
     user_access_control: "UserAccessControl",
-    offset: int,
-    limit: int,
-) -> tuple[list[contracts.CustomerTaskActivityView], int] | None:
+    page: PageRequest,
+) -> Page[contracts.CustomerTaskActivityView] | None:
     result = _customer_tasks_logic.list_customer_task_activities(
         team_id=team_id,
         task_id=task_id,
         user_access_control=user_access_control,
-        offset=offset,
-        limit=limit,
+        page=page,
     )
     if result is None:
         return None
-    return [
-        _to_customer_task_activity_view(activity, result.visible_account_ids) for activity in result.activities
-    ], result.total_count
+    visible_account_ids = result.visible_account_ids
+    return result.activities.map(lambda activity: _to_customer_task_activity_view(activity, visible_account_ids))
 
 
 # --- EventStream ---
@@ -5582,8 +5854,10 @@ def _to_event_stream_view(stream: EventStream) -> contracts.EventStreamView:
 def _validate_slack_integration(team_id: int, integration_id: int | None) -> None:
     if integration_id is None:
         return
-    if not Integration.objects.filter(team_id=team_id, id=integration_id, kind="slack").exists():
-        raise EventStreamValidationError("Slack integration not found for this team.")
+    try:
+        IntegrationManager.slack.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        raise EventStreamValidationError("Slack integration not found for this team.") from None
 
 
 def _normalize_event_names(event_names: Iterable[str]) -> list[str]:
@@ -5750,11 +6024,8 @@ def _announcements_queryset(team_id: int):
     )
 
 
-def list_announcements(team_id: int, offset: int, limit: int) -> tuple[list[contracts.AnnouncementView], int]:
-    queryset = _announcements_queryset(team_id)
-    total_count = queryset.count()
-    page = queryset[offset : offset + limit]
-    return [_to_announcement_view(a) for a in page], total_count
+def list_announcements(team_id: int, *, page: PageRequest) -> Page[contracts.AnnouncementView]:
+    return select_page(_announcements_queryset(team_id), page).map(_to_announcement_view)
 
 
 def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView | None:
@@ -5785,3 +6056,7 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
 def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
     """The key metrics, or None while a background calculation is still running."""
     return _key_metrics_logic.key_metrics(team, user)
+
+
+def get_key_metric_names(*, team: Team) -> dict[str, str]:
+    return _key_metrics_logic.key_metric_names(team)

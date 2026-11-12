@@ -4,25 +4,31 @@ import { IconArrowRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { isActionsNode, isDataWarehouseNode, isEventsNode } from '~/queries/schema/node-guards'
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricSource,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { isActionsNode, isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { formatQuantileLevel } from '~/scenes/experiments/MetricsView/shared/utils'
+
+import { isWarehouseNativeSource } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 const getSourceName = (source: ExperimentMetricSource): string =>
     match(source)
         .when(isEventsNode, (node) => node.name || node.event || 'Unknown event')
         .when(isActionsNode, (node) => node.name || `Action ${node.id}`)
         .when(isDataWarehouseNode, (node) => node.name || node.table_name)
+        .when(isWarehouseNativeSource, (node) => node.custom_name || 'Warehouse-native query')
         .otherwise(() => 'Unknown')
 
 const getMathLabel = (math: string | undefined): string => {
@@ -100,4 +106,12 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
                 </div>
             )
         })
+        .when(isExperimentQuantileMetric, (quantileMetric: ExperimentQuantileMetric) => (
+            <div className="text-xs text-muted">
+                <span className="truncate">{getSourceName(quantileMetric.source)}</span>
+                <span className="text-muted">
+                    {` (${formatQuantileLevel(quantileMetric.quantile)} of ${quantileMetric.source.math_property || 'no property'})`}
+                </span>
+            </div>
+        ))
         .otherwise(() => <div>Unknown metric type</div>)

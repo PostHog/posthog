@@ -5,16 +5,21 @@ assignment side effects that previously lived in the presentation layer, so the 
 can stay thin (parse -> facade -> serialize).
 """
 
-from typing import Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
 
+from prometheus_client import Counter
+
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.event_usage import groups
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.ph_client import ph_background_capture
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.access_control.backend.facade.api import role_belongs_to_organization
@@ -54,7 +59,10 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueMergeResult,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
+from products.error_tracking.backend.notifications import AssignmentActor, dispatch_issue_assigned_realtime
+
+if TYPE_CHECKING:
+    from products.error_tracking.backend.logic.auto_assignment.base import Decision
 
 
 class CohortNotFoundError(Exception):
@@ -244,6 +252,58 @@ def update_issue(
         "description": description_updated,
     }
     return IssueUpdateOutcome(issue=issue, changed_fields=tuple(key for key, changed in updated.items() if changed))
+
+
+def transition_issue_status_by_automation(
+    team_id: int,
+    issue_id: UUID,
+    *,
+    expected: "ErrorTrackingIssue.Status",
+    status: "ErrorTrackingIssue.Status",
+    trigger: Trigger,
+    automation_id: UUID,
+) -> bool:
+    """Move an issue from `expected` to `status` for a change no person made.
+
+    The check runs under the issue row lock, and the function returns False without a change
+    when the issue is no longer in `expected`. So a person or ingestion that changed the status
+    after the automation decided is never overwritten.
+    """
+    operation = ChangeOperation.for_automation(team_id, automation_id)
+    with transaction.atomic():
+        locked = _lock_issues(team_id, [issue_id], select_related=("team",))
+        if not locked or locked[0].status != expected:
+            return False
+        issue = locked[0]
+        issue.status = status
+        issue.state_updated_at = timezone.now()
+        issue.save(update_fields=["status", "state_updated_at"])
+        record_issue_changes(operation, [IssueChange(issue=issue, data=StatusChanged(previous=Status(expected)))])
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="updated",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(type="ErrorTrackingIssue", field="status", before=expected, after=status, action="changed")
+                ],
+                trigger=trigger,
+            ),
+        )
+        produce_issue_lifecycle_event_on_commit(
+            event=STATUS_CHANGE_EVENTS[status],
+            issue=issue,
+            user=None,
+            extra_properties={"previous_status": status_label(expected)},
+        )
+
+    sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=team_id)
+    return True
 
 
 def merge_issues(
@@ -546,7 +606,7 @@ def _assign_one(
         dispatch_issue_assigned_realtime(
             assignment=assignment_after,
             assignee=assignee,
-            assigner=user,
+            actor=AssignmentActor.from_user(user),
         )
 
         transition = prepare_issue_lifecycle_event(
@@ -597,4 +657,123 @@ def _assign_one(
     return _AssignOutcome(
         transition=transition,
         change=IssueChange(issue=issue, data=AssigneeChanged(previous=AssigneeRef.from_assignment(assignment_before))),
+    )
+
+
+# pinned: change rows store this id as their actor. No automation row exists, so nothing resolves it.
+AUTO_ASSIGNMENT_AUTOMATION_ID = UUID("7856c219-ea58-46af-8282-30192405d266")
+
+AUTO_ASSIGNMENT_TRIGGER_JOB_TYPE = "error_tracking_auto_assignment"
+
+
+class AutoAssignmentOutcome(StrEnum):
+    ASSIGNED = "assigned"
+    KEPT_EXISTING = "kept_existing"
+    ROLE_SKIPPED = "role_skipped"
+    NOT_MEMBER = "not_member"
+
+
+AUTO_ASSIGNMENT_OUTCOMES = Counter(
+    "error_tracking_issue_auto_assignment_total",
+    "Automatic assignment writes by outcome",
+    labelnames=("outcome",),
+)
+
+
+def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "Decision") -> AutoAssignmentOutcome:
+    """Write the decision's user as the assignee of an issue that has none.
+
+    An existing assignee always wins, whoever set it. The write notifies nobody and emits no lifecycle
+    event. The caller checks the feature gate.
+    """
+    candidate = decision.candidate
+    if candidate.assignee.type != "user":
+        return _counted(AutoAssignmentOutcome.ROLE_SKIPPED)
+    user_id = int(candidate.assignee.id)
+
+    operation = ChangeOperation.for_automation(team_id, AUTO_ASSIGNMENT_AUTOMATION_ID)
+    with transaction.atomic():
+        locked = _lock_issues(team_id, [str(issue_id)], select_related=("team",))
+        if not locked:
+            raise ErrorTrackingIssueNotFoundError
+        issue = locked[0]
+        # Look up by issue only, because cymbal writes rule assignments without a team_id.
+        assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
+        created = False
+        if assignment is None:
+            if not OrganizationMembership.objects.filter(
+                user_id=user_id, organization_id=issue.team.organization_id
+            ).exists():
+                return _counted(AutoAssignmentOutcome.NOT_MEMBER)
+            # nosemgrep: idor-lookup-without-team (the issue is locked under team_id above)
+            assignment, created = ErrorTrackingIssueAssignment.objects.get_or_create(
+                issue_id=issue.id, defaults={"team_id": team_id, "user_id": user_id}
+            )
+        if created:
+            _stamp_issue_state(team_id=team_id, issue_ids=[issue.id])
+            record_issue_changes(operation, [IssueChange(issue=issue, data=AssigneeChanged(previous=None))])
+            _log_automatic_assignment(issue, assignment, decision)
+
+    outcome = _counted(AutoAssignmentOutcome.ASSIGNED if created else AutoAssignmentOutcome.KEPT_EXISTING)
+    if created:
+        ph_background_capture()(
+            distinct_id=str(issue.team.uuid),
+            # pinned: analytics event name, renaming it breaks dashboards
+            event="error_tracking_issue_auto_assigned",
+            properties={
+                "issue_id": str(issue.id),
+                "assignee_type": candidate.assignee.type,
+                "source": candidate.source,
+                "confidence": candidate.confidence,
+                "threshold": decision.threshold,
+            },
+            groups=groups(team=issue.team),
+        )
+    if assignment.user_id == user_id:
+        # A retry after a failed sync finds the row it wrote and returns kept_existing, so it must still sync.
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+    return outcome
+
+
+def _counted(outcome: AutoAssignmentOutcome) -> AutoAssignmentOutcome:
+    AUTO_ASSIGNMENT_OUTCOMES.labels(outcome=outcome).inc()
+    return outcome
+
+
+def _log_automatic_assignment(
+    issue: ErrorTrackingIssue, assignment: ErrorTrackingIssueAssignment, decision: "Decision"
+) -> None:
+    candidate = decision.candidate
+    log_activity(
+        organization_id=issue.team.organization_id,
+        team_id=issue.team_id,
+        user=None,
+        was_impersonated=False,
+        item_id=str(issue.id),
+        scope="ErrorTrackingIssue",
+        activity="assigned",
+        # Write inside the transaction, so that the assignment rolls back when its reason cannot be recorded.
+        strict=True,
+        detail=Detail(
+            name=issue.name,
+            changes=[
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="assignee",
+                    before=None,
+                    after=_assignment_repr(assignment),
+                    action="changed",
+                )
+            ],
+            trigger=Trigger(
+                job_type=AUTO_ASSIGNMENT_TRIGGER_JOB_TYPE,
+                job_id=candidate.source,
+                payload={
+                    "reason": candidate.reason,
+                    "confidence": candidate.confidence,
+                    "threshold": decision.threshold,
+                    "similar_issue_ids": list(candidate.evidence.similar_issue_ids),
+                },
+            ),
+        ),
     )

@@ -77,13 +77,17 @@ jobs:
             test_reason: ${{ steps.select-tests.outputs.reason }}
             test_file_count: ${{ steps.select-tests.outputs.file_count }}
         steps:
-            # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
+            # Only the filter action is read from the tree. The change set itself comes from the
+            # pull-request files API, so this step needs no history: reading the whole tree with
+            # full history here measured 75s (median of 12 runs) of an 80s job, and every job in
+            # this workflow waits on it.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   clean: false
                   filter: blob:none
-                  fetch-depth: 0
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -138,6 +142,13 @@ jobs:
                         # A migration change makes the test job build Postgres from the Django
                         # models, and the Jest integration tests read product tables too.
                         - 'products/*/backend/migrations/**'
+                        # The schema-check test reads every Django app's migrations and the routing
+                        # file to prove that each table Node SQL reads has a migration the check covers.
+                        - 'posthog/*/migrations/**'
+                        - 'products/db_routing.yaml'
+                        - 'rust/persons_migrations/**'
+                        - 'rust/cyclotron-node-migrations/**'
+                        - 'rust/behavioral_cohorts_migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
@@ -158,6 +169,7 @@ jobs:
                         - 'proto/**'
                         - '.github/rust-images.yml'
                         - '.github/actions/rust-compute-affected/**'
+                        - '.github/scripts/resolve-changed-files.sh'
                       # Node sources jest can resolve. Their paths feed --findRelatedTests.
                       node_src:
                         - 'nodejs/**/*.ts'
@@ -176,6 +188,8 @@ jobs:
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
+                        - 'nodejs/jest.serial.sequencer.js'
+                        - 'nodejs/jest.serial.durations.json'
                         - 'nodejs/package.json'
                         - 'nodejs/tsconfig*.json'
                         - 'pnpm-lock.yaml'
@@ -184,10 +198,43 @@ jobs:
                         - '.github/workflows/ci-nodejs.yml'
                         - '.github/actions/setup-uv/**'
 
+            # Affected-crate detection is the only step below that reads the tree, and only a
+            # rust/ or proto/ change that does not already require Node.js checks reaches it.
+            # The resolver supplies the merge base and
+            # complete change set, so this checkout needs no history.
+            # The cone is a superset of the tree ci-rust.yml's affected job gives the same binary.
+            - name: Check out the Rust tree for affected-crate detection
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+                  fetch-depth: 1
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/
+                      proto/
+                      rust/
+                  sparse-checkout-cone-mode: false
+
+            - name: Resolve the Rust changed files
+              id: rust-changed-files
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  MERGE_TARGET: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  if [ -f .github/scripts/resolve-changed-files.sh ]; then
+                      bash .github/scripts/resolve-changed-files.sh
+                  else
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Install rust for affected-crate detection
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
@@ -196,12 +243,15 @@ jobs:
               id: rust-affected
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
+                  base-ref: ${{ steps.rust-changed-files.outputs.merge_base }}
+                  changed-files: ${{ runner.temp }}/changed-files.txt
+                  rebuild-all: ${{ (steps.rust-changed-files.outcome != 'success' || steps.rust-changed-files.outputs.resolved != 'true') && 'true' || 'false' }}
 
             - name: Decide whether Node.js checks should run
               id: nodejs-changes
@@ -294,6 +344,9 @@ jobs:
                   count=$(printf '%s\n' $NODE_SRC_FILES | grep -c . || true)
                   [ "$count" -le 200 ] || full over_ceiling
                   [ -n "${files// /}" ] || full empty_file_list
+                  # This test reads Node SQL and the migrations from disk, so no import connects it to the
+                  # changed files and --findRelatedTests would never select it.
+                  files="$files src/schema-check/derive-requirements.test.ts"
 
                   echo "::notice::selective jest over $count changed Node source file(s)"
                   {
@@ -435,9 +488,9 @@ jobs:
     tests:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
-        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
+        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ${{ matrix.runner }}
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
         # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
         timeout-minutes: 45
@@ -448,15 +501,19 @@ jobs:
                     - lane: parallel
                       shard: 1
                       shard_count: 1
+                      runner: depot-ubuntu-24.04-4
                     - lane: serial
                       shard: 1
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 2
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 3
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -574,66 +631,17 @@ jobs:
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
 
-            - name: Fetch base branch for diff
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: git fetch origin "$BASE_REF" --depth=1
-
-            - name: Check for migrations in this PR
-              id: check_migrations
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: |
-                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
-                    echo "has_migrations=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "has_migrations=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Set up databases (fast path - restore schema)
-              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
+            - name: Set up databases
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  # Download pre-migrated schema from CI
-                  ./bin/hogli db:download-schema
+              run: pnpm --filter=@posthog/nodejs setup:test
 
-                  # Create test databases
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
-
-                  # Restore schema to test database
-                  echo "Restoring schema to test_posthog database..."
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
-                  echo "✅ Schema restored"
-
-                  # Run Rust migrations for test databases
-                  cd nodejs && pnpm run setup:test:rust
-
-                  # Create dedicated persons database for postgres-parity tests
-                  pnpm run setup:test:persons-parity
-
-                  # Set up ClickHouse test database and schema
-                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
-
-            - name: Set up databases (slow path - run migrations)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
-              env:
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-              run: |
-                  pnpm --filter=@posthog/nodejs setup:test
-                  # Create dedicated persons database for postgres-parity tests
-                  cd nodejs && pnpm run setup:test:persons-parity
+            - name: Set up postgres-parity database
+              if: matrix.lane == 'serial' && matrix.shard == 1
+              run: cd nodejs && pnpm run setup:test:persons-parity
 
             # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests, not the addon compile.
             - name: Prepare Node.js workspace
@@ -889,54 +897,7 @@ jobs:
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
 
-            - name: Fetch base branch for diff
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: git fetch origin "$BASE_REF" --depth=1
-
-            - name: Check for migrations in this PR
-              id: check_migrations
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.base_ref }}
-              run: |
-                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
-                    echo "has_migrations=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "has_migrations=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Set up databases (fast path - restore schema)
-              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
-              env:
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  # Download pre-migrated schema from CI
-                  ./bin/hogli db:download-schema
-
-                  # Create test databases
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
-
-                  # Restore schema to test database
-                  echo "Restoring schema to test_posthog database..."
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
-                  echo "✅ Schema restored"
-
-                  # Run Rust migrations for test databases
-                  cd nodejs && pnpm run setup:test:rust
-
-                  # Set up ClickHouse test database and schema
-                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
-
-            - name: Set up databases (slow path - run migrations)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+            - name: Set up databases
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
@@ -1054,6 +1015,16 @@ jobs:
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
                   fetch-depth: 1
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/actions/report-jest-timings
+                      .github/scripts/report_test_timings.py
+                      bin/report-jest-timings
+                      packages/owners-yaml
+                      tools/owners
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
             - name: Check for trusted test reporter
               id: test-reporter
               shell: bash

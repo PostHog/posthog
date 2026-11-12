@@ -97,6 +97,75 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel to read.
+    inbox-repo-routing-rules-create:
+        operation: tasks_repo_routing_rules_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add a repo routing rule
+        description: >
+            Add a repo routing rule that sends a kind of request to a repository. Call inbox-repo-routing-rules-list
+            first: if a rule already covers the same requests, update it with inbox-repo-routing-rules-update. The new
+            rule gets the lowest priority, so an existing rule that matches the same requests still wins. The API cannot
+            change a priority. To move a rule ahead of other rules, delete those rules and add them again after it. A
+            rule can only point at a repository: there is no rule that stops the selection of a repository. Set
+            `repository` to a repository that is connected to the project, because the selector ignores other rules.
+            Keep `rule_text` short and specific (at most 300 characters). The call fails when the project has reached
+            its rule limit. Task agents in a sandbox cannot add rules.
+    inbox-repo-routing-rules-delete:
+        operation: tasks_repo_routing_rules_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a repo routing rule
+        description: >
+            Delete a repo routing rule. The selector stops using the rule for new repository selections. Get the rule
+            `id` from inbox-repo-routing-rules-list. Task agents in a sandbox cannot delete rules.
+        param_overrides:
+            id:
+                description: ID of the routing rule to delete, from inbox-repo-routing-rules-list.
+    inbox-repo-routing-rules-list:
+        operation: tasks_repo_routing_rules_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List repo routing rules
+        description: >
+            List the project's repo routing rules in `priority` order, lowest first. A rule maps a kind of request
+            (`rule_text`) to a `repository`. The agent that selects a repository for a task or an Inbox report weighs a
+            matching rule as strong evidence, not as a hard constraint. When more than one rule matches, the earlier
+            rule wins. The selector ignores a rule whose repository is not connected to the project, and reads at most
+            the first 20 rules that remain. Read this list before you add or change a rule, so that you do not add a
+            duplicate or shadow an existing rule.
+    inbox-repo-routing-rules-update:
+        operation: tasks_repo_routing_rules_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a repo routing rule
+        description: >
+            Change the `rule_text` or the `repository` of a repo routing rule. Send only the fields to change. The rule
+            keeps its priority. Get the rule `id` from inbox-repo-routing-rules-list. Task agents in a sandbox cannot
+            change rules.
+        param_overrides:
+            id:
+                description: ID of the routing rule to update, from inbox-repo-routing-rules-list.
     tasks-config-agent-instructions-create:
         operation: tasks_config_agent_instructions_create
         enabled: true

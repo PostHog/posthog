@@ -4,7 +4,6 @@ from datetime import timedelta
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
-import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -23,24 +22,20 @@ from unittest import mock
 from django.test import SimpleTestCase
 from django.utils import timezone
 
-import grpc
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-import posthog.models.person.divergence.repairs
-import posthog.models.person.divergence.stale_merge
-from posthog.api.person import tag_client_query_id
+from posthog.api.person import PersonLimitOffsetPagination, tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.serialized_actors import get_serialized_people
-from posthog.models import Organization, Person, PropertyDefinition, Team
+from posthog.models import Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.models.person.missing_person import uuidFromDistinctId
-from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
     create_person_distinct_id,
@@ -50,12 +45,13 @@ from posthog.models.person.util import (
 )
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -763,6 +759,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data = response.json()
             self.assertEqual(data["code"], "person_deletion_failed")
             self.assertIn("tombstone_postgres", data["detail"])
+
+    @parameterized.expand([("deleted", False, status.HTTP_202_ACCEPTED), ("held_by_another_op", True, 503)])
+    def test_delete_person_through_the_lifecycle_saga_with_the_request_deadline(self, _name, held, expected):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        fake = get_active_fake()
+        if held:
+            fake.hold_lifecycle_mark(team_id=self.team.pk, person_id=person.pk)
+
+        with self.settings(PERSONHOG_WRITE_PATH="leader", PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS=4_000):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, expected)
+        [call] = [call for call in fake.calls if call.method == "lifecycle.delete_persons"]
+        self.assertEqual((list(call.request.person_ids), call.timeout), ([person.pk], 4.0))
+        self.assertEqual(get_person_by_uuid(self.team.pk, str(person.uuid)) is None, not held)
 
     @parameterized.expand(
         [
@@ -2254,9 +2265,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The property-access-control feature check reuses the request's already-loaded team,
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
-        # kill-switch and flag-cache TTL instance settings, cold-cache here but TTL-cached per
-        # worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL
-        # database build.
+        # kill-switch, projection kill-switch, properties-narrowing and flag-cache TTL instance
+        # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
+        # lookup in the HogQL database build. +1 for the MCP custom harness fetch in the HogQL database build, which later
+        # requests read from Redis.
         with self.assertNumQueries(18):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
@@ -2272,7 +2284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
         # the two HogQL database builds looks up the organization's flag_evaluations mode. +1 for the
         # revenue analytics config, which each request reads on its own Team instance.
-        with self.assertNumQueries(22):
+        with self.assertNumQueries(19):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -2300,6 +2312,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             url = page["next"]
         self.assertEqual(len(paged), len(uuids))  # no person lost or repeated at a page boundary
         self.assertEqual(set(paged), expected)  # union of pages == full set, gapless and dup-free
+
+        with mock.patch.object(PersonLimitOffsetPagination, "max_limit", 3):
+            capped = self.client.get("/api/person/?limit=100").json()
+        self.assertEqual(len(capped["results"]), 3)
+        self.assertIsNotNone(capped["next"])
 
     def test_retrieve_person(self):
         person = create_person(  # creating without _create_person to guarentee created_at ordering
@@ -2394,155 +2411,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json()["detail"] == "Not found."
-
-    @pytest.mark.flaky(reruns=2)
-    def test_reset_person_distinct_id(self):
-        # Simulate the real-world scenario: person deleted in CH (soft delete with high version),
-        # then the same distinct_id is reused which creates a new person in PG with the same
-        # deterministic UUID. The new person's CH row has a lower version than the deletion,
-        # so ReplacingMergeTree keeps the deleted state.
-        shared_uuid = str(uuid4())
-
-        # Phase 1: Person and distinct_id exist in CH as deleted
-        create_person_in_ch(
-            uuid=shared_uuid,
-            team_id=self.team.pk,
-            is_deleted=True,
-            version=105,
-        )
-        create_person_distinct_id(
-            team_id=self.team.pk,
-            distinct_id="distinct_id",
-            person_id=shared_uuid,
-            is_deleted=True,
-            version=107,
-        )
-
-        # Phase 2: New event reuses the distinct_id, creating a new person in PG
-        # with the same deterministic UUID. The signal writes to CH with version=0,
-        # which is ignored because 0 < 105.
-        person = create_person(team=self.team, properties={"abcdefg": 11112}, version=0, uuid=shared_uuid)
-        add_distinct_id(person=person, distinct_id="distinct_id", version=0)
-
-        # Phase 3: Reset
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/",
-            {"distinct_id": "distinct_id"},
-        )
-        assert response.status_code == status.HTTP_202_ACCEPTED
-
-        # Verify: personhog distinct_id version was bumped
-        resolved = get_person_by_distinct_id(self.team.pk, "distinct_id")
-        assert resolved is not None
-
-        # Verify: CH distinct_id is reset
-        ch_pdi = sync_execute(
-            f"""
-            SELECT person_id, version, is_deleted
-            FROM {PERSON_DISTINCT_ID2_TABLE} FINAL
-            WHERE team_id = %(team_id)s AND distinct_id = 'distinct_id'
-            """,
-            {"team_id": self.team.pk},
-        )
-        self.assertEqual(len(ch_pdi), 1)
-        self.assertEqual(ch_pdi[0][2], 0)  # is_deleted
-        assert ch_pdi[0][1] > 107  # version beats deletion
-
-        # Verify: CH person is also reset
-        ch_person = sync_execute(
-            """
-            SELECT argMax(is_deleted, version), max(version)
-            FROM person FINAL
-            WHERE team_id = %(team_id)s AND id = %(person_id)s
-            """,
-            {"team_id": self.team.pk, "person_id": shared_uuid},
-        )
-        self.assertEqual(len(ch_person), 1)
-        self.assertEqual(ch_person[0][0], 0)  # is_deleted
-        assert ch_person[0][1] > 105  # version beats deletion
-
-        # Verify: personhog person version was bumped so future plugin-server updates aren't ignored
-        person_after = get_person_by_uuid(self.team.pk, shared_uuid)
-        assert person_after is not None
-        assert person_after.version is not None and person_after.version > 105
-
-    @parameterized.expand(
-        [
-            ("mark_held_by_another_operation", grpc.StatusCode.FAILED_PRECONDITION, (), 409),
-            ("row_lock_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "lock_timeout"),), 409),
-            ("statement_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "statement_timeout"),), 503),
-            ("personhog_deadline", grpc.StatusCode.DEADLINE_EXCEEDED, (), 503),
-            ("personhog_unavailable", grpc.StatusCode.UNAVAILABLE, (), 503),
-        ]
-    )
-    def test_reset_person_distinct_id_asks_for_a_retry_on_a_busy_person_or_an_unavailable_service(
-        self, _name: str, code: grpc.StatusCode, trailing: tuple[tuple[str, str], ...], status: int
-    ) -> None:
-        failure = grpc.RpcError()
-        failure.code = mock.MagicMock(return_value=code)
-        failure.trailing_metadata = mock.MagicMock(return_value=trailing)
-
-        with mock.patch("posthog.api.person.repair_distinct_id", side_effect=failure):
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "busy"}
-            )
-
-        assert response.status_code == status
-        assert (
-            response.json()["detail"]
-            == {
-                409: "This person is being updated right now. Try again in a few seconds.",
-                503: "Person data is temporarily unavailable. Try again in a minute.",
-            }[status]
-        )
-
-    @mock.patch(
-        f"{posthog.models.person.divergence.repairs.__name__}.create_person_distinct_id",
-        wraps=posthog.models.person.divergence.repairs.create_person_distinct_id,
-    )
-    @pytest.mark.flaky(reruns=2)
-    def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
-        # person who shouldn't be changed
-        person_not_changed_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
-
-        # distinct id no update
-        add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id-1", version=0)
-
-        # deleted person not re-used
-        person_deleted_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
-        add_distinct_id(person=person_deleted_1, distinct_id="distinct_id-del-1", version=16)
-        delete_person(person_deleted_1)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/",
-            {
-                "distinct_id": "distinct_id",
-            },
-        )
-
-        assert response.status_code == status.HTTP_202_ACCEPTED
-
-        # personhog: only the non-deleted distinct_id still resolves to its person
-        assert get_person_by_distinct_id(self.team.pk, "distinct_id-del-1") is None
-        resolved = get_person_by_distinct_id(self.team.pk, "distinct_id-1")
-        assert resolved is not None
-        assert resolved.uuid == person_not_changed_1.uuid
-
-        # clickhouse
-        ch_person_distinct_ids = sync_execute(
-            f"""
-            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} FINAL WHERE team_id = %(team_id)s ORDER BY version
-            """,
-            {"team_id": self.team.pk},
-        )
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [
-                (person_not_changed_1.uuid, self.team.pk, "distinct_id-1", 0, False),
-                (person_deleted_1.uuid, self.team.pk, "distinct_id-del-1", 116, True),
-            ],
-        )
-        mocked_ch_call.assert_not_called()
 
     def test_batch_by_distinct_ids_happy_path(self) -> None:
         _create_person(
@@ -2777,23 +2645,6 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             team=self.team, property_definition=restricted, access_level=PropertyAccessLevel.NONE.value
         )
 
-    @mock.patch(f"{posthog.models.person.divergence.stale_merge.__name__}.capture_internal")
-    def test_reset_does_not_copy_a_restricted_property_into_an_event(self, capture: mock.MagicMock) -> None:
-        person = create_person(team=self.team, properties={"email": "pg@example.com"}, version=5, uuid=str(uuid4()))
-        add_distinct_id(person=person, distinct_id="target", version=0)
-        create_person_in_ch(
-            uuid=str(person.uuid), team_id=self.team.pk, version=10, properties={"email": "ch@example.com", "ssn": "1"}
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "target"}
-        )
-
-        assert response.status_code == status.HTTP_202_ACCEPTED
-        capture.assert_not_called()
-        person_after = get_person_by_uuid(self.team.pk, str(person.uuid))
-        assert person_after is not None and person_after.version == 5
-
     @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
     def test_batch_endpoint_strips_restricted_person_properties(self, action: str) -> None:
         person = _create_person(
@@ -2822,6 +2673,98 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
 
+    @parameterized.expand(
+        [
+            ("restricted_user", None, False),
+            ("allowed_user", PropertyAccessLevel.READ, True),
+        ]
+    )
+    def test_properties_at_time_respects_property_access_control(
+        self, _name: str, member_access_level: Optional[PropertyAccessLevel], ssn_visible: bool
+    ) -> None:
+        if member_access_level is not None:
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.get(team=self.team, name="ssn"),
+                organization_member=self.organization_membership,
+                access_level=member_access_level.value,
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["pit_user"],
+            properties={"email": "visible@example.com", "ssn": "123-45-6789"},
+            immediate=True,
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set": {"email": "visible@example.com", "ssn": "123-45-6789"}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set_once": {"ssn": "999-99-9999", "plan": "free"}},
+            timestamp="2024-06-01T09:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z", "include_set_once": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        properties = response.json()["properties"]
+        self.assertEqual(properties.get("email"), "visible@example.com")
+        self.assertEqual(properties.get("plan"), "free")
+        if ssn_visible:
+            self.assertEqual(properties.get("ssn"), "123-45-6789")
+        else:
+            self.assertNotIn("ssn", properties)
+            self.assertNotIn("123-45-6789", response.content.decode())
+            self.assertNotIn("999-99-9999", response.content.decode())
+
+    def test_properties_at_time_hides_nested_restricted_property(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+        _create_person(team=self.team, distinct_ids=["pit_nested"], properties={}, immediate=True)
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_nested",
+            properties={"$set": {"profile": {"tax_id": "T-1", "plan": "pro"}}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_nested", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["properties"], {"profile": {"plan": "pro"}})
+        self.assertNotIn("T-1", response.content.decode())
+
+    @mock.patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_properties_at_time_passes_requesting_user_to_hogql(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = mock.Mock(results=[])
+        _create_person(team=self.team, distinct_ids=["pit_user"], properties={}, immediate=True)
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        kwargs = mock_execute_hogql_query.call_args.kwargs
+        self.assertEqual(kwargs["user"], self.user)
+        self.assertEqual(kwargs["context"].user, self.user)
+
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(
             team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
@@ -2843,3 +2786,58 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             [(result["properties"], result["matched_fields"]) for result in response.json()["results"]],
             [({}, ["distinct_id"])],
         )
+
+    def _restrict_person_property(self, name: str) -> None:
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    def test_nested_restriction_hides_child_value(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["nested_user"],
+            properties={
+                "profile": {"tax_id": "T-1", "plan": "pro"},
+                "accounts": [{"id": 1}],
+                "profile.tax_id": "T-1",
+            },
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/persons/{person.uuid}/")
+        listed = self.client.get(f"/api/environments/{self.team.id}/persons/")
+
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        expected = {"profile": {"plan": "pro"}, "accounts": [{"id": 1}]}
+        self.assertEqual(retrieved.json()["properties"], expected)
+        self.assertEqual([result["properties"] for result in listed.json()["results"]], [expected])
+
+    def test_display_name_skips_restricted_property(self) -> None:
+        self._restrict_person_property("email")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["display_user"],
+            properties={"email": "hidden@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/persons/{person.uuid}/")
+        listed = self.client.get(f"/api/environments/{self.team.id}/persons/")
+
+        self.assertEqual(retrieved.json()["name"], "display_user")
+        self.assertEqual([result["name"] for result in listed.json()["results"]], ["display_user"])
+
+    def test_values_for_parent_of_restricted_property_are_empty(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+
+        response = self.client.get("/api/person/values/?key=profile")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "refreshing": False})

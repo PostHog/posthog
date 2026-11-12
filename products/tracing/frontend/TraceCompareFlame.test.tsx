@@ -1,10 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
+
+import { getChart } from '@posthog/quill-charts/testing'
 
 import type { SpanTreeNode } from '~/queries/schema/schema-general'
 
 import { TraceCompareFlame } from './TraceCompareFlame'
+import { buildTree } from './traceFlameTree'
 
 const row = (name: string, count: number): SpanTreeNode => ({
     parent_service: '',
@@ -28,12 +31,19 @@ describe('TraceCompareFlame', () => {
         cleanup()
     })
 
-    // The compare modal passes a null `previous` before its first tree fetch ends, and when the response has no
-    // comparison rows. Only a given call tree is a single trace, so a flame that reads a null `previous` as one drops
-    // the modal's legend and relabels its bars.
-    it('keeps the compare legend and plain labels in the compare modal without previous rows', () => {
+    // A null `previous` still means compare mode; only a given tree is a single trace.
+    it.each([
+        { label: 'the compare modal without previous rows', tree: undefined, shown: 'Similar', hidden: 'checkout-api' },
+        {
+            label: 'a single trace',
+            tree: buildTree([row('cache GET', 3)], null),
+            shown: 'checkout-api',
+            hidden: 'Similar',
+        },
+    ])('shows the right legend for $label', ({ tree, shown, hidden }) => {
         render(
             <TraceCompareFlame
+                tree={tree}
                 current={[row('cache GET', 3)]}
                 previous={null}
                 loading={false}
@@ -41,8 +51,10 @@ describe('TraceCompareFlame', () => {
             />
         )
 
-        expect(screen.getByText('vanished')).toBeInTheDocument()
-        expect(screen.getByText('cache GET')).toBeInTheDocument()
-        expect(screen.queryByText('cache GET ×3')).toBeNull()
+        const labels = getChart()
+            .legendItems()
+            .map((item) => item.label)
+        expect(labels).toContain(shown)
+        expect(labels).not.toContain(hidden)
     })
 })

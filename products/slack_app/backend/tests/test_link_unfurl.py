@@ -33,11 +33,10 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
 from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -823,7 +822,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         self._make_bot_ready()
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Growth")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
@@ -831,7 +830,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self._unfurl_links(
             [
                 f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}",
-                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}",
+                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard_id}",
             ],
         )
 
@@ -904,13 +903,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_dashboard(self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Main board", description="Overview")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Main board", description="Overview")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
         site = "http://testserver"
-        url = f"{site}/project/{self.team.pk}/dashboard/{dashboard.pk}"
+        url = f"{site}/project/{self.team.pk}/dashboard/{dashboard_id}"
 
         handle_posthog_link_unfurl(
             {
@@ -952,8 +951,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 return f"{base}/feature_flags/{flag.pk}", ["new-checkout", "*Active*", "25% of users"]
             case "experiment":
                 flag = FeatureFlag.objects.create(team=self.team, key="button-color", created_by=self.user)
-                experiment = Experiment.objects.create(team=self.team, name="Button color", feature_flag=flag)
-                return f"{base}/experiments/{experiment.pk}", ["Button color", "*Draft*"]
+                experiment_id = create_experiment(team_id=self.team.pk, name="Button color", feature_flag_id=flag.pk)
+                return f"{base}/experiments/{experiment_id}", ["Button color", "*Draft*"]
             case "survey":
                 survey = Survey.objects.create(
                     team=self.team,
@@ -1161,18 +1160,18 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         ]
         self.organization.save()
         member = User.objects.create_and_join(self.organization, "dashboard-viewer@posthog.com", "password")
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth review")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Growth review")
         visible = Insight.objects.create(team=self.team, name="Visible tile", saved=True)
         hidden = Insight.objects.create(team=self.team, name="Hidden tile", saved=True)
-        DashboardTile.objects.create(dashboard=dashboard, insight=visible)
-        DashboardTile.objects.create(dashboard=dashboard, insight=hidden)
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=visible.id)
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=hidden.id)
         AccessControl.objects.create(
             team=self.team, resource="insight", resource_id=str(hidden.id), access_level="none"
         )
         mock_resolve.return_value = MagicMock(user=member)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
-        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}"
+        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard_id}"
 
         self._unfurl_links([url])
 
@@ -1187,13 +1186,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="paused-test", created_by=self.user, active=False)
-        experiment = Experiment.objects.create(
-            team=self.team, name="Paused test", feature_flag=flag, start_date=timezone.now(), status="running"
+        experiment_id = create_experiment(
+            team_id=self.team.pk, name="Paused test", feature_flag_id=flag.pk, start_date=timezone.now()
         )
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
-        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment.pk}"
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment_id}"
 
         self._unfurl_links([url])
 
@@ -1202,15 +1201,29 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("winner", 0.15, True, ["*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"]),
-            ("too_early", None, None, ["*Too early to call.* 10,400 exposed so far.", "23.0%  +15.0%"]),
+            (
+                "winner",
+                True,
+                0.15,
+                True,
+                ["Split 50/50", "*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"],
+            ),
+            (
+                "too_early",
+                True,
+                None,
+                None,
+                ["Split 50/50", "*Too early to call.* 10,400 exposed so far.", "23.0%  +15.0%"],
+            ),
+            ("no_result", False, None, None, ["50%"]),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
-    def test_experiment_card_shows_the_stored_primary_result(
+    def test_experiment_card_shows_the_stored_primary_result_or_the_split(
         self,
         _name: str,
+        has_result: bool,
         change: float | None,
         significant: bool | None,
         expected: list[str],
@@ -1231,7 +1244,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 },
             },
         )
-        experiment = Experiment.objects.create(team=self.team, name="Checkout copy", feature_flag=flag)
+        experiment_id = create_experiment(
+            team_id=self.team.pk,
+            name="Checkout copy",
+            feature_flag_id=flag.pk,
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "funnel", "name": "Completed checkout"}],
+        )
         stored = StoredPrimaryResult(
             metric_name="Completed checkout",
             metric_type="funnel",
@@ -1245,17 +1263,16 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
-        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment.pk}"
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment_id}"
 
         with patch(
             "products.slack_app.backend.slack_link_unfurl.experiments_facade.get_stored_primary_result",
-            return_value=stored,
+            return_value=stored if has_result else None,
         ):
             self._unfurl_links([url])
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "Metric: Completed checkout" in text
-        assert "Split 50/50" in text
         for fragment in expected:
             assert fragment in text
 

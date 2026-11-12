@@ -24,9 +24,11 @@ import {
 } from '../../__mocks__/inboxMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
+import { ArtefactLogList } from './ArtefactLogList'
 import { ReportDetail } from './ReportDetail'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
@@ -152,7 +154,7 @@ const detailMocks = mswDecorator({
             200,
             mockTaskRun(req.params.taskId as string, req.params.runId as string),
         ],
-        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+        '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
     },
     post: {
         '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
@@ -182,7 +184,7 @@ const meta: Meta = {
         mockDate: '2026-06-11',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     decorators: [detailMocks],
@@ -258,11 +260,32 @@ export const Report: Story = {
 
 export const ReportReadyToImplement: Story = {
     decorators: [readyToImplementMocks],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'control' },
+    },
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} />
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    summary: `${reportTabReports[0].summary}\n\n## Solution\n\nValidate each recipient before the form sends the invitation request. Show a field error for an empty email address.`,
+                }}
+            />
         </Frame>
     ),
+}
+
+export const ReportImplementButtonInHeader: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'test' },
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+export const ReportViewTaskButtonInHeader: Story = {
+    ...ReportImplementButtonInHeader,
+    decorators: [],
 }
 
 export const ReportWithoutCodeAccess: Story = {
@@ -328,6 +351,110 @@ export const ReportClaimedByTeammate: Story = {
     ),
 }
 
+const NOTES_REPORT_ID = reportTabReports[0].id
+
+// The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
+const reportNotesMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/scout/notes/': () => [
+            200,
+            [
+                {
+                    id: 'note-active',
+                    skill_name: 'signals-scout-checkout',
+                    content: `Note on inbox report \`${NOTES_REPORT_ID}\`:\n\nThe checkout flow is being rebuilt next month.`,
+                    created_at: '2026-06-10T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+            ],
+        ],
+        '/api/projects/:id/signals/scout/configs/': () => [
+            200,
+            [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+    },
+})
+
+const NOTE_AUTHOR = { id: 1, uuid: 'u-1', distinct_id: 'u-1', email: 'octo@example.com', first_name: 'Octo' }
+
+const noteArtefacts: SignalReportArtefact[] = [
+    {
+        id: 'artefact-scout-note-active',
+        type: 'scout_note_left',
+        content: {
+            note: 'The checkout flow is being rebuilt next month. Focus on the new flow instead.',
+            skill_name: 'signals-scout-checkout',
+            scout_note_id: 'note-active',
+        },
+        created_at: '2026-06-10T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-scout-note-retired',
+        type: 'scout_note_left',
+        content: { note: 'Anything under /legacy is out of scope.', skill_name: '', scout_note_id: 'note-retired' },
+        created_at: '2026-06-09T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-note',
+        type: 'note',
+        content: { note: 'Support confirmed two more customers hit this on Monday.' },
+        created_at: '2026-06-08T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-agent-note',
+        type: 'note',
+        content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+        created_at: '2026-06-07T09:00:00Z',
+        task_id: 'task-research',
+        actor_kind: 'task',
+    },
+]
+
+// The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
+export const ReportNotes: Story = {
+    decorators: [
+        reportNotesMocks,
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId/artefacts': () => [
+                    200,
+                    { results: noteArtefacts, count: noteArtefacts.length },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <div className="w-full max-w-[44rem] border border-primary bg-surface-primary p-5">
+                <ReportNotesSection report={{ ...reportTabReports[0], scout_name: 'signals-scout-checkout' }} />
+            </div>
+        </Frame>
+    ),
+}
+
+// The activity log alone at rail width: in the full detail it sits collapsed below the snapshot's fold.
+export const ActivityNotes: Story = {
+    decorators: [reportNotesMocks],
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true },
+    },
+    render: () => (
+        <Frame>
+            <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                <ArtefactLogList reportId={NOTES_REPORT_ID} artefacts={noteArtefacts} />
+            </div>
+        </Frame>
+    ),
+}
+
 export const ReportWithMetrics: Story = {
     render: () => (
         <Frame>
@@ -356,7 +483,7 @@ export const ReportWithFollowUpMetric: Story = {
         mockDate: '2026-08-29',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
     },
     render: () => (
@@ -387,9 +514,28 @@ export const ReportWithFollowUpMetricHidden: Story = {
         mockDate: '2026-08-29',
         featureFlags: {
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
         },
     },
+}
+
+export const ReportReadyToMonitor: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    metrics: reportMetricsFixture.slice(0, 1),
+                    monitoring_started_at: null,
+                })}
+            />
+        </Frame>
+    ),
 }
 
 export const ReportFollowUpPending: Story = {
@@ -501,21 +647,6 @@ export const ReportPlan: Story = {
 }
 
 export const PullRequest: Story = {
-    render: () => (
-        <Frame>
-            <ReportDetail report={pullRequestReports[0]} />
-        </Frame>
-    ),
-}
-
-export const PullRequestPlainTitle: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
-            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: 'test',
-        },
-    },
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />

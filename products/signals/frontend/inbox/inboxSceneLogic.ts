@@ -58,6 +58,7 @@ import {
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { keepFieldsWrittenDuringFetch } from './utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
@@ -120,6 +121,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
             (run): SignalRun => ({
                 task_id: run.task_id,
                 kind: 'scout',
+                total_spend: run.total_spend,
                 title: run.skill_name,
                 status: run.status,
                 report_id: null,
@@ -230,12 +232,12 @@ function hasVisitedInboxList(): boolean {
 }
 
 // Not `source`: the inbox filters own that param for the product filter.
-function hasLinkSource(searchParams: Record<string, any>): boolean {
-    return searchParams.link_source !== undefined
+function hasLinkParams(searchParams: Record<string, any>): boolean {
+    return searchParams.link_source !== undefined || searchParams.link_action !== undefined
 }
 
-function withoutLinkSource(searchParams: Record<string, any>): Record<string, any> {
-    const { link_source: _linkSource, ...rest } = searchParams
+function withoutLinkParams(searchParams: Record<string, any>): Record<string, any> {
+    const { link_source: _linkSource, link_action: _linkAction, ...rest } = searchParams
     return rest
 }
 
@@ -270,8 +272,17 @@ function findReportRank(id: string): {
     listSize: number | null
     section: InboxReportSectionKey | null
     rankerId: string | null
+    personalTier: string | null
+    personalReasonShown: boolean
 } {
-    const notFound = { rank: null, listSize: null, section: null, rankerId: null }
+    const notFound = {
+        rank: null,
+        listSize: null,
+        section: null,
+        rankerId: null,
+        personalTier: null,
+        personalReasonShown: false,
+    }
     const filterValues = inboxFiltersLogic.findMounted()?.values
     if (!filterValues) {
         return notFound
@@ -295,10 +306,21 @@ function findReportRank(id: string): {
     const idx = rows.findIndex((row) => row.report.id === id)
     if (idx >= 0) {
         const sectionKey = rows[idx].sectionKey
-        const rankerId =
-            reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
-                ?.values.loadedRanker ?? null
-        return { rank: idx + 1, listSize: rows.length, section: sectionKey, rankerId }
+        const sectionValues = reportListLogic.findMounted({
+            sectionKey,
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
+        })?.values
+        // The opened report can come from the detail endpoint, which has no personal fields, so they
+        // come from the list row the person saw.
+        const personalSort = filterValues.activeSortField === 'personal' || sectionValues?.loadedRanker === 'personal'
+        return {
+            rank: idx + 1,
+            listSize: rows.length,
+            section: sectionKey,
+            rankerId: sectionValues?.loadedRanker ?? null,
+            personalTier: personalSort ? (rows[idx].report.personal_tier ?? null) : null,
+            personalReasonShown: personalSort && !!rows[idx].report.personal_reason,
+        }
     }
     return notFound
 }
@@ -348,6 +370,8 @@ function captureOpenWhenRanked(
                 listSize: resolved.listSize,
                 section: resolved.section,
                 rankerId: resolved.rankerId,
+                personalTier: resolved.personalTier,
+                personalReasonShown: resolved.personalReasonShown,
             },
             // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
             // posthog-js stamps an event at the capture moment. Without the override, a scroll or an
@@ -475,6 +499,7 @@ export interface inboxSceneLogicValues {
     isScratchpadOpen: boolean
     isStaff: boolean
     isTriageOpen: boolean
+    linkImplementReportId: string | null
     scoutDetailTab: ScoutDetailTab | null
     scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
@@ -547,6 +572,9 @@ export interface inboxSceneLogicActions {
     setFindingsOpen: (open: boolean) => {
         open: boolean
     }
+    setLinkImplementReportId: (id: string | null) => {
+        id: string | null
+    }
     setRunsOpen: (open: boolean) => {
         open: boolean
     }
@@ -586,6 +614,7 @@ export interface inboxSceneLogicActions {
 export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
+        breadcrumbs: (selectedReport: SignalReport | null, selectedReportId: string | null) => Breadcrumb[]
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
@@ -631,6 +660,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             openMethod,
             linkSource,
         }),
+        // A link with `link_action=implement`, such as the Implement button in Slack, asks the
+        // report detail to open its implementation choices. The detail clears it once it opens them.
+        setLinkImplementReportId: (id: string | null) => ({ id }),
         // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
@@ -720,10 +752,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as SignalReport | null,
             {
                 loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    const before = values.selectedReportResponse
                     try {
                         const report = await api.signalReports.get(id)
                         breakpoint()
-                        return report
+                        return keepFieldsWrittenDuringFetch(report, before, values.selectedReportResponse)
                     } catch (error) {
                         // Discard a superseded load so a slow response for a report the user already
                         // navigated away from can't overwrite the current one (e.g. a stale 404
@@ -756,6 +789,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as string | null,
             {
                 setSelectedReportId: (_, { id }) => id,
+            },
+        ],
+        linkImplementReportId: [
+            null as string | null,
+            {
+                setLinkImplementReportId: (_, { id }) => id,
+                setSelectedReportId: (state, { id }) => (state === id ? state : null),
             },
         ],
         // Null until a route sets a tab; `activeTab` fills in the landing tab.
@@ -851,13 +891,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.selectedReport, s.selectedReportId],
+            (selectedReport: SignalReport | null, selectedReportId: string | null): Breadcrumb[] => [
                 {
                     key: 'inbox',
                     name: sceneConfigurations[Scene.Inbox].name,
                     iconType: 'inbox',
+                    path: urls.inbox('reports'),
                 },
+                ...(selectedReport && selectedReport.id === selectedReportId
+                    ? [{ key: selectedReport.id, name: selectedReport.title }]
+                    : []),
             ],
         ],
         isStaff: [
@@ -887,6 +931,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
+        [inboxBulkActionsLogic.actionTypes.reportWriteFailed]: ({ reportIds }: { reportIds: string[] }) => {
+            const id = values.selectedReportId
+            if (id && reportIds.includes(id)) {
+                actions.loadSelectedReport({ id })
+            }
+        },
         // A claim from a list row can change the open report. Patch it the way the detail pane's own claim
         // does, which also skips the copy that pane already patched.
         [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({
@@ -1185,10 +1235,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // queue, which the triage URL carries at this moment.
             openMethod === 'triage'
                 ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
-                : withoutLinkSource(router.values.searchParams),
+                : withoutLinkParams(router.values.searchParams),
             router.values.hashParams,
             // Replace, so Back does not return to the link URL and its `link_source`.
-            { replace: hasLinkSource(router.values.searchParams) },
+            { replace: hasLinkParams(router.values.searchParams) },
         ],
         setSelectedScoutSkillName: ({ findingId }) => [
             inboxSurfaceUrl(values),
@@ -1382,9 +1432,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         fromTriage ? 'triage' : linkSource !== null || !hasVisitedInboxList() ? 'deeplink' : 'click',
                         linkSource
                     )
-                } else if (hasLinkSource(searchParams)) {
+                } else if (hasLinkParams(searchParams)) {
                     // A copied address bar must not pass the original `link_source` on to the next reader.
-                    router.actions.replace(router.values.location.pathname, withoutLinkSource(searchParams), hashParams)
+                    router.actions.replace(router.values.location.pathname, withoutLinkParams(searchParams), hashParams)
+                }
+                if (searchParams.link_action === 'implement') {
+                    actions.setLinkImplementReportId(reportId)
                 }
             },
         }

@@ -4,6 +4,8 @@ import {
     actions,
     afterMount,
     connect,
+    events,
+    getContext,
     kea,
     key,
     listeners,
@@ -27,7 +29,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -35,18 +37,21 @@ import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { UI_CONFIGURATION_VERSION } from '~/layout/uiCustomizationLogic'
 import {
     NodeKind,
     RecordingOrder,
     RecordingsQuery,
     RecordingsQueryResponse,
+    SessionReplayListConfiguration,
+    UserUIConfiguration,
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
-    FilterType,
     LegacyRecordingFilters,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
@@ -186,30 +191,68 @@ export const LIST_MEMO_WINDOW_MS = 3000
  * holds it, so most repeats arrive on a fresh logic instance and a per-instance memo would miss
  * them. The team id is part of the key because the request parameters do not carry it, and a team
  * switch must never answer from another team's rows.
+ *
+ * It does not outlive the kea context. Tests and stories reset the context between cases, and a
+ * response that one case mocked must not answer the next case.
  */
-const landedListResponses = new Map<string, { response: RecordingsQueryResponse; completedAt: number }>()
+type LandedListResponses = Map<string, { response: RecordingsQueryResponse; completedAt: number }>
+
+const landedListResponsesByContext = new WeakMap<object, LandedListResponses>()
+
+const landedListResponses = (): LandedListResponses => {
+    const context = getContext()
+    let landed = landedListResponsesByContext.get(context)
+    if (!landed) {
+        landed = new Map()
+        landedListResponsesByContext.set(context, landed)
+    }
+    return landed
+}
 
 const memoizedListResponse = (memoKey: string): RecordingsQueryResponse | undefined => {
-    const landed = landedListResponses.get(memoKey)
+    const landed = landedListResponses().get(memoKey)
     return landed && performance.now() - landed.completedAt < LIST_MEMO_WINDOW_MS ? landed.response : undefined
 }
 
 const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse, completedAt: number): void => {
     // Drop what the window no longer covers, so a long session cannot grow the map.
-    for (const [key, landed] of landedListResponses) {
+    const landedResponses = landedListResponses()
+    for (const [key, landed] of landedResponses) {
         if (completedAt - landed.completedAt >= LIST_MEMO_WINDOW_MS) {
-            landedListResponses.delete(key)
+            landedResponses.delete(key)
         }
     }
-    landedListResponses.set(memoKey, { response, completedAt })
+    landedResponses.set(memoKey, { response, completedAt })
 }
 
-/** The memo outlives a kea context, so a test has to start from an empty one. */
-export const clearMemoizedListResponses = (): void => landedListResponses.clear()
+export const clearMemoizedListResponses = (): void => landedListResponses().clear()
+
+// Reducers call getDefaultFilters, so it reads this browser copy: reading userLogic there calls
+// store.getState(), which Redux forbids while a reducer runs. The mount and the toggle keep it current.
+export const accountFilterTestAccountsStorage = localStorageSlot(
+    () => `${getCurrentUserId()}__replay_filter_test_accounts`,
+    z.boolean()
+)
 
 const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem('default_filter_test_accounts')
-    return stored === 'true'
+    return accountFilterTestAccountsStorage.get() ?? localStorage.getItem('default_filter_test_accounts') === 'true'
+}
+
+const getAccountFilterTestAccounts = (): boolean | undefined => {
+    const saved = userLogic.findMounted()?.values.user?.ui_configuration?.session_replay?.filter_test_accounts
+    return typeof saved === 'boolean' ? saved : undefined
+}
+
+// The server replaces ui_configuration wholesale, so the patch keeps every other setting in it.
+export function withSessionReplayListPatch(
+    configuration: UserUIConfiguration | null,
+    patch: Partial<SessionReplayListConfiguration>
+): UserUIConfiguration {
+    return {
+        version: UI_CONFIGURATION_VERSION,
+        ...configuration,
+        session_replay: { ...configuration?.session_replay, ...patch },
+    }
 }
 
 // Keyed per team so a sort preference does not leak across accounts.
@@ -334,7 +377,9 @@ export function overviewPropertyFilterType(
 }
 
 export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
-    if (!filters || typeof filters !== 'object') {
+    // Other scenes put an array of property filters in the same `filters` search param (e.g. web
+    // analytics). An array passes every field check below, so adopting it would rewrite that scene's URL.
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
         return false
     }
 
@@ -350,6 +395,10 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     }
 
     if ('recommended_only' in filters && typeof filters.recommended_only !== 'boolean') {
+        return false
+    }
+
+    if ('person_uuid' in filters && filters.person_uuid !== undefined && typeof filters.person_uuid !== 'string') {
         return false
     }
 
@@ -586,6 +635,9 @@ const applyFilterUpdate = (
         date_to: update.date_from && isRelativeDate(update.date_from) ? null : state.date_to,
         ...update,
     }
+    if ('person_uuid' in update && !update.person_uuid) {
+        delete newState.person_uuid
+    }
     if (pinnedFilters) {
         newState.filter_group = mergePinnedFilters(newState.filter_group, pinnedFilters)
     }
@@ -609,6 +661,34 @@ const getResetFilters = (props: SessionRecordingPlaylistLogicProps): RecordingUn
         : defaults
 }
 
+const getMountOwnedFilters = (
+    props: SessionRecordingPlaylistLogicProps,
+    rehydratedFilters: RecordingUniversalFilters,
+    viewerFilterKeys: string[]
+): Partial<RecordingUniversalFilters> | null => {
+    const ownedFilters: Partial<RecordingUniversalFilters> = {}
+    const accountFilterTestAccounts = getAccountFilterTestAccounts()
+    if (accountFilterTestAccounts !== undefined && props.filters?.filter_test_accounts === undefined) {
+        ownedFilters.filter_test_accounts = accountFilterTestAccounts
+    }
+    if (!props.filters && !props.pinnedFilters) {
+        return accountFilterTestAccounts !== undefined ? ownedFilters : null
+    }
+    const callerFilters: Partial<RecordingUniversalFilters> = { ...props.filters }
+    for (const viewerKey of viewerFilterKeys) {
+        delete callerFilters[viewerKey as keyof RecordingUniversalFilters]
+    }
+    if (props.pinnedFilters) {
+        // Pinned filters are the caller's either way, so they merge over whichever group
+        // survived above.
+        callerFilters.filter_group = mergePinnedFilters(
+            callerFilters.filter_group ?? rehydratedFilters.filter_group,
+            props.pinnedFilters
+        )
+    }
+    return { ...ownedFilters, ...callerFilters }
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sessionRecordingsPlaylistLogicValues {
     deletedRecordingIds: Set<string> // deletedRecordingsLogic
@@ -625,6 +705,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     canSortByRelevance: boolean
     collectionsForBulkAdd: SavedSessionRecordingPlaylistsResult
     collectionsForBulkAddLoading: boolean
+    defaultFilters: RecordingUniversalFilters
     deleteConfirmationText: string
     eventsHaveSessionId: Record<string, boolean>
     eventsHaveSessionIdLoading: boolean
@@ -723,6 +804,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     applySavedFilter: (filters: Partial<RecordingUniversalFilters>) => {
         filters: Partial<RecordingUniversalFilters>
+    }
+    filterByPerson: (personUUID: string | null) => {
+        personUUID: string | null
     }
     handleBulkAddToPlaylist: (short_id: string) => {
         short_id: string
@@ -943,6 +1027,7 @@ export interface sessionRecordingsPlaylistLogicActions {
 export interface sessionRecordingsPlaylistLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        defaultFilters: (filters: RecordingUniversalFilters) => RecordingUniversalFilters
         logicProps: (arg: any) => SessionRecordingPlaylistLogicProps
         allowEventPropertyExpansion: (featureFlags: FeatureFlagsSet) => boolean
         exposureSkipExperimentId: (filters: RecordingUniversalFilters) => number | undefined
@@ -1061,6 +1146,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
         applySavedFilter: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
+        filterByPerson: (personUUID: string | null) => ({ personUUID }),
         applyPropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
             propertyKey,
             propertyValue,
@@ -1140,7 +1226,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadEventsHaveSessionId: async () => {
                     const filters = filtersFromUniversalFilterGroups(values.filters)
                     // "All events" (id == null) matches any event, so it can always filter recordings
-                    const events: FilterType['events'] = filters
+                    const events: Record<string, any>[] = filters
                         .filter(isEventFilter)
                         .filter((event) => event.id != null)
 
@@ -1179,7 +1265,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
-                        person_uuid: props.personUUID ?? '',
+                        person_uuid: props.personUUID ?? convertedQuery.person_uuid ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
                         // which wouldn't fit in the URL,
                         // so we limit to 100 distinct_ids for now
@@ -1402,6 +1488,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 resetFilters: () => getResetFilters(props),
                 applySavedFilter: (_, { filters }) =>
                     applyFilterUpdate(getResetFilters(props), filters, props.pinnedFilters),
+                // A second person replaces the first. Null drops the key, so the filters match a link without one.
+                filterByPerson: (state, { personUUID }) => {
+                    const { person_uuid: _person, ...rest } = state
+                    return personUUID ? { ...rest, person_uuid: personUUID } : rest
+                },
             },
         ],
         /**
@@ -1428,6 +1519,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
                 resetFilters: () => [],
                 applySavedFilter: () => [],
+                filterByPerson: (state, { personUUID }) =>
+                    personUUID
+                        ? state.includes('person_uuid')
+                            ? state
+                            : [...state, 'person_uuid']
+                        : state.filter((viewerKey) => viewerKey !== 'person_uuid'),
             },
         ],
         showFilters: [
@@ -1509,6 +1606,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 applySavedFilter: () => false,
+                filterByPerson: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
@@ -1531,6 +1629,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setFilters: () => [],
                 resetFilters: () => [],
                 applySavedFilter: () => [],
+                filterByPerson: () => [],
             },
         ],
         isDeleteSelectedRecordingsDialogOpen: [
@@ -1710,6 +1809,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         },
                     },
                 })
+            },
+
+            filterByPerson: () => {
+                actions.loadSessionRecordings()
+                props.onFiltersChange?.(values.filters)
+                actions.loadEventsHaveSessionId()
             },
 
             togglePropertyFilter: ({ propertyKey, propertyValue }) => {
@@ -2113,6 +2218,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         }
     }),
+    selectors(({ props }) => ({
+        defaultFilters: [(s) => [s.filters], (): RecordingUniversalFilters => getResetFilters(props)],
+    })),
+
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
@@ -2291,6 +2400,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return (
                     changedGroupCount +
                     (durationChanged ? 1 : 0) +
+                    (filters.person_uuid ? 1 : 0) +
                     (filters.date_from === baselineFilters.date_from && filters.date_to === baselineFilters.date_to
                         ? 0
                         : 1) +
@@ -2497,6 +2607,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             setFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
             applySavedFilter: () => buildURL(true),
+            filterByPerson: () => buildURL(true),
         }
     }),
 
@@ -2564,6 +2675,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     ...(params.filters && !equal(params.filters, values.filters)
                         ? {
                               ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
+                              // A link without a person drops the one picked from the player.
+                              person_uuid: undefined,
                               ...params.filters,
                           }
                         : {}),
@@ -2585,6 +2698,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
+    events(() => ({
+        beforeMount: () => {
+            const accountFilterTestAccounts = getAccountFilterTestAccounts()
+            if (accountFilterTestAccounts !== undefined) {
+                accountFilterTestAccountsStorage.set(accountFilterTestAccounts)
+            }
+        },
+    })),
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions, props, values }) => {
         if (props.onlyPinned) {
@@ -2633,23 +2754,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // issue the one load. A key the viewer set themselves stays theirs, so a scoped list opens
         // scoped without dropping the range or the property they chose. This sits after the URL
         // branch, so a shared link still wins.
-        if (props.filters || props.pinnedFilters) {
-            const callerFilters: Partial<RecordingUniversalFilters> = { ...props.filters }
-            for (const viewerKey of values.viewerFilterKeys) {
-                delete callerFilters[viewerKey as keyof RecordingUniversalFilters]
-            }
-            if (props.pinnedFilters) {
-                // Pinned filters are the caller's either way, so they merge over whichever group
-                // survived above.
-                callerFilters.filter_group = mergePinnedFilters(
-                    callerFilters.filter_group ?? values.filters.filter_group,
-                    props.pinnedFilters
-                )
-            }
-            if (!equal(applyFilterUpdate(values.filters, callerFilters, props.pinnedFilters), values.filters)) {
-                actions.setFilters(callerFilters, false)
-                return
-            }
+        const ownedFilters = getMountOwnedFilters(props, values.filters, values.viewerFilterKeys)
+        if (
+            ownedFilters &&
+            !equal(applyFilterUpdate(values.filters, ownedFilters, props.pinnedFilters), values.filters)
+        ) {
+            actions.setFilters(ownedFilters, false)
+            return
         }
 
         actions.loadSessionRecordings()

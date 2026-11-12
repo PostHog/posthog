@@ -1,24 +1,35 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models import Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
+from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.repo_selection.activity import RepositoryFigures, load_candidate_figures
 from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionUsageLimitError,
     _build_repo_selection_prompt,
+    _resolve_repo_selection_runtime,
     _routing_rules_block,
     _salvage_repo_selection,
+    filter_repository_candidates_for_sources,
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task
 
 _AGENT = "products.tasks.backend.logic.repo_selection.agent"
+SLACK_PROFILE = get_task_profile("slack.repo_selection")
+SIGNALS_PROFILE = get_task_profile("signals.repo_selection")
 
 
 def test_corrections_section_included_only_when_given() -> None:
@@ -79,6 +90,92 @@ def test_prompt_labels_candidate_visibility() -> None:
     assert "source privacy rule" in prompt
 
 
+def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> None:
+    figures = {
+        "acme/app": RepositoryFigures(
+            file_count=54321,
+            tree_truncated=True,
+            tree_hash="t1",
+            recent_author_count=40,
+            merged_pull_request_count=73210,
+            commits_last_30_days=8012,
+            top_extensions=("py", "ts"),
+        ),
+        # A mirror copies the commits and their authors, so only merged pull requests tell it apart.
+        "acme/app-mirror": RepositoryFigures(
+            file_count=54321,
+            tree_truncated=True,
+            tree_hash="t1",
+            recent_author_count=41,
+            merged_pull_request_count=0,
+            commits_last_30_days=8012,
+            top_extensions=("py", "ts"),
+        ),
+        "acme/kudos": RepositoryFigures(
+            file_count=5712,
+            tree_hash="t2",
+            commits_last_30_days=4400,
+            recent_author_count=1,
+            merged_pull_request_count=440,
+        ),
+        # Old authors in the sample do not make a repository with no recent commit active.
+        "acme/stale": RepositoryFigures(
+            file_count=1, tree_hash="t3", commits_last_30_days=0, recent_author_count=9, merged_pull_request_count=4
+        ),
+    }
+
+    prompt = _build_repo_selection_prompt(
+        "ctx",
+        ["acme/aardvark", "acme/app", "acme/app-mirror", "acme/kudos", "acme/stale"],
+        visibility={"acme/app": False},
+        figures=figures,
+    )
+
+    lines = [line for line in prompt.splitlines() if line[:1].isdigit() and ". `acme/" in line]
+    assert lines == [
+        "1. `acme/app` (public; 54,000+ files: py, ts; ~8,000 commits in 30 days by 25+ people; ~73,000 merged PRs)",
+        "2. `acme/app-mirror` (visibility unknown; 54,000+ files: py, ts; ~8,000 commits in 30 days by 25+ people; "
+        "0 merged PRs; same files as `acme/app`)",
+        "3. `acme/kudos` (visibility unknown; ~5,700 files; ~4,400 commits in 30 days by 1 person; ~440 merged PRs)",
+        "4. `acme/stale` (visibility unknown; 1 file; 0 commits in 30 days; 4 merged PRs)",
+        "5. `acme/aardvark` (visibility unknown)",
+    ]
+
+
+@pytest.mark.django_db
+def test_load_candidate_figures_enqueues_one_refresh_and_survives_enqueue_failure(team) -> None:
+    integration = Integration.objects.create(team=team, kind="github", config={"installation_id": "1"})
+    github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+    integration.repository_cache_entries.create(
+        team=team, full_name="acme/a", default_branch="main", default_branch_sha="s", merged_pull_request_count=3
+    )
+    integration.repository_cache_entries.create(
+        team=team,
+        full_name="acme/b",
+        default_branch="main",
+        default_branch_sha="s",
+        file_count=1,
+        activity_updated_at=timezone.now(),
+    )
+    task = "products.tasks.backend.tasks.tasks.refresh_repository_activity.delay"
+
+    with patch(task) as delay:
+        first = load_candidate_figures(github, team.id, ["acme/a", "acme/b"])
+        load_candidate_figures(github, team.id, ["acme/a", "acme/b"])
+    other = Integration.objects.create(team=team, kind="github", config={"installation_id": "2"})
+    other.repository_cache_entries.create(team=team, full_name="acme/c", default_branch="main", default_branch_sha="s")
+    with patch(task, side_effect=ConnectionError("broker down")) as failing:
+        survived = load_candidate_figures(
+            GitHubIntegration(other, source="test", priority=Priority.CRITICAL), team.id, ["acme/c"]
+        )
+
+    delay.assert_called_once_with(team_id=team.id, integration_id=integration.id)
+    assert first["acme/a"].merged_pull_request_count == 3
+    assert set(first) == {"acme/a", "acme/b"}
+    failing.assert_called_once()
+    assert set(survived) == {"acme/c"}
+
+
 def test_prompt_text_caps_over_long_legacy_rules() -> None:
     rule = RepoRoutingRule(rule_text="term " * 100)
     assert len(rule.prompt_text) == RepoRoutingRule.MAX_RULE_TEXT_LENGTH
@@ -114,12 +211,20 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
         )
 
+    context = start.call_args.kwargs["context"]
+    assert context.disable_skills is True
+    assert (context.model, context.runtime_adapter, context.reasoning_effort, context.service_tier) == (
+        "gpt-6-luna",
+        "codex",
+        "medium",
+        None,
+    )
     assert selected.repository == "acme/b"
     prompt = start.call_args.kwargs["prompt"]
     assert "Team routing rules" in prompt
@@ -130,7 +235,22 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
 
 @parameterized.expand(
     [
-        ("names_one_candidate", "I checked both trees. The subject is Acme/B.", ["acme/a", "acme/b"], "acme/b"),
+        ("caller_model_wins", ("claude-haiku-4-5", None, None), ("claude-haiku-4-5", None, None)),
+        ("caller_runtime_wins", ("gpt-6-sol", "codex", "high"), ("gpt-6-sol", "codex", "high")),
+        ("caller_effort_kept_on_default_model", (None, None, "high"), ("gpt-6-luna", "codex", "high")),
+    ]
+)
+def test_caller_runtime_overrides_the_selector_default(_name, requested, expected) -> None:
+    model, runtime_adapter, reasoning_effort = requested
+    runtime = _resolve_repo_selection_runtime(
+        model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort
+    )
+    assert (runtime.model, runtime.runtime_adapter, runtime.reasoning_effort) == expected
+
+
+@parameterized.expand(
+    [
+        ("fenced_selection", '```json\n{"repository": "acme/b", "reason":', ["acme/a", "acme/b"], "acme/b"),
         (
             "names_one_candidate_in_broken_json",
             '{"repository": "acme/b", "reason":',
@@ -139,11 +259,11 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
         ),
         (
             "names_a_candidate_that_extends_another",
-            "The subject is acme/api-client.",
+            '{"repository": "acme/api-client", "reason":',
             ["acme/api", "acme/api-client"],
             "acme/api-client",
         ),
-        ("names_a_candidate_at_sentence_end", "The subject is acme/api.", ["acme/api", "acme/api-client"], "acme/api"),
+        ("explicit_selection", '{"repository": "acme/api", "reason":', ["acme/api", "acme/api-client"], "acme/api"),
         (
             "states_a_candidate_and_rejects_another",
             '{"repository": "Acme/A", "reason": "acme/b does not own this',
@@ -152,12 +272,15 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
         ),
     ]
 )
-def test_salvage_reads_a_lone_named_candidate(_name, text, candidates, expected) -> None:
+def test_salvage_reads_an_explicit_candidate(_name, text, candidates, expected) -> None:
     assert _salvage_repo_selection(text, candidates).repository == expected
 
 
 @parameterized.expand(
     [
+        ("progress_mentions_candidate", "Waiting for the acme/a cache query.", ["acme/a", "acme/b"]),
+        ("rejects_only_candidate", "acme/a is unrelated to this request.", ["acme/a", "acme/b"]),
+        ("quotes_example", 'For example: {"repository": "acme/a"}', ["acme/a", "acme/b"]),
         ("names_two_candidates", "Both acme/a and acme/b match the request.", ["acme/a", "acme/b"]),
         ("names_no_candidate", "None of the connected repositories own this.", ["acme/a", "acme/b"]),
         ("names_a_non_candidate_that_extends_one", "The subject is acme/api-client.", ["acme/api", "acme/web"]),
@@ -189,7 +312,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
     github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
 
     async def start(**kwargs):
-        return session, kwargs["fallback_from_text"]("After checking the trees, acme/b owns this.")
+        return session, kwargs["fallback_from_text"]('{"repository": "acme/b", "reason":')
 
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
@@ -202,7 +325,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -211,11 +334,72 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
     assert selected.repository == "acme/b"
 
 
+@parameterized.expand(
+    [
+        ("retry_answers", '{"repository": "acme/b", "reason": "Owns the checkout path."}', "acme/b", None),
+        ("retry_still_progress", "Still waiting on the query.", None, ValueError),
+        (
+            "retry_corrects_to_null",
+            '{"repository": "acme/a", "reason": "First choice"}\n{"repository": null, "reason":',
+            None,
+            ValueError,
+        ),
+        (
+            "retry_corrects_to_another_candidate",
+            '{"repository": "acme/a", "reason": "First choice"}\n{"repository": "acme/b", "reason":',
+            None,
+            ValueError,
+        ),
+        ("retry_rejects_mentioned_candidate", "acme/a does not own this.", None, ValueError),
+        ("retry_usage_limit", "API Error: 402 No credits remaining.", None, RepoSelectionUsageLimitError),
+        ("retry_answers_off_list", '{"repository": "acme/zzz", "reason": "Guess."}', None, RepoSelectionRejectedError),
+    ]
+)
+def test_select_repository_asks_again_after_a_progress_note(
+    _name: str, retry_reply: str, expected: str | None, error: type[Exception] | None
+) -> None:
+    session = MagicMock()
+    session.end = AsyncMock()
+    session.send_followup_raw = AsyncMock(return_value=retry_reply)
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+    progress_note = "I've started a query on the repository cache and will report back."
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}.MultiTurnSession.start_raw", AsyncMock(return_value=(session, progress_note))),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+
+        def run() -> RepoSelectionResult:
+            return async_to_sync(select_repository)(
+                1,
+                1,
+                "which repo?",
+                profile=SLACK_PROFILE,
+                priority=Priority.NORMAL,
+                github=github,
+                candidate_repos=["acme/a", "acme/b"],
+            )
+
+        if error is None:
+            assert run().repository == expected
+        else:
+            with pytest.raises(error):
+                run()
+
+    session.send_followup_raw.assert_awaited_once()
+
+
 def test_select_repository_reports_a_usage_limit_refusal() -> None:
+    on_session = MagicMock()
     github = MagicMock()
     github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
 
     async def start(**kwargs):
+        await kwargs["on_task_run_created"](MagicMock(task_id="example-task", id="example-run"))
         # The runner swallows a raising fallback and raises its own parse error instead.
         with pytest.raises(ValueError):
             kwargs["fallback_from_text"]("API Error: 402 Your team has used its monthly PostHog AI credits.")
@@ -233,11 +417,14 @@ def test_select_repository_reports_a_usage_limit_refusal() -> None:
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
+            on_research_session=on_session,
         )
+
+    on_session.assert_called_once_with("example-task", "example-run")
 
 
 def test_source_repository_section_included_only_when_given() -> None:
@@ -291,7 +478,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
             1,
             1,
             "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -313,27 +500,36 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
 
 
 @pytest.mark.parametrize(
-    "source_metadata,target_private,expected",
+    "source_metadata,target_private,expected,additional_source,require_private",
     [
-        ({"private": True}, False, None),
-        ({"private": True}, None, None),
-        ({"private": True}, True, "acme/b"),
-        ({"private": False}, False, "acme/b"),
-        ({"private": False}, True, "acme/b"),
-        ({}, False, None),
-        (None, False, None),
-        ({"private": "false"}, False, None),
-        (None, True, "acme/b"),
+        ({"private": True}, False, None, None, False),
+        ({"private": True}, None, None, None, False),
+        ({"private": True}, True, "acme/b", None, False),
+        ({"private": False}, False, "acme/b", None, False),
+        ({"private": False}, True, "acme/b", None, False),
+        ({}, False, None, None, False),
+        (None, False, None, None, False),
+        ({"private": "false"}, False, None, None, False),
+        (None, True, "acme/b", None, False),
+        ({"private": False}, False, None, True, False),
+        ({"private": False}, True, "acme/b", True, False),
+        ({"private": False}, False, None, None, True),
     ],
 )
 def test_source_visibility_constrains_single_eligible_repository(
-    source_metadata: dict[str, bool | str] | None, target_private: bool | None, expected: str | None
+    source_metadata: dict[str, bool | str] | None,
+    target_private: bool | None,
+    expected: str | None,
+    additional_source: bool | None,
+    require_private: bool,
 ) -> None:
     github = MagicMock()
     cached_repositories = [{"full_name": "acme/b", "private": target_private}]
     if source_metadata is not None:
         cached_repositories.append({"full_name": "acme/a", **source_metadata})
     github.list_all_cached_repositories.return_value = cached_repositories
+    if additional_source is not None:
+        cached_repositories.append({"full_name": "acme/c", "private": additional_source})
     start = AsyncMock()
 
     with (
@@ -346,11 +542,13 @@ def test_source_visibility_constrains_single_eligible_repository(
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
             source_repository=" Acme/A ",
+            source_repositories={"acme/c"} if additional_source is not None else (),
+            require_private_destination=require_private,
         )
 
     assert selected.repository == expected
@@ -375,7 +573,7 @@ def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -412,7 +610,7 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
                 1,
                 1,
                 "Find the repository for this issue.",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=SIGNALS_PROFILE,
                 priority=Priority.NORMAL,
                 github=github,
                 candidate_repos=["acme/b", "acme/c", "acme/d"],
@@ -430,3 +628,26 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
     assert "2. `acme/d` (private)" in prompt
     assert "`acme/c`" not in prompt
     session.end.assert_awaited_once()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("refreshed_private", [False, True, None])
+def test_saved_selection_requires_current_private_visibility(team, refreshed_private: bool | None) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="visibility-refresh",
+        config={"installation_id": "visibility-refresh"},
+        repository_cache=[{"id": 1, "name": "target", "full_name": "example/target", "private": True}],
+        repository_cache_updated_at=timezone.now() - timedelta(days=2),
+    )
+    with patch.object(
+        GitHubIntegration,
+        "list_all_repositories",
+        return_value=[{"id": 1, "name": "target", "full_name": "example/target", "private": refreshed_private}],
+        side_effect=RuntimeError("GitHub unavailable") if refreshed_private is None else None,
+    ):
+        allowed = filter_repository_candidates_for_sources(
+            team.id, ["example/target"], (), require_private_destination=True
+        )
+    assert allowed == (["example/target"] if refreshed_private is True else [])

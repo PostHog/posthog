@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { EventDefinitionType } from '~/types'
+import { EventDefinition, EventDefinitionType } from '~/types'
 
 describe('eventDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof eventDefinitionsTableLogic.build>
@@ -142,6 +142,57 @@ describe('eventDefinitionsTableLogic', () => {
         logic.mount()
     })
 
+    describe('request timing', () => {
+        const listRequests = (): unknown[][] =>
+            api.get.mock.calls.filter(([url]) => String(url).includes('/event_definitions'))
+
+        beforeEach(() => {
+            logic.unmount()
+            jest.useFakeTimers()
+            api.get.mockClear()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each<[string, Record<string, string>]>([
+            ['a bare URL', {}],
+            ['a search in the URL', { event: 'checkout' }],
+        ])('sends one request at once when the page opens on %s', async (_, searchParams) => {
+            router.actions.push(urls.eventDefinitions(), searchParams)
+            logic = eventDefinitionsTableLogic({ key: '1', syncWithUrl: true })
+            logic.mount()
+
+            expect(listRequests()).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(listRequests()).toHaveLength(1)
+        })
+
+        it.each([
+            ['the list has results', false],
+            ['the list is empty', true],
+        ])('waits for typing in the search box to pause, then sends one request when %s', async (_, emptyList) => {
+            router.actions.push(urls.eventDefinitions())
+            logic = eventDefinitionsTableLogic({ key: '1', syncWithUrl: true })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1000)
+            if (emptyList) {
+                logic.actions.loadEventDefinitionsSuccess({ count: 0, results: [] })
+            }
+            api.get.mockClear()
+
+            logic.actions.setFilters({ event: 'chec' })
+            logic.actions.setFilters({ event: 'checkout' })
+            await jest.advanceTimersByTimeAsync(200 - 1)
+            expect(listRequests()).toHaveLength(0)
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(listRequests()).toEqual([[expect.stringContaining('search=checkout')]])
+        })
+    })
+
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {
             const capture = jest.spyOn(posthog, 'capture')
@@ -231,6 +282,36 @@ describe('eventDefinitionsTableLogic', () => {
                 })
             expect(api.get).toHaveBeenCalledTimes(2)
         })
+
+        it('bulk verify clears hidden and a scheduled delete, like the server', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            const key = logic.values.eventDefinitions.current as string
+            const [verifiedRow, unverifiedRow] = logic.values.eventDefinitions.results
+            const scheduled = { hidden: true, scheduled_deletion_at: '2026-03-31T14:00:00Z' }
+            logic.cache.apiCache[key] = {
+                ...logic.cache.apiCache[key],
+                results: logic.cache.apiCache[key].results.map((d: EventDefinition) =>
+                    d.id === verifiedRow.id || d.id === unverifiedRow.id ? { ...d, ...scheduled } : d
+                ),
+            }
+            logic.cache.bulkVerifiedCacheKey = key
+
+            logic.actions.applyBulkVerifiedUpdates([
+                { id: verifiedRow.id, verified: true },
+                { id: unverifiedRow.id, verified: false },
+            ])
+
+            const results = logic.values.eventDefinitions.results
+            expect(results.find((d) => d.id === verifiedRow.id)).toMatchObject({
+                verified: true,
+                hidden: false,
+                scheduled_deletion_at: null,
+            })
+            // Unverifying leaves the event hidden, so its delete stays scheduled
+            expect(results.find((d) => d.id === unverifiedRow.id)).toMatchObject({ verified: false, ...scheduled })
+        })
     })
 
     describe('property definitions', () => {
@@ -287,9 +368,9 @@ describe('eventDefinitionsTableLogic', () => {
             })
 
             expect(api.get).toHaveBeenCalledTimes(3)
-            expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
-            expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
-            expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
+            expect(api.get).toHaveBeenNthCalledWith(1, startingUrl)
+            expect(api.get).toHaveBeenNthCalledWith(2, propertiesStartingUrl)
+            expect(api.get).toHaveBeenNthCalledWith(3, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
 
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition, startingUrl)

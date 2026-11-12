@@ -58,11 +58,10 @@ from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printin
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
+from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
-from posthog.models import PropertyDefinition
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
@@ -70,6 +69,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -139,13 +139,8 @@ class TestPrinter(BaseTest):
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
-        if "%" in property_name or "." in property_name:
-            # A key the printer cannot inline is parameterized: every occurrence takes the next placeholder.
-            # A dotted key is bound with its dots escaped, so it reads as one path name rather than a nested path.
-            counter = iter(range(100))
-            next_placeholder = lambda: f"getSubcolumn({root}, %(hogql_val_{next(counter)})s)"  # noqa: E731
-            return json_dynamic_read_sql_from_parts(next_placeholder, next_placeholder)
-        return self._json_dynamic_subcolumn_path_expr(root, [property_name])
+        # A dotted key is one path name with its dots escaped, not a nested path.
+        return self._json_dynamic_subcolumn_path_expr(root, [property_name.replace(".", "%2E")])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
         return json_dynamic_read_sql(root, property_path)
@@ -227,14 +222,23 @@ class TestPrinter(BaseTest):
         )
         return printed
 
-    @parameterized.expand([(12,), (84,)])
+    @parameterized.expand(
+        [
+            ("events", 12, "events.timestamp"),
+            ("events", 84, "events.timestamp"),
+            ("web_stats_dimensional_preaggregated", 12, "web_stats_dimensional_preaggregated.period_bucket"),
+            ("web_bounces_dimensional_preaggregated", 12, "web_bounces_dimensional_preaggregated.period_bucket"),
+            ("posthog.flag_evaluations", 12, "flag_evaluations.timestamp"),
+        ]
+    )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-    def test_events_retention_floor_applied(self, months: int):
+    def test_events_retention_floor_applied(self, table: str, months: int, floored_column: str):
         self.team.event_retention_months = months
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        sql = self._select("select count() from events", context=context)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert "greater(events.timestamp, minus(now" in sql
+        assert f"greater({floored_column}, minus(now" in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
@@ -735,6 +739,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event != null"), "isNotNull(events.event)")
         self.assertEqual(self._expr("1 == null"), "0")
         self.assertEqual(self._expr("1 != null"), "1")
+        printed = self._select(
+            "SELECT 1 FROM events AS a LEFT JOIN (SELECT event, distinct_id, uuid FROM events) AS b "
+            "ON a.event = b.event AND b.distinct_id IS NULL AND b.uuid IS NOT NULL"
+        )
+        self.assertIn("ON and(equals(a.event, b.event), isNull(b.distinct_id), isNotNull(b.uuid))", printed)
 
     def test_fields_and_properties(self):
         self.assertEqual(
@@ -974,10 +983,10 @@ class TestPrinter(BaseTest):
             self._expr("properties.`Account.client_id`", context),
             expected_client_id_sql,
         )
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            self.assertEqual(set(context.values.values()), {"Account%2Eclient_id", "^`Account%2Eclient_id`"})
-        else:
-            self.assertEqual(context.values, {"hogql_val_0": "Account.client_id"})
+        self.assertEqual(
+            context.values,
+            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "Account.client_id"},
+        )
 
         context = HogQLContext(team_id=self.team.pk)
         expected_dynamic_sql = (
@@ -1446,7 +1455,8 @@ class TestPrinter(BaseTest):
         printed = self._expr(expression)
         [(serialized,)] = sync_execute(
             f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties, "
-            "CAST('{}', %(temporary_type)s) AS temporary_properties) AS events",
+            "CAST('{}', %(temporary_type)s) AS temporary_properties, CAST([], 'Array(String)') AS properties_null_keys, "
+            "CAST([], 'Array(String)') AS temporary_properties_null_keys) AS events",
             {
                 "raw": json.dumps(properties),
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
@@ -1574,12 +1584,13 @@ class TestPrinter(BaseTest):
                     self._select("SELECT event FROM events")
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_percent_property_keys_use_bound_subcolumns(self) -> None:
+    def test_new_events_schema_percent_property_keys_print_as_escaped_paths(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         for expression in ("JSONHas(properties, 'bad%key')", "JSONExtractRaw(properties, 'bad%key')"):
             printed = self._expr(expression, context)
-            self.assertIn("getSubcolumn(events.properties,", printed)
+            self.assertIn("events.properties.`bad\\x25key`", printed)
+            self.assertNotIn("getSubcolumn", printed)
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
@@ -1589,7 +1600,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties.`a.b`", context), self._json_dynamic_subcolumn_expr("events.properties", "a.b")
         )
-        self.assertEqual(set(context.values.values()), {"a%2Eb", "^`a%2Eb`"})
+        self.assertEqual(context.values, {})
 
         nested_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
@@ -1976,6 +1987,8 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("sha1(event)"), "lower(hex(SHA1(events.event)))")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
+        self.assertEqual(self._expr("greatest(1, 2, 3)"), "greatest(1, 2, 3)")
+        self.assertEqual(self._expr("least(1, 2, 3)"), "least(1, 2, 3)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
         self.assertEqual(
@@ -2014,16 +2027,25 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("toFloat", "toFloat('1.3')"),
-            ("toFloatOrNull", "toFloatOrNull('1.3')"),
-            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+            ("toFloatOrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64OrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64(event)", "toFloat(event)"),
+            ("toFloat64OrZero(event)", "toFloatOrZero(event)"),
+            ("toFloat64OrDefault(event, 1.5)", "toFloatOrDefault(event, 1.5)"),
+            ("toFloat64OrDefault(event)", "toFloatOrDefault(event)"),
+            ("toInt64(event)", "toInt(event)"),
+            ("toInt64OrNull(event)", "toInt(event)"),
+            ("toIntOrNull(event)", "toInt(event)"),
+            ("toInt64OrZero(event)", "toIntOrZero(event)"),
+            ("toInt64OrDefault(event, 3)", "toIntOrDefault(event, 3)"),
+            ("toInt64OrDefault(event)", "toIntOrDefault(event)"),
         ]
     )
-    def test_to_float_aliases(self, _name: str, expr: str) -> None:
-        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
-        # all routing through accurateCastOrNull so unparseable input becomes NULL.
-        context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+    def test_numeric_conversion_aliases_print_as_hogql_names(self, alias_expr: str, hogql_expr: str) -> None:
+        alias_context = HogQLContext(team_id=self.team.pk)
+        hogql_context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(alias_expr, alias_context), self._expr(hogql_expr, hogql_context))
+        self.assertEqual(alias_context.values, hogql_context.values)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -2059,6 +2081,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "tostring(event)",
             "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?",
+        )
+        self._assert_expr_error(
+            "toInt8OrNull(event)",
+            "Unsupported function call 'toInt8OrNull(...)'. Perhaps you meant 'toIntOrNull(...)'?",
+        )
+        self._assert_expr_error(
+            "toUInt32(event)",
+            "Unsupported function call 'toUInt32(...)'. Perhaps you meant 'toInt(...)'?",
         )
         self._assert_expr_error(
             "int(event)",
@@ -2386,6 +2416,23 @@ class TestPrinter(BaseTest):
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
                 else f"SELECT 1 FROM events AS e WHERE equals(e.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
             ),
+        )
+
+    def test_select_alias_shared_type_chain(self) -> None:
+        aliases = [f"tuple(e{i - 1}, e{i - 1}) AS e{i}" for i in range(1, 41)]
+        query = f"SELECT event AS e0, {', '.join(aliases)}, count() FROM events GROUP BY e40"
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=Database.create_for(team=self.team),
+            enable_select_queries=True,
+        )
+
+        printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        self.assertEqual(
+            printed,
+            f"SELECT events.event AS e0, {', '.join(aliases)}, count() AS `count()` FROM {self._events_table_ref()} "
+            f"WHERE equals(events.team_id, {self.team.pk}) GROUP BY e40 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_from(self):
@@ -3776,6 +3823,22 @@ class TestPrinter(BaseTest):
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
         self.assertIn(f"notIn({expected_expr}, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(notIn", sql)
+
+        # IS [NOT] NULL must print a null check, because equals(x, NULL) is always NULL in ClickHouse
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select(
+            "SELECT countIf(properties.$ai_trace_id IS NOT NULL), countIf(properties.$ai_trace_id IS NULL) "
+            "FROM events WHERE properties.$ai_trace_id IS NOT NULL",
+            context,
+        )
+        read_expr = (
+            self._json_dynamic_property_expr("$ai_trace_id")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else expected_expr
+        )
+        self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
+        self.assertIn(f"countIf(isNull({read_expr}))", sql)
+        self.assertIn(f"isNotNull({read_expr})) LIMIT", sql)
 
         # Dynamic properties use JSON subcolumns under the new schema and JSON extraction under legacy.
         # `other_prop` is not in the materialized-column registry, so it stays on the JSON path.
@@ -7090,9 +7153,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                assert printed == (
-                    f"JSONExtractString(ifNull({self._json_dynamic_property_expr('test_prop', as_json=True)}, ''))"
-                )
+                assert "events.properties.test_prop" in printed, printed
+                assert "JSONExtractString(ifNull(" not in printed, printed
                 assert mat_col.name not in printed
             else:
                 assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
@@ -7117,9 +7179,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
         assert "mat_numeric_prop" not in printed
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert printed == (
-                f"JSONExtractString(ifNull({self._json_dynamic_property_expr('numeric_prop', as_json=True)}, ''))"
-            )
+            assert "events.properties.numeric_prop" in printed, printed
+            assert "JSONExtractString(ifNull(" not in printed, printed
         else:
             assert "JSONExtractString(events.properties" in printed
 

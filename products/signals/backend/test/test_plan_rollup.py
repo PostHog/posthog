@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from typing import Literal
 
 import pytest
 from posthog.test.base import BaseTest
@@ -9,7 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, ReportLink
+from products.signals.backend.artefact_schemas import CheckAuthoringStatus, Dismissal, PullRequestLink, ReportLink
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -88,6 +89,10 @@ class TestPlanRollup(BaseTest):
                 SignalReport.Status.MONITORING,
                 SignalReport.Status.MONITORING,
             ),
+            ("failed_authoring_blocks_resolution", ["resolved"], "ready", "ready", False, "failed", True),
+            ("successful_authoring_allows_resolution", ["resolved"], "resolved", "ready", False, "succeeded", True),
+            ("disabled_authoring_failure_resolves", ["resolved"], "resolved", "ready", False, "failed", False),
+            ("failed_authoring_allows_archive", ["suppressed"], "suppressed", "ready", False, "failed", True),
         ]
     )
     def test_a_plan_takes_the_verdict_of_its_steps(
@@ -97,15 +102,26 @@ class TestPlanRollup(BaseTest):
         expected: str,
         parent_status: str = SignalReport.Status.READY,
         archive_parent: bool = False,
+        authoring_status: Literal["failed", "succeeded"] | None = None,
+        monitoring_enabled: bool = True,
     ) -> None:
         parent = self._report("plan", status=parent_status)
+        if authoring_status is not None:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(parent.id),
+                content=CheckAuthoringStatus(status=authoring_status, reason="Verification proposal validation"),
+                attribution=ArtefactAttribution.system(),
+            )
         if archive_parent:
             self._close(parent, SignalReport.Status.SUPPRESSED)
         children = [self._report(f"step-{index}") for index in range(len(child_statuses))]
         for child in children:
             self._part_of(child, parent)
 
-        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=monitoring_enabled
+        ):
             for child, status in zip(children, child_statuses):
                 self._close(child, status)
 
@@ -119,6 +135,18 @@ class TestPlanRollup(BaseTest):
             )
             assert feedback is not None
             assert feedback.state == "suppressed"
+
+    @parameterized.expand([("monitoring",), ("closed",)])
+    def test_reopening_a_plan_with_finished_steps_leaves_it_ready(self, parent_status: str) -> None:
+        parent = self._report("plan", status=parent_status)
+        child = self._report("step")
+        self._part_of(child, parent)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            self._close(child, SignalReport.Status.RESOLVED)
+            self._close(parent, SignalReport.Status.READY)
+
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.READY
 
     @parameterized.expand([("ready",), ("closed",)])
     def test_a_plan_stays_open_while_a_step_has_not_resolved(self, child_status: str) -> None:

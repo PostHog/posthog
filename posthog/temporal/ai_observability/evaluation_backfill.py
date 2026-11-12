@@ -22,7 +22,12 @@ from django.utils import timezone
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ChildWorkflowError, WorkflowAlreadyStartedError, is_cancelled_exception
+from temporalio.exceptions import (
+    ApplicationError,
+    ChildWorkflowError,
+    WorkflowAlreadyStartedError,
+    is_cancelled_exception,
+)
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.dataclasses import frozen
@@ -30,7 +35,7 @@ from posthog.event_usage import groups
 from posthog.models.team import Team
 from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_errors import USER_ERROR_SPECS
+from posthog.temporal.ai_observability.evaluation_errors import USER_ERROR_SPECS, application_error_details
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
@@ -114,6 +119,8 @@ class EvaluationBackfillInputs:
     # Carried across pages, so a backfill smaller than one pause cycle can still stop.
     failed_runs_in_a_row: int = 0
     pauses_in_a_row: int = 0
+    # 0 starts a page at the configured maximum.
+    in_flight_limit: int = 0
 
 
 class TickAction(StrEnum):
@@ -221,6 +228,18 @@ class ChildOutcome(StrEnum):
 class BackfillChildOutcome:
     outcome: ChildOutcome
     stop_reason: str | None = None
+    rate_limited: bool = False
+
+
+def _rate_limited(error: BaseException) -> bool:
+    # The judge raises provider_unavailable once a 429 or a provider outage outlasts every retry, on
+    # any key. The run workflow re-raises it, so it arrives wrapped in the child and activity errors.
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, ApplicationError) and cause.details:
+            return application_error_details(cause).get("error_type") == "provider_unavailable"
+        cause = cause.__cause__
+    return False
 
 
 def _stop_reason(result: WorkflowResult) -> str | None:
@@ -279,6 +298,47 @@ class _BackfillPacing:
         elif result.outcome == ChildOutcome.EVALUATED:
             self.failures = 0
             self.pauses = 0
+
+
+class _InFlightLimit:
+    """Caps the runs a backfill has in flight, so a backfill slows to what the provider key allows.
+
+    A run that failed because the provider kept rate limiting it, or stayed down, halves the cap. After as many
+    evaluated runs as the cap within one page, the cap rises by one, up to the configured maximum.
+    """
+
+    def __init__(self, maximum: int, limit: int = 0) -> None:
+        self.maximum = maximum
+        self.limit = min(limit, maximum) if limit > 0 else maximum
+        self._in_flight = 0
+        self._clean_runs = 0
+        self._changed = asyncio.Condition()
+
+    async def __aenter__(self) -> None:
+        async with self._changed:
+            await self._changed.wait_for(lambda: self._in_flight < self.limit)
+            self._in_flight += 1
+
+    async def __aexit__(self, *_: object) -> None:
+        async with self._changed:
+            self._in_flight -= 1
+            # Waking every queued run at a cap of 1 makes a page's scheduling quadratic.
+            self._changed.notify(max(0, self.limit - self._in_flight))
+
+    def record(self, result: BackfillChildOutcome) -> None:
+        previous = self.limit
+        if result.rate_limited:
+            self.limit = max(1, self.limit // 2)
+            self._clean_runs = 0
+        elif result.outcome == ChildOutcome.EVALUATED:
+            self._clean_runs += 1
+            if self._clean_runs >= self.limit:
+                self.limit = min(self.maximum, self.limit + 1)
+                self._clean_runs = 0
+        if self.limit != previous:
+            temporalio.workflow.logger.info(
+                "llma.evaluation_backfill_in_flight_limit", extra={"limit": self.limit, "previous": previous}
+            )
 
 
 def _child_outcome(result: WorkflowResult) -> ChildOutcome:
@@ -345,6 +405,7 @@ def report_backfill_finished(
             distinct_id=(row.created_by.distinct_id if row.created_by else None) or str(row.team.uuid),
             event="llma evaluation backfill finished",
             properties={
+                "$update_person_last_seen_at": False,
                 "backfill_id": str(row.pk),
                 "evaluation_id": str(row.evaluation_id),
                 "status": status or row.status,
@@ -671,7 +732,14 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
     async def _dispatch_bounded_batch(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> None:
         found = await self._find_candidates(inputs, tick)
         # A tick prepared by a worker that predates max_in_flight carries 0.
-        slots = asyncio.Semaphore(tick.max_in_flight or BACKFILL_DEFAULT_MAX_IN_FLIGHT)
+        maximum = tick.max_in_flight or BACKFILL_DEFAULT_MAX_IN_FLIGHT
+        # The cap changes the order runs start in, so a page that began on the fixed semaphore keeps it.
+        limit = (
+            _InFlightLimit(maximum, inputs.in_flight_limit)
+            if temporalio.workflow.patched("evaluation-backfill-adaptive-in-flight")
+            else None
+        )
+        slots = limit or asyncio.Semaphore(maximum)
         pacing = _BackfillPacing(inputs.failed_runs_in_a_row, inputs.pauses_in_a_row)
         started: list[str] = []
 
@@ -681,6 +749,8 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                     return BackfillChildOutcome(outcome=ChildOutcome.NOT_STARTED)
                 result = await self._run_child(inputs, tick, candidate, started)
                 pacing.record(result)
+                if limit is not None:
+                    limit.record(result)
                 return result
 
         async def record(results: list[BackfillChildOutcome], *, cancelled: bool = False) -> AdvanceCursorOutput:
@@ -731,6 +801,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 consecutive_failures=0,
                 failed_runs_in_a_row=pacing.failures,
                 pauses_in_a_row=pacing.pauses,
+                in_flight_limit=limit.limit if limit is not None else 0,
             )
         )
 
@@ -764,7 +835,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_failed", extra={"workflow_id": child.workflow_id}, exc_info=True
             )
-            return BackfillChildOutcome(outcome=ChildOutcome.FAILED)
+            return BackfillChildOutcome(outcome=ChildOutcome.FAILED, rate_limited=_rate_limited(error))
 
     async def _dispatch_batch(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> bool:
         """Walk one page, start a child per unit, and advance the cursor. True ends the loop."""

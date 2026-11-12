@@ -4,6 +4,7 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { isDataTableNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     DataTableNode,
     VisualizationNode,
@@ -11,13 +12,7 @@ import {
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import {
-    isDataTableNode,
-    isGroupsQuery,
-    isHogQLQuery,
-    isMarketingAnalyticsTableQuery,
-    trimQuotes,
-} from '~/queries/utils'
+import { isGroupsQuery, isMarketingAnalyticsTableQuery, trimQuotes } from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -31,7 +26,8 @@ export interface ColumnMeta {
 export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
     key: string,
     query: T,
-    context?: QueryContext<T>
+    context?: QueryContext<T>,
+    { showSortingIndicator = true }: { showSortingIndicator?: boolean } = {}
 ): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
@@ -119,7 +115,11 @@ export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
         title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
-    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && isMarketingAnalyticsTableQuery(query.source)) {
+    if (
+        showSortingIndicator &&
+        queryFeatures.has(QueryFeature.selectAndOrderByColumns) &&
+        isMarketingAnalyticsTableQuery(query.source)
+    ) {
         const marketingQuery = query.source as MarketingAnalyticsTableQuery
         const sortKey = marketingQuery.orderBy?.[0]?.[0]
         const isSortedByKey = key === sortKey
@@ -133,6 +133,7 @@ export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
             )
         }
     } else if (
+        showSortingIndicator &&
         queryFeatures.has(QueryFeature.selectAndOrderByColumns) &&
         isDataTableNode(query) &&
         !query.allowSorting

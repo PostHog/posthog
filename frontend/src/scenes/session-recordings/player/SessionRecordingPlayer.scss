@@ -35,36 +35,39 @@
         }
     }
 
-    // The watch layout stacks the player over a scrolling panel. The player keeps a fixed share of the viewport.
+    // The watch layout stacks the player over a scrolling panel. The player's share is of the wrapper, not the viewport.
     &--watch {
         flex-direction: column;
-        overflow-y: auto;
+        overflow: hidden;
+        container-type: size;
 
         .SessionRecordingPlayerWrapper__column {
             display: flex;
             flex: 1;
             flex-direction: column;
             min-width: 0;
+            min-height: 0;
         }
 
         &-right-dock {
             flex-direction: row;
-            overflow-y: hidden;
-
-            .SessionRecordingPlayerWrapper__column {
-                min-height: 0;
-                overflow-y: auto;
-            }
         }
 
         .SessionRecordingPlayerWrapper__player {
+            z-index: 2;
             display: flex;
-            flex: none;
-            height: clamp(24rem, 60vh, 48rem);
+            background: var(--color-bg-surface-primary);
 
             &--fullscreen {
-                flex: 1;
+                position: static;
                 height: auto;
+            }
+        }
+
+        &-right-dock .SessionRecordingPlayer__sidebar,
+        .SessionRecordingPlayerWrapper__dock-in {
+            @media (prefers-reduced-motion: no-preference) {
+                animation: SessionRecordingPlayerWrapper__dock-in 200ms ease-out;
             }
         }
     }
@@ -187,5 +190,12 @@
     100% {
         clip-path: inset(0 0 0 100%);
         opacity: 1;
+    }
+}
+
+@keyframes SessionRecordingPlayerWrapper__dock-in {
+    from {
+        opacity: 0;
+        translate: 0 0.5rem;
     }
 }

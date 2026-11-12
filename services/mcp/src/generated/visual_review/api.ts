@@ -19,8 +19,14 @@ export const VisualReviewReposListParams = () => zod.object({
         ),
 })
 
+export const visualReviewReposListQueryLimitMax = 1000
+
 export const VisualReviewReposListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -60,6 +66,15 @@ export const VisualReviewReposPartialUpdateBody = () => zod.object({
         .describe(
             'Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.'
         ),
+    auto_quarantine_mode: zod
+        .union([
+            zod.enum(['off', 'preview', 'on']).describe('\* `off` - off\n\* `preview` - preview\n\* `on` - on'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.\n\n\* `off` - off\n\* `preview` - preview\n\* `on` - on'
+        ),
 })
 
 /**
@@ -86,9 +101,15 @@ export const VisualReviewReposQuarantineListParams = () => zod.object({
         ),
 })
 
+export const visualReviewReposQuarantineListQueryLimitMax = 1000
+
 export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
     identifier: zod.string().optional().describe('Filter by identifier (returns full history)'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposQuarantineListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     run_type: zod.string().optional().describe('Filter by run type'),
 })
@@ -248,8 +269,14 @@ export const VisualReviewReposRunsListParams = () => zod.object({
     repo_id: zod.string(),
 })
 
+export const visualReviewReposRunsListQueryLimitMax = 1000
+
 export const VisualReviewReposRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     review_state: zod
         .enum(['clean', 'needs_review', 'processing', 'stale'])
@@ -283,10 +310,16 @@ export const VisualReviewRunsListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsListQueryLimitMax = 1000
+
 export const VisualReviewRunsListQueryParams = () => zod.object({
     branch: zod.string().optional().describe('Filter by branch name'),
     commit_sha: zod.string().optional().describe('Filter by full commit SHA'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pr_number: zod.number().optional().describe('Filter by GitHub PR number'),
     review_state: zod
@@ -464,13 +497,19 @@ export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsSnapshotHistoryListQueryLimitMax = 1000
+
 export const VisualReviewRunsSnapshotHistoryListQueryParams = () => zod.object({
     identifier: zod
         .string()
         .describe(
             'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotHistoryListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -488,6 +527,8 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
 
 export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
 export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+export const visualReviewRunsSnapshotsListQueryLimitMax = 10000
+
 export const visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault = false
 
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
@@ -503,7 +544,11 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .describe(
             "Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes. This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     quarantined_only: zod
         .boolean()
@@ -555,13 +600,19 @@ export const VisualReviewRunsToleratedHashesListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsToleratedHashesListQueryLimitMax = 1000
+
 export const VisualReviewRunsToleratedHashesListQueryParams = () => zod.object({
     identifier: zod
         .string()
         .describe(
             'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsToleratedHashesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

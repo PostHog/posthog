@@ -18,9 +18,6 @@ export const DEFAULT_STATE_TTL_SECONDS = 900
 /** Minimum acceptable length of the signing key, in bytes (HMAC-SHA256 output size). */
 export const SIGNING_KEY_MIN_BYTES = 32
 
-/** Redis key prefix for the single-use nonce ledger. */
-export const NONCE_KEY_PREFIX = 'mcp:signed-state:nonce'
-
 /** Redis key prefix for stashed prepare payloads awaiting execute. */
 export const PAYLOAD_KEY_PREFIX = 'mcp:signed-state:payload'
 

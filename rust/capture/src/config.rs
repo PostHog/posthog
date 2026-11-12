@@ -385,6 +385,8 @@ pub struct Config {
     /// the event, and the producer refuses it anyway. A deployment that has not
     /// raised its producer cap wants a lower value than this default; the boot
     /// warning says so when the two are out of order.
+    ///
+    /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
@@ -424,6 +426,10 @@ pub struct Config {
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
+
+    /// Turn off only where every consumer of the capture topics applies the outbound `options`.
+    #[envconfig(default = "true")]
+    pub capture_v1_legacy_property_splice: bool,
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
     // Warnings go out as `$$client_ingestion_warning` events through a

@@ -36,23 +36,43 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' || (github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000')
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       oauth-proxy:
                         - 'services/oauth-proxy/**'
                         - '.github/workflows/ci-oauth-proxy.yml'
+                        - '*'
+                        - '**/package.json'
+                        - '.github/actions/paths-filter/**'
+                        - '.github/actions/pnpm-install/**'
+                        - '.github/actions/setup-pnpm/**'
+                        - '.husky/**'
+                        - 'bin/fix-rdkafka-paths'
+                        - 'patches/**'
 
     build-and-test:
         name: Build & Test
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.oauth-proxy == 'true'
+        if: needs.changes.outputs.oauth-proxy != 'false'
         steps:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      **/package.json
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
+                      /patches/
+                      /services/oauth-proxy/
+                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
@@ -80,12 +100,22 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.oauth-proxy }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.result }}" == "skipped" ]]; then
+                    echo "OAuth proxy checks were skipped for this repository."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.oauth-proxy }}" == "false" ]]; then
                     echo "OAuth proxy checks were skipped (no relevant changes)."
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build-and-test.result }}" != "success" && "${{ needs.build-and-test.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.changes.outputs.oauth-proxy }}" != "true" ]]; then
+                    echo "OAuth proxy change detection returned an invalid output."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.build-and-test.result }}" != "success" ]]; then
                     echo "OAuth proxy build/test failed."
                     exit 1
                   fi

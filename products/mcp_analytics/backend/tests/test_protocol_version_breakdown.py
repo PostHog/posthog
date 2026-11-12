@@ -7,8 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, MCPProtocolVersionBreakdownQuery
 
-from posthog.models import PropertyDefinition
-
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend.hogql_queries.protocol_version_breakdown import (
     PROTOCOL_VERSION_SERIES_LIMIT,
     MCPProtocolVersionBreakdownQueryRunner,

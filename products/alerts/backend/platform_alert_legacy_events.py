@@ -1,8 +1,9 @@
-"""The `$insight_alert_firing` events the platform emits for an insight alert it owns on the HogFunction path.
+"""The `$insight_alert_*` events the platform emits for an insight alert it owns on the HogFunction path.
 
-The alert's HogFunctions filter on this event and render these properties, so the platform
-reproduces what `trigger_alert_hog_functions` sends: the same names, read from the same alert,
-with the breach text and chart URL the check recorded beside its verdict.
+The alert's HogFunctions filter on these events and render these properties, so the platform
+reproduces what `trigger_alert_hog_functions` sends: the same names and values, read from the
+platform alert and its insight rather than the insight row, with the breach text and chart URL the
+check recorded beside its verdict.
 
 The insight stack emits no internal event for a failed check. It emails the subscribers only, and
 native delivery already sends that, so an errored transition emits nothing here.
@@ -11,27 +12,46 @@ native delivery already sends that, so an errored transition emits nothing here.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Final
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import RenderedInsightChart, detector_verdict_event_fields, insight_chart_url
 
-from products.alerts.backend.facade.contracts import AlertInternalEvent
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
+    INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
+    AlertInternalEvent,
+)
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import derive_detector_event_fields
 from products.alerts.backend.platform_alert_slack import insight_transition_properties
+from products.alerts.backend.platform_alert_wording import announces_firing
+from products.alerts.backend.platform_investigation_message import (
+    FiringInvestigation,
+    firing_breaches,
+    firing_investigation,
+)
+from products.alerts_platform.backend.facade.api import get_configuration
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
     LegacyEventEmission,
     MessageImage,
+    PlatformAlertConfigurationView,
+    SourceKind,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -39,30 +59,92 @@ logger = structlog.get_logger(__name__)
 FLUSH_TIMEOUT_SECONDS: Final = 5.0
 
 
+@frozen
+class _EventAlert:
+    team_id: int
+    configuration: PlatformAlertConfigurationView
+    insight: Insight
+
+    @property
+    def alert_id(self) -> str:
+        return str(self.configuration.destination_alert_id)
+
+    def properties(self, *, state: str, last_checked_at: datetime | None) -> dict[str, Any]:
+        return insight_event_properties(self.configuration, self.insight, state=state, last_checked_at=last_checked_at)
+
+
 def emit_insight_legacy_events(
     *, request: AlertDeliveryRequest, announcement: EvaluationAnnouncement, emissions: Sequence[LegacyEventEmission]
 ) -> None:
-    firings = [
-        emission.transition
-        for emission in emissions
-        if emission.sends_message and emission.transition.kind == AlertEventKind.FIRING
-    ]
-    if not firings:
+    if not any(_announces_firing(emission) or emission.incident_action is not None for emission in emissions):
         return
-    alert = (
-        AlertConfiguration.objects.select_related("team", "insight")
-        .filter(team_id=request.team_id, id=request.destination_alert_id)
-        .first()
-    )
-    # A deleted alert takes its destinations with it, so nobody is left to receive the event.
+    alert = _event_alert(request)
     if alert is None:
         return
+    events: list[AlertInternalEvent] = []
+    for emission in emissions:
+        if _announces_firing(emission):
+            events.append(_firing_event(alert, emission.transition))
+        if emission.incident_action is not None:
+            events.append(_incident_event(alert, emission.transition, emission.incident_action))
     emit_alert_internal_events(
         team_id=request.team_id,
         alert_id=request.destination_alert_id,
-        events=[_firing_event(alert, transition) for transition in firings],
+        events=events,
         flush_timeout_seconds=FLUSH_TIMEOUT_SECONDS,
     )
+
+
+def _event_alert(request: AlertDeliveryRequest) -> _EventAlert | None:
+    configuration = get_configuration(
+        team_id=request.team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=UUID(request.configuration_id),
+    )
+    # A deleted alert takes its destinations with it, so nobody is left to receive the event.
+    if configuration is None:
+        return None
+    insight = _insight_of(request.team_id, configuration)
+    if insight is None:
+        return None
+    return _EventAlert(team_id=request.team_id, configuration=configuration, insight=insight)
+
+
+def _insight_of(team_id: int, configuration: PlatformAlertConfigurationView) -> Insight | None:
+    # A deleted insight still names the alert, as its row did, because deleting an insight deletes
+    # its alerts after it, and their resolves go out then.
+    insight_id = configuration.source_config.get("insight_id")
+    if not isinstance(insight_id, int):
+        return None
+    found = insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=[insight_id])
+    return found[0] if found else None
+
+
+def insight_event_properties(
+    configuration: PlatformAlertConfigurationView,
+    insight: Insight,
+    *,
+    state: str,
+    last_checked_at: datetime | None,
+) -> dict[str, Any]:
+    """The properties every `$insight_alert_*` event carries, as `AlertConfiguration.internal_event_properties`
+    builds them from the insight row."""
+    condition = configuration.source_config.get(SOURCE_CONDITION_KEY) or {}
+    return {
+        "alert_id": str(configuration.destination_alert_id),
+        "alert_name": configuration.name,
+        "project_name": insight.team.name,
+        "insight_name": insight.name,
+        "insight_id": insight.short_id,
+        "state": state,
+        "last_checked_at": last_checked_at.isoformat() if last_checked_at else None,
+        **derive_detector_event_fields(condition.get("detector")),
+    }
+
+
+def _announces_firing(emission: LegacyEventEmission) -> bool:
+    # A verdict-change follow-up goes out as a firing event, as the insight stack sends it.
+    return emission.sends_message and announces_firing(emission.transition)
 
 
 def insight_chart_url_of(team_id: int, source_detail: dict[str, Any]) -> str | None:
@@ -84,40 +166,62 @@ def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> Mes
     return MessageImage(url=url, alt_text="Insight chart") if url else None
 
 
-def _formatting_properties(transition: AnnouncedTransition) -> dict[str, Any]:
+def _formatting_properties(
+    transition: AnnouncedTransition, investigation: FiringInvestigation | None
+) -> dict[str, Any]:
     """The Slack card fields, or none of them.
 
     These enrich the event; the destinations it reaches do not depend on them. A stored detail the
     formatter cannot read must cost the firing its card, never its delivery.
     """
     try:
-        return insight_transition_properties(transition)
+        return insight_transition_properties(transition, investigation)
     except Exception:
         logger.exception("alerts_insight_legacy_event_formatting_failed")
         return {}
 
 
-def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
+def _firing_event(alert: _EventAlert, transition: AnnouncedTransition) -> AlertInternalEvent:
+    return _event(alert, transition, LEGACY_INSIGHT_ALERT_EVENT, _firing_properties(alert, transition))
+
+
+def _incident_event(alert: _EventAlert, transition: AnnouncedTransition, action: IncidentAction) -> AlertInternalEvent:
+    if action == IncidentAction.TRIGGER:
+        return _event(alert, transition, INSIGHT_ALERT_INCIDENT_OPENED_EVENT, _firing_properties(alert, transition))
+    properties = alert.properties(state=AlertState.NOT_FIRING.value, last_checked_at=transition.occurred_at)
+    return _event(alert, transition, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT, properties)
+
+
+def _firing_properties(alert: _EventAlert, transition: AnnouncedTransition) -> dict[str, Any]:
     detail = transition.source_detail
+    investigation = firing_investigation(alert.team_id, transition)
     properties: dict[str, Any] = {
         # From the transition, not the alert row: the platform never writes `state` or
         # `last_checked_at`, so a platform-owned alert past its shadow window would report the
         # frozen `not_firing` default on the very event that announces a firing.
-        **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
+        **alert.properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
         # Joined with newlines so each breach renders on its own line, as the insight stack sends it.
-        "breaches": "\n".join(detail.get("breaches") or []),
+        "breaches": "\n".join(firing_breaches(transition, investigation)),
         **detector_verdict_event_fields(detail.get("triggered_metadata")),
-        **_formatting_properties(transition),
+        **_formatting_properties(transition, investigation),
     }
+    if investigation is not None and investigation.notebook_url:
+        properties["investigation_notebook_url"] = investigation.notebook_url
     if chart_url := insight_chart_url_of(alert.team_id, detail):
         properties["insight_chart_url"] = chart_url
+    return properties
+
+
+def _event(
+    alert: _EventAlert, transition: AnnouncedTransition, event_name: str, properties: dict[str, Any]
+) -> AlertInternalEvent:
     # The occurrence is in the seed too, so two firings recorded without an evaluation key keep distinct ids.
     seed = (
-        f"{alert.id}|{transition.grouping_key}|{LEGACY_INSIGHT_ALERT_EVENT}|{transition.evaluation_key}|"
+        f"{alert.alert_id}|{transition.grouping_key}|{event_name}|{transition.evaluation_key}|"
         f"{transition.occurred_at.isoformat()}"
     )
     return AlertInternalEvent(
-        event_name=LEGACY_INSIGHT_ALERT_EVENT,
+        event_name=event_name,
         properties=properties,
         timestamp=transition.occurred_at,
         uuid=str(uuid5(NAMESPACE_URL, seed)),

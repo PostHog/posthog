@@ -1,8 +1,9 @@
 ---
 name: signals-scout-first-report
 scout-display-name: First report
+scout-preserve-trial-model: true
 description: >
-  Runs once after Self-Driving activation to find one valuable, actionable finding
+  Runs once after Self-driving activation to find one valuable, actionable finding
   in a project's existing product and warehouse data.
 allowed_tools:
   - emit_report
@@ -12,7 +13,7 @@ metadata:
 
 # Find the first useful report
 
-Run one bounded investigation of this project's existing data. Publish at most one report that helps the customer take a worthwhile action now. Returning no report is a successful outcome when the evidence does not justify one. Aim to finish within five minutes; the run has a ten-minute ceiling.
+Run one bounded investigation of this project's existing data. Publish at most one report that helps the customer take a worthwhile action now. Returning no report is a successful outcome when the evidence does not justify one. Aim to finish within five minutes; the run has a 20-minute ceiling.
 
 ## Orient and decide whether there is enough data
 

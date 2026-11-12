@@ -70,7 +70,7 @@ def strip_chart_references(text: str) -> str:
 # (`<@U…>`, `<#C…>`, `<!here>`, `<!subteam^S…>`) and the labelled link form, whose `<dest|label>`
 # shape lets the label say one thing while the link goes somewhere else. A bare `<https://…>` is
 # neither — it links to exactly what it displays — so it is left for Slack to render.
-_SLACK_TOKEN_RE = re.compile(r"<(?:[@#!][^<>]*|[^<>|]*\|[^<>]*)>")
+_SLACK_TOKEN_RE = re.compile(r"<(?:[@#!][^<>]*|[^<>|]*\|[^<>]*)>|<(?=[@#!])")
 
 
 def defuse_slack_tokens(text: str) -> str:
@@ -81,6 +81,7 @@ def defuse_slack_tokens(text: str) -> str:
     label hides its destination. Escaping the angle brackets stops all three, and Slack renders the
     escaped form back as the literal characters.
 
+    Incomplete mention prefixes must also be escaped because conversion can add a closing bracket.
     Only a token is rewritten. Escaping every `<` instead corrupts the three things that carry
     angle brackets innocently: a code span (`Vec<T>`), a CommonMark autolink, and an angle-bracket
     link destination, none of which decode the entity back.
@@ -297,6 +298,24 @@ _OPEN_MARKDOWN_LINK_RE = re.compile(r"\[[^\[\]]*\]\([^()]*$|\[[^\[\]]*$")
 # A break earlier than this share of the limit spends a whole reply on a stub, so the ladder in
 # `_line_break_index` prefers the next (later-breaking) rung over an early sentence or word end.
 _MIN_LINE_BREAK_FILL = 0.6
+
+
+# Bounds the sentence scan: each candidate end re-checks the prefix for an open link, so an
+# unclosed `[` followed by many sentence ends would otherwise cost quadratic time on a long line.
+_FIRST_SENTENCE_SCAN_LIMIT = 2000
+
+
+def first_sentence(text: str) -> str:
+    """The text up to its first sentence end, or all of it when no sentence end is found.
+
+    A sentence end inside a Markdown link, such as `[see e.g. this](https://…)`, is skipped, so the
+    link reaches Slack whole."""
+    text = text.strip()
+    window = text[:_FIRST_SENTENCE_SCAN_LIMIT]
+    for match in _SENTENCE_END_RE.finditer(window):
+        if _OPEN_MARKDOWN_LINK_RE.search(window[: match.end()]) is None:
+            return window[: match.end()].strip()
+    return text
 
 
 def _pull_back_before_open_link(window: str, index: int) -> int:

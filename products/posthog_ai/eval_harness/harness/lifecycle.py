@@ -7,13 +7,16 @@ import asyncio
 import hashlib
 import logging
 import tempfile
+import threading
 import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -35,6 +38,7 @@ from products.tasks.backend.temporal.process_task.utils import get_reasoning_eff
 
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
+from ..log_sink import LOGS_ROOT
 from .cli import (
     DEFAULT_ONE_SHOT_CONCURRENCY,
     DEFAULT_SKILL_DELIVERY,
@@ -47,6 +51,7 @@ from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import MULTI_TURN_MODULE_MARKER, REPO_ROOT, EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
+from .generation_capture import GenerationCapture
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
@@ -82,6 +87,7 @@ from .temporal_env import (
 )
 
 logger = logging.getLogger(__name__)
+TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
 def eval_feature_enabled(
@@ -104,6 +110,15 @@ def _git(*args: str) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip()
+
+
+def _shutdown_trace_client(client: Posthog) -> None:
+    # SDK shutdown drains without a deadline; telemetry must not hold up infrastructure cleanup.
+    worker = threading.Thread(target=client.shutdown, name="eval-trace-shutdown", daemon=True)
+    worker.start()
+    worker.join(timeout=TRACE_SHUTDOWN_TIMEOUT_SECONDS)
+    if worker.is_alive():
+        logger.warning("Trace shutdown timed out; continuing cleanup. Pending traces may be lost.")
 
 
 def _worktree_dirty() -> bool | None:
@@ -343,7 +358,12 @@ class SandboxedEvalHarness:
 
         if Infra.AI_GATEWAY in required:
             reporter.setup_started("start AI gateway")
-            self._stack.callback(start_ai_gateway())
+            capture = GenerationCapture(
+                LOGS_ROOT / "ai_gateway" / f"{datetime.now(UTC):%Y%m%d-%H%M%S}_{uuid4().hex[:8]}.generations.jsonl"
+            ).start()
+            self._stack.callback(capture.stop)
+            reporter.set_ai_gateway_generations(capture.path)
+            self._stack.callback(start_ai_gateway(capture_url=capture.url))
             self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=AI_GATEWAY_REDIS_URL))
         # Seed before building skills: HogQL examples in skill templates render against a Team,
         # and on a fresh test database the master team is the first one that exists.
@@ -355,6 +375,7 @@ class SandboxedEvalHarness:
                 agent_model=self.options.agent_model,
                 agent_runtime=self.options.agent_runtime,
                 reasoning_effort=self.options.reasoning_effort,
+                service_tier=self.options.service_tier,
                 sandbox_timeout_seconds=(
                     self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
                     if self.provider is not None
@@ -447,9 +468,10 @@ class SandboxedEvalHarness:
             # publicly reachable before any settings pointing at them are computed.
             self.provider.start(self._stack)
 
-        self._posthog_client = get_client("US")
+        # The harness uses TEST for its database, but this client captures eval traces deliberately.
+        self._posthog_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
         if self._posthog_client is not None:
-            self._stack.callback(self._posthog_client.shutdown)
+            self._stack.callback(_shutdown_trace_client, self._posthog_client)
 
         if Infra.AI_GATEWAY in required:
             assert self._demo_data is not None and self._database is not None
@@ -497,9 +519,9 @@ class SandboxedEvalHarness:
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
-                    # Chat and scout evals retain their production product attribution. The worker mints each
-                    # run a capped scoped token with this key, as it does in production.
-                    SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout",
+                    # Chat, scout, and repository-selection evals retain their production product attribution.
+                    # The worker mints each run a capped scoped token with this key, as it does in production.
+                    SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout,signals_repo_selection,slack_app",
                     SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
                     # Tool-side judges share the eval ledger with the sandboxed agent.
                     AI_GATEWAY_URL=f"http://localhost:{AI_GATEWAY_PORT}/v1",
@@ -587,6 +609,7 @@ class SandboxedEvalHarness:
             posthog_trace_host="https://us.posthog.com",
             posthog_trace_project_id=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
             infrastructure_retries=self.options.infrastructure_retries,
+            service_tier=self.options.service_tier,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

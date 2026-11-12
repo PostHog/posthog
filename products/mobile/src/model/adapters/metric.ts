@@ -352,12 +352,14 @@ export function hasBreakdown(source: unknown): boolean {
     return Boolean(filter?.breakdown) || (Array.isArray(filter?.breakdowns) && filter.breakdowns.length > 0)
 }
 
-/** The chart kind when the app can draw the chart, else undefined. The app draws one series without a breakdown. */
+/** The app draws one output series without a breakdown. A formula can combine several input series. */
 export function drawableChartKind(insight: TrendsInsight | undefined): MetricChartKind | undefined {
-    if (!insight || seriesNodes(insight).length !== 1 || hasBreakdown(insight.source)) {
+    if (!insight || hasBreakdown(insight.source)) {
         return undefined
     }
-    return timeSeriesChartKind(insight)
+    const formulas = asRecord(insight.source.trendsFilter)?.formulaNodes
+    const outputCount = Array.isArray(formulas) && formulas.length > 0 ? formulas.length : seriesNodes(insight).length
+    return outputCount === 1 ? timeSeriesChartKind(insight) : undefined
 }
 
 /** Keeps the authored display, such as a cumulative line, which the server computes. */

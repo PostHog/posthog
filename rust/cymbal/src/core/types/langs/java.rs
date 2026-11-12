@@ -542,20 +542,29 @@ mod tests {
             bucket.clone(),
         );
         let hmp = ChunkIdFetcher::new(
-            HermesMapProvider {},
+            HermesMapProvider::new(&config),
             client.clone(),
             db.clone(),
             bucket.clone(),
         );
         let pgp = ChunkIdFetcher::new(
-            ProguardProvider {},
+            ProguardProvider::new(&config),
             client.clone(),
             db.clone(),
             bucket.clone(),
         );
-        let apple =
-            ChunkIdFetcher::new(AppleProvider {}, client.clone(), db.clone(), bucket.clone());
-        let native = ChunkIdFetcher::new(NativeProvider {}, client.clone(), db.clone(), bucket);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider::new(&config),
+            client.clone(),
+            db.clone(),
+            bucket.clone(),
+        );
+        let native = ChunkIdFetcher::new(
+            NativeProvider::new(&config),
+            client.clone(),
+            db.clone(),
+            bucket,
+        );
         Catalog::new(smp, hmp, pgp, apple, native)
     }
 

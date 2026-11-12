@@ -122,6 +122,15 @@ pub struct ResolverConfig {
     #[envconfig(default = "8")]
     pub symbol_set_parse_memory_multiplier: NonZeroUsize,
 
+    // A parse fails when the container payload decompresses past this many bytes.
+    #[envconfig(default = "536870912")] // 512 MiB
+    pub symbol_set_max_decompressed_bytes: NonZeroUsize,
+
+    // Native and Apple sets hold a deflated ZIP, so they expand a second time. A parse fails when
+    // it reads more than this many bytes out of the ZIP, summed over every entry.
+    #[envconfig(default = "1610612736")] // 1.5 GiB
+    pub symbol_set_max_extracted_bytes: NonZeroUsize,
+
     // Shared secret authenticating the cymbal <-> cymbal-resolution gRPC seam.
     #[envconfig(default = "")]
     pub internal_api_secret: String,
