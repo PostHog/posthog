@@ -15,7 +15,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.grouping import UNSTORABLE, encoded_length
+from products.alerts_platform.backend.facade.grouping import UNSTORABLE, clipped_to, encoded_length
 
 logger = structlog.get_logger(__name__)
 
@@ -92,11 +92,18 @@ def render_annotations(
 
     A label the group does not carry renders as nothing, as in Prometheus. An annotation that no
     longer validates is left out rather than sent with its template showing.
+
+    A rendered annotation is held to the size a stored one may have. A template that repeats a long
+    label can otherwise grow past what a provider accepts, and PagerDuty refuses the whole event. A
+    cut link would open the wrong page, so a link that renders too long is left out instead.
     """
     rendered: dict[str, str] = {}
     for name, template in annotations.items():
         try:
-            rendered[name] = _render(name, template, labels, value)
+            text = _render(name, template, labels, value)
+            if name.endswith("_url") and encoded_length(text) > _MAX_ANNOTATION_VALUE_BYTES:
+                raise InvalidRuleMetadata(f"Annotation `{name}` renders a link that is too long.")
+            rendered[name] = clipped_to(text, _MAX_ANNOTATION_VALUE_BYTES)
         except InvalidRuleMetadata:
             logger.warning("alerts_platform.annotation_not_rendered", annotation=name)
     return rendered

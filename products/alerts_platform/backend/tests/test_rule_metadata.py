@@ -2,6 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
+from products.alerts_platform.backend.facade.grouping import encoded_length
 from products.alerts_platform.backend.logic.rule_metadata import (
     MAX_RULE_LABELS,
     InvalidRuleMetadata,
@@ -104,3 +105,17 @@ def test_an_annotation_renders_from_its_group(_name: str, name: str, template: s
     )
 
     assert rendered.get(name) == expected
+
+
+def test_an_annotation_that_renders_too_long_stays_within_the_stored_size() -> None:
+    repeated = "{{ $labels.long }}" * 200
+
+    rendered = render_annotations(
+        {"summary": repeated, "runbook_url": f"https://r.example.com/{repeated}"},
+        labels={"long": "x" * 256},
+        value=None,
+    )
+
+    assert encoded_length(rendered["summary"]) <= 4096
+    assert rendered["summary"].endswith("…")
+    assert "runbook_url" not in rendered
