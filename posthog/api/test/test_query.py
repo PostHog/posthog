@@ -60,6 +60,7 @@ from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
+from posthog.uuidt import uuid7
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import (
@@ -272,6 +273,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         extra = response.json()["extra"]
         self.assertEqual(extra["cache_key"], "cache_key_1")
         self.assertEqual(extra["query_scan"]["killed"], True)
+
+    def test_hogql_query_returns_session_id_v7_instead_of_500(self):
+        session_id = uuid7()
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user", properties={"$session_id": str(session_id)}
+        )
+        flush_persons_and_events()
+
+        for expected_is_cached in (False, True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select session_id_v7 from sessions").model_dump()},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.assertEqual(response.json()["results"], [[str(session_id.int)]])
+            self.assertEqual(response.json()["is_cached"], expected_is_cached)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
