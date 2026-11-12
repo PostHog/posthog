@@ -15,8 +15,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from verdict_rule import bot_handle
-
 
 @dataclass
 class PRData:
@@ -187,17 +185,34 @@ def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
     return [r for r in reactions or [] if not _is_bot_eyes(r) or is_in_flight_bot_eyes(r)]
 
 
-def reviewing_bots(pr: PRData) -> frozenset[str]:
-    """The logins that GitHub reports as a bot on every inline review comment they left, never the PR author's.
+def bot_handle(login: str) -> str:
+    """A login in one spelling: GraphQL drops the `[bot]` suffix that REST writes."""
+    handle = login.strip().lstrip("@").lower()
+    return handle.removesuffix("[bot]")
 
-    A rejected finding resolves only when one of these raised it, so a person's concern never does.
-    A login seen with any comment that GitHub does not mark as a bot's is left out.
+
+def rebuttable_threads(pr: PRData) -> dict[str, str]:
+    """The open review threads whose finding an author's rejection can resolve, mapped to the bot's login.
+
+    A thread qualifies when GitHub marks its root comment's author as a bot that is not the PR author,
+    every comment in it comes from that bot or the PR author, and the PR author replied in it. A
+    person's comment anywhere in the thread keeps it out, so a person's concern never resolves this way.
     """
-    flags: dict[str, set[bool]] = {}
-    for comment in pr.review_comments:
-        flags.setdefault(bot_handle(comment.get("user") or ""), set()).add(bool(comment.get("is_bot")))
     author = bot_handle(pr.author)
-    return frozenset(login for login, seen in flags.items() if login and login != author and seen == {True})
+    by_thread: dict[str, list[dict]] = {}
+    for comment in pr.review_comments:
+        if thread := comment.get("thread"):
+            by_thread.setdefault(thread, []).append(comment)
+    rebuttable: dict[str, str] = {}
+    for thread, comments in by_thread.items():
+        root = comments[0]
+        bot = bot_handle(root.get("user") or "")
+        if root.get("in_reply_to_id") is not None or not root.get("is_bot") or not bot or bot == author:
+            continue
+        logins = {bot_handle(c.get("user") or "") for c in comments}
+        if logins == {bot, author}:
+            rebuttable[thread] = bot
+    return rebuttable
 
 
 def is_bot_author(user: dict) -> bool:
@@ -479,6 +494,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
 
     comments: list[dict] = []
     pr_reactions: list[dict] = []
+    thread_number = 0
     while True:
         data = _gh_graphql(_REVIEW_THREADS_QUERY, variables)
         pull_request = data["data"]["repository"]["pullRequest"]
@@ -489,6 +505,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
         threads = review_threads["nodes"]
 
         for thread in threads:
+            thread_number += 1
             comment_page = thread["comments"]
             if comment_page["pageInfo"]["hasNextPage"]:
                 raise RuntimeError(
@@ -511,6 +528,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                     {
                         "user": comment_author.get("login", "ghost"),
                         "is_bot": comment_author.get("__typename") == "Bot",
+                        "thread": f"T{thread_number}",
                         "body": c.get("body", ""),
                         "path": thread.get("path", ""),
                         "line": thread.get("line"),

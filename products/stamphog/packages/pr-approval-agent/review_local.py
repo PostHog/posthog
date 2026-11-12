@@ -223,7 +223,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     # an empty list, so a local review_pr.py run, which does not pass the key, is unaffected and the
     # prompt renders no inline-comments section.
     review_comments: list[dict] = []
-    for thread in context.get("review_threads") or []:
+    for thread_number, thread in enumerate(context.get("review_threads") or [], start=1):
         if thread.get("is_resolved"):
             continue
         for index, comment in enumerate(thread.get("comments") or []):
@@ -243,6 +243,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
                 {
                     "user": comment.get("author") or "ghost",
                     "is_bot": bool(comment.get("author_is_bot")),
+                    "thread": f"T{thread_number}",
                     "body": comment.get("body", ""),
                     "path": thread.get("path", ""),
                     "line": thread.get("line"),

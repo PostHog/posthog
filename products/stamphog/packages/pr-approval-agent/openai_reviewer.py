@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from gateway import REVIEWER_EFFORT, REVIEWER_MODEL, openai_gateway_headers, resolve_gateway_config
-from github import PRData, reviewing_bots
+from github import PRData, rebuttable_threads
 from openai import OpenAI
 from reviewer import MAX_TURNS, REVIEWER_SYSTEM, Reviewer, _verdict_from_facts, has_current_head_review
 from verdict_rule import FACTS_SCHEMA
@@ -384,7 +384,11 @@ class OpenAIReviewer(Reviewer):
             prompt = self._build_review_prompt(pr, classification, gate_context, readable_diff)
             client = self.client or self._new_client(pr, classification, gate_context)
             return self._run_loop(
-                client, prompt, classification, head_reviewed=has_current_head_review(pr), bots=reviewing_bots(pr)
+                client,
+                prompt,
+                classification,
+                head_reviewed=has_current_head_review(pr),
+                threads=rebuttable_threads(pr),
             )
         finally:
             if readable_diff != original_diff:
@@ -415,7 +419,7 @@ class OpenAIReviewer(Reviewer):
         return min(REQUEST_TIMEOUT_SECONDS, remaining)
 
     def _run_loop(
-        self, client: Any, prompt: str, classification: dict, *, head_reviewed: bool, bots: frozenset[str]
+        self, client: Any, prompt: str, classification: dict, *, head_reviewed: bool, threads: dict[str, str]
     ) -> dict:
         tools = RepoTools(self.explore_root)
         conversation: list[Any] = [{"role": "user", "content": prompt}]
@@ -438,7 +442,7 @@ class OpenAIReviewer(Reviewer):
             usage.add(response.usage)
             calls = [item for item in response.output if item.type == "function_call"]
             if not calls:
-                result = self._final_result(response, classification, head_reviewed, bots)
+                result = self._final_result(response, classification, head_reviewed, threads)
                 result["usage"] = {"model": REVIEWER_MODEL, "turns": turn, **asdict(usage)}
                 return result
             conversation.extend(response.output)
@@ -452,7 +456,7 @@ class OpenAIReviewer(Reviewer):
         # Same wording as the Agent SDK's turn-limit error, so the pipeline treats it as non-retryable.
         raise RuntimeError(f"Reached maximum number of turns ({MAX_TURNS})")
 
-    def _final_result(self, response: Any, classification: dict, head_reviewed: bool, bots: frozenset[str]) -> dict:
+    def _final_result(self, response: Any, classification: dict, head_reviewed: bool, threads: dict[str, str]) -> dict:
         if response.status != "completed":
             raise RuntimeError(f"Reviewer response ended with status {response.status}")
         try:
@@ -462,4 +466,4 @@ class OpenAIReviewer(Reviewer):
         if not isinstance(output, dict):
             raise RuntimeError("Agent could not produce valid structured output")
         output["change_summary"] = _clip_summary(str(output.get("change_summary", "")))
-        return _verdict_from_facts(output, classification, head_reviewed=head_reviewed, bots=bots)
+        return _verdict_from_facts(output, classification, head_reviewed=head_reviewed, threads=threads)

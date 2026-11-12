@@ -2,6 +2,8 @@
 
 import sys
 import json
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,21 +13,33 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import review_pr  # noqa: E402
 import review_local  # noqa: E402
 import openai_reviewer  # noqa: E402
-from test_review_local import _api_file, _run_context, _thread_comment  # noqa: E402
+from test_review_local import _thread_comment  # noqa: E402
 
 _FINDING = "src/app.py: handler() returns None when the cache is empty."
+_BOT_ROOT = _thread_comment("posthog", _FINDING, is_bot=True)
+_AUTHOR_REPLY = _thread_comment("alice", "Not a bug: the cache is filled at import.")
 
 
-def _rejected(bot: str, *, holds: bool = True, category: str = "other") -> dict:
+def _rejected(*, holds: bool = True, category: str = "other") -> dict:
     return {
-        "bot": bot,
+        "thread": "T1",
         "concern": _FINDING,
         "category": category,
         "rejection_holds": holds,
         "evidence": "src/app.py fills the cache before handler() can run.",
     }
+
+
+def _commit(repo: Path, body: str) -> str:
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "app.py").write_text(body)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+    subprocess.run([*git, "commit", "-qm", "chore: change the handler"], check=True, capture_output=True)
+    return subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
 
 
 class _JudgingReviewer(openai_reviewer.OpenAIReviewer):
@@ -49,35 +63,37 @@ class _JudgingReviewer(openai_reviewer.OpenAIReviewer):
 
 
 @pytest.mark.parametrize(
-    "root, rejected, expected",
+    "comments, rejected, expected",
     [
-        pytest.param(_thread_comment("posthog", _FINDING, is_bot=True), _rejected("posthog"), "APPROVED", id="holds"),
+        pytest.param([_BOT_ROOT, _AUTHOR_REPLY], _rejected(), "APPROVED", id="holds"),
+        pytest.param([_BOT_ROOT, _AUTHOR_REPLY], _rejected(holds=False), "REFUSED", id="rejection-does-not-hold"),
+        pytest.param([_BOT_ROOT, _AUTHOR_REPLY], _rejected(category="auth"), "REFUSED", id="strict-category"),
         pytest.param(
-            _thread_comment("posthog", _FINDING, is_bot=True),
-            _rejected("posthog", holds=False),
-            "REFUSED",
-            id="rejection-does-not-hold",
+            [_thread_comment("carol", _FINDING), _AUTHOR_REPLY], _rejected(), "REFUSED", id="raised-by-a-person"
         ),
         pytest.param(
-            _thread_comment("posthog", _FINDING, is_bot=True),
-            _rejected("posthog", category="auth"),
+            [_BOT_ROOT, _AUTHOR_REPLY, _thread_comment("carol", "I still think it can be empty.")],
+            _rejected(),
             "REFUSED",
-            id="strict-category",
+            id="a-person-joined-the-thread",
         ),
-        pytest.param(_thread_comment("carol", _FINDING), _rejected("carol"), "REFUSED", id="raised-by-a-person"),
+        pytest.param([_BOT_ROOT], _rejected(), "REFUSED", id="author-never-replied"),
         pytest.param(
-            _thread_comment("posthog", _FINDING, is_bot=True),
-            _rejected("veria-ai"),
+            [_thread_comment("alice", _FINDING, is_bot=True), _AUTHOR_REPLY],
+            _rejected(),
             "REFUSED",
-            id="bot-not-on-the-pr",
+            id="bot-thread-opened-by-the-pr-author",
         ),
     ],
 )
 def test_author_rejected_bot_finding_resolves_only_when_the_judge_upholds_it(
-    monkeypatch, root: dict, rejected: dict, expected: str
+    monkeypatch, tmp_path: Path, comments: list[dict], rejected: dict, expected: str
 ) -> None:
-    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
-    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    base_sha = _commit(tmp_path, "CACHE = {}\n")
+    head_sha = _commit(tmp_path, "CACHE = {'warm': True}\n\ndef handler():\n    return CACHE['warm']\n")
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_local, "REPO_ROOT", tmp_path)
     _JudgingReviewer.facts = {
         "risky_areas": [],
         "reviews_on_current_head": [],
@@ -90,13 +106,28 @@ def test_author_rejected_bot_finding_resolves_only_when_the_judge_upholds_it(
         "change_summary": "The handler reads from a warm cache.",
     }
     monkeypatch.setattr(openai_reviewer, "OpenAIReviewer", _JudgingReviewer)
-    thread = {"is_resolved": False, "is_outdated": False, "path": "src/app.py", "line": 3}
-    reply = _thread_comment("alice", "Not a bug: the cache is filled at import.")
-    context = {**_run_context([_api_file("src/app.py")]), "review_threads": [{**thread, "comments": [root, reply]}]}
+    context = {
+        "repo": "PostHog/posthog",
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "merge_base_sha": base_sha,
+        "commit_messages": ["chore: change the handler"],
+        "pr": {
+            "number": 1,
+            "title": "chore(app): warm the handler cache",
+            "state": "OPEN",
+            "mergeable_state": "clean",
+            "user": {"login": "alice", "type": "User"},
+        },
+        "check_runs": [],
+        "review_threads": [
+            {"is_resolved": False, "is_outdated": False, "path": "src/app.py", "line": 3, "comments": comments}
+        ],
+    }
 
     result = review_local.run(context)
 
     assert result["final_verdict"] == expected
-    named_in_body = f"after checking the author's rejection: @{rejected['bot']}: {_FINDING}" in result["review_body"]
-    assert named_in_body is (expected == "APPROVED")
+    upheld = f"after checking the author's rejection: `posthog`: {_FINDING} Rejection holds:"
+    assert (upheld in result["review_body"]) is (expected == "APPROVED")
     assert ".." not in result["review_body"]

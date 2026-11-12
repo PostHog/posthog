@@ -31,7 +31,7 @@ It reports facts in a fixed schema: the risky territory the diff enters, the rev
 
 - any refusal ground or unresolved concern: `REFUSE`
   - A reviewer-bot finding that the author rejected in its thread counts as resolved when the reviewer, reading the current head, finds the rejection sound.
-    This holds only for a login that GitHub marks as a bot on every inline comment it left, and never for a security, auth, data-loss or migration finding.
+    This holds only in a thread that a login GitHub marks as a bot opened, that only that bot and the PR author wrote in, and never for a security, auth, data-loss or migration finding.
     Each such finding is named in the posted review.
     Every other rejected finding stays an unresolved concern, as does a person's comment.
 - risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`

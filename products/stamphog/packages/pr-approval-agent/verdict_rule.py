@@ -29,11 +29,11 @@ _STRING_LIST = {"type": "array", "items": {"type": "string"}}
 STRICT_CONCERN_CATEGORIES = ("security", "auth", "data_loss", "migration")
 CONCERN_CATEGORIES = (*STRICT_CONCERN_CATEGORIES, "other")
 
-_REJECTED_CONCERN_FIELDS = ("bot", "concern", "category", "rejection_holds", "evidence")
+_REJECTED_CONCERN_FIELDS = ("thread", "concern", "category", "rejection_holds", "evidence")
 _REJECTED_CONCERN = {
     "type": "object",
     "properties": {
-        "bot": {"type": "string"},
+        "thread": {"type": "string"},
         "concern": {"type": "string"},
         "category": {"type": "string", "enum": list(CONCERN_CATEGORIES)},
         "rejection_holds": {"type": "boolean"},
@@ -72,17 +72,11 @@ class InvalidFactsError(ValueError):
     pass
 
 
-def bot_handle(login: str) -> str:
-    """A login in one spelling: GraphQL drops the `[bot]` suffix that REST and the model may write."""
-    handle = login.strip().lstrip("@").lower()
-    return handle.removesuffix("[bot]")
-
-
 @dataclass(frozen=True, kw_only=True)
 class RejectedConcern:
     """A reviewer bot's finding that the PR author rejected in its thread, as the reviewer judged it."""
 
-    bot: str
+    thread: str
     concern: str
     category: str
     rejection_holds: bool
@@ -92,7 +86,7 @@ class RejectedConcern:
     def from_output(cls, item: object) -> "RejectedConcern":
         if not isinstance(item, Mapping) or set(item) != set(_REJECTED_CONCERN_FIELDS):
             raise InvalidFactsError("rejected_bot_concerns entry has the wrong fields")
-        strings = {name: item[name] for name in ("bot", "concern", "category", "evidence")}
+        strings = {name: item[name] for name in ("thread", "concern", "category", "evidence")}
         if not all(isinstance(value, str) for value in strings.values()):
             raise InvalidFactsError("rejected_bot_concerns entry has a non-string field")
         if item["category"] not in CONCERN_CATEGORIES:
@@ -100,17 +94,19 @@ class RejectedConcern:
         if not isinstance(item["rejection_holds"], bool):
             raise InvalidFactsError("rejected_bot_concerns rejection_holds is not a boolean")
         return cls(
-            bot=item["bot"].strip(),
+            thread=item["thread"].strip(),
             concern=item["concern"].strip(),
             category=item["category"],
             rejection_holds=item["rejection_holds"],
             evidence=item["evidence"].strip(),
         )
 
-    def why_open(self, reviewing_bots: frozenset[str]) -> str | None:
+    def why_open(self, rebuttable_threads: Mapping[str, str]) -> str | None:
         """Why this finding still blocks, or None when the author's rejection resolves it."""
-        if bot_handle(self.bot) not in reviewing_bots:
-            return "it was not raised by a reviewer bot, so the person who raised it has to accept the answer"
+        if self.thread not in rebuttable_threads:
+            return (
+                "only a thread that a reviewer bot opened, and that only it and the author wrote in, resolves this way"
+            )
         if self.category in STRICT_CONCERN_CATEGORIES:
             return f"a {self.category.replace('_', ' ')} finding needs a code fix or a person's sign-off"
         if not self.rejection_holds:
@@ -166,7 +162,7 @@ class RuledVerdict:
     upheld_rejections: tuple[str, ...] = ()
 
 
-def derive_verdict(facts: ReviewFacts, reviewing_bots: frozenset[str] = frozenset()) -> RuledVerdict:
+def derive_verdict(facts: ReviewFacts, rebuttable_threads: Mapping[str, str] | None = None) -> RuledVerdict:
     """Apply the review guidance's decision rule to the reported facts.
 
     Refusal grounds and unresolved concerns refuse anywhere. Risky territory needs
@@ -174,19 +170,22 @@ def derive_verdict(facts: ReviewFacts, reviewing_bots: frozenset[str] = frozense
     with STRONG familiarity. Without any of them the PR escalates to a human.
 
     A reviewer bot's finding that the author rejected is resolved when the reviewer judged the
-    rejection sound, the finding is outside the strict categories, and `reviewing_bots`, which the
-    pipeline reads from GitHub's author types rather than from the model, holds the login that
-    raised it. Every other rejected finding stays an unresolved concern.
+    rejection sound, the finding is outside the strict categories, and its thread is in
+    `rebuttable_threads`, which the pipeline builds from GitHub's author types rather than from the
+    model. Every other rejected finding stays an unresolved concern.
     """
+    threads = rebuttable_threads or {}
     open_rejections: list[str] = []
     upheld: list[str] = []
     for rejected in facts.rejected_bot_concerns:
-        reason = rejected.why_open(reviewing_bots)
+        reason = rejected.why_open(threads)
+        source = f"`{threads[rejected.thread]}`" if rejected.thread in threads else "A review thread"
         if reason is None:
-            upheld.append(f"@{bot_handle(rejected.bot)}: {rejected.concern} Rejection holds: {rejected.evidence}")
+            upheld.append(f"{source}: {rejected.concern} Rejection holds: {rejected.evidence}")
         else:
-            open_rejections.append(f"@{bot_handle(rejected.bot)}: {rejected.concern} Still open, because {reason}.")
-    issues = [*facts.unresolved_substantive_concerns, *open_rejections, *facts.other_refusal_grounds]
+            open_rejections.append(f"{source}: {rejected.concern} Still open, because {reason}.")
+    # Only the first three issues are posted, so the other refusal grounds go ahead of the rejections.
+    issues = [*facts.unresolved_substantive_concerns, *facts.other_refusal_grounds, *open_rejections]
     assured = bool(facts.reviews_on_current_head) or facts.owning_team_author or facts.strong_familiarity
 
     verdict: Verdict
@@ -224,5 +223,4 @@ def facts_summary(facts: object) -> dict[str, int | bool] | None:
         "unresolved_substantive_concerns": len(parsed.unresolved_substantive_concerns),
         "other_refusal_grounds": len(parsed.other_refusal_grounds),
         "rejected_bot_concerns": len(parsed.rejected_bot_concerns),
-        "rejected_bot_concerns_holding": sum(r.rejection_holds for r in parsed.rejected_bot_concerns),
     }

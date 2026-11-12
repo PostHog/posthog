@@ -24,7 +24,7 @@ from github import (
     describe_review_evidence,
     drop_abandoned_bot_eyes,
     new_diff_file,
-    reviewing_bots,
+    rebuttable_threads,
     write_pr_diff,
 )
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
@@ -183,14 +183,14 @@ def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed
 
 
 def _verdict_from_facts(
-    output: dict, classification: dict, *, head_reviewed: bool, bots: frozenset[str] = frozenset()
+    output: dict, classification: dict, *, head_reviewed: bool, threads: dict[str, str] | None = None
 ) -> dict:
     """Turn the reviewer's structured facts into the verdict dict the pipeline consumes.
 
     The keys verdict, reasoning, risk, issues and change_summary keep the shape every
     consumer reads; `facts` keeps the model's raw answers for the evidence bundle.
     Facts that do not parse escalate, because a run we cannot read is never an approval.
-    `bots` is reviewing_bots(pr): a rejected finding from any other login stays open.
+    `threads` is rebuttable_threads(pr): a rejected finding in any other thread stays open.
     """
     result = {
         "reasoning": str(output.get("reasoning", "")),
@@ -200,7 +200,7 @@ def _verdict_from_facts(
     }
     try:
         facts = _cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed)
-        ruled = derive_verdict(facts, bots)
+        ruled = derive_verdict(facts, threads)
     except InvalidFactsError as exc:
         return {
             **result,
@@ -316,8 +316,8 @@ _AUDIT_HEAD = textwrap.dedent(
     - rejected_bot_concerns: every open finding from a reviewer bot (an inline comment marked "(bot)")
       whose thread holds a reply from the PR author that rejects it instead of changing the code. You
       are the independent judge of that rejection, so read the code at the current head yourself. For
-      each one report the bot's login, the finding in one sentence with its file, its category,
-      whether the rejection holds, and the evidence.
+      each one report its thread id (the [T…] tag on its comments), the finding in one sentence with its
+      file, its category, whether the rejection holds, and the evidence.
       - The rejection holds only when the code shows it is right: the finding's premise is false, its
         path cannot happen, or an existing guard already handles it. Name the file and line or symbol.
       - "Out of scope", "a follow-up will fix it", "unlikely", "tests pass", a bare disagreement, or a
@@ -623,7 +623,7 @@ class Reviewer:
                             message.structured_output,
                             classification,
                             head_reviewed=has_current_head_review(pr),
-                            bots=reviewing_bots(pr),
+                            threads=rebuttable_threads(pr),
                         )
                         props["stamphog_llm_verdict"] = result["verdict"]
                 elif isinstance(message, AssistantMessage):
@@ -721,7 +721,8 @@ class Reviewer:
                 safe_path = _sanitize_untrusted(c["path"], max_len=200)
                 reactions = self._format_reactions(c.get("reactions"))
                 bot = " (bot)" if c.get("is_bot") else ""
-                lines.append(f"  - @{safe_user}{bot}{reply}{status} on {safe_path}: {safe_body}{reactions}")
+                thread = f"[{c['thread']}] " if c.get("thread") else ""
+                lines.append(f"  - {thread}@{safe_user}{bot}{reply}{status} on {safe_path}: {safe_body}{reactions}")
             review_comments = "\n".join(lines)
 
         discussion_text = ""

@@ -1094,6 +1094,7 @@ class Pipeline:
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
                 "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+                "stamphog_llm_upheld_rejections": len((self.reviewer_output or {}).get("upheld_rejections") or []),
                 "stamphog_reviewer_engine": self.reviewer_engine,
                 **_llm_usage_properties(self.reviewer_output),
             },
