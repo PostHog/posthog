@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Count, QuerySet
 from django.utils import timezone
 
+from pydantic import ValidationError
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
@@ -23,6 +24,13 @@ from products.warehouse_sources.backend.facade.contracts import (
     WarehouseMigrationUploadedError,
     WarehouseMigrationVendorUnreachableError,
 )
+from products.warehouse_sources.backend.migration import catalog
+from products.warehouse_sources.backend.migration.cost import (
+    CostedConnection,
+    CostEstimate,
+    ReportedUsage,
+    estimate_cost,
+)
 from products.warehouse_sources.backend.migration.crawl import plan_snapshot, save_plan
 from products.warehouse_sources.backend.migration.fivetran.client import (
     FivetranAPIError,
@@ -31,7 +39,8 @@ from products.warehouse_sources.backend.migration.fivetran.client import (
     FivetranCredentials,
 )
 from products.warehouse_sources.backend.migration.fivetran.snapshot import merge_upload
-from products.warehouse_sources.backend.migration.types import VendorSnapshot
+from products.warehouse_sources.backend.migration.pricing import row_price_tiers
+from products.warehouse_sources.backend.migration.types import ItemProposal, VendorSnapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
     new_crawl_workflow_id,
@@ -221,6 +230,65 @@ def item_counts(*, team_id: int, migration_ids: Sequence[UUID]) -> dict[UUID, di
         if row["status"] not in (WarehouseMigrationItem.Status.APPLIED, WarehouseMigrationItem.Status.SKIPPED):
             counter[row["verdict"]] += row["count"]
     return {migration_id: {key: counter[key] for key in ITEM_COUNT_KEYS} for migration_id, counter in counts.items()}
+
+
+def estimate_migration_cost(*, team_id: int, migration_id: UUID, usage: Sequence[ReportedUsage]) -> CostEstimate | None:
+    """Price the migration's connections from the reported usage. None when the migration is not found.
+
+    Skipped and unsupported connections are left out.
+    """
+    if not migration_exists(team_id=team_id, migration_id=migration_id):
+        return None
+    items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id).order_by("name", "id")
+    kept: list[tuple[WarehouseMigrationItem, ItemProposal]] = []
+    left_out_names: list[str] = []
+    for item in items:
+        proposal = _valid_proposal(item.proposal)
+        if proposal is None or item.status == WarehouseMigrationItem.Status.SKIPPED:
+            left_out_names.append(item.name)
+        else:
+            kept.append((item, proposal))
+    names = Counter(item.name.lower() for item, _ in kept)
+    # Only read when two connections share a name, since the snapshot can be large.
+    destinations = _destination_ids(team_id, migration_id) if any(count > 1 for count in names.values()) else {}
+    connections = [
+        CostedConnection(
+            item_id=str(item.id),
+            name=item.name,
+            destination_id=destinations.get(item.vendor_connection_id),
+            proposal=proposal,
+        )
+        for item, proposal in kept
+    ]
+    return estimate_cost(
+        connections,
+        usage,
+        default_sync_types=catalog.default_sync_types,
+        tiers=row_price_tiers(),
+        left_out_names=left_out_names,
+    )
+
+
+def _valid_proposal(proposal: Mapping[str, Any] | None) -> ItemProposal | None:
+    if proposal is None:
+        return None
+    try:
+        return ItemProposal.from_json(proposal)
+    except ValidationError:
+        return None
+
+
+def _destination_ids(team_id: int, migration_id: UUID) -> dict[str, str]:
+    snapshot = (
+        WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).values_list("snapshot", flat=True).first()
+    )
+    if not snapshot:
+        return {}
+    try:
+        connections = VendorSnapshot.from_json(snapshot).connections
+    except ValidationError:
+        return {}
+    return {connection.id: connection.destination_id for connection in connections if connection.destination_id}
 
 
 def _start_crawl(migration: WarehouseMigration) -> None:

@@ -479,6 +479,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
             kwargs[f.name] = ""
         return cls(**kwargs)
 
+    def get_schemas_without_credentials(self) -> list[SourceSchema]:
+        """The tables a fixed-schema source always has, listed with no credentials and no network call.
+
+        Empty for a source whose tables only discovery finds, such as a database.
+        """
+        if not self.lists_tables_without_credentials:
+            return []
+        return self.get_schemas(self._placeholder_config(), team_id=0)
+
     def get_documented_tables(self) -> list[dict[str, Any]]:
         """Credential-free table catalog for public documentation (posthog.com).
 

@@ -276,6 +276,120 @@ class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
     instructions = serializers.CharField(help_text="What the agent should tell the user and do next.")
 
 
+MAX_USAGE_REPORTS = 10_000
+
+
+class MigrationUsageReportSerializer(serializers.Serializer):
+    connection_name = serializers.CharField(
+        max_length=400,
+        help_text="The Fivetran connection name, which is also its destination schema. "
+        "`connection_name` in the Fivetran Platform Connector's `INCREMENTAL_MAR` table.",
+    )
+    monthly_rows = serializers.IntegerField(
+        min_value=0,
+        help_text="Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without "
+        "`table_name`, the whole connection.",
+    )
+    destination_id = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="The Fivetran destination (group) id. Needed only when two connections share a name.",
+    )
+    schema_name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="The destination schema the table lands in, as `schema_name` in `INCREMENTAL_MAR`.",
+    )
+    table_name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="The table. Leave it out when the number covers the whole connection.",
+    )
+
+
+class WarehouseMigrationCostEstimateRequestSerializer(serializers.Serializer):
+    usage = serializers.ListField(
+        child=MigrationUsageReportSerializer(),
+        required=False,
+        default=list,
+        max_length=MAX_USAGE_REPORTS,
+        help_text="Monthly active rows the user reported, per connection or per table. Send it empty to get "
+        "`usage_query` and the prices before the user has numbers.",
+    )
+
+
+class WarehouseMigrationCostItemSerializer(serializers.Serializer):
+    item_id = serializers.UUIDField(help_text="The migration item.")
+    name = serializers.CharField(help_text="The Fivetran connection name.")
+    source_type = serializers.CharField(help_text="The PostHog source type this connection becomes.")
+    confidence = serializers.ChoiceField(
+        choices=contracts.WarehouseMigrationCostConfidence.choices,
+        help_text="`reported`: every planned table has a reported number and a known sync type. `estimated`: "
+        "some numbers were reported, and `notes` say what was assumed. `unknown`: nothing was reported, so "
+        "rows and cost are null.",
+    )
+    monthly_rows = serializers.IntegerField(
+        allow_null=True, help_text="Estimated rows PostHog syncs each month after the first sync."
+    )
+    monthly_cost_usd = serializers.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        allow_null=True,
+        help_text="This connection's share of the monthly cost at list price. Null when rows or prices are unknown.",
+    )
+    notes = serializers.ListField(
+        child=serializers.CharField(), help_text="What the estimate assumed for this connection."
+    )
+
+
+class WarehouseMigrationPriceTierSerializer(serializers.Serializer):
+    up_to = serializers.IntegerField(allow_null=True, help_text="Rows a month this tier ends at. Null for the last.")
+    unit_amount_usd = serializers.DecimalField(
+        max_digits=20, decimal_places=9, help_text="Price per row synced in this tier, in USD."
+    )
+    flat_amount_usd = serializers.DecimalField(
+        max_digits=20, decimal_places=2, help_text="Flat price once usage reaches this tier, in USD."
+    )
+
+
+class WarehouseMigrationCostEstimateSerializer(serializers.Serializer):
+    items = WarehouseMigrationCostItemSerializer(
+        many=True, help_text="One estimate per connection that moves. Skipped and unsupported ones are left out."
+    )
+    monthly_rows = serializers.IntegerField(help_text="Estimated rows synced each month, across every connection.")
+    monthly_cost_usd = serializers.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        allow_null=True,
+        help_text="Monthly cost of `monthly_rows` at PostHog's list price, free tier included. Ignores discounts, "
+        "credits, and rows the project already syncs. Null when PostHog could not read its prices.",
+    )
+    reported_count = serializers.IntegerField(help_text="Connections with a `reported` estimate.")
+    estimated_count = serializers.IntegerField(help_text="Connections with an `estimated` estimate.")
+    unknown_count = serializers.IntegerField(help_text="Connections with no usage reported.")
+    free_first_sync_days = serializers.IntegerField(
+        help_text="Days after a source is created during which its syncs are free. A first sync that finishes "
+        "inside them costs nothing."
+    )
+    unmatched_usage = MigrationUsageReportSerializer(
+        many=True, help_text="Reported usage that matches no connection. Check the names with the user."
+    )
+    price_tiers = WarehouseMigrationPriceTierSerializer(
+        many=True, allow_null=True, help_text="PostHog's list price per row synced, by monthly volume."
+    )
+    usage_query = serializers.CharField(
+        help_text="SQL the user runs on the Fivetran Platform Connector's tables in their warehouse to get "
+        "`usage`. Replace `<fivetran_platform_schema>` with that connector's schema, and the date functions "
+        "for BigQuery."
+    )
+
+
 _ACTION_THROTTLES: dict[str, type[BaseThrottle]] = {
     "create": WarehouseMigrationCrawlThrottle,
     "refresh": WarehouseMigrationCrawlThrottle,
@@ -293,7 +407,8 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     # Like destinations, a migration spans many sources rather than belonging to one.
     requires_resource_level_access = True
     scope_object_write_actions = ["create", "destroy", "refresh", "skip_item", "skip_items", "upload", "connections"]
-    scope_object_read_actions = ["list", "retrieve", "items", "item", "connect_link"]
+    # The cost estimate is a POST for its body, but it changes nothing.
+    scope_object_read_actions = ["list", "retrieve", "items", "item", "connect_link", "cost_estimate"]
     # A non-UUID id gets a 404 instead of a lookup error.
     lookup_value_regex = _UUID_PATTERN
     pagination_class = PrecountedLimitOffsetPagination
@@ -483,6 +598,38 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if result is None:
             raise exceptions.NotFound()
         return Response(WarehouseMigrationSkipItemsResponseSerializer(result).data)
+
+    @validated_request(
+        request_serializer=WarehouseMigrationCostEstimateRequestSerializer,
+        responses={200: WarehouseMigrationCostEstimateSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def cost_estimate(self, request: ValidatedRequest, pk: str, *args: Any, **kwargs: Any) -> Response:
+        """Estimate the monthly rows and cost of moving the connections, from the usage the user reported."""
+        estimate = migrations.estimate_migration_cost(
+            self.team_id,
+            UUID(pk),
+            [contracts.MigrationUsageReport(**report) for report in request.validated_data["usage"]],
+        )
+        if estimate is None:
+            raise exceptions.NotFound()
+        report_user_action(
+            cast(User, request.user),
+            "warehouse migration cost estimated",
+            {
+                "migration_id": pk,
+                "usage_reports": len(request.validated_data["usage"]),
+                "reported_count": estimate.reported_count,
+                "estimated_count": estimate.estimated_count,
+                "unknown_count": estimate.unknown_count,
+                "unmatched_usage_count": len(estimate.unmatched_usage),
+                "monthly_rows": estimate.monthly_rows,
+                "has_prices": estimate.price_tiers is not None,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(WarehouseMigrationCostEstimateSerializer(estimate).data)
 
     @validated_request(
         query_serializer=WarehouseMigrationConnectLinkQuerySerializer,

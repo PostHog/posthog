@@ -1,6 +1,7 @@
 """Fivetran migration import, for the warehouse presentation endpoints."""
 
 import dataclasses
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any
@@ -13,6 +14,7 @@ from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW
 from products.warehouse_sources.backend.facade import contracts
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.migration import service
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.migration.apply import (
     with_table_overrides,
 )
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
+from products.warehouse_sources.backend.migration.cost import USAGE_QUERY, Confidence, ReportedUsage
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
 from products.warehouse_sources.backend.migration.types import ItemProposal, VendorSnapshot, VendorTable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -159,6 +162,69 @@ def list_migration_items(
         return None
     page, count = result
     return [_to_item(item) for item in page], count
+
+
+def estimate_migration_cost(
+    team_id: int, migration_id: UUID, usage: Sequence[contracts.MigrationUsageReport]
+) -> contracts.WarehouseMigrationCostEstimate | None:
+    """Monthly rows and list price per connection, from the usage the user reported. None when not found."""
+    estimate = service.estimate_migration_cost(
+        team_id=team_id,
+        migration_id=migration_id,
+        usage=[_to_reported_usage(report) for report in usage],
+    )
+    if estimate is None:
+        return None
+    confidences = Counter(connection.confidence for connection in estimate.connections)
+    return contracts.WarehouseMigrationCostEstimate(
+        items=[
+            contracts.WarehouseMigrationCostItem(
+                item_id=UUID(connection.item_id),
+                name=connection.name,
+                source_type=connection.source_type,
+                confidence=contracts.WarehouseMigrationCostConfidence(connection.confidence),
+                monthly_rows=connection.monthly_rows,
+                monthly_cost_usd=connection.monthly_cost_usd,
+                notes=list(connection.notes),
+            )
+            for connection in estimate.connections
+        ],
+        monthly_rows=estimate.monthly_rows,
+        monthly_cost_usd=estimate.monthly_cost_usd,
+        reported_count=confidences[Confidence.REPORTED],
+        estimated_count=confidences[Confidence.ESTIMATED],
+        unknown_count=confidences[Confidence.UNKNOWN],
+        free_first_sync_days=FREE_HISTORICAL_WINDOW.days,
+        unmatched_usage=[
+            contracts.MigrationUsageReport(
+                connection_name=report.connection_name,
+                monthly_rows=report.monthly_rows,
+                destination_id=report.destination_id,
+                schema_name=report.schema_name,
+                table_name=report.table_name,
+            )
+            for report in estimate.unmatched_usage
+        ],
+        price_tiers=[
+            contracts.WarehouseMigrationPriceTier(
+                up_to=tier.up_to, unit_amount_usd=tier.unit_amount_usd, flat_amount_usd=tier.flat_amount_usd
+            )
+            for tier in estimate.tiers
+        ]
+        if estimate.tiers is not None
+        else None,
+        usage_query=USAGE_QUERY,
+    )
+
+
+def _to_reported_usage(report: contracts.MigrationUsageReport) -> ReportedUsage:
+    return ReportedUsage(
+        connection_name=report.connection_name,
+        monthly_rows=report.monthly_rows,
+        destination_id=report.destination_id,
+        schema_name=report.schema_name,
+        table_name=report.table_name,
+    )
 
 
 def skip_migration_items(
@@ -418,6 +484,7 @@ __all__ = [
     "STATUS_CHOICES",
     "create_migration",
     "delete_migration",
+    "estimate_migration_cost",
     "get_migration",
     "is_migration_import_enabled",
     "list_migration_items",

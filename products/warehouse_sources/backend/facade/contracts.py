@@ -19,6 +19,7 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -26,6 +27,7 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.integrations import IntegrationUsage
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
@@ -651,6 +653,55 @@ class PlannedMigrationSchemas:
     planned: list[str]
     # Planned tables that skip columns PostHog would still read, so they stay off.
     kept_off: list[str]
+
+
+@dataclass(frozen=True)
+class MigrationUsageReport:
+    """Monthly active rows the user reported for one Fivetran connection, or one of its tables."""
+
+    connection_name: str
+    monthly_rows: int
+    destination_id: str | None = None
+    schema_name: str | None = None
+    table_name: str | None = None
+
+
+class WarehouseMigrationCostConfidence(LabeledStrEnum):
+    REPORTED = "reported", "Reported"
+    ESTIMATED = "estimated", "Estimated"
+    UNKNOWN = "unknown", "Unknown"
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationCostItem:
+    item_id: UUID
+    name: str
+    source_type: str
+    confidence: WarehouseMigrationCostConfidence
+    monthly_rows: int | None
+    monthly_cost_usd: Decimal | None
+    notes: list[str]
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationPriceTier:
+    up_to: int | None
+    unit_amount_usd: Decimal
+    flat_amount_usd: Decimal
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationCostEstimate:
+    items: list[WarehouseMigrationCostItem]
+    monthly_rows: int
+    monthly_cost_usd: Decimal | None
+    reported_count: int
+    estimated_count: int
+    unknown_count: int
+    free_first_sync_days: int
+    unmatched_usage: list[MigrationUsageReport]
+    price_tiers: list[WarehouseMigrationPriceTier] | None
+    usage_query: str
 
 
 @dataclass(frozen=True)

@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+from ee.settings import BILLING_SERVICE_URL
+
 _FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
 _SERVICE = "products.warehouse_sources.backend.migration.service"
 _VIEW = "products.warehouse_sources.backend.presentation.views.warehouse_migration"
@@ -269,6 +271,67 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         )
         assert statuses == {"keep": "pending", "other": "skipped", "failed": "skipped", "applying": "applying"}
 
+    def test_cost_estimate_prices_reported_usage_of_the_connections_that_move(self) -> None:
+        cache.clear()
+        migration = self._migration()
+        proposal = ItemProposal(
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="prod_db",
+            prefill={},
+            schemas=(
+                ProposedSchema(name="public.orders", should_sync=True, sync_type=None, vendor_table="public.orders"),
+            ),
+            sync_frequency="6hour",
+            sync_time_of_day=None,
+            destination=None,
+        ).to_json()
+        moving = self._item(migration, name="prod_db", vendor_service="postgres", proposal=proposal)
+        self._item(migration, name="old_db", proposal=proposal, status=WarehouseMigrationItem.Status.SKIPPED)
+        self._item(migration, name="unsupported_one", verdict=WarehouseMigrationItem.Verdict.UNSUPPORTED)
+        tiers = [
+            {"up_to": 1_000_000, "unit_amount_usd": "0", "flat_amount_usd": "0"},
+            {"up_to": None, "unit_amount_usd": "0.000015", "flat_amount_usd": "0"},
+        ]
+        products = {"products": [{"type": "data_warehouse", "plans": [{"tiers": None}, {"tiers": tiers}]}]}
+        usage = [
+            {
+                "connection_name": "prod_db",
+                "schema_name": "prod_db_public",
+                "table_name": "orders",
+                "monthly_rows": 3_000_000,
+            },
+            {"connection_name": "old_db", "monthly_rows": 5},
+            {"connection_name": "renamed_db", "monthly_rows": 7},
+        ]
+
+        with requests_mock.Mocker() as billing, patch(f"{_VIEW}.report_user_action") as report:
+            billing.get(f"{BILLING_SERVICE_URL}/api/products-v2", json=products)
+            response = self.client.post(f"{self.url}{migration.id}/cost_estimate/", {"usage": usage}, format="json")
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert [(item["item_id"], item["confidence"], item["monthly_rows"]) for item in body["items"]] == [
+            (str(moving.id), "estimated", 3_000_000)
+        ]
+        # 2M rows past the free million.
+        assert (body["monthly_cost_usd"], body["items"][0]["monthly_cost_usd"]) == ("30.00", "30.00")
+        assert [report["connection_name"] for report in body["unmatched_usage"]] == ["renamed_db"]
+        assert body["free_first_sync_days"] == 7
+        assert "incremental_mar" in body["usage_query"]
+        assert report.call_args.args[1:3] == (
+            "warehouse migration cost estimated",
+            {
+                "migration_id": str(migration.id),
+                "usage_reports": 3,
+                "reported_count": 0,
+                "estimated_count": 1,
+                "unknown_count": 0,
+                "unmatched_usage_count": 1,
+                "monthly_rows": 3_000_000,
+                "has_prices": True,
+            },
+        )
+
     def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
         oldest, *tied = (self._migration() for _ in range(3))
         WarehouseMigration.objects.for_team(self.team.pk).filter(id=oldest.id).update(
@@ -456,6 +519,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert (
             self._upload(migration.id, connections=[{"connection": _fivetran_connection("conn_a")}]).status_code == 404
         )
+        assert self.client.post(f"{self.url}{migration.id}/cost_estimate/", {}, format="json").status_code == 404
         # Hex-only, so they pass a loose route pattern and would reach `UUID()`.
         assert self.client.get(f"{self.url}abc/").status_code == 404
         assert self.client.post(f"{self.url}{own.id}/items/abc/skip/").status_code == 404
