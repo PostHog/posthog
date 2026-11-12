@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     Badge,
     Button,
@@ -34,6 +33,9 @@ import {
     TableHeader,
     TableRow,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
     getPaginationRange,
 } from 'lib/ui/quill'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
@@ -60,10 +62,11 @@ function JobStatus({ status, error }: { status: string; error: string | null }):
     )
 
     return error ? (
-        <Tooltip title={<span className="whitespace-pre-wrap">{error}</span>} interactive>
-            <span tabIndex={0} aria-label={`${status}. ${error}`}>
-                {badge}
-            </span>
+        <Tooltip>
+            <TooltipTrigger render={<span tabIndex={0} aria-label={`${status}. ${error}`} />}>{badge}</TooltipTrigger>
+            <TooltipContent>
+                <span className="whitespace-pre-wrap">{error}</span>
+            </TooltipContent>
         </Tooltip>
     ) : (
         badge

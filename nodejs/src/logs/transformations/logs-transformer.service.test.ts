@@ -190,7 +190,7 @@ describe('LogsTransformerService', () => {
 
         expect(result.recordsDropped).toBe(0)
         expect(records).toHaveLength(1)
-        expect(records[0].attributes!['$transformations_failed']).toContain('Test fn 1')
+        expect(records[0].attributes!['posthog.transformations_failed']).toContain('Test fn 1')
         expect(records[0].attributes!.after).toBe('"ran"')
         expect(queuedMetrics()).toEqual(
             expect.arrayContaining([
@@ -228,7 +228,7 @@ describe('LogsTransformerService', () => {
         expect(result.recordsDropped).toBe(0)
         expect(records).toHaveLength(2)
         for (const record of records) {
-            expect(record.attributes!['$transformations_skipped']).toBe('"budget"')
+            expect(record.attributes!['posthog.transformations_skipped']).toBe('"budget"')
         }
         expect(queuedMetrics()).toEqual([expect.objectContaining({ metric_name: 'budget_skipped', count: 2 })])
     })
@@ -240,7 +240,7 @@ describe('LogsTransformerService', () => {
 
         await service.transformRecords(TEAM_ID, records, budget)
 
-        expect(records[0].attributes!['$transformations_skipped']).toBe('"budget"')
+        expect(records[0].attributes!['posthog.transformations_skipped']).toBe('"budget"')
         expect(queuedMetrics()).toEqual([expect.objectContaining({ metric_name: 'budget_skipped', count: 1 })])
     })
 
@@ -258,12 +258,12 @@ describe('LogsTransformerService', () => {
 
         const firstMessage = [createRecord()]
         await service.transformRecords(TEAM_ID, firstMessage, budget)
-        expect(firstMessage[0].attributes!['$transformations_skipped']).toBeUndefined()
+        expect(firstMessage[0].attributes!['posthog.transformations_skipped']).toBeUndefined()
         expect(budget.usedMs).toBeGreaterThan(0)
 
         const secondMessage = [createRecord()]
         await service.transformRecords(TEAM_ID, secondMessage, budget)
-        expect(secondMessage[0].attributes!['$transformations_skipped']).toBe('"budget"')
+        expect(secondMessage[0].attributes!['posthog.transformations_skipped']).toBe('"budget"')
     })
 
     it('resolves static input templates once and applies them', async () => {
@@ -370,7 +370,7 @@ describe('LogsTransformerService', () => {
         // Fails open: the record survives untransformed, annotated as failed
         expect(result.recordsDropped).toBe(0)
         expect(records).toHaveLength(1)
-        expect(records[0].attributes!['$transformations_failed']).toContain('Test fn 1')
+        expect(records[0].attributes!['posthog.transformations_failed']).toContain('Test fn 1')
         expect(queuedMetrics()).toEqual([expect.objectContaining({ metric_name: 'failed', count: 1 })])
         const queuedLogs = monitoring.queueLogs.mock.calls.flatMap(([logs]) => logs)
         expect(queuedLogs.some((log) => log.level === 'error' && log.message.includes('template boom'))).toBe(true)
@@ -411,7 +411,7 @@ describe('LogsTransformerService', () => {
 
         await service.transformRecords(TEAM_ID, records)
 
-        expect(records[0].attributes?.['$transformations_failed']).toBeUndefined()
+        expect(records[0].attributes?.['posthog.transformations_failed']).toBeUndefined()
     })
 
     it('redacts deeply nested encrypted input values with no depth limit', async () => {

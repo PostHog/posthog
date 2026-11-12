@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { Setting } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
@@ -74,6 +75,18 @@ describe('searchListsLogic', () => {
         const items = logic.values[list].filter((item) => !item.parentName)
 
         expect(items.filter((item) => item.href === href).map((item) => item.displayName)).toEqual([name])
+    })
+
+    it.each<[string, string[], string[]]>([
+        ['both catalog flags hide Models', [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], []],
+        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], [urls.models()]],
+    ])('lists a starred product by its visibility when %s', (_case, enabledFlags, expectedHrefs) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'star-models', path: 'Models', type: 'product', href: urls.models() },
+        ])
+
+        expect(logic.values.starredItems.map((item) => item.href)).toEqual(expectedHrefs)
     })
 
     it('lists each product destination once', () => {
@@ -153,71 +166,67 @@ describe('searchListsLogic', () => {
         expect(terminalDockLogic.values.dockOpen).toBe(false)
     })
 
-    it.each([false, true])(
-        'finds a setting through its section keyword next to a dashboard named like the search, unified ranking %s',
-        (unifiedRanking) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
-            const component = {} as JSX.Element
-            logic.actions.setSettingsMap([
-                {
-                    id: 'environment-ai-cloud-environments',
-                    level: 'environment',
-                    title: 'Cloud environments',
-                    flag: 'TODAY_RAIL_NAV',
-                    keywords: ['desktop'],
-                    settings: [
-                        { id: 'ai-cloud-environments', title: 'Environments', component },
-                        { id: 'ai-cloud-custom-images', title: 'Custom images', keywords: ['dependencies'], component },
-                    ],
-                },
-            ])
-            const remote = emptyRemoteSlots()
-            remote.results = {
-                cache: {
-                    'desktop images': [
-                        {
-                            id: 'dashboard-1',
-                            name: 'Desktop images board',
-                            category: 'results',
-                            record: { type: 'dashboard', ref: '1' },
-                            rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, 0],
-                        },
-                    ],
-                },
-            }
-            const sections = buildSections({
-                mode: 'search',
-                context: { kind: 'text', token: null },
-                suggestions: null,
-                local: {
-                    products: [],
-                    'data-management': [],
-                    people: [],
-                    health: [],
-                    actions: [],
-                    shortcuts: [],
-                    settings: logic.values.commandKSettingsItems,
-                    create: [],
-                    recents: [],
-                    starred: [],
-                },
-                remote,
-                remoteQueries: { results: 'desktop images' },
-                localQuery: 'desktop images',
-                themeItem: null,
-                askAiQuestion: null,
-                viewAll: null,
-                stale: false,
-                personsFirst: false,
-                unifiedRanking,
-                searchCorrection: null,
-            })
-
-            expect(
-                sections.flatMap((section) => section.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])))
-            ).toContain('settings-project-ai-cloud-environments-ai-cloud-custom-images')
+    it('finds a setting through its section keyword next to a dashboard named like the search', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+        const component = {} as JSX.Element
+        logic.actions.setSettingsMap([
+            {
+                id: 'environment-ai-cloud-environments',
+                level: 'environment',
+                title: 'Cloud environments',
+                flag: 'TODAY_RAIL_NAV',
+                keywords: ['desktop'],
+                settings: [
+                    { id: 'ai-cloud-environments', title: 'Environments', component },
+                    { id: 'ai-cloud-custom-images', title: 'Custom images', keywords: ['dependencies'], component },
+                ],
+            },
+        ])
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                'desktop images': [
+                    {
+                        id: 'dashboard-1',
+                        name: 'Desktop images board',
+                        category: 'results',
+                        record: { type: 'dashboard', ref: '1' },
+                        rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, 0],
+                    },
+                ],
+            },
         }
-    )
+        const sections = buildSections({
+            mode: 'search',
+            context: { kind: 'text', token: null },
+            suggestions: null,
+            local: {
+                products: [],
+                'data-management': [],
+                people: [],
+                health: [],
+                actions: [],
+                shortcuts: [],
+                settings: logic.values.commandKSettingsItems,
+                create: [],
+                recents: [],
+                starred: [],
+            },
+            remote,
+            remoteQueries: { results: 'desktop images' },
+            localQuery: 'desktop images',
+            themeItem: null,
+            askAiQuestion: null,
+            viewAll: null,
+            stale: false,
+            personsFirst: false,
+            searchCorrection: null,
+        })
+
+        expect(
+            sections.flatMap((section) => section.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])))
+        ).toContain('settings-project-ai-cloud-environments-ai-cloud-custom-images')
+    })
 
     it.each([
         ['off', false, 'Model preferences', false],

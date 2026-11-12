@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import zlib
 import errno
 import shlex
 import shutil
@@ -25,6 +26,7 @@ from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
+from ..worktrees import _gitdir_for
 from . import (
     herdr as herdr_app,
     mutagen,
@@ -41,6 +43,7 @@ from .coder import (
     _diagnose_unreachable_coder,
     _fail,
     _ssh_host_alias,
+    app_url,
     clone_workspace,
     coder_authenticated,
     coder_installed,
@@ -56,6 +59,7 @@ from .coder import (
     ensure_runtime_ready,
     exec_replace,
     extract_workspace_label,
+    fetch_user_workspaces,
     get_coder_url,
     get_coder_user_info,
     get_default_git_identity,
@@ -99,6 +103,7 @@ from .coder import (
 )
 from .config import (
     DevboxConfig,
+    WorktreeBoxRecord,
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
@@ -106,6 +111,8 @@ from .config import (
     clear_worktree_box_cleanup,
     clear_worktree_provider,
     load_config,
+    load_worktree_boxes,
+    read_worktree_id,
     save_dotfiles_uri,
     save_git_identity,
     save_region,
@@ -147,8 +154,9 @@ def resolve_workspace_name(
     """Resolve a workspace target into a full workspace name.
 
     Supports:
-    - ``None`` -> user's default workspace (auto-selects when only one exists)
-    - ``"@user"`` -> another user's default workspace
+    - ``None`` inside a worktree that ``devbox:worktree`` set up -> that worktree's box, while it exists
+    - ``None`` elsewhere -> user's default workspace (auto-selects when only one exists)
+    - ``"@user"`` -> another user's default workspace, or your own default when it is your username
     - ``"@user/label"`` -> another user's labeled workspace
     - ``"label"`` -> current user's labeled workspace
 
@@ -167,6 +175,10 @@ def resolve_workspace_name(
     """
     effective_region = region if region is not None else _preferred_region()
     if workspace is not None:
+        if is_own_default_target(workspace):
+            own_workspaces = list_user_workspaces()
+            default_name = _existing_default_name(own_workspaces, effective_region)
+            return default_name or get_workspace_name(region=effective_region), own_workspaces
         target_name = parse_workspace_target(workspace, region=effective_region)
         # Shared workspace targets (`@user[/label]`) are looked up against the
         # remote owner, so cross-region label fallback is the owner's
@@ -175,6 +187,58 @@ def resolve_workspace_name(
             return target_name, None
         return _resolve_own_label(target_name)
 
+    record = current_worktree_box()
+    if record is None:
+        return resolve_default_workspace_name(region=effective_region)
+    workspaces = fetch_user_workspaces()
+    if workspaces is None:
+        _fail(
+            f"Couldn't list your devboxes in Coder, so this worktree's devbox '{record.workspace}' can't be checked. "
+            "Try again in a moment."
+        )
+    live = get_workspace(record.workspace, workspaces)
+    if live is None:
+        _fail(
+            f"This worktree's devbox '{record.workspace}' no longer exists. "
+            f"Run `hogli devbox:worktree` to create it again, pass `-n <label>` to choose a box, "
+            f"or `-n @{get_username()}` for your default box."
+        )
+    if not record.may_adopt(live):
+        _fail(
+            f"This worktree's devbox '{record.workspace}' was replaced by another box with the same name. "
+            "Pass `-n <label>` to choose a box."
+        )
+    click.echo(
+        f"Using this worktree's devbox '{record.workspace}'. Pass `-n @{get_username()}` for your default box.",
+        err=True,
+    )
+    return record.workspace, workspaces
+
+
+def current_worktree_box() -> WorktreeBoxRecord | None:
+    """The Coder box record that `devbox:worktree` saved for the checkout containing the current directory.
+
+    Only the nearest checkout counts, so a worktree nested inside another one
+    never gets the outer worktree's box.
+    """
+    cwd = Path.cwd().resolve()
+    root = next((candidate for candidate in (cwd, *cwd.parents) if (candidate / ".git").exists()), None)
+    if root is None:
+        return None
+    boxes = load_worktree_boxes()
+    admin_dir = _gitdir_for(root)
+    worktree_id = read_worktree_id(admin_dir) if admin_dir is not None else None
+    record = boxes.get(str(root))
+    if record is not None and record.worktree_id is not None and record.worktree_id != worktree_id:
+        record = None
+    if record is None:
+        record = next((box for box in boxes.values() if worktree_id and box.worktree_id == worktree_id), None)
+    return record if record is not None and record.provider == "coder" else None
+
+
+def resolve_default_workspace_name(*, region: str | None = None) -> tuple[str, list[dict[str, Any]]]:
+    """Resolve the user's default workspace, ignoring the worktree the command runs in."""
+    effective_region = region if region is not None else _preferred_region()
     workspaces = list_user_workspaces()
 
     if len(workspaces) == 0:
@@ -186,16 +250,28 @@ def resolve_workspace_name(
     # Multiple workspaces -- prefer the effective region's default, then
     # defaults in other regions (a region pref should not mask the box the
     # user actually has -- same philosophy as the label fallback above).
-    existing_names = {ws.get("name") for ws in workspaces}
-    for candidate_region in (effective_region, *(r for r in REGIONS if r != effective_region)):
-        default_name = get_workspace_name(region=candidate_region)
-        if default_name in existing_names:
-            return default_name, workspaces
+    default_name = _existing_default_name(workspaces, effective_region)
+    if default_name is not None:
+        return default_name, workspaces
 
     # No default among multiple -- require explicit workspace argument
     labels = [extract_workspace_label(ws["name"]) or "(default)" for ws in workspaces]
     _fail("Multiple workspaces found. Specify which one:\n" + "".join(f"  {lbl}\n" for lbl in labels))
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
+
+
+def _existing_default_name(workspaces: list[dict[str, Any]], region: str) -> str | None:
+    existing_names = {ws.get("name") for ws in workspaces}
+    for candidate_region in (region, *(r for r in REGIONS if r != region)):
+        default_name = get_workspace_name(region=candidate_region)
+        if default_name in existing_names:
+            return default_name
+    return None
+
+
+def is_own_default_target(workspace: str) -> bool:
+    """Whether *workspace* is ``@<your username>``, which names your own default box."""
+    return workspace.startswith("@") and "/" not in workspace and workspace[1:].lower() == get_username()
 
 
 def _resolve_own_label(target_name: str) -> tuple[str, list[dict[str, Any]] | None]:
@@ -276,9 +352,21 @@ def _print_connection_info(name: str) -> None:
 
 
 def _workspace_arg_suffix(name: str) -> str:
-    """Return the optional CLI suffix for a named workspace."""
+    """Return the CLI suffix that targets *name*, which a bare command inside a registered worktree would not."""
+    record = current_worktree_box()
+    if record is not None and record.workspace == name:
+        return ""
     label = extract_workspace_label(name)
-    return f" {label}" if label else ""
+    if label:
+        return f" {label}"
+    return f" @{get_username()}" if record is not None else ""
+
+
+def _create_box_hint(name: str) -> str:
+    record = current_worktree_box()
+    if record is not None and record.workspace == name:
+        return "Run `hogli devbox:worktree` to create it again."
+    return f"Run 'hogli devbox:start{_workspace_arg_suffix(name)}' to create one."
 
 
 _NOT_READY_REASONS = {
@@ -313,7 +401,7 @@ def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = 
     workspace = get_workspace(name, workspaces)
     if workspace is not None:
         return workspace
-    _fail("No devbox found. Run 'hogli devbox:start' to create one.")
+    _fail(f"No devbox found. {_create_box_hint(name)}")
     raise SystemExit(1)  # unreachable; helps ty see the function doesn't fall through
 
 
@@ -372,7 +460,7 @@ def _pause_sync(name: str) -> bool:
     except SystemExit:
         click.echo(click.style(f"Could not pause the sync to '{name}'. Stopping the box anyway.", fg="yellow"))
         return False
-    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start` resumes it.")
+    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start{_workspace_arg_suffix(name)}` resumes it.")
     return True
 
 
@@ -1146,6 +1234,7 @@ class _ConfigItem:
     needs_secrets: bool
     status: Callable[[DevboxConfig, set[str]], str | None]
     reset: Callable[[], bool]
+    unset_text: str = "not set"
 
 
 _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
@@ -1197,6 +1286,7 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=False,
         status=_field_status("worktree_auto_box"),
         reset=_reset_worktree_auto_sources,
+        unset_text="off",
     ),
     _ConfigItem(
         cli_key="worktree-provider",
@@ -1246,10 +1336,11 @@ def _print_setup_status(status: list[tuple[str, str | None]]) -> bool:
     if not any(value for _, value in status):
         return False
     width = max(len(label) for label, _ in status) + 1
+    unset_texts = {item.label: item.unset_text for item in _CONFIG_ITEMS}
     click.echo()
     click.echo("Currently configured:")
     for label, value in status:
-        rendered = value if value else click.style("not set", fg="yellow")
+        rendered = value if value else click.style(unset_texts.get(label, "not set"), fg="yellow")
         click.echo(f"  {label:<{width}} {rendered}")
     return True
 
@@ -1646,7 +1737,9 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     copy. The capture image is private to you and auto-expires.
     """
     ensure_runtime_ready()
-    source_name, workspaces = resolve_workspace_name(workspace)
+    source_name, workspaces = (
+        resolve_default_workspace_name() if workspace is None else resolve_workspace_name(workspace)
+    )
     ws = _get_workspace_or_fail(source_name, workspaces)
 
     owner = get_username()
@@ -1786,15 +1879,21 @@ def devbox_ssh(workspace: str | None) -> None:
     context_settings={"ignore_unknown_options": True},
 )
 @click.option("--name", "-n", "workspace_name", default=None, help="Workspace label or @user[/label] target")
+@click.option(
+    "--flox",
+    is_flag=True,
+    help="Run COMMAND in ~/posthog inside PostHog's flox environment, where pnpm, pytest and the venv are on PATH",
+)
 @click.argument("command", nargs=-1, type=click.UNPROCESSED, required=True)
-def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> None:
-    """Run COMMAND in the devbox over `coder ssh` and propagate its exit code.
+def devbox_remote_exec(workspace_name: str | None, flox: bool, command: tuple[str, ...]) -> None:
+    """Run COMMAND in the devbox over SSH and propagate its exit code.
 
     Unlike `devbox:ssh`, this runs a single command instead of opening an
     interactive shell, so agents and scripts can drive a devbox remotely:
 
         hogli devbox:exec -- gh auth status
-        hogli devbox:exec -n api -- bash -lc 'cd ~/posthog && git status'
+        hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check
+        hogli devbox:exec -n api --flox -- bash -c 'git status && pytest posthog/api/test/test_user.py'
 
     Use `--` to separate hogli's flags from the command's own flags.
     """
@@ -1804,7 +1903,17 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
         _fail(
             "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
         )
-    exec_replace(name, list(command))
+    exec_replace(name, list(command), in_flox=flox)
+
+
+def _sync_warning(name: str, editor: str) -> str:
+    worktree = next((path for path, record in load_worktree_boxes().items() if record.workspace == name), None)
+    if worktree is None:
+        return f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth."
+    return (
+        f"⚠ '{name}' mirrors the worktree at {worktree}. Edit files in that worktree, "
+        f"and use {editor} to run the stack and tests. Files edited on the devbox conflict with the mirror."
+    )
 
 
 def _open_in_herdr(name: str, workspaces: list[dict[str, Any]] | None) -> None:
@@ -1840,12 +1949,7 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool, he
 
     if (vscode or cursor or herdr) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
         editor = "VS Code Remote" if vscode else "Cursor Remote" if cursor else "Herdr terminals on the devbox"
-        click.echo(
-            click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth.",
-                fg="yellow",
-            )
-        )
+        click.echo(click.style(_sync_warning(name, editor), fg="yellow"))
 
     target = "vscode" if vscode else "cursor" if cursor else "web" if web else "herdr" if herdr else "browser"
     telemetry.add_command_properties(devbox_open_target=target)
@@ -2023,6 +2127,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
             click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
 
     delete_workspace(name, verbose=verbose)
+    herdr_app.forget_machine(name)
     click.echo("Destroyed.")
 
 
@@ -2035,7 +2140,7 @@ def devbox_status(workspace: str | None) -> None:
 
     ws = get_workspace(name, workspaces)
     if ws is None:
-        click.echo("No devbox found. Run 'hogli devbox:start' to create one.")
+        click.echo(f"No devbox found. {_create_box_hint(name)}")
         return
 
     status = get_workspace_status(ws)
@@ -2047,7 +2152,7 @@ def devbox_status(workspace: str | None) -> None:
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))
-        click.echo("           Run `hogli devbox:update` to apply it.")
+        click.echo(f"           Run `hogli devbox:update{_workspace_arg_suffix(name)}` to apply it.")
 
     # Show agent status if available
     resources = ws.get("latest_build", {}).get("resources", [])
@@ -2056,28 +2161,69 @@ def devbox_status(workspace: str | None) -> None:
             agent_status = agent.get("status", "unknown")
             click.echo(f"  Agent:   {agent_status}")
 
+    owner = str(ws.get("owner_name") or "").lower()
+    if owner and owner == get_username():
+        app_health = _app_health(resources)
+        click.echo(f"  App:     {app_url(name)}" + (f" ({app_health})" if app_health else ""))
+
     if status == "running":
         _print_connection_info(name)
 
 
+def _app_health(resources: list[dict[str, Any]]) -> str | None:
+    for resource in resources:
+        for agent in resource.get("agents", []):
+            for app in agent.get("apps", []):
+                if app.get("slug") == "app":
+                    return app.get("health")
+    return None
+
+
+_BOX_APP_PORT = 8010
+_FORWARD_PORT_RANGE = range(18000, 19000)
+
+
+def _forward_port_candidates(name: str) -> list[int]:
+    start = zlib.crc32(name.encode()) % len(_FORWARD_PORT_RANGE)
+    derived = [
+        _FORWARD_PORT_RANGE[(start + offset) % len(_FORWARD_PORT_RANGE)] for offset in range(len(_FORWARD_PORT_RANGE))
+    ]
+    return derived if extract_workspace_label(name) else [_BOX_APP_PORT, *derived]
+
+
+def _targets_own_box(workspace: str | None) -> bool:
+    return workspace is None or not workspace.startswith("@") or is_own_default_target(workspace)
+
+
 @click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
 @workspace_argument
-@click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace: str | None, port: int) -> None:
+@click.option("--port", default=None, type=int, help="Local port to forward to. Defaults to a free port kept per box.")
+def devbox_forward(workspace: str | None, port: int | None) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
-    if not _local_port_is_available(port):
+    if port is None:
+        port = next(
+            (candidate for candidate in _forward_port_candidates(name) if _local_port_is_available(candidate)), None
+        )
+        if port is None:
+            _fail(
+                f"No free local port in {_FORWARD_PORT_RANGE.start}-{_FORWARD_PORT_RANGE.stop - 1}. "
+                f"Rerun with `hogli devbox:forward{_workspace_arg_suffix(name)} --port <port>`."
+            )
+    elif not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
+            f"Stop the process using that port, or rerun without --port to pick a free one."
         )
 
-    click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
+    click.echo(f"Forwarding {name}:{_BOX_APP_PORT} -> localhost:{port}")
     click.echo(f"PostHog UI at http://localhost:{port}")
+    if _targets_own_box(workspace):
+        click.echo(f"Without forwarding, open {app_url(name)}")
     click.echo("Ctrl+C to stop")
     click.echo()
-    port_forward_replace(name, port, 8010)
+    port_forward_replace(name, port, _BOX_APP_PORT)
 
 
 def _gib(nbytes: int) -> str:
@@ -2151,7 +2297,7 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
         ensure_runtime_ready()
         # Cleanup is destructive (removes caches and build artifacts), so refuse
         # to run it against someone else's shared `@user[/label]` devbox.
-        if workspace.startswith("@"):
+        if workspace.startswith("@") and not is_own_default_target(workspace):
             _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
         name, workspaces = resolve_workspace_name(workspace)
         _get_workspace_or_fail(name, workspaces)

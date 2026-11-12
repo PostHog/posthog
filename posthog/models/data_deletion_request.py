@@ -17,6 +17,7 @@ from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.deletion_targets import DeletionTarget
+    from posthog.models.user import User
 
 
 def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
@@ -451,6 +452,37 @@ class ExecutionMode(models.TextChoices):
     DEFERRED = "deferred"
 
 
+# The fields that decide what a request deletes. Changing one invalidates stats and any approval.
+CRITERIA_FIELDS = frozenset(
+    {
+        "request_type",
+        "events",
+        "delete_all_events",
+        "properties",
+        "person_properties",
+        "start_time",
+        "end_time",
+        "hogql_predicate",
+        "hogql_query",
+        "hogql_variables",
+        "person_uuids",
+        "person_distinct_ids",
+        "person_drop_profiles",
+        "person_drop_events",
+        "person_drop_recordings",
+    }
+)
+
+# Approved and later requests are locked. Staff move one back to draft to change its criteria.
+EDITABLE_STATUSES = frozenset({RequestStatus.DRAFT, RequestStatus.PENDING})
+
+
+@frozen
+class StaffEditNotice:
+    text: str
+    warning: bool = False
+
+
 class DataDeletionRequest(UUIDModel):
     # Request config
     team_id = models.IntegerField()
@@ -770,6 +802,86 @@ class DataDeletionRequest(UUIDModel):
             )
         if self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings:
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
+
+    def apply_staff_edit(self, user: "User", changed_fields: Collection[str], *, is_new: bool) -> list[StaffEditNotice]:
+        """Applies the rules of a staff create or edit before the save, and returns what to tell staff.
+
+        `changed_fields` are the fields the staff form changed. The request is not saved here.
+        """
+        notices = []
+        if is_new:
+            self.created_by = user
+            self.created_by_staff = user.is_staff
+        elif CRITERIA_FIELDS & set(changed_fields):
+            self.criteria_updated_by = user
+            self.criteria_updated_at = timezone.now()
+            invalidate_compiled_predicate_cache(self.pk)
+            self.count = None
+            self.part_count = None
+            self.parts_size = None
+            self.parts_row_count = None
+            self.min_timestamp = None
+            self.max_timestamp = None
+            self.stats_calculated_at = None
+            # Rows cleaned under the old criteria are ordinary candidates for the new ones. A stale marker would
+            # make the copy pass skip them as already cleaned.
+            self.property_removal_marker = None
+            if self.status != RequestStatus.DRAFT:
+                self.status = RequestStatus.DRAFT
+                notices.append(
+                    StaffEditNotice(
+                        text="Deletion criteria were changed. Status has been reset to draft.", warning=True
+                    )
+                )
+        if self.request_type == RequestType.EVENT_REMOVAL and (self.properties or self.person_properties):
+            self.properties = []
+            self.person_properties = []
+            notices.append(StaffEditNotice(text="Properties cleared. Event removal requests do not use properties."))
+        if self.request_type == RequestType.PERSON_REMOVAL and (
+            self.events or self.delete_all_events or self.hogql_predicate
+        ):
+            self.events = []
+            self.delete_all_events = False
+            self.hogql_predicate = ""
+            notices.append(
+                StaffEditNotice(
+                    text="Event filters cleared. Person removal requests do not use events or a HogQL filter."
+                )
+            )
+        if self.request_type != RequestType.PERSON_REMOVAL and (
+            self.person_uuids
+            or self.person_distinct_ids
+            or self.person_drop_profiles
+            or self.person_drop_events
+            or self.person_drop_recordings
+        ):
+            self.person_uuids = []
+            self.person_distinct_ids = []
+            self.person_drop_profiles = None
+            self.person_drop_events = None
+            self.person_drop_recordings = None
+            notices.append(StaffEditNotice(text="Person targets cleared. Only person removal requests use them."))
+        return notices
+
+    def duplicate_as_draft(self, user: "User", copy_note: str) -> "DataDeletionRequest":
+        notes = f"{copy_note}\n\n{self.notes}" if self.notes else copy_note
+        # Copied from CRITERIA_FIELDS, so a new criteria field is copied without a change here. Lists are copied,
+        # so the duplicate never shares a list with the original.
+        criteria: dict[str, Any] = {}
+        for field in CRITERIA_FIELDS:
+            value = getattr(self, field)
+            criteria[field] = list(value) if isinstance(value, list) else value
+        if self.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            criteria["execution_mode"] = ExecutionMode.DEFERRED
+        return DataDeletionRequest.objects.create(
+            **criteria,
+            team_id=self.team_id,
+            requires_approval=self.requires_approval,
+            notes=notes,
+            status=RequestStatus.DRAFT,
+            created_by=user,
+            created_by_staff=user.is_staff,
+        )
 
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:

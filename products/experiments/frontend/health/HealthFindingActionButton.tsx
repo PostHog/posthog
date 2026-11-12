@@ -15,6 +15,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { METRIC_CONTEXTS } from '../modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { metricSourceModalLogic } from '../modals/MetricSourceModal/metricSourceModalLogic'
 import type { ExperimentHealthFindingActionKind } from './experimentHealthFindingEvents'
+import { HealthFreezeExposureButton } from './HealthFreezeExposureButton'
 
 export function HealthFindingActionButton({
     actionKind,
@@ -24,7 +25,7 @@ export function HealthFindingActionButton({
     onClick: () => void
 }): JSX.Element | null {
     const { experiment, exposureCriteria } = useValues(experimentLogic)
-    const { openDistributionModal, openReleaseConditionsModal } = useActions(modalsLogic)
+    const { openDistributionModal, openFinishExperimentModal, openReleaseConditionsModal } = useActions(modalsLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
@@ -140,5 +141,19 @@ export function HealthFindingActionButton({
                     Add secondary metric
                 </LemonButton>
             )
+        case 'end_experiment':
+            return (
+                <LemonButton
+                    {...editProps}
+                    onClick={() => {
+                        onClick()
+                        openFinishExperimentModal()
+                    }}
+                >
+                    End experiment
+                </LemonButton>
+            )
+        case 'freeze_exposure':
+            return <HealthFreezeExposureButton buttonProps={editProps} onClick={onClick} />
     }
 }

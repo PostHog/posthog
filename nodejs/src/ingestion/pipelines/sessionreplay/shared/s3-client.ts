@@ -11,7 +11,10 @@ export interface SessionRecordingS3Config {
 }
 
 /** Builds the recordings S3 client from config, or null when the settings are incomplete. */
-export function buildSessionRecordingS3Client(config: SessionRecordingS3Config): S3Client | null {
+export function buildSessionRecordingS3Client(
+    config: SessionRecordingS3Config,
+    requestHandler?: S3ClientConfig['requestHandler']
+): S3Client | null {
     if (
         !config.SESSION_RECORDING_V2_S3_ENDPOINT ||
         !config.SESSION_RECORDING_V2_S3_REGION ||
@@ -31,6 +34,9 @@ export function buildSessionRecordingS3Client(config: SessionRecordingS3Config):
             accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
             secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
         }
+    }
+    if (requestHandler) {
+        s3Config.requestHandler = requestHandler
     }
     return new S3Client(s3Config)
 }

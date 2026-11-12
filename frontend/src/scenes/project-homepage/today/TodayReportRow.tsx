@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
+
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
 import { todayLogic, type TodayReportOpenSource } from './todayLogic'
 import { priorityTone } from './todayPriority'

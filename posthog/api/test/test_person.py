@@ -32,7 +32,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.serialized_actors import get_serialized_people
-from posthog.models import Organization, Person, PropertyDefinition, Team
+from posthog.models import Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -51,6 +51,7 @@ from posthog.test.persons import add_distinct_id, create_person, delete_person
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -2268,7 +2269,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
         # lookup in the HogQL database build. +1 for the MCP custom harness fetch in the HogQL database build, which later
         # requests read from Redis.
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(18):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2283,7 +2284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
         # the two HogQL database builds looks up the organization's flag_evaluations mode. +1 for the
         # revenue analytics config, which each request reads on its own Team instance.
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(19):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -2672,6 +2673,98 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
 
+    @parameterized.expand(
+        [
+            ("restricted_user", None, False),
+            ("allowed_user", PropertyAccessLevel.READ, True),
+        ]
+    )
+    def test_properties_at_time_respects_property_access_control(
+        self, _name: str, member_access_level: Optional[PropertyAccessLevel], ssn_visible: bool
+    ) -> None:
+        if member_access_level is not None:
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.get(team=self.team, name="ssn"),
+                organization_member=self.organization_membership,
+                access_level=member_access_level.value,
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["pit_user"],
+            properties={"email": "visible@example.com", "ssn": "123-45-6789"},
+            immediate=True,
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set": {"email": "visible@example.com", "ssn": "123-45-6789"}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set_once": {"ssn": "999-99-9999", "plan": "free"}},
+            timestamp="2024-06-01T09:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z", "include_set_once": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        properties = response.json()["properties"]
+        self.assertEqual(properties.get("email"), "visible@example.com")
+        self.assertEqual(properties.get("plan"), "free")
+        if ssn_visible:
+            self.assertEqual(properties.get("ssn"), "123-45-6789")
+        else:
+            self.assertNotIn("ssn", properties)
+            self.assertNotIn("123-45-6789", response.content.decode())
+            self.assertNotIn("999-99-9999", response.content.decode())
+
+    def test_properties_at_time_hides_nested_restricted_property(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+        _create_person(team=self.team, distinct_ids=["pit_nested"], properties={}, immediate=True)
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_nested",
+            properties={"$set": {"profile": {"tax_id": "T-1", "plan": "pro"}}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_nested", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["properties"], {"profile": {"plan": "pro"}})
+        self.assertNotIn("T-1", response.content.decode())
+
+    @mock.patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_properties_at_time_passes_requesting_user_to_hogql(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = mock.Mock(results=[])
+        _create_person(team=self.team, distinct_ids=["pit_user"], properties={}, immediate=True)
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        kwargs = mock_execute_hogql_query.call_args.kwargs
+        self.assertEqual(kwargs["user"], self.user)
+        self.assertEqual(kwargs["context"].user, self.user)
+
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(
             team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
@@ -2693,3 +2786,58 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             [(result["properties"], result["matched_fields"]) for result in response.json()["results"]],
             [({}, ["distinct_id"])],
         )
+
+    def _restrict_person_property(self, name: str) -> None:
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    def test_nested_restriction_hides_child_value(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["nested_user"],
+            properties={
+                "profile": {"tax_id": "T-1", "plan": "pro"},
+                "accounts": [{"id": 1}],
+                "profile.tax_id": "T-1",
+            },
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/persons/{person.uuid}/")
+        listed = self.client.get(f"/api/environments/{self.team.id}/persons/")
+
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        expected = {"profile": {"plan": "pro"}, "accounts": [{"id": 1}]}
+        self.assertEqual(retrieved.json()["properties"], expected)
+        self.assertEqual([result["properties"] for result in listed.json()["results"]], [expected])
+
+    def test_display_name_skips_restricted_property(self) -> None:
+        self._restrict_person_property("email")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["display_user"],
+            properties={"email": "hidden@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/persons/{person.uuid}/")
+        listed = self.client.get(f"/api/environments/{self.team.id}/persons/")
+
+        self.assertEqual(retrieved.json()["name"], "display_user")
+        self.assertEqual([result["name"] for result in listed.json()["results"]], ["display_user"])
+
+    def test_values_for_parent_of_restricted_property_are_empty(self) -> None:
+        self._restrict_person_property("profile.tax_id")
+
+        response = self.client.get("/api/person/values/?key=profile")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "refreshing": False})

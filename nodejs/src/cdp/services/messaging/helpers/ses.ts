@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import crypto from 'node:crypto'
 import addressparser from 'nodemailer/lib/addressparser'
 import { Counter } from 'prom-client'
@@ -9,6 +10,7 @@ import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
 import type { EmailStatus, EmailStatusReason } from '../email-status.service'
+import { removeWorkflowRunTag } from './link-tags'
 import { unquoteMailbox } from './suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
@@ -34,6 +36,8 @@ const SnsEnvelopeSchema = z.object({
 })
 
 export type SnsEnvelope = z.infer<typeof SnsEnvelopeSchema>
+
+export const parseSnsEnvelope = (raw: string): SnsEnvelope => SnsEnvelopeSchema.parse(parseJSON(raw))
 
 /**
  * ---------- SES event types ----------
@@ -260,6 +264,9 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
+const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
+    mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
+
 export type SesEmailStatusUpdate = {
     teamId: string
     invocationId: string
@@ -270,13 +277,32 @@ export type SesEmailStatusUpdate = {
 
 const normalizeAddress = (address: string): string => unquoteMailbox(address).trim().toLowerCase()
 
-// The addresses in the To header. SES reports each entry as written, so a display name can wrap the address.
-const toHeaderAddresses = (rec: SesEventRecord): Set<string> =>
+// SES reports each entry as written at send time, so a display name can wrap the address.
+const mailboxAddresses = (entries: string[]): Set<string> =>
     new Set(
-        (rec.mail.commonHeaders?.to ?? []).flatMap((entry) =>
+        entries.flatMap((entry) =>
             addressparser(entry, { flatten: true }).map((parsed) => normalizeAddress(parsed.address))
         )
     )
+
+const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
+
+const sesRecipientsNotSentToCounter = new Counter({
+    name: 'email_tracking_recipients_not_sent_to_total',
+    help: 'Bounce and complaint recipients left out of suppression because the email was not sent to them',
+    labelNames: ['event_type'],
+})
+
+// SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
+// Only an address this send went to may change suppression state.
+const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
+    const sentTo = mailboxAddresses(rec.mail.destination)
+    const kept = recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
+    if (kept.length < recipients.length) {
+        sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)
+    }
+    return kept
+}
 
 /**
  * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or the
@@ -333,15 +359,7 @@ const sensitiveLinkOrigin = (link: string): string => {
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
 
-/**
- * The destination the recipient actually asked for.
- *
- * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
- * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
- * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
- * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
- */
-export const resolveClickDestination = (link: string): string => {
+const unwrapTrackingRedirect = (link: string): string => {
     try {
         const url = new URL(link)
         if (!url.pathname.endsWith(TRACKING_REDIRECT_PATH)) {
@@ -351,6 +369,61 @@ export const resolveClickDestination = (link: string): string => {
     } catch {
         return link
     }
+}
+
+/**
+ * The destination the recipient actually asked for.
+ *
+ * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
+ * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
+ * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
+ * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
+ */
+export const resolveClickDestination = (link: string): string => removeWorkflowRunTag(unwrapTrackingRedirect(link))
+
+const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): boolean => {
+    const values = mail?.tags?.[SES_SENSITIVE_TAG]
+    return Array.isArray(values) && values[0] === 'true'
+}
+
+// Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
+const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
+
+type LooseSesRecord = {
+    mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
+    click?: { link?: unknown }
+}
+
+// A queued notification waits on a Kafka topic, so a sensitive email loses its subject and click link
+// secrets here, by the rules `handleWebhook` records with. Anything else is returned unchanged.
+export const redactSensitiveNotification = (envelope: SnsEnvelope): SnsEnvelope => {
+    let record: LooseSesRecord
+    try {
+        record = parseJSON(envelope.Message)
+    } catch {
+        return envelope
+    }
+    if (!record || typeof record !== 'object' || !isSensitiveMail(record.mail)) {
+        return envelope
+    }
+    const { mail, click } = record
+    const { subject: _subject, ...commonHeaders } = mail?.commonHeaders ?? {}
+    const redacted: LooseSesRecord = {
+        ...record,
+        mail: {
+            ...mail,
+            ...(mail?.commonHeaders ? { commonHeaders } : {}),
+            ...(Array.isArray(mail?.headers)
+                ? {
+                      headers: mail.headers.filter((header) => String(header?.name ?? '').toLowerCase() !== 'subject'),
+                  }
+                : {}),
+        },
+        ...(click && typeof click.link === 'string'
+            ? { click: { ...click, link: sensitiveClickLink(click.link) } }
+            : {}),
+    }
+    return { ...envelope, Message: JSON.stringify(redacted) }
 }
 
 // Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
@@ -497,8 +570,29 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
 const plainTextPrefix = (message: string): string | undefined =>
     /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
 
+const UNSIGNED_RAW_DELIVERY = { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
+
+export const SNS_SIGNING_CERT_CACHE_SIZE = 32
+
+const SNS_HOSTNAME = /^sns\.[a-z0-9-]+\.amazonaws\.com$/
+const SNS_CERT_PATH = /^\/SimpleNotificationService-[A-Za-z0-9]{8,64}\.pem$/
+
+const parseSnsUrl = (url: string): URL | undefined => {
+    const parsed = URL.parse(url)
+    return parsed?.protocol === 'https:' && SNS_HOSTNAME.test(parsed.hostname) ? parsed : undefined
+}
+
+const canonicalSnsCertUrl = (url: string): string | undefined => {
+    const parsed = parseSnsUrl(url)
+    return parsed && SNS_CERT_PATH.test(parsed.pathname) ? `https://${parsed.hostname}${parsed.pathname}` : undefined
+}
+
 export class SesWebhookHandler {
-    certCache: Record<string, Promise<string> | undefined> = {}
+    private certCache = new LRUCache<string, string>({
+        max: SNS_SIGNING_CERT_CACHE_SIZE,
+        ignoreFetchAbort: true,
+        fetchMethod: (url) => this.fetchText(url),
+    })
     private allowedTopicArns: Set<string>
 
     constructor(
@@ -526,61 +620,11 @@ export class SesWebhookHandler {
     }
 
     private async fetchCert(url: string): Promise<string> {
-        // Validate that the URL is from AWS SNS
-        if (!this.isValidSnsCertUrl(url)) {
+        const certUrl = canonicalSnsCertUrl(url)
+        if (!certUrl) {
             throw new Error(`Invalid SNS certificate URL: ${url}`)
         }
-
-        if (this.certCache[url]) {
-            return await this.certCache[url]!
-        }
-        this.certCache[url] = this.fetchText(url)
-        return this.certCache[url]!
-    }
-
-    private isValidSnsCertUrl(url: string): boolean {
-        try {
-            const parsedUrl = new URL(url)
-
-            // Must be HTTPS
-            if (parsedUrl.protocol !== 'https:') {
-                return false
-            }
-
-            // Must be from sns.{region}.amazonaws.com
-            const hostname = parsedUrl.hostname
-            if (!hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
-                return false
-            }
-
-            // Must end with .pem
-            if (!parsedUrl.pathname.endsWith('.pem')) {
-                return false
-            }
-
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private isValidSnsSubscribeUrl(url: string): boolean {
-        try {
-            const parsedUrl = new URL(url)
-
-            if (parsedUrl.protocol !== 'https:') {
-                return false
-            }
-
-            // Must be from sns.{region}.amazonaws.com
-            if (!parsedUrl.hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
-                return false
-            }
-
-            return true
-        } catch {
-            return false
-        }
+        return await this.certCache.forceFetch(certUrl)
     }
 
     /**
@@ -669,9 +713,79 @@ export class SesWebhookHandler {
         return lines.join('\n') + '\n'
     }
 
+    async verifyDelivery(body: unknown): Promise<{ status: number; body: unknown } | { envelope: SnsEnvelope }> {
+        const parsed = this.parseIncomingBody(body)
+        const answer = await this.verifyAndConfirm(parsed, true)
+        if (answer) {
+            return answer
+        }
+        return parsed.mode === 'sns'
+            ? { envelope: redactSensitiveNotification(parsed.envelope) }
+            : UNSIGNED_RAW_DELIVERY
+    }
+
+    private async verifyAndConfirm(
+        parsed: ReturnType<SesWebhookHandler['parseIncomingBody']>,
+        verifySignature: boolean | undefined
+    ): Promise<{ status: number; body: unknown } | null> {
+        // Payloads carry recipients and reset links, so the logs keep identifiers only.
+        logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
+
+        // Raw deliveries carry no signature, so a required verification rejects them to block forged events.
+        if (verifySignature && !('envelope' in parsed)) {
+            return UNSIGNED_RAW_DELIVERY
+        }
+
+        // A valid signature proves the envelope came from AWS, but not from the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
+        }
+
+        if (verifySignature && 'envelope' in parsed) {
+            logger.info('[SesWebhookHandler] verifying signature', {
+                type: parsed.envelope.Type,
+                messageId: parsed.envelope.MessageId,
+            })
+            const ok = await this.verifySnsSignature(parsed.envelope)
+            logger.info('[SesWebhookHandler] signature verified', { ok })
+            if (!ok) {
+                return { status: 403, body: { error: 'Invalid SNS signature' } }
+            }
+        }
+
+        if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
+            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
+            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
+            const subscribeUrl = parsed.envelope.SubscribeURL
+            if (subscribeUrl) {
+                if (!parseSnsUrl(subscribeUrl)) {
+                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
+                        url: subscribeUrl,
+                    })
+                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
+                }
+                await this.fetchText(subscribeUrl)
+            } else {
+                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
+                return { status: 400, body: { error: 'Missing SubscribeURL' } }
+            }
+            return { status: 200, body: { ok: true } }
+        }
+
+        if (parsed.mode === 'sns' && parsed.envelope.Type === 'UnsubscribeConfirmation') {
+            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
+            return { status: 200, body: { ok: true } }
+        }
+
+        return null
+    }
+
     async handleWebhook(opts: {
         body: any
-        headers: Record<string, string | string[] | undefined>
+        headers?: Record<string, string | string[] | undefined>
         verifySignature?: boolean
     }): Promise<{
         status: number
@@ -705,6 +819,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            bounceTimestamp?: string
         }[]
         // Hard (Permanent) bounces — recorded in the suppression list so future sends to the address
         // are blocked. Suppression enforcement replaces the legacy opt-out-on-bounce write.
@@ -736,61 +851,10 @@ export class SesWebhookHandler {
         // Status changes of transactional emails, for the email_status table.
         emailStatusUpdates?: SesEmailStatusUpdate[]
     }> {
-        // Payloads carry recipients and clicked links, including reset links from sensitive emails,
-        // so the logs keep identifiers only.
         const parsed = this.parseIncomingBody(opts.body)
-        logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
-
-        // When verification is required the message must be a signed SNS envelope. Raw deliveries
-        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
-        if (opts.verifySignature) {
-            if (!('envelope' in parsed)) {
-                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
-            }
-            logger.info('[SesWebhookHandler] verifying signature', {
-                type: parsed.envelope.Type,
-                messageId: parsed.envelope.MessageId,
-            })
-            const ok = await this.verifySnsSignature(parsed.envelope)
-            logger.info('[SesWebhookHandler] signature verified', { ok })
-            if (!ok) {
-                return { status: 403, body: { error: 'Invalid SNS signature' } }
-            }
-        }
-
-        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
-        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
-        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
-        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
-            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
-                topicArn: parsed.envelope.TopicArn,
-            })
-            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
-        }
-
-        // Handle confirmation flow
-        if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
-            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
-            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
-            const subscribeUrl = parsed.envelope.SubscribeURL
-            if (subscribeUrl) {
-                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
-                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
-                        url: subscribeUrl,
-                    })
-                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
-                }
-                await this.fetchText(subscribeUrl)
-            } else {
-                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
-                return { status: 400, body: { error: 'Missing SubscribeURL' } }
-            }
-            return { status: 200, body: { ok: true } }
-        }
-
-        if (parsed.mode === 'sns' && parsed.envelope.Type === 'UnsubscribeConfirmation') {
-            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
-            return { status: 200, body: { ok: true } }
+        const answer = await this.verifyAndConfirm(parsed, opts.verifySignature)
+        if (answer) {
+            return answer
         }
 
         const records = parsed.mode === 'raw' ? parsed.records : this.parseNotificationRecords(parsed.envelope)
@@ -821,6 +885,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            bounceTimestamp?: string
         }[] = []
         const hardBounceRecipients: {
             teamId?: string
@@ -883,10 +948,12 @@ export class SesWebhookHandler {
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
-                const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
+                const isSensitive = isSensitiveMail(rec.mail)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
+                    $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
+                    ...(isTransactionalMail(rec.mail) ? { $email_transactional: true } : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -897,8 +964,9 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    const destination = resolveClickDestination(rec.click.link)
-                    properties.$link_url = isSensitive ? sensitiveLinkOrigin(destination) : destination
+                    properties.$link_url = isSensitive
+                        ? sensitiveClickLink(rec.click.link)
+                        : resolveClickDestination(rec.click.link)
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
@@ -955,7 +1023,7 @@ export class SesWebhookHandler {
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
                             isSensitive
-                                ? sensitiveLinkOrigin(resolveClickDestination(rec.click.link))
+                                ? sensitiveClickLink(rec.click.link)
                                 : normalizeClickUrl(resolveClickDestination(rec.click.link))
                         ),
                         timestamp,
@@ -1014,31 +1082,37 @@ export class SesWebhookHandler {
             // Record permanent bounces in the suppression list so future sends to the address are
             // blocked. The SMTP diagnostic is threaded through for operator visibility on the row.
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
-                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                // SES reports the DSN's final recipient, which the receiving server chooses. Only an address
-                // this send went to can go on the global list.
-                const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
-                const nonexistentAddresses = fromTrustedTopic
-                    ? nonexistentRecipients(rec.bounce).filter((email) => sentTo.has(normalizeAddress(email)))
-                    : []
-                hardBounceRecipients.push({
-                    teamId,
-                    emailAddresses: emails,
-                    diagnostic,
-                    ...(nonexistentAddresses.length > 0
-                        ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
-                        : {}),
-                })
+                const bounced = sentToRecipients(rec, rec.bounce.bouncedRecipients)
+                if (bounced.length > 0) {
+                    const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
+                    const nonexistentAddresses = fromTrustedTopic
+                        ? nonexistentRecipients({ ...rec.bounce, bouncedRecipients: bounced })
+                        : []
+                    hardBounceRecipients.push({
+                        teamId,
+                        emailAddresses: bounced.map((r) => r.emailAddress),
+                        diagnostic,
+                        ...(nonexistentAddresses.length > 0
+                            ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
+                            : {}),
+                    })
+                }
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures
             // (server unreachable, mailbox full, greylisting); one is harmless but a persistent run
             // of them means the address can't receive mail.
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
-                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                const bounced = sentToRecipients(rec, rec.bounce.bouncedRecipients)
+                if (bounced.length > 0) {
+                    const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
+                    transientBounceRecipients.push({
+                        teamId,
+                        emailAddresses: bounced.map((r) => r.emailAddress),
+                        diagnostic,
+                        bounceTimestamp: rec.bounce.timestamp,
+                    })
+                }
             }
 
             // Record complaints in the suppression list so future sends to the address are blocked.
@@ -1052,12 +1126,14 @@ export class SesWebhookHandler {
                 rec.eventType === 'Complaint' &&
                 rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam'
             ) {
-                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
-                complainedRecipients.push({
-                    teamId,
-                    emailAddresses: emails,
-                    feedbackType: rec.complaint.complaintFeedbackType,
-                })
+                const complained = sentToRecipients(rec, rec.complaint.complainedRecipients)
+                if (complained.length > 0) {
+                    complainedRecipients.push({
+                        teamId,
+                        emailAddresses: complained.map((r) => r.emailAddress),
+                        feedbackType: rec.complaint.complaintFeedbackType,
+                    })
+                }
             }
 
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
@@ -1076,7 +1152,7 @@ export class SesWebhookHandler {
             }
 
             // A status write is state-changing too, so it needs the signed code like the writes above.
-            if (suppressionAllowed && invocationId && rec.mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true') {
+            if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
                     emailStatusUpdates.push({ teamId, invocationId, ...update })

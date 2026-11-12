@@ -18,6 +18,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 
@@ -29,6 +30,7 @@ from products.product_analytics.backend.facade.models import Insight
 MAX_EXPLANATION_BYTES = 300_000
 MAX_EVIDENCE_QUERY_BYTES = 10_000
 MAX_SERIES_POINTS = 5_000
+MAX_FUNNEL_STEPS = 50
 # Evidence may only link to GitHub pull requests and commits. Anything else is a query or a saved insight.
 GITHUB_CHANGE_LINK = re.compile(
     r"https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/(pull/\d+|commit/[0-9a-fA-F]{7,40})/?"
@@ -47,6 +49,13 @@ class StoryEvidenceChartType(models.TextChoices):
 
 class ChartExplanationShape(models.TextChoices):
     TIME_SERIES = "time_series", "Time series"
+    FUNNEL_STEPS = "funnel_steps", "Funnel steps"
+
+
+QUERY_KIND_BY_SHAPE = {
+    ChartExplanationShape.TIME_SERIES: "TrendsQuery",
+    ChartExplanationShape.FUNNEL_STEPS: "FunnelsQuery",
+}
 
 
 class StoryEvidenceQueryTool(models.TextChoices):
@@ -191,6 +200,11 @@ class StorySeriesResultSerializer(serializers.Serializer):
     )
 
 
+class StoryFunnelStepSerializer(serializers.Serializer):
+    name = serializers.CharField(allow_blank=True, max_length=400, help_text="The step's name.")
+    count = serializers.IntegerField(min_value=0, help_text="How many reached the step.")
+
+
 class ExplainChartDataSerializer(serializers.Serializer):
     shape = serializers.ChoiceField(
         choices=ChartExplanationShape.choices,
@@ -198,16 +212,38 @@ class ExplainChartDataSerializer(serializers.Serializer):
         help_text="What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.",
     )
     query = serializers.DictField(
-        child=serializers.JSONField(allow_null=True), help_text="The insight query the explanation follows."
+        child=serializers.JSONField(allow_null=True),
+        help_text="The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.",
     )
     results = StorySeriesResultSerializer(  # type: ignore[call-arg]
-        many=True, max_length=1_000, help_text="Every series on the chart when it was explained."
+        many=True,
+        max_length=1_000,
+        required=False,
+        help_text="Every series on the chart when it was explained. Time series only.",
     )
-    seriesIndex = serializers.IntegerField(min_value=0, help_text="The index in `results` the explanation follows.")
+    steps = StoryFunnelStepSerializer(  # type: ignore[call-arg]
+        many=True,
+        min_length=2,
+        max_length=MAX_FUNNEL_STEPS,
+        required=False,
+        help_text="The followed breakdown value's steps when it was explained. Funnel steps only.",
+    )
+    breakdowns = serializers.ListField(
+        child=serializers.CharField(allow_blank=True, max_length=400),
+        max_length=1_000,
+        required=False,
+        help_text="Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.",
+    )
+    seriesIndex = serializers.IntegerField(
+        min_value=0,
+        help_text="The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.",
+    )
     insightName = serializers.CharField(
         allow_null=True, allow_blank=True, max_length=400, help_text="The insight's name."
     )
-    lastPointInProgress = serializers.BooleanField(help_text="Whether the last point's period had not ended yet.")
+    lastPointInProgress = serializers.BooleanField(
+        required=False, help_text="Whether the last point's period had not ended yet. Time series only."
+    )
     headline = serializers.CharField(
         max_length=300, help_text="One sentence a person could read in place of the whole explanation."
     )
@@ -222,6 +258,29 @@ class ExplainChartDataSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        shape = attrs["shape"]
+        if attrs["query"].get("kind", "TrendsQuery") != QUERY_KIND_BY_SHAPE[shape]:
+            raise serializers.ValidationError({"query": "The query does not match the explanation's shape."})
+        if shape == ChartExplanationShape.FUNNEL_STEPS:
+            return self._validate_funnel_steps(attrs)
+        return self._validate_time_series(attrs)
+
+    def _validate_funnel_steps(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "steps" not in attrs:
+            raise serializers.ValidationError({"steps": "A funnel explanation needs its steps."})
+        breakdowns = attrs.setdefault("breakdowns", [])
+        if attrs["seriesIndex"] >= max(len(breakdowns), 1):
+            raise serializers.ValidationError({"seriesIndex": "There is no breakdown value at this index."})
+        attrs.pop("results", None)
+        attrs.pop("lastPointInProgress", None)
+        return attrs
+
+    def _validate_time_series(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        for field in ("results", "lastPointInProgress"):
+            if field not in attrs:
+                raise serializers.ValidationError({field: "A time series explanation needs this field."})
+        attrs.pop("steps", None)
+        attrs.pop("breakdowns", None)
         followed = attrs["seriesIndex"]
         if followed >= len(attrs["results"]):
             raise serializers.ValidationError({"seriesIndex": "There is no series at this index."})
@@ -319,6 +378,7 @@ class InsightExplanationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             user_id=cast(User, request.user).id,
             data=request.validated_data["data"],
         )
+        self._report_saved(request, explanation, updated=False)
         return Response(ChartExplanationSerializer(instance=explanation).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -335,7 +395,22 @@ class InsightExplanationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         )
         if explanation is None:
             raise NotFound("You saved no explanation of this insight with this id.")
+        self._report_saved(request, explanation, updated=True)
         return Response(ChartExplanationSerializer(instance=explanation).data)
+
+    def _report_saved(self, request: Request, explanation: ChartExplanation, *, updated: bool) -> None:
+        # Each save hands the agent a link, so this counts the links people are given, split by MCP client.
+        report_user_action(
+            cast(User, request.user),
+            "explain chart link saved",
+            {
+                "explanation_id": str(explanation.id),
+                "insight_id": self.insight.short_id,
+                "updated": updated,
+            },
+            team=self.team,
+            request=request,
+        )
 
     @extend_schema(responses={200: ChartExplanationSerializer})
     def retrieve(self, request: Request, pk: UUID, **kwargs: Any) -> Response:

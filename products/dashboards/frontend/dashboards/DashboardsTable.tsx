@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useMemo } from 'react'
 
 import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare, IconTrash } from '@posthog/icons'
 
@@ -16,6 +17,7 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { BulkSelectionConfig } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -260,26 +262,6 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
 
-                                      <AccessControlAction
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          userAccessLevel={user_access_level}
-                                      >
-                                          <LemonButton
-                                              to={urls.dashboard(id)}
-                                              onClick={() => {
-                                                  dashboardLogic({ id }).mount()
-                                                  dashboardLogic({ id }).actions.setDashboardEditing(
-                                                      { filters: true, layout: true },
-                                                      DashboardEventSource.DashboardsList
-                                                  )
-                                              }}
-                                              fullWidth
-                                          >
-                                              Edit
-                                          </LemonButton>
-                                      </AccessControlAction>
-
                                       <LemonButton
                                           onClick={() => {
                                               showDuplicateDashboardModal(id, name)
@@ -365,6 +347,78 @@ export function DashboardsTable({
               },
     ]
 
+    const bulkSelection = useMemo<BulkSelectionConfig<DashboardType, number>>(
+        () => ({
+            barClassName: 'mb-2 flex-wrap',
+            getKey: (dashboard: DashboardType): number => dashboard.id,
+            isRowSelectable: (dashboard: DashboardType) =>
+                accessLevelSatisfied(
+                    AccessControlResourceType.Dashboard,
+                    dashboard.user_access_level,
+                    AccessControlLevel.Editor
+                )
+                    ? true
+                    : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
+            rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
+            headerAriaLabel: 'Select all dashboards on this page',
+            renderActions: (ctx) => (
+                <>
+                    <BulkMoveToFolderButton ctx={ctx} filedIds={filedDashboardIds} onMove={moveDashboardsToFolder} />
+                    <BulkUpdateTagsButton
+                        resource="dashboards"
+                        selectedIds={ctx.selectedKeys}
+                        onSuccess={() => {
+                            ctx.clearSelection()
+                            dashboardsModel.actions.loadDashboards()
+                        }}
+                    />
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        loading={bulkDeleteResponseLoading || dashboardsLoading}
+                        disabledReason={ctx.selectedKeys.length > 100 ? 'Select at most 100 dashboards' : undefined}
+                        data-attr="dashboards-bulk-delete"
+                        onClick={() => {
+                            const ids = [...ctx.selectedKeys]
+                            const noun = ids.length === 1 ? 'dashboard' : 'dashboards'
+                            LemonDialog.openForm({
+                                title: `Delete ${ids.length} ${noun}?`,
+                                initialValues: { deleteInsights: false },
+                                content: (
+                                    <LemonField
+                                        name="deleteInsights"
+                                        help="This only deletes insights that are not on any remaining dashboard."
+                                    >
+                                        {({ value, onChange }) => (
+                                            <LemonCheckbox
+                                                checked={!!value}
+                                                onChange={onChange}
+                                                label="Delete the selected dashboards' insights"
+                                                data-attr="bulk-delete-dashboard-insights-checkbox"
+                                            />
+                                        )}
+                                    </LemonField>
+                                ),
+                                onSubmit: ({ deleteInsights }) =>
+                                    bulkDeleteDashboards({
+                                        ids,
+                                        deleteInsights,
+                                        onStillSelected: ctx.setSelectedKeys,
+                                    }),
+                                primaryButtonProps: { children: 'Delete dashboards', status: 'danger' },
+                            })
+                        }}
+                    >
+                        Delete selected
+                    </LemonButton>
+                </>
+            ),
+        }),
+        [filedDashboardIds, moveDashboardsToFolder, bulkDeleteResponseLoading, dashboardsLoading, bulkDeleteDashboards]
+    )
+
     return (
         <>
             <DashboardsFiltersBar extraActions={extraActions} />
@@ -382,80 +436,7 @@ export function DashboardsTable({
                 onSort={tableSortingChanged}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
-                bulkSelection={{
-                    barClassName: 'mb-2 flex-wrap',
-                    getKey: (dashboard: DashboardType): number => dashboard.id,
-                    isRowSelectable: (dashboard: DashboardType) =>
-                        accessLevelSatisfied(
-                            AccessControlResourceType.Dashboard,
-                            dashboard.user_access_level,
-                            AccessControlLevel.Editor
-                        )
-                            ? true
-                            : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
-                    rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
-                    headerAriaLabel: 'Select all dashboards on this page',
-                    renderActions: (ctx) => (
-                        <>
-                            <BulkMoveToFolderButton
-                                ctx={ctx}
-                                filedIds={filedDashboardIds}
-                                onMove={moveDashboardsToFolder}
-                            />
-                            <BulkUpdateTagsButton
-                                resource="dashboards"
-                                selectedIds={ctx.selectedKeys}
-                                onSuccess={() => {
-                                    ctx.clearSelection()
-                                    dashboardsModel.actions.loadDashboards()
-                                }}
-                            />
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                status="danger"
-                                icon={<IconTrash />}
-                                loading={bulkDeleteResponseLoading || dashboardsLoading}
-                                disabledReason={
-                                    ctx.selectedKeys.length > 100 ? 'Select at most 100 dashboards' : undefined
-                                }
-                                data-attr="dashboards-bulk-delete"
-                                onClick={() => {
-                                    const ids = [...ctx.selectedKeys]
-                                    const noun = ids.length === 1 ? 'dashboard' : 'dashboards'
-                                    LemonDialog.openForm({
-                                        title: `Delete ${ids.length} ${noun}?`,
-                                        initialValues: { deleteInsights: false },
-                                        content: (
-                                            <LemonField
-                                                name="deleteInsights"
-                                                help="This only deletes insights that are not on any remaining dashboard."
-                                            >
-                                                {({ value, onChange }) => (
-                                                    <LemonCheckbox
-                                                        checked={!!value}
-                                                        onChange={onChange}
-                                                        label="Delete the selected dashboards' insights"
-                                                        data-attr="bulk-delete-dashboard-insights-checkbox"
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        ),
-                                        onSubmit: ({ deleteInsights }) =>
-                                            bulkDeleteDashboards({
-                                                ids,
-                                                deleteInsights,
-                                                onStillSelected: ctx.setSelectedKeys,
-                                            }),
-                                        primaryButtonProps: { children: 'Delete dashboards', status: 'danger' },
-                                    })
-                                }}
-                            >
-                                Delete selected
-                            </LemonButton>
-                        </>
-                    ),
-                }}
+                bulkSelection={bulkSelection}
             />
         </>
     )

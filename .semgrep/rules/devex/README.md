@@ -1,10 +1,11 @@
 # Devex semgrep rules
 
-Devex / hygiene rules for the PostHog codebase. The `semgrep-devex` job in `ci-security.yaml` reads them once, into `semgrep-devex.json`, and `bin/semgrep_devex_report.py` grades that one report in three passes. A `semgrep` run starts from a cold cache, because the container is discarded, so a second run over the same tree re-parses it.
+Devex / hygiene rules for the PostHog codebase. The `semgrep-devex` job in `ci-security.yaml` reads them once, into `semgrep-devex.json`, and `bin/semgrep_devex_report.py` grades that one report in four passes. A `semgrep` run starts from a cold cache, because the container is discarded, so a second run over the same tree re-parses it.
 
 1. **Warnings (informational)** — the `severity: WARNING` findings. They appear in the CI run output but the step does not fail. Use this mode when a rule has a non-zero backlog of existing violations — the list shows up in CI without blocking master while the codebase is cleaned up.
 2. **Errors (blocking)** — any `severity: ERROR` finding outside `products/desktop/` fails CI. Use this mode for hard regression guards: patterns that should never appear, or migration-style rules whose backlog has been cleaned up.
 3. **New warnings (blocking, PRs only)** — a second `semgrep` run with `--baseline-commit` set to the PR base, plus `--error`. It scopes itself to the changed files, so it is not part of the shared scan. Findings that already exist on the base are grandfathered; findings the PR introduces fail the job. This stops the bleeding on backlogged rules while the backlog is worked down. Caveat: moving or renaming a file makes its grandfathered findings look new to the baseline diff — either fix them as part of the move or exempt them with `# nosemgrep: <rule-id>`.
+4. **New test sleeps (blocking, PRs only)**: `no-fixed-sleeps-in-tests` runs with the same PR baseline on the Python files the PR changes, and its `paths.include` selects the test files. The step passes the files as explicit targets, because Semgrep skips `test/` and `tests/` directories by default.
 
 ## Picking a severity
 

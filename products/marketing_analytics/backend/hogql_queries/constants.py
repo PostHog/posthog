@@ -55,6 +55,14 @@ from posthog.hogql import ast
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999
+# Ceiling on how many touchpoints of one person can earn credit, shared by the attribution explorer and
+# the dashboard tiles so both credit the same journey. Bots and shared devices would otherwise fan out
+# touchpoints x conversions far enough to dominate the query. Touchpoints are sorted before truncating
+# and the *most recent* are kept, because only touches within a lookback window of a conversion can be
+# credited and conversions sit at the end of the range. Keeping the oldest instead would strand a heavy
+# person's conversions with no eligible touchpoint at all, dropping them from the table; this way they
+# keep their credit, and only first touch becomes approximate for such a person.
+MAX_TOUCHPOINTS_PER_PERSON = 500
 # The three node kinds a conversion goal can be, derived from the schema enum so they can't drift
 # from ConversionGoalFilter1/2/3. Referenced by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]
 # so the API serializers can expose `kind` as a real enum: the name collides in drf-spectacular, and
@@ -502,8 +510,11 @@ MARKETING_ANALYTICS_SCHEMA = {
 # Valid native marketing sources - derived from generated enum
 VALID_NATIVE_MARKETING_SOURCES = [source.value for source in NativeMarketingSource]
 
-# Valid non-native marketing sources (managed external sources like BigQuery)
-VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
+# Managed sources that import spend data from files: a storage bucket or an uploaded file.
+VALID_FILE_MARKETING_SOURCES = ["AmazonS3", "GoogleCloudStorage", "AzureBlob", "CloudflareR2", "FileUpload"]
+
+# Valid non-native marketing sources (managed external sources that need a column mapping)
+VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery", *VALID_FILE_MARKETING_SOURCES]
 
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]

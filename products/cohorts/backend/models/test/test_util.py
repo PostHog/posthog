@@ -40,14 +40,17 @@ from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     ERROR_CODE_MESSAGES,
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
     insert_cohort_filter_actors_into_ch,
+    insert_cohort_people_into_pg,
     insert_cohort_query_actors_into_ch,
     legacy_groups_to_filters,
     parse_error_code,
@@ -569,6 +572,34 @@ class TestCohortUtils(BaseTest):
             {"team_id": self.team.id, "cohort_id": cohort.id},
         )
         self.assertEqual(rows[0][0], 1)
+
+    def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        person = _create_person(team_id=self.team.id, distinct_ids=["person"])
+        flush_persons_and_events()
+
+        # The first read lands on a replica without the write, as does the second page's read of the next pass.
+        with (
+            patch(
+                "products.cohorts.backend.models.util.sync_execute",
+                side_effect=[[], [(str(person.uuid),)], []],
+            ),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
+    def test_copy_to_postgres_fails_when_the_written_rows_never_appear(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", return_value=[]),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
 
     def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)

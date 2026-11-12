@@ -20,7 +20,16 @@ const ACTOR_REGEX = /\[Actor:(.*?)\]/
 const EMAIL_REGEX = /\[Email:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]*)\]/
 const TASK_REGEX = /\[Task:([a-zA-Z0-9-]+)\|([a-zA-Z0-9-]*)\]/
 
-export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
+export interface WorkflowLogMessageOptions {
+    /** Off where the workflow editor is hidden, such as an email sent from code: steps then show without a link. */
+    linkSteps?: boolean
+}
+
+export const renderWorkflowLogMessage = (
+    workflow: HogFlow,
+    message: string,
+    { linkSteps = true }: WorkflowLogMessageOptions = {}
+): JSX.Element => {
     // Modifies the rendered log message to auto-detect action or person parts and replace them with a link
     const parts = message.split(RICH_LOG_REGEX)
     const elements: (string | JSX.Element)[] = []
@@ -36,15 +45,26 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             const stepName = action?.name || 'Deleted action'
             const stepIcon = step?.icon || <IconTrash />
 
-            elements.push(
-                <Link
-                    key={part}
-                    className="rounded p-1 -m-1 bg-border text-bg-primary"
-                    to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
-                >
+            const stepLabel = (
+                <>
                     <span className="mr-1">{stepIcon}</span>
                     {stepName}
-                </Link>
+                </>
+            )
+            elements.push(
+                linkSteps ? (
+                    <Link
+                        key={part}
+                        className="rounded p-1 -m-1 bg-border text-bg-primary"
+                        to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
+                    >
+                        {stepLabel}
+                    </Link>
+                ) : (
+                    <span key={part} className="rounded p-1 -m-1 bg-border text-bg-primary">
+                        {stepLabel}
+                    </span>
+                )
             )
             continue
         }

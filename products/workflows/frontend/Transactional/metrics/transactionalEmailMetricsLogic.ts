@@ -7,10 +7,12 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import {
     transactionalEmailLogResultsRetrieve,
+    transactionalEmailLogStatsOverTimeRetrieve,
     transactionalEmailLogStatsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type {
     TransactionalEmailResultsApi,
+    TransactionalEmailStatsOverTimeApi,
     TransactionalEmailStatsRowApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -44,6 +46,9 @@ export interface transactionalEmailMetricsLogicValues {
     resultsLoading: boolean
     resultsQuery: ResultsQuery
     statsFailed: boolean
+    statsOverTime: TransactionalEmailStatsOverTimeApi | null
+    statsOverTimeFailed: boolean
+    statsOverTimeLoading: boolean
     templateStats: TransactionalEmailStatsRowApi[] | null
     templateStatsLoading: boolean
     templatesFailed: boolean
@@ -94,6 +99,21 @@ export interface transactionalEmailMetricsLogicActions {
         payload?: void
     ) => {
         results: TransactionalEmailResultsApi | null
+        payload?: void
+    }
+    loadStatsOverTime: (_: void) => void
+    loadStatsOverTimeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadStatsOverTimeSuccess: (
+        statsOverTime: TransactionalEmailStatsOverTimeApi | null,
+        payload?: void
+    ) => {
+        statsOverTime: TransactionalEmailStatsOverTimeApi | null
         payload?: void
     }
     loadTemplateStats: (_: void) => void
@@ -165,8 +185,18 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
             {
                 loadTemplateStats: () => false,
                 loadDomainStats: () => false,
+                loadStatsOverTime: () => false,
                 loadTemplateStatsFailure: () => true,
                 loadDomainStatsFailure: () => true,
+                loadStatsOverTimeFailure: () => true,
+            },
+        ],
+        statsOverTimeFailed: [
+            false,
+            {
+                loadStatsOverTime: () => false,
+                loadStatsOverTimeSuccess: () => false,
+                loadStatsOverTimeFailure: () => true,
             },
         ],
         hours: [(24 * 7) as number, { setHours: (_, { hours }) => hours }],
@@ -189,6 +219,22 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
             {
                 loadDomainStats: async (_: void, breakpoint) => {
                     return await latest(fetchStats(values.currentProjectId, 'sending_domain', values.hours), breakpoint)
+                },
+            },
+        ],
+        statsOverTime: [
+            null as TransactionalEmailStatsOverTimeApi | null,
+            {
+                loadStatsOverTime: async (_: void, breakpoint) => {
+                    if (values.currentProjectId === null) {
+                        return null
+                    }
+                    return await latest(
+                        transactionalEmailLogStatsOverTimeRetrieve(String(values.currentProjectId), {
+                            date_from: dayjs().subtract(values.hours, 'hour').toISOString(),
+                        }),
+                        breakpoint
+                    )
                 },
             },
         ],
@@ -225,6 +271,7 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
         setHours: () => {
             actions.loadTemplateStats()
             actions.loadDomainStats()
+            actions.loadStatsOverTime()
             if (values.canLoadResults) {
                 actions.loadResults()
             }
@@ -249,6 +296,7 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
     afterMount(({ actions }) => {
         actions.loadTemplateStats()
         actions.loadDomainStats()
+        actions.loadStatsOverTime()
     }),
 ])
 

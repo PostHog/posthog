@@ -85,6 +85,10 @@ TRINO_TLS_CERTIFICATE_ERROR = (
     "Check the certificate or turn off certificate verification."
 )
 TRINO_CONNECTION_ERROR = "PostHog could not connect to Trino."
+TRINO_NOT_A_TRINO_ENDPOINT_ERROR = (
+    "The host and port you entered didn't answer as a Trino server. "
+    "Check that they point to your Trino coordinator and that the HTTPS setting is right."
+)
 TRINO_CONNECTION_DESTINATION_ERROR = "Trino returned an unsupported connection destination. Check the connection host."
 TRINO_CONNECT_TIMEOUT_ERROR = (
     "Connection to Trino timed out. Check the host and port, and that PostHog's egress IP addresses are "
@@ -152,6 +156,7 @@ TRINO_KNOWN_ERROR_MESSAGES = (
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_TLS_CERTIFICATE_ERROR,
     TRINO_CONNECTION_ERROR,
+    TRINO_NOT_A_TRINO_ENDPOINT_ERROR,
     TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_READ_TIMEOUT_ERROR,
     TRINO_DISCOVERY_TIMEOUT_ERROR,
@@ -286,6 +291,9 @@ def trino_failures_as_discovery_error() -> Iterator[None]:
         raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
 
 
+_DRIVER_NOT_A_TRINO_ENDPOINT = re.compile(r"error (?:404|405)(?::|$)")
+
+
 def trino_error_to_message(error: Exception) -> str:
     message = str(error).strip()
     lowered = message.lower()
@@ -297,6 +305,11 @@ def trino_error_to_message(error: Exception) -> str:
         return TRINO_CONNECT_TIMEOUT_ERROR
     if timeout is not None:
         return TRINO_READ_TIMEOUT_ERROR
+    # A web server, load balancer or UI port answers the driver's first request with a bare 404 or 405.
+    # The body of that page is unrelated to Trino, so this runs before the keyword matches below. A 404
+    # for a query the coordinator purged is a transient Trino answer, not a wrong endpoint.
+    if _DRIVER_NOT_A_TRINO_ENDPOINT.match(lowered) and TRINO_QUERY_NOT_FOUND_ERROR.lower() not in lowered:
+        return TRINO_NOT_A_TRINO_ENDPOINT_ERROR
     # Match the driver's HTTP 401 form ("error 401: ..."), not a bare "401": a Trino query error's
     # text carries a query ID whose time part can hold "401" and would derail this classification.
     if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:

@@ -2,8 +2,8 @@ import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconServer } from '@posthog/icons'
-import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconPencil, IconServer } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -68,7 +68,7 @@ function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }
 export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { recordingFilterForFlag, featureFlagActiveUpdateLoading, deletedCohortFilters } = useValues(featureFlagLogic)
-    const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
+    const { toggleFeatureFlagActive, editFeatureFlag } = useActions(featureFlagLogic)
 
     const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
 
@@ -236,7 +236,32 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                     {!v1Filters ? (
                         <div className="rounded border p-4 bg-bg-light">
                             {isRulesV2FeatureFlagConfig(featureFlag.filters) ? (
-                                <FeatureFlagRulesV2Readonly config={featureFlag.filters} />
+                                <FeatureFlagRulesV2Readonly
+                                    config={featureFlag.filters}
+                                    active={featureFlag.active}
+                                    editButton={
+                                        featureFlag.deleted ? null : (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.FeatureFlag}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={featureFlag.user_access_level}
+                                            >
+                                                {({ disabledReason }) => (
+                                                    <LemonButton
+                                                        icon={<IconPencil />}
+                                                        size="small"
+                                                        type="secondary"
+                                                        disabledReason={disabledReason}
+                                                        onClick={() => editFeatureFlag(true)}
+                                                        data-attr="edit-rules-v2-rules"
+                                                    >
+                                                        Edit rules
+                                                    </LemonButton>
+                                                )}
+                                            </AccessControlAction>
+                                        )
+                                    }
+                                />
                             ) : (
                                 <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
                             )}

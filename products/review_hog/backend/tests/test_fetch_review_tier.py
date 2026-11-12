@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.ownership.paths import PathOwnership
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     CONTROL_ARM_SET,
@@ -163,6 +165,66 @@ class TestFetchDecidesTheTier(BaseTest):
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha
+
+    @parameterized.expand(
+        [
+            ("devex_owned_file_with_flag", "team-devex", True, False, "open", True),
+            ("flag_off", "team-devex", False, False, "open", False),
+            ("file_of_another_team", "team-surveys", True, False, "open", False),
+            ("coordinated_turn", "team-devex", True, True, "open", False),
+            ("skipped_turn_on_a_closed_pr", "team-devex", True, False, "closed", False),
+        ]
+    )
+    @patch(f"{_MODULE}.resolve_path_owners")
+    @patch(f"{_MODULE}.devex_lens_on")
+    @patch(f"{_MODULE}.standard_coordinator_on")
+    @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_fetch_adds_the_devex_lens_only_to_a_routed_pr_on_separate_sessions(
+        self,
+        _name: str,
+        owner: str,
+        flag_on: bool,
+        coordinator_on: bool,
+        state: str,
+        expected: bool,
+        mock_fetcher: MagicMock,
+        _auth: MagicMock,
+        _kill_switch: MagicMock,
+        coordinator_flag: MagicMock,
+        devex_flag: MagicMock,
+        path_owners: MagicMock,
+    ) -> None:
+        devex_flag.return_value = flag_on
+        path_owners.return_value = PathOwnership(
+            team_by_path={"ci.yml": owner, "app.py": "team-surveys"}, registry={}, resolved=True
+        )
+        coordinator_flag.return_value = coordinator_on
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata().model_copy(update={"state": state}),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename=name, status="modified", additions=5, deletions=0) for name in ("ci.yml", "app.py")
+            ],
+            diff="",
+        )
+        meta = _fetch_and_persist(
+            FetchPRDataInput(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                repository="o/r",
+                owner="o",
+                repo="r",
+                pr_number=9,
+                review_mode=REVIEW_MODE_FLASH,
+                trigger_source="automatic",
+            )
+        )
+
+        assert meta.devex_lens is expected
+        snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
+        assert snapshot is not None and snapshot.devex_lens_files == (["ci.yml"] if expected else [])
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

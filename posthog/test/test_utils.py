@@ -26,8 +26,10 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.settings.utils import get_from_env
+
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models.group_type_mapping import GroupTypeMapping
@@ -1234,17 +1236,13 @@ class TestSharingOverrideProtection(SimpleTestCase):
         request = self._make_request(
             authenticator, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})}
         )
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"})
 
         assert result == {"breakdown": "country"}
 
     def test_tile_filters_override_allowed_for_normal_auth(self):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"})
 
         assert result == {"breakdown": "region"}
 
@@ -1275,9 +1273,7 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
     def test_tile_filters_override_blocked_for_shared_context_without_authenticator(self):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile, is_shared=True)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"}, is_shared=True)
 
         assert result == {"breakdown": "country"}
 

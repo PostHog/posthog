@@ -10,3 +10,11 @@ class DocsChangeKind(StrEnum):
     UPDATE = "update"
     CREATE = "create"
     REMOVE = "remove"
+
+
+class MergeCheckFailure(StrEnum):
+    ADMISSION_LOOKUP_FAILED = "admission_lookup_failed"
+    NO_PULL_REQUEST_NUMBER = "no_pull_request_number"
+    NO_DOCS_GITHUB = "no_docs_github"
+    JUDGE_CLIENT_UNAVAILABLE = "judge_client_unavailable"
+    RETRIES_EXHAUSTED = "retries_exhausted"

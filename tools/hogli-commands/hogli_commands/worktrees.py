@@ -38,6 +38,7 @@ import itertools
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -53,7 +54,7 @@ from .cargo_targets import (
     unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
-from .devbox import hogland, mutagen
+from .devbox import herdr, hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
     ensure_runtime_ready,
@@ -69,6 +70,7 @@ from .devbox.config import (
     load_worktree_boxes,
     read_worktree_id,
     saved_worktree_box_cleanup,
+    worktree_prune_lock,
 )
 from .disk_usage import NO_USAGE, DiskUsage, measure_disk_usage
 from .doctor import _format_size
@@ -398,8 +400,14 @@ def worktrees_clean(
 
     selected_sources = {s.lower() for s in sources} if sources else None
     if box_action:
-        pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
-        _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+        with _prune_lock_if(not dry_run) as holds_lock:
+            if holds_lock:
+                pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
+                _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+            else:
+                click.echo(
+                    "A devbox prune is still running, so the devboxes of worktrees removed earlier were left for the next run.\n"
+                )
     # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
     if mode != "full" and selected_sources is None and repo is None:
         _clean_legacy_cargo_target(cutoff, dry_run, yes)
@@ -538,32 +546,48 @@ def worktrees_clean(
         click.echo("Nothing left to remove.")
         return
 
-    reap = _execute(
-        stale,
-        mode,
-        repo_root,
-        before_remove=lambda wt: _stop_worktree_mirrors(
-            [box for box in registered_boxes if box.current_path == wt.path]
-        ),
-    )
-    _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
-    if reap.reclaimed_bytes >= 0:
-        summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
-    else:
-        summary = f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
-    failed = reap.failed
-    if failed:
-        summary += f" {failed} could not be fully removed (see warnings above)."
-    click.echo(summary)
+    _remove_worktrees_and_their_boxes(stale, mode, repo_root, registered_boxes, box_action)
 
-    removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
-    if box_action and removed_boxes:
-        _clean_worktree_boxes(removed_boxes, box_action)
-    elif removed_boxes:
-        # A box left alone on purpose must not look like a failed cleanup to a later run.
-        forget_worktree_boxes([box.worktree_path for box in removed_boxes])
-        names = " ".join(box.workspace for box in removed_boxes)
-        click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
+
+def _prune_lock_if(needed: bool) -> AbstractContextManager[bool]:
+    return worktree_prune_lock(_PRUNE_LOCK_TIMEOUT_SECONDS) if needed else nullcontext(True)
+
+
+def _remove_worktrees_and_their_boxes(
+    stale: list[Worktree], mode: str, repo_root: Path, registered_boxes: list[WorktreeBox], box_action: str | None
+) -> None:
+    with _prune_lock_if(bool(registered_boxes)) as holds_lock:
+        if not holds_lock:
+            click.echo("A devbox prune is still running, so nothing was removed. Run this again in a few minutes.")
+            return
+        reap = _execute(
+            stale,
+            mode,
+            repo_root,
+            before_remove=lambda wt: _stop_worktree_mirrors(
+                [box for box in registered_boxes if box.current_path == wt.path]
+            ),
+        )
+        _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
+        if reap.reclaimed_bytes >= 0:
+            summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
+        else:
+            summary = (
+                f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
+            )
+        failed = reap.failed
+        if failed:
+            summary += f" {failed} could not be fully removed (see warnings above)."
+        click.echo(summary)
+
+        removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
+        if box_action and removed_boxes:
+            _clean_worktree_boxes(removed_boxes, box_action)
+        elif removed_boxes:
+            # A box left alone on purpose must not look like a failed cleanup to a later run.
+            forget_worktree_boxes({box.worktree_path: box.record for box in removed_boxes})
+            names = " ".join(box.workspace for box in removed_boxes)
+            click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
 
 
 def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, mode: str) -> str | None:
@@ -590,10 +614,12 @@ def _boxes_of_removed_worktrees(
 ) -> list[WorktreeBox]:
     """Registered boxes whose worktree is gone, limited to the selected repo and sources.
 
-    The admin directory in the shared git dir outlives a moved or unmounted
-    checkout, so only its absence shows that the worktree was removed. A
-    record without a worktree ID cannot tell its admin directory from a
-    reused one, so any directory at that path counts as its own.
+    The admin directory in the shared git dir survives a `git worktree move`,
+    and Claude Code deletes a worktree's folder without it. So a worktree
+    counts as removed when its admin directory is gone, or when `git worktree
+    prune` would delete that directory. A record without a worktree ID cannot
+    tell its admin directory from a reused one, so any directory at that path
+    counts as its own.
     """
     if repo_common is None:
         return []
@@ -601,12 +627,33 @@ def _boxes_of_removed_worktrees(
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
         admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
-        if Path(path).exists() or admin_dir_is_its_own or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
+        if (
+            _holds_a_worktree(Path(path))
+            or worktree_is_live
+            or _resolve(admin_dir.parent.parent) != _resolve(repo_common)
+        ):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
     return boxes
+
+
+def _holds_a_worktree(path: Path) -> bool:
+    admin_dir = _gitdir_for(path)
+    return admin_dir is not None and admin_dir.is_dir() and not _git_would_prune(admin_dir)
+
+
+def _git_would_prune(admin_dir: Path) -> bool:
+    """`git worktree prune`'s rule: the worktree is not locked, and its `gitdir` file is missing or names a missing path."""
+    if (admin_dir / "locked").exists():
+        return False
+    try:
+        checkout_git_file = Path((admin_dir / "gitdir").read_text().strip())
+    except OSError:
+        return True
+    return not (admin_dir / checkout_git_file).exists()
 
 
 def prune_boxes_of_removed_worktrees(
@@ -628,7 +675,7 @@ def prune_boxes_of_removed_worktrees(
     if dry_run:
         click.echo(f"[DRY-RUN] Would {box_action} them.")
     else:
-        _clean_worktree_boxes(boxes, box_action)
+        _clean_worktree_boxes(boxes, box_action, require_removed=True)
     return boxes
 
 
@@ -703,7 +750,7 @@ def _clean_boxes_of_removed_worktrees(
         click.echo(f"[DRY-RUN] Would {box_action} {which}.\n")
         return
     if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
-        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff)
+        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff, require_removed=True)
     click.echo()
 
 
@@ -757,22 +804,54 @@ def _clean_worktree_boxes(
     box_action: str,
     idle_before: float = float("inf"),
     keep_stopped_records: bool = False,
+    require_removed: bool = False,
 ) -> None:
     """Stop or delete *boxes* and forget their records.
 
     With *keep_stopped_records*, a box that ends up stopped keeps its record, so
-    the worktree can start it again when a tool restores it.
+    the worktree can start it again when a tool restores it. With
+    *require_removed*, a box whose worktree came back while the provider was
+    listed is left alone, because the new worktree may have taken the box over.
     """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records, require_removed)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records, require_removed)
+
+
+def _worktree_came_back(box: WorktreeBox) -> bool:
+    return _holds_a_worktree(box.worktree_path) or load_worktree_boxes().get(str(box.worktree_path)) != box.record
+
+
+def _ready_to_act_on(
+    box: WorktreeBox,
+    listed: Mapping[str, object],
+    idle_before: float,
+    require_removed: bool,
+    handled: dict[Path, WorktreeBoxRecord],
+) -> bool:
+    if not box.record.owns(listed):
+        click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
+        handled[box.worktree_path] = box.record
+        return False
+    last_used = _box_last_used(listed)
+    if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
+        click.echo(f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone.")
+        return False
+    if require_removed and _worktree_came_back(box):
+        click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
+        return False
+    try:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+    except SystemExit:
+        click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
+    return True
 
 
 def _clean_hogland_boxes(
-    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
     try:
         hogland.ensure_cli()
@@ -781,28 +860,16 @@ def _clean_hogland_boxes(
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not reach Hogland, so these devboxes were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         devbox = get_workspace(box.workspace, devboxes)
         if devbox is None:
             click.echo(f"  {box.workspace} no longer exists.")
             hogland.forget_ssh_entry(box.workspace)
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(devbox):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+        if not _ready_to_act_on(box, devbox, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(devbox)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting Hogland devbox {box.workspace}...")
@@ -818,12 +885,12 @@ def _clean_hogland_boxes(
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
         if box_action == "delete" or not keep_stopped_records:
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
 def _clean_coder_boxes(
-    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
     try:
         ensure_runtime_ready()
@@ -837,31 +904,20 @@ def _clean_coder_boxes(
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not list your devboxes, so these were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         workspace = get_workspace(box.workspace, workspaces)
         if workspace is None:
             click.echo(f"  {box.workspace} no longer exists.")
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(workspace):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+        if not _ready_to_act_on(box, workspace, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(workspace)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting devbox {box.workspace}...")
                 delete_workspace(box.workspace)
+                herdr.forget_machine(box.workspace)
             elif get_workspace_status(workspace) != "stopped":
                 click.echo(f"Stopping devbox {box.workspace}...")
                 stop_workspace(box.workspace)
@@ -873,7 +929,7 @@ def _clean_coder_boxes(
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
         if box_action == "delete" or not keep_stopped_records:
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
@@ -889,6 +945,7 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 _UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps,build"))
 # .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
+_PRUNE_LOCK_TIMEOUT_SECONDS = 300.0
 
 
 def _unattended_lock(dry_run: bool) -> IO[str] | None:

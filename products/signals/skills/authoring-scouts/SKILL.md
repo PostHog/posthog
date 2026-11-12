@@ -263,6 +263,14 @@ What the run sees depends on the step's note:
 Write a workflow-triggered section in the body when the default is wrong for the scout.
 For example, "on a workflow-triggered run, also refresh the label cache", or "on a workflow-triggered run with no note, only check the last hour".
 
+**A busy scout queues the trigger.**
+When the step fires while the scout ran from a workflow in the last 30 minutes, or while any of its runs is in progress, the trigger waits instead of being dropped.
+A later run takes every waiting trigger: the next due scheduled run, or one extra workflow-triggered run once the cooldown has passed.
+That run sees all the notes in one section, one line per trigger with the time it arrived, and handles each subject first.
+A scheduled run that took the triggers still runs its routine afterwards.
+A scout keeps at most 20 waiting triggers, and a trigger whose note matches one already waiting is not added.
+The step's hidden `when_busy` input set to `skip` keeps the old behavior, where a busy scout skips the trigger.
+
 **Incremental state needs a full pass.**
 A run that skipped its routine or cut it short must leave cursors, baselines, and "last swept" markers as they were, and write memory only about the subject it handled.
 The harness tells every workflow run with a note this.

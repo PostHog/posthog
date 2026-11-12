@@ -266,6 +266,26 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_groups_by_a_json_body_path(self) -> None:
+        def tracing(message: str) -> dict:
+            body = json.dumps({"level": "ERROR", "fields": {"message": message}, "target": "svc::auth"})
+            return {**self._log(severity="error"), "body": body}
+
+        self._insert(
+            [tracing("upstream refused") for _ in range(3)]
+            + [tracing("frame too large")]
+            + [self._log(), {**self._log(), "body": json.dumps({"fields": {"count": 1}})}]
+        )
+
+        results = self._run(group_bys=[("fields.message", "body"), ("severity_level", "column")])
+
+        assert [(g["values"], g["log_count"], g["error_count"]) for g in results["groups"]] == [
+            (["upstream refused", "error"], 3, 3),
+            (["frame too large", "error"], 1, 1),
+        ]
+        assert results["total_logs"] == 4
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_repeat_query_is_served_from_the_short_cache(self) -> None:
         self._insert([self._log(attributes={"session_id": "s1"})])
         query = LogsQuery(
@@ -342,6 +362,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # The column path parses a fixed expression allowlist; arbitrary keys must never
             # reach parse_expr, where they would execute as HogQL.
             ("column_not_in_allowlist", "attributes['x'] OR 1=1", "column", "log_count"),
+            ("body_path_with_empty_segment", "fields..message", "body", "log_count"),
             ("unknown_order_field", "session_id", "log", "value"),
         ]
     )
@@ -476,6 +497,39 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
         assert [(g["values"], g["log_count"]) for g in data["groups"]] == [(["timeout after <*> ms"], 2)]
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_endpoint_accepts_a_body_path_dimension(self) -> None:
+        sync_execute(
+            "INSERT INTO logs FORMAT JSONEachRow\n"
+            + "".join(
+                json.dumps(
+                    {
+                        "team_id": self.team.id,
+                        "timestamp": "2026-06-23 12:00:00.000000",
+                        "body": json.dumps({"fields": {"message": "upstream refused"}}),
+                        "severity_text": "error",
+                        "service_name": "edge",
+                    }
+                )
+                + "\n"
+                for _ in range(2)
+            )
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/group-by",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"},
+                    "groupBys": [{"key": "fields.message", "source": "body"}],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(g["values"], g["log_count"]) for g in response.json()["groups"]] == [(["upstream refused"], 2)]
 
     def test_endpoint_rejects_too_many_dimensions(self) -> None:
         response = self.client.post(

@@ -1,4 +1,5 @@
-import { Card as QuillCard, CardAction, CardContent, CardHeader, CardTitle } from '@posthog/quill-primitives'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Card as QuillCard, CardAction, CardContent, CardHeader, CardTitle, cn } from '@posthog/quill-primitives'
 
 export function Card({
     children,
@@ -29,26 +30,69 @@ export function Card({
     )
 }
 
-// Picks the right card body: a skeleton while the first load is in flight, an empty message when
-// there's no data, otherwise the content. Guard clauses instead of a nested ternary at each call site.
+// Picks the right card body: an error with a retry when the load failed, a skeleton while the first
+// load is in flight, an empty message when there's no data, otherwise the content. Every state
+// shares `className`, so give it the content's min height and swapping states doesn't move the layout.
 export function CardState({
     loading,
     isEmpty,
+    failed = false,
+    onRetry,
     skeleton,
     empty,
+    className,
     children,
 }: {
     loading: boolean
     isEmpty: boolean
+    failed?: boolean
+    onRetry?: () => void
     skeleton: React.ReactNode
     empty: React.ReactNode
+    className?: string
     children: React.ReactNode
 }): JSX.Element {
+    const bodyClassName = cn('flex min-h-0 flex-1 flex-col', className)
+    if (failed) {
+        return (
+            <div className={cn(bodyClassName, 'items-center justify-center py-6')}>
+                <CardError onRetry={onRetry} />
+            </div>
+        )
+    }
     if (loading && isEmpty) {
-        return <>{skeleton}</>
+        return <div className={bodyClassName}>{skeleton}</div>
     }
     if (isEmpty) {
-        return <>{empty}</>
+        return <div className={bodyClassName}>{empty}</div>
     }
-    return <>{children}</>
+    return (
+        // Dim while refreshing so date/tool changes give visible feedback.
+        <div aria-busy={loading} className={cn(bodyClassName, 'transition-opacity', loading && 'opacity-50')}>
+            {children}
+        </div>
+    )
+}
+
+export function CardError({ onRetry }: { onRetry?: () => void }): JSX.Element {
+    return (
+        <div className="flex flex-col items-center gap-2 text-center text-[12px] text-secondary">
+            <span>Couldn&apos;t load this data. Try again, or pick a shorter date range.</span>
+            {onRetry ? (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={(event) => {
+                        // A KPI tile is a link, so keep the retry click from following it.
+                        event.preventDefault()
+                        event.stopPropagation()
+                        onRetry()
+                    }}
+                    data-attr="mcp-dashboard-card-retry"
+                >
+                    Try again
+                </LemonButton>
+            ) : null}
+        </div>
+    )
 }

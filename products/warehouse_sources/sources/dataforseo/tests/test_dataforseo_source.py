@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.dataforseo._config import DataForSEOSourceConfig
-from products.warehouse_sources.sources.dataforseo.dataforseo import MAX_KEYWORDS
+from products.warehouse_sources.sources.dataforseo.dataforseo import MAX_KEYWORDS, CredentialCheck
 from products.warehouse_sources.sources.dataforseo.source import DataForSEOSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, error_message_matches
 
@@ -61,29 +61,34 @@ class TestDataForSEOSource:
 
     @parameterized.expand(
         [
-            ("valid", "example.com", True, True, None),
-            ("invalid_credentials", "example.com", False, False, "Invalid DataForSEO API credentials"),
-            ("no_targets", "  ", True, False, "Enter at least one target domain (e.g. example.com)"),
+            ("valid", "example.com", CredentialCheck.VALID, True, None),
+            ("rejected", "example.com", CredentialCheck.REJECTED, False, "not your account password"),
+            ("unavailable", "example.com", CredentialCheck.UNAVAILABLE, False, "couldn't reach DataForSEO"),
+            ("no_targets", "  ", CredentialCheck.VALID, False, "Enter at least one target domain (e.g. example.com)"),
         ]
     )
     def test_validate_credentials(
         self,
         _name: str,
         targets: str,
-        probe_result: bool,
+        probe_result: CredentialCheck,
         expected_ok: bool,
         expected_message: str | None,
     ) -> None:
         with patch(f"{MODULE}.validate_dataforseo_credentials", return_value=probe_result):
             ok, message = DataForSEOSource().validate_credentials(_make_config(targets=targets), team_id=1)
         assert ok is expected_ok
-        assert message == expected_message
+        if expected_message is None:
+            assert message is None
+        else:
+            assert message is not None
+            assert expected_message in message
 
     def test_validate_credentials_rejects_too_many_keywords(self) -> None:
         # The SERP table spends a request per keyword per sync, so an oversized list is reported
         # at setup rather than on the first bill.
         config = _make_config(keywords=",".join(f"kw{i}" for i in range(MAX_KEYWORDS + 1)))
-        with patch(f"{MODULE}.validate_dataforseo_credentials", return_value=True) as probe:
+        with patch(f"{MODULE}.validate_dataforseo_credentials", return_value=CredentialCheck.VALID) as probe:
             ok, message = DataForSEOSource().validate_credentials(config, team_id=1)
         assert ok is False
         assert message is not None

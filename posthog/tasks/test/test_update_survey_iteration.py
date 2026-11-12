@@ -69,6 +69,36 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(self.recurring_survey.end_date)
         self.assertEqual(self.recurring_survey.current_iteration, 1)
 
+    @parameterized.expand(
+        [
+            # Started three windows and a day ago: the fourth window is current.
+            ("missed_two_runs", timedelta(days=60 * 3 + 1), 4),
+            # A backdated start must not store every window since then.
+            ("backdated_start", timedelta(days=60 * 10_000 + 1), 10_001),
+        ]
+    )
+    def test_open_ended_survey_keeps_repeating(self, _name: str, age: timedelta, expected_iteration: int) -> None:
+        start_date = now() - age
+        Survey.objects.filter(pk=self.recurring_survey.pk).update(
+            repeat_until_stopped=True,
+            iteration_count=None,
+            start_date=start_date,
+            # Windows as stored at launch, before the task missed every later run.
+            iteration_start_dates=[start_date, start_date + timedelta(days=self.iteration_frequency_days)],
+        )
+
+        update_survey_iteration()
+
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNone(self.recurring_survey.end_date)
+        self.assertEqual(self.recurring_survey.current_iteration, expected_iteration)
+        windows = self.recurring_survey.iteration_start_dates or []
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(self.recurring_survey.current_iteration_start_date, windows[0])
+        assert windows[0] is not None and windows[1] is not None
+        self.assertLessEqual(windows[0], now())
+        self.assertGreater(windows[1], now())
+
     def test_survey_with_once_schedule_is_not_ended_by_stale_iteration_fields(self) -> None:
         self.recurring_survey.schedule = Survey.Schedule.ONCE
         self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)

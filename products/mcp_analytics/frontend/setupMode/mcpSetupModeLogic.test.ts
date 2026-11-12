@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
@@ -12,7 +11,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -32,6 +30,7 @@ const captureRawMock = posthog.captureRaw as jest.Mock
 const NOT_INSTRUMENTED = [0, 0, 0, '1970-01-01T00:00:00Z']
 const CONNECTED = [1, 0, 0, '1970-01-01T00:00:00Z']
 const ONE_CALL = [1, 1, 1, '2026-07-01T00:00:00Z']
+const RETURNING = [1, 50, 12, '2026-06-01T00:00:00Z']
 
 describe('mcpSetupModeLogic', () => {
     let logic: ReturnType<typeof mcpSetupModeLogic.build>
@@ -55,43 +54,17 @@ describe('mcpSetupModeLogic', () => {
     })
 
     it.each([
-        { action: 'wizard command copied', route: 'wizard', expected: 'wizard', trigger: 'wizard_copy' },
-        { action: 'agent prompt copied', route: 'agent', expected: 'agent', trigger: 'agent_copy' },
-    ] as const)('opens the $expected path when the empty state reports "$action"', async (testCase) => {
-        enableSetupMode(true)
+        { name: 'opens with the flag on', enabled: true, expectedParams: { landing: 'auto', setup: 'open' } },
+        { name: 'stays closed with the flag off', enabled: false, expectedParams: { landing: 'auto' } },
+    ])('Start setup $name', async ({ enabled, expectedParams }) => {
+        enableSetupMode(enabled)
 
-        productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).actions.reportSetupInteraction(
-            testCase.action,
-            'needs-setup',
-            testCase.route
-        )
+        logic.actions.openSetupMode('start_button')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.searchParams).toEqual({ landing: 'auto', setup: testCase.expected })
-        expect(logic.values.setupPath).toBe(testCase.expected)
-        expect(captureRawMock).toHaveBeenCalledWith('mcp analytics setup mode opened', {
-            path: testCase.expected,
-            trigger: testCase.trigger,
-        })
-    })
-
-    it.each([
-        { name: 'the flag is off', enabled: false, action: 'wizard command copied', preview: false },
-        { name: 'the interaction is not a copy', enabled: true, action: 'docs clicked', preview: false },
-        { name: 'the screen is a preview', enabled: true, action: 'wizard command copied', preview: true },
-    ])('stays closed when $name', async (testCase) => {
-        enableSetupMode(testCase.enabled)
-
-        productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).actions.reportSetupInteraction(
-            testCase.action,
-            'needs-setup',
-            'wizard',
-            testCase.preview
-        )
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.searchParams).toEqual({ landing: 'auto' })
-        expect(logic.values.setupPath).toBe(null)
+        expect(router.values.searchParams).toEqual(expectedParams)
+        expect(logic.values.isOpen).toBe(enabled)
+        expect(captureRawMock).toHaveBeenCalledTimes(enabled ? 2 : 0)
     })
 
     it.each([
@@ -100,7 +73,7 @@ describe('mcpSetupModeLogic', () => {
         { reason: 'finished', expectedPath: urls.mcpAnalyticsActivity() },
     ] as const)('exit with $reason removes the setup params and lands on $expectedPath', async (testCase) => {
         enableSetupMode(true)
-        router.actions.push(urls.mcpAnalyticsDashboard(), { landing: 'auto', setup: 'agent', setup_step: 'useful' })
+        router.actions.push(urls.mcpAnalyticsDashboard(), { landing: 'auto', setup: 'open', setup_step: 'useful' })
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.exitSetupMode(testCase.reason)
@@ -108,9 +81,8 @@ describe('mcpSetupModeLogic', () => {
 
         expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}${testCase.expectedPath}`)
         expect(router.values.searchParams).toEqual({ landing: 'auto' })
-        expect(logic.values.setupPath).toBe(null)
+        expect(logic.values.isOpen).toBe(false)
         expect(captureRawMock).toHaveBeenCalledWith('mcp analytics setup mode exited', {
-            path: 'agent',
             step: 'connect',
             reason: testCase.reason,
         })
@@ -119,7 +91,7 @@ describe('mcpSetupModeLogic', () => {
     it('asking PostHog AI closes setup mode before opening the side panel with the question', async () => {
         enableSetupMode(true)
         sidePanelStateLogic.mount()
-        router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'agent', setup_step: 'useful' })
+        router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'open', setup_step: 'useful' })
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.askPostHogAI('What can MCP analytics tell me?')
@@ -130,7 +102,6 @@ describe('mcpSetupModeLogic', () => {
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
         expect(sidePanelStateLogic.values.selectedTabOptions).toBe('!What can MCP analytics tell me?')
         expect(captureRawMock).toHaveBeenCalledWith('mcp analytics setup mode exited', {
-            path: 'agent',
             step: 'connect',
             reason: 'ask_ai',
         })
@@ -147,7 +118,7 @@ describe('mcpSetupModeLogic', () => {
         { page: 'the scene', path: urls.mcpAnalyticsDashboard(), expectedPath: urls.mcpAnalyticsDashboard() },
     ])('keeps the first-call reveal open when the first call lands on $page', async (testCase) => {
         enableSetupMode(true)
-        router.actions.push(testCase.path, { setup: 'agent' })
+        router.actions.push(testCase.path, { setup: 'open' })
         await expectLogic(logic).toFinishAllListeners()
         jest.spyOn(api, 'query').mockResolvedValue({ results: [ONE_CALL] } as any)
 
@@ -155,32 +126,26 @@ describe('mcpSetupModeLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(testCase.expectedPath)
-        expect(router.values.searchParams).toMatchObject({ setup: 'agent' })
+        expect(router.values.searchParams).toMatchObject({ setup: 'open' })
     })
 
     it('reports a close by navigation as an exit and tracks the next open in full', async () => {
         enableSetupMode(true)
-        const copyWizardCommand = (): void =>
-            productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).actions.reportSetupInteraction(
-                'wizard command copied',
-                'needs-setup',
-                'wizard'
-            )
-        copyWizardCommand()
+        logic.actions.openSetupMode('start_button')
         await expectLogic(logic).toFinishAllListeners()
 
         router.actions.push(urls.mcpAnalyticsDashboard())
         await expectLogic(logic).toFinishAllListeners()
-        copyWizardCommand()
+        logic.actions.openSetupMode('start_button')
         await expectLogic(logic).toFinishAllListeners()
 
         const events = captureRawMock.mock.calls.map(([event, properties]) => [event, properties])
         expect(events).toEqual([
-            ['mcp analytics setup mode opened', { path: 'wizard', trigger: 'wizard_copy' }],
-            ['mcp analytics setup mode step viewed', { path: 'wizard', step: 'connect' }],
-            ['mcp analytics setup mode exited', { path: 'wizard', step: 'connect', reason: 'navigated' }],
-            ['mcp analytics setup mode opened', { path: 'wizard', trigger: 'wizard_copy' }],
-            ['mcp analytics setup mode step viewed', { path: 'wizard', step: 'connect' }],
+            ['mcp analytics setup mode opened', { trigger: 'start_button' }],
+            ['mcp analytics setup mode step viewed', { step: 'connect' }],
+            ['mcp analytics setup mode exited', { step: 'connect', reason: 'navigated' }],
+            ['mcp analytics setup mode opened', { trigger: 'start_button' }],
+            ['mcp analytics setup mode step viewed', { step: 'connect' }],
         ])
     })
 
@@ -196,10 +161,17 @@ describe('mcpSetupModeLogic', () => {
             jest.useRealTimers()
         })
 
-        async function openAgentSetup(): Promise<void> {
+        async function openAgentSetup(setupStep?: 'useful'): Promise<void> {
             enableSetupMode(true)
-            router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'agent' })
+            router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'open', setup_step: setupStep })
             await jest.advanceTimersByTimeAsync(0)
+        }
+
+        // The signals query counts initialize events; the server tools query never reads them.
+        function queriesOf(query: jest.SpyInstance, kind: 'signals' | 'server tools'): number {
+            return query.mock.calls.filter(
+                ([source]) => source.query.includes('$mcp_initialize') === (kind === 'signals')
+            ).length
         }
 
         it.each([
@@ -217,13 +189,63 @@ describe('mcpSetupModeLogic', () => {
                 await jest.advanceTimersByTimeAsync(0)
                 await openAgentSetup()
                 expect(logic.values.step).toBe(step)
-                const slowRequest = poll === 'signals' ? query : overview
-                slowRequest.mockReturnValue(new Promise(() => {}))
-                const sentBefore = slowRequest.mock.calls.length
+                query.mockReturnValue(new Promise(() => {}))
+                overview.mockReturnValue(new Promise(() => {}))
+                const sentBefore = poll === 'signals' ? queriesOf(query, 'signals') : overview.mock.calls.length
 
                 await jest.advanceTimersByTimeAsync(31000)
 
-                expect(slowRequest.mock.calls.length - sentBefore).toBe(1)
+                const sentAfter = poll === 'signals' ? queriesOf(query, 'signals') : overview.mock.calls.length
+                expect(sentAfter - sentBefore).toBe(1)
+            }
+        )
+
+        it.each([
+            { state: 'waiting to connect', signals: NOT_INSTRUMENTED, setupStep: undefined, polls: false },
+            { state: 'connected', signals: CONNECTED, setupStep: undefined, polls: true },
+            { state: 'on the first call', signals: ONE_CALL, setupStep: undefined, polls: true },
+            { state: 'reopened with earlier calls', signals: RETURNING, setupStep: undefined, polls: false },
+            { state: 'on the last step', signals: ONE_CALL, setupStep: 'useful' as const, polls: false },
+        ])('asks for the server tools while $state: $polls', async ({ signals, setupStep, polls }) => {
+            const query = jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
+            jest.mocked(mcpAnalyticsSessionsActivityOverview).mockResolvedValue({ recent_calls: [] } as any)
+            logic.actions.loadSignals()
+            await jest.advanceTimersByTimeAsync(0)
+            await openAgentSetup(setupStep)
+            const sentBefore = queriesOf(query, 'server tools')
+
+            await jest.advanceTimersByTimeAsync(21000)
+
+            expect(queriesOf(query, 'server tools') - sentBefore > 0).toBe(polls)
+        })
+
+        it.each([
+            { state: 'the last step', signals: ONE_CALL, setupStep: 'useful' as const, failsFirst: false, loads: 1 },
+            { state: 'a reopened first call', signals: RETURNING, setupStep: undefined, failsFirst: false, loads: 1 },
+            {
+                state: 'a reopened first call that failed to load',
+                signals: RETURNING,
+                setupStep: undefined,
+                failsFirst: true,
+                loads: 2,
+            },
+        ])(
+            'loads the calls $loads time(s) on $state instead of polling them',
+            async ({ signals, setupStep, failsFirst, loads }) => {
+                jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
+                const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
+                overview.mockResolvedValue({ recent_calls: [] } as any)
+                if (failsFirst) {
+                    overview.mockRejectedValueOnce(new Error('overview failed'))
+                }
+                logic.actions.loadSignals()
+                await jest.advanceTimersByTimeAsync(0)
+
+                await openAgentSetup(setupStep)
+                await jest.advanceTimersByTimeAsync(31000)
+
+                expect(overview).toHaveBeenCalledTimes(loads)
+                expect(logic.values.recentCallsFailed).toBe(false)
             }
         )
 
@@ -246,7 +268,7 @@ describe('mcpSetupModeLogic', () => {
 
     it('exits on Escape wherever focus is', async () => {
         enableSetupMode(true)
-        router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'wizard' })
+        router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'open' })
         await expectLogic(logic).toFinishAllListeners()
 
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
@@ -254,7 +276,6 @@ describe('mcpSetupModeLogic', () => {
 
         expect(router.values.searchParams).toEqual({})
         expect(captureRawMock).toHaveBeenCalledWith('mcp analytics setup mode exited', {
-            path: 'wizard',
             step: 'connect',
             reason: 'escape',
         })

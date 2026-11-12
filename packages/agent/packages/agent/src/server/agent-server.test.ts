@@ -22,7 +22,7 @@ import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
-import { type SetupServerApi, setupServer } from "msw/node";
+import { type SetupServer, setupServer } from "msw/node";
 import {
   afterAll,
   afterEach,
@@ -664,7 +664,7 @@ it.each([
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
-  let mswServer: SetupServerApi;
+  let mswServer: SetupServer;
   let appendLogCalls: unknown[][];
   let updateTaskRunCalls: unknown[];
   let port: number;
@@ -8356,11 +8356,18 @@ describe("AgentServer HTTP Mode", () => {
           footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
         },
         {
-          label: "Slack thread over the inbox report",
+          label: "inbox report via a Slack thread",
           origin: "slack",
           launchOptions: { slack_thread_url: SLACK_THREAD_URL },
           source: INBOX_REPORT,
-          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url}) via a [Slack thread](${SLACK_THREAD_URL})*`,
+        },
+        {
+          label: "inbox report via a Slack thread on a signal_report run",
+          origin: "signal_report",
+          launchOptions: { slack_thread_url: SLACK_THREAD_URL },
+          source: INBOX_REPORT,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url}) via a [Slack thread](${SLACK_THREAD_URL})*`,
         },
         {
           label: "inbox report on a desktop run",

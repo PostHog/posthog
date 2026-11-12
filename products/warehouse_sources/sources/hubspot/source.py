@@ -153,6 +153,9 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         refresh_token = job_inputs.get("hubspot_refresh_token")
         return "hubspot_integration_id" not in job_inputs and isinstance(refresh_token, str) and bool(refresh_token)
 
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ("hubspot_secret_key", "hubspot_refresh_token")
+
     def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
         if not self.has_legacy_oauth_tokens(job_inputs):
             return None
@@ -168,7 +171,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                 "id_token": None,
             },
             pointer_key="hubspot_integration_id",
-            legacy_keys=("hubspot_secret_key", "hubspot_refresh_token"),
+            legacy_keys=self.legacy_oauth_keys(),
             refresh_token=refresh_token,
         )
 

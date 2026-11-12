@@ -32,6 +32,7 @@ FLAG_DELETED = "The feature flag is deleted"
 NEEDS_VARIANTS = "Runs once the feature flag has variants"
 NEEDS_SPLIT_VARIANTS = "Needs two or more variants in the split"
 SPLIT_ASSIGNS_NOBODY = "The split assigns nobody, because every release condition sets a variant override"
+SPLIT_CHANGED_AFTER_END = "The variant split changed after the experiment ended, so it can't be compared with the run"
 NEEDS_EXPOSURES = "Runs once enough users are exposed"
 NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
 

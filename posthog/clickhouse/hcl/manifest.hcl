@@ -31,25 +31,45 @@ role "ops" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/cloud", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
-# Every logs node composes the trace suite and the metrics ingest chain
+# Every logs node composes the trace suite and the legacy metrics tables
 # (roles/logs/metrics, created locally by migration 0309); the local node adds a
 # self-contained roles/logs/local (extracted from the live node) for the legacy
-# logs32 family it still runs.
+# logs32 family it still runs. The cloud logs nodes leave out
+# roles/logs/metrics/metrics4.hcl: metrics4 is read from and written to the metrics
+# cluster, and migration 0379 drops it from the logs cluster. The local stacks run
+# every role on one node and keep it.
 role "logs" {
   env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics/metadata3.hcl", "roles/logs/metrics/tables.hcl", "roles/logs/shared", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics/metadata3.hcl", "roles/logs/metrics/tables.hcl", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics/metadata3.hcl", "roles/logs/metrics/tables.hcl", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
 # APM satellite: the ingestion-apm nodes. Every environment runs the shared
-# custom_metrics suite and writes to the query log archive. Every environment also
-# runs the metrics4 ingest chain and the logs Kafka ingest. Development runs the
-# legacy APM ingest chain too. The production logs nodes still run that legacy chain.
+# custom_metrics suite, writes to the query log archive, and runs the logs Kafka
+# ingest. Development runs the legacy APM ingest chain too. The production logs
+# nodes still run that legacy chain. The metrics4 ingest chain runs only on the
+# ingestion-metrics nodes, which write to the metrics cluster.
 role "apm" {
-  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/shared", "roles/apm/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest", "roles/apm/shared"] }
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
+}
+
+# Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, declared once in
+# roles/logs/metrics/metrics4.hcl, which the local logs stacks also compose.
+role "metrics" {
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared", "roles/metrics/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
+}
+
+# The ingestion-metrics nodes run the metrics4 ingest chain, patched to write to the metrics
+# cluster under their own consumer group.
+role "ingestion_metrics" {
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared", "roles/ingestion_metrics/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
@@ -174,6 +194,8 @@ role "all" {
 cluster "ops" { roles = ["ops"] }
 
 cluster "logs" { roles = ["logs"] }
+
+cluster "metrics" { roles = ["metrics"] }
 
 cluster "aux" { roles = ["aux"] }
 

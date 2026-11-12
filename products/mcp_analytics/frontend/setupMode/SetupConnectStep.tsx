@@ -1,23 +1,21 @@
-import * as asleepPng from '@posthog/brand/hoggies/png/asleep'
 import * as handClaspPng from '@posthog/brand/hoggies/png/hand-clasp'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
-import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { HedgehogTipCard } from '../components/HedgehogTipCard'
-import { SetupCallsPanel } from './SetupCallsPanel'
-import type { MCPConnectState } from './setupMode'
+import { TipCard } from '../components/TipCard'
+import { SetupInstallOptions } from './SetupInstallOptions'
+import type { MCPConnectState, MCPServerTools } from './setupMode'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
+import { SetupToolsPanel } from './SetupToolsPanel'
+import { SetupTroubleshootingCard } from './SetupTroubleshootingCard'
 
 const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 const HedgehogHandClasp = pngHoggie(handClaspPng)
-const HedgehogReporter = pngHoggie(reporterPng)
-const HedgehogAsleep = pngHoggie(asleepPng)
 
 const INSTALL_GUIDE_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
@@ -26,11 +24,6 @@ const COPY = {
         title: 'Waiting for your server to connect',
         help: 'Need help?',
         installGuide: 'Read the install guide',
-    },
-    nextSteps: {
-        title: 'Your next steps',
-        restart: 'Restart your server when setup is done',
-        connect: 'Waiting for your server to connect',
     },
     proTip: {
         title: 'Pro tip while you wait',
@@ -47,38 +40,13 @@ const COPY = {
         body: 'We group tasks in stateless and serverless servers in the same session for simpler debugging.',
         link: 'Learn how we identify users',
     },
-    listening: 'Listening for your first tool call',
-}
-
-function NextSteps(): JSX.Element {
-    const copy = COPY.nextSteps
-    return (
-        <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
-            <span className="text-xs font-semibold text-secondary">{copy.title}</span>
-            <ol className="m-0 flex list-none flex-col p-0" aria-label={copy.title}>
-                <li className="flex gap-3">
-                    <div className="flex flex-col items-center pt-0.5">
-                        <span className="size-4 rounded-full border-2 border-secondary" />
-                        <div className="my-1 min-h-3 w-px flex-1 bg-border" />
-                    </div>
-                    <span className="min-w-0 flex-1 pb-3 text-sm font-semibold">{copy.restart}</span>
-                </li>
-                <li className="flex gap-3">
-                    <div className="flex flex-col items-center pt-0.5">
-                        <Spinner className="text-base" textColored />
-                    </div>
-                    <span className="min-w-0 flex-1 text-sm font-semibold">{copy.connect}</span>
-                </li>
-            </ol>
-        </div>
-    )
 }
 
 function ConnectWaiting(): JSX.Element {
     return (
         <>
             <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.waiting.title} />
-            <NextSteps />
+            <SetupInstallOptions />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span className="text-secondary">{COPY.waiting.help}</span>
                 <LemonButton
@@ -115,16 +83,27 @@ function ConnectConnected(): JSX.Element {
     )
 }
 
-export function SetupConnectStep({ connectState }: { connectState: MCPConnectState }): JSX.Element {
+export function SetupConnectStep({
+    connectState,
+    serverTools,
+    serverToolsFailed,
+}: {
+    connectState: MCPConnectState
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
+}): JSX.Element {
     const connected = connectState.kind === 'connected'
     return (
         <SetupStepLayout
             aside={
                 <>
-                    <SetupCallsPanel calls="example" status={{ kind: 'listening', text: COPY.listening }} />
                     {connected ? (
-                        <HedgehogTipCard
-                            Hedgehog={HedgehogAsleep}
+                        <SetupToolsPanel tools={serverTools} failed={serverToolsFailed} />
+                    ) : (
+                        <SetupTroubleshootingCard />
+                    )}
+                    {connected ? (
+                        <TipCard
                             title={COPY.funFact.title}
                             body={COPY.funFact.body}
                             link={{
@@ -134,8 +113,7 @@ export function SetupConnectStep({ connectState }: { connectState: MCPConnectSta
                             }}
                         />
                     ) : (
-                        <HedgehogTipCard
-                            Hedgehog={HedgehogReporter}
+                        <TipCard
                             title={COPY.proTip.title}
                             body={COPY.proTip.body}
                             link={{

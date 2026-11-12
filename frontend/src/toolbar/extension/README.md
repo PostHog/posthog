@@ -57,6 +57,56 @@ Update the answers there when the extension starts to send new data.
 
 The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
+## Releases
+
+The extension's version lives in `release/package.json`, which isn't an npm package. `release/CHANGELOG.md` lists what each version changed.
+The "Release toolbar extension" workflow (`.github/workflows/release-toolbar-extension.yml`) bumps them from [Sampo](https://github.com/bruits/sampo) changesets and submits the build to the Chrome Web Store.
+
+When a pull request changes what the extension does, add a changeset to it from `frontend/src/toolbar/extension/release/`:
+
+```sh
+sampo add --package npm/@posthog/toolbar-extension --bump patch --message "Describe the change for the changelog"
+```
+
+Use `minor` or `major` instead of `patch` when it fits, and commit the new file in `release/.sampo/changesets/`. Install the CLI with `cargo install sampo --locked`.
+
+After the pull request merges, the workflow:
+
+1. Posts in the client libraries approvals channel on Slack, and waits for a reviewer of the `Release toolbar extension` environment to approve the run. The Slack thread follows the release pull request.
+2. Opens a release pull request that bumps `release/package.json`, adds the changesets to the changelog and deletes them.
+3. Approves that pull request with the release app and sends it to the merge queue.
+
+When the release pull request merges, the workflow runs again:
+
+4. It builds the extension from the merge commit and checks that the manifest has the new version.
+5. It uploads the zip to the Chrome Web Store and submits it for review. Chrome publishes it when the review passes.
+6. It creates the `toolbar-extension/vX.Y.Z` GitHub release with the zip.
+
+Changesets that land while a release is open go into the next release.
+Never edit the version or the changelog by hand.
+To retry a failed publish, run the workflow from `master` with the merge commit of the release pull request.
+If the failed run already uploaded the zip, also check `skip_upload`, because the store doesn't take the same version twice.
+Publishes run one at a time. A release that waits behind another is skipped when a newer one replaces it, because the newer version carries its changes.
+
+### Setup
+
+The workflow needs two GitHub environments:
+
+- `Release toolbar extension`, with required reviewers. It approves each release, and the workflow refuses to release while it has none.
+- `chrome-web-store`, limited to the `master` branch, with these variables:
+
+| Variable                                      | Value                                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `CHROME_WEB_STORE_PUBLISHER_ID`               | The ID in **Publisher > Settings** of the Chrome Web Store developer dashboard       |
+| `CHROME_WEB_STORE_ITEM_ID`                    | The extension's ID, in its store URL                                                 |
+| `CHROME_WEB_STORE_SERVICE_ACCOUNT`            | The email of a Google Cloud service account                                          |
+| `CHROME_WEB_STORE_WORKLOAD_IDENTITY_PROVIDER` | The workload identity provider that lets this repository act as that service account |
+
+The service account needs no Google Cloud roles. Add its email in the **Account** section of the developer dashboard, which lets it manage the publisher's items.
+The Chrome Web Store API must be on in its Google Cloud project.
+The workload identity provider trusts GitHub's OIDC tokens, and should accept only `PostHog/posthog` in the `chrome-web-store` environment.
+Grant that principal `roles/iam.workloadIdentityUser` on the service account.
+
 ## Store listing images
 
 `store-listing/images/` holds the images of the Chrome Web Store listing: five 1280×800 screenshots, the 440×280 small promo tile and the 1400×560 marquee promo tile.
@@ -93,7 +143,7 @@ The page tools run the floating toolbar's own logics in the content script, and 
 - `elementsLogic` for Inspect.
 - `heatmapToolbarMenuLogic`, `heatmapDataLogic` and `heatmapCaptureLogic` for the heatmap.
 - `actionsLogic` and `actionsTabLogic` for actions.
-- `flagsToolbarLogic` for feature flags.
+- `flagsToolbarLogic` and `flagComparisonLogic` for feature flags.
 - `eventDebugMenuLogic` for the event debugger, and `webVitalsToolbarLogic` for web vitals.
 - `screenshotUploadLogic` for screenshots for events.
 - `experimentsLogic` and `experimentsTabLogic` for web experiments.
@@ -135,6 +185,9 @@ flowchart LR
   The page counts the matches of the selectors the panel shows, and counts again when the page changes.
 - **Experiments.** The page previews the open variant by changing its own DOM, and puts back the original HTML when the user closes the variant, leaves the experiment, saves it, or closes the tool, and when the page tools stop.
   An experiment selector must match in the document itself, because posthog-js applies web experiments with `document.querySelectorAll`, which doesn't look inside shadow roots.
+- **Flag comparison.** The page captures itself with the flag off, then on or with each variant, and puts the overrides back.
+  It sends the captures to the panel as JPEG data URLs in their own message, and refuses other flag changes until the comparison ends, since a second panel on the tab could send one.
+  If the page unloads mid-comparison, the page agent puts the overrides back from the page's world, unless something else changed them during the comparison.
 - **Injection.** The panel injects the content script on first use. The script answers a ping, so the panel doesn't inject it twice.
 - **Navigation.** When a single-page app changes the URL, the port stays open and the page tools follow the new URL.
   A new document closes the port. The panel then connects again and turns the mode the user picked back on.
@@ -151,15 +204,18 @@ Use a site in the project's authorized URLs.
 5. In Inspect, select an element and click **Create action from this element**. Name the action, check the match count, and save it.
 6. Click **Actions**, open an action, add an element with **Select Element**, and save.
 7. Click **Flags**. Turn a flag on, pick a variant, save a payload, and turn a multivariate flag off. The page reacts to each change. Click **Clear overrides**.
-8. Open a page that doesn't load posthog-js as `window.posthog`. **Flags** says that it can't override flags there.
-9. Switch to a tab with another site, then back. The panel shows the state of each tab.
-10. Switch the project in the panel. The panel connects the toolbar to the new project.
-11. Click **Events** and use the page. The events stream in. Open one, search, pause and resume, and export them.
-12. Click **Web vitals**. The project's P90 metrics show, and the page load's metrics fill in as posthog-js reports them.
-13. Click **More**. Check the debug info, open the current session recording, turn on **Hide PII on this page**, and add a screenshot to an event.
-14. Click **Experiments** and open an experiment. Open a variant: the page shows it. Edit its HTML: the page changes as you type. Close the variant, then go back: the page shows its original state.
-15. Create an experiment, pick an element for a transformation with **Select element**, edit it, and save it. Open a page whose snippet sets `disable_web_experiments`: **Experiments** shows a warning.
-16. Switch the browser to dark mode. The panel follows it.
+8. Click the camera on a flag that changes the page. The panel shows the page before and after, and the overrides and payloads are the same as before. Compare a multivariate flag and switch variants. Reload the page during a comparison: the flag doesn't stay overridden. Compare on a page with an image from another site that doesn't send CORS headers: the comparison shows, without that image.
+9. Open a page that doesn't load posthog-js as `window.posthog`. **Flags** says that it can't override flags there.
+10. Switch to a tab with another site, then back. The panel shows the state of each tab.
+11. Switch the project in the panel. The panel connects the toolbar to the new project.
+12. Click **Events** and use the page. The events stream in. Open one, search, pause and resume, and export them.
+13. Click **Web vitals**. The project's P90 metrics show, and the page load's metrics fill in as posthog-js reports them.
+14. Click **More**. Check the debug info, open the current session recording, turn on **Hide PII on this page**, and add a screenshot to an event.
+15. Click **Experiments** and open an experiment. Open a variant: the page shows it. Edit its HTML: the page changes as you type. Close the variant, then go back: the page shows its original state.
+16. Create an experiment, pick an element for a transformation with **Select element**, edit it, and save it. Open a page whose snippet sets `disable_web_experiments`: **Experiments** shows a warning.
+17. Switch the browser to dark mode. The panel follows it.
+18. Open a new tab, or a site that isn't an authorized URL. The panel lists the project's authorized URLs. Click one: it opens in a new tab, and the panel stays open on it.
+19. Open the PostHog app. The panel asks you to open your website, not to add the PostHog app to the authorized URLs.
 
 ## Future: Firefox
 

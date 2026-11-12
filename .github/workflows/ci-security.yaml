@@ -126,7 +126,9 @@ jobs:
                         - '!docs/**'
                         - '!services/**'
                       # Keep these paths aligned with semgrep-devex's scan targets.
+                      # The test sleep step can target any changed Python file, so '**/*.py' is listed too.
                       devex:
+                        - '**/*.py'
                         - 'bin/**'
                         - 'common/**'
                         - 'docs/onboarding/**'
@@ -532,6 +534,21 @@ jobs:
             - name: Warnings (informational)
               run: python3 bin/semgrep_devex_report.py backlog --findings semgrep-devex.json
 
+            - name: Authorization migration (informational)
+              run: |
+                  if [ ! -f .semgrep/rules/devex/authorization-through-sdk.yaml ]; then
+                      echo "authorization-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config .semgrep/rules/devex/authorization-through-sdk.yaml \
+                      --metrics=off \
+                      --timeout 300 \
+                      common/ ee/ posthog/ products/
+
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
             - name: Errors (blocking)
@@ -580,6 +597,25 @@ jobs:
                       --verbose \
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
+
+            - name: New sleeps in Python tests (blocking)
+              if: github.event_name == 'pull_request'
+              run: |
+                  # The baseline scan reports findings only in files the pull request changes.
+                  # The rule's paths.include selects the test files among them.
+                  mapfile -d '' -t python_files < <(git diff -z --name-only --diff-filter=d HEAD^1 HEAD -- '*.py')
+                  if [ "${#python_files[@]}" -eq 0 ]; then
+                      echo "no changed Python files"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config .semgrep/rules/devex/no-fixed-sleeps-in-tests.yaml \
+                      --baseline-commit "$(git rev-parse HEAD^1)" \
+                      --error --metrics=off --timeout 300 \
+                      -- "${python_files[@]}"
 
     semgrep-test-rules:
         needs: changes
@@ -661,6 +697,11 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
+                  sparse-checkout: |
+                      /products/desktop/
+                      /.gitignore
+                      /.semgrepignore
+                  sparse-checkout-cone-mode: false
 
             - name: Run Semgrep (desktop, universal security packs)
               run: |

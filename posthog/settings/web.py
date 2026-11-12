@@ -54,6 +54,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.knowledge_writer.backend.apps.KnowledgeWriterConfig",
     "products.today.backend.apps.TodayConfig",
+    "products.ui_customization.backend.apps.UiCustomizationConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -83,6 +84,7 @@ PRODUCTS_APPS = [
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.release.backend.apps.ReleaseConfig",
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
@@ -239,6 +241,7 @@ MIDDLEWARE = [
     # Must stay after AutoProjectMiddleware, which switches the user into the organization a
     # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
     "posthog.middleware.ActiveOrganizationMiddleware",
+    "posthog.middleware.IPRestrictionsMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
@@ -571,7 +574,10 @@ EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["posthog.auth.SessionAuthentication"],
     "DEFAULT_PAGINATION_CLASS": "posthog.api.pagination.DefaultLimitOffsetPagination",
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        "posthog.ip_restrictions.IPRestrictionsPermission",
+    ],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",
@@ -1029,6 +1035,9 @@ TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 20
 # way clients fetched feature flags before the Rust feature flags service.
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+# Self-hosted installs turn this off: only the cloud billing task reads and deletes the request
+# counters, so elsewhere they grow in Redis forever. The Rust feature flags service reads the same variable.
+FLAGS_BILLING_COUNTERS_ENABLED = get_from_env("FLAGS_BILLING_COUNTERS_ENABLED", True, type_cast=str_to_bool)
 
 ####
 # /remote_config
@@ -1282,6 +1291,7 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+OAUTH_STALE_APPLICATION_GRACE_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
@@ -1499,15 +1509,22 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
 # Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
 AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
 AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
+# The run day starts here, just before the first beat dispatch at 07:30 UTC. A prompt checked
+# since the boundary is not due until the next one, so the catch-up dispatches that follow a
+# killed run only pick up the prompts it missed, however late the previous day's run finished.
+AEO_RUN_DAY_START_UTC_HOUR = get_from_env("AEO_RUN_DAY_START_UTC_HOUR", 7, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+# The Perplexity engine also needs the AI gateway. It stays off until legal confirms which
+# Perplexity terms cover the stored web_search output.
+AEO_PERPLEXITY_ENABLED = get_from_env("AEO_PERPLEXITY_ENABLED", False, type_cast=str_to_bool)
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 
@@ -1638,4 +1655,4 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
 
-CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 8.0

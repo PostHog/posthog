@@ -144,6 +144,16 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_graphql_rate_limit_error_is_retryable_not_non_retryable(self):
+        # GraphQL's own primary rate limit (_raise_if_graphql_rate_limited) raises the same
+        # GitHubRateLimitError type as the REST limit above, but with different wording, so it
+        # needs its own entry to avoid falling through to the generic exception path.
+        observed_error = "Github GraphQL rate limit exceeded (resets at 1786360951)"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     def test_egress_budget_exhausted_is_retryable_not_non_retryable(self):
         # Our own limiter shedding a deferrable call is the twin of GitHub's rate limit above, and
         # must be classified the same way: tracking it as an exception put a self-inflicted,
@@ -172,6 +182,9 @@ class TestGithubSource:
             "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
             # A read timeout on the same call.
             "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)",
+            # An empty/non-JSON body on the same call, e.g. a GitHub-side error page or a truncated
+            # response rather than the expected token payload.
+            "Non-JSON response when refreshing installation token: ",
         ],
     )
     def test_token_mint_transport_error_is_retryable_not_non_retryable(self, observed_error):
@@ -489,6 +502,7 @@ class TestGithubSource:
         integration.access_token = "gho_token"
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
+            mock_github_integration.return_value.integration = integration
             assert self.source._get_access_token(config, self.team_id) == "gho_token"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration")
@@ -502,6 +516,7 @@ class TestGithubSource:
         integration.access_token = None
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
+            mock_github_integration.return_value.integration = integration
             with pytest.raises(ValueError, match="GitHub access token not found"):
                 self.source._get_access_token(config, self.team_id)
 

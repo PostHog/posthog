@@ -3,3 +3,9 @@
 declare module '@posthog/mcp/dist/cli-library.mjs' {
     export function createApiToolLibrary(): import('@posthog/mcp/src/cli/library-types').ApiToolLibrary
 }
+
+declare module '@posthog/mcp/dist/cli-skills.mjs' {
+    export function createSkillsLibrary(
+        options: import('@posthog/mcp/src/cli/library-types').SkillsLibraryOptions
+    ): import('@posthog/mcp/src/cli/library-types').SkillsLibrary
+}

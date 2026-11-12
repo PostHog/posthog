@@ -20,10 +20,12 @@ class TestSavedQueryIncremental(APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/environments/{self.team.pk}/warehouse_saved_queries/{suffix}"
 
-    def _create(self, query: str = GROUPED, incremental: dict | None = None):
+    def _create(self, query: str = GROUPED, incremental: dict | None = None, sync_frequency: str | None = None):
         payload: dict = {"name": "daily_events", "query": {"kind": "HogQLQuery", "query": query}}
         if incremental is not None:
             payload["incremental"] = incremental
+        if sync_frequency is not None:
+            payload["sync_frequency"] = sync_frequency
         return self.client.post(self._url(), payload)
 
     def test_saving_an_eligible_incremental_config_round_trips(self):
@@ -33,6 +35,47 @@ class TestSavedQueryIncremental(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         assert saved_query.incremental_config == {**CONFIG, "lookback_seconds": 0}
         assert response.json()["incremental"]["incremental_key"] == "day"
+
+    @parameterized.expand(
+        [
+            ("incremental_with_a_cadence", CONFIG, "24hour", True),
+            # The SQL editor sends no cadence and calls `materialize` itself, so it must not start a second run.
+            ("incremental_without_a_cadence", CONFIG, None, False),
+            ("incremental_paused", CONFIG, "never", False),
+        ]
+    )
+    def test_creating_an_incremental_view_with_a_cadence_materializes_it(
+        self, _name: str, incremental: dict, sync_frequency: str | None, expect_materialized: bool
+    ):
+        with (
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule,
+        ):
+            response = self._create(incremental=incremental, sync_frequency=sync_frequency)
+
+        assert response.status_code == 201, response.json()
+        assert bool(response.json()["is_materialized"]) is expect_materialized
+        saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        assert bool(saved_query.is_materialized) is expect_materialized
+        assert any(call.kwargs.get("trigger_immediate_run") for call in schedule.call_args_list) is expect_materialized
+
+    @parameterized.expand(
+        [
+            ("cadence_and_incremental_together", {"incremental": CONFIG, "sync_frequency": "24hour"}, True),
+            ("incremental_alone", {"incremental": CONFIG}, False),
+        ]
+    )
+    def test_updating_a_view_to_incremental_with_a_cadence_materializes_it(
+        self, _name: str, patch_body: dict, expect_materialized: bool
+    ):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            view_id = self._create().json()["id"]
+            with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule:
+                response = self.client.patch(self._url(f"{view_id}/"), patch_body)
+
+        assert response.status_code == 200, response.json()
+        assert bool(response.json()["is_materialized"]) is expect_materialized
+        assert any(call.kwargs.get("trigger_immediate_run") for call in schedule.call_args_list) is expect_materialized
 
     @parameterized.expand(
         [
@@ -66,6 +109,56 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["attr"] == "incremental"
         assert expected in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("nullable", CONFIG, "Nullable(DateTime64(6, 'UTC'))", "can be null"),
+            ("missing", {**CONFIG, "unique_key": ["event"]}, "DateTime64(6, 'UTC')", "not in the query's output"),
+        ]
+    )
+    def test_a_unique_key_that_cannot_identify_a_row_is_refused_at_save(
+        self, _name: str, incremental: dict, day_type: str, expected: str
+    ):
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "daily_events",
+                "query": {"kind": "HogQLQuery", "query": GROUPED},
+                "types": [["day", day_type], ["c", "UInt64"]],
+                "incremental": incremental,
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "incremental"
+        assert expected in response.json()["detail"]
+        assert response.json()["extra"] == {"blocked_keys": ["unique_key"]}
+
+    @parameterized.expand(
+        [
+            ("incremental", {"incremental": CONFIG}, ["day", "day"], 400),
+            ("scheduled", {"sync_frequency": "24hour"}, ["day", "Day"], 400),
+            ("not_materialized", {}, ["day", "day"], 201),
+        ]
+    )
+    def test_a_repeated_output_column_is_refused_when_the_view_materializes(
+        self, _name: str, materialization: dict, names: list[str], expected_status: int
+    ):
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "daily_events",
+                "query": {"kind": "HogQLQuery", "query": GROUPED},
+                "types": [[name, "DateTime64(6, 'UTC')"] for name in names] + [["c", "UInt64"]],
+                **materialization,
+            },
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert response.json()["attr"] == "query"
+            for name in set(names):
+                assert f'"{name}"' in response.json()["detail"]
 
     def test_a_disabled_config_skips_the_eligibility_check(self):
         """Turning it off must never be blocked by why it could not be turned on."""

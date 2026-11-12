@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.experiments.backend.facade.enums import RecalculationStartOutcome
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -243,6 +245,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -252,6 +255,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
     FLAG_SHARED = "flag_shared"
+    STALE_EXPERIMENT = "stale_experiment"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -314,6 +318,8 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     ADD_SECONDARY_METRIC = "add_secondary_metric"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
+    END_EXPERIMENT = "end_experiment"
+    FREEZE_EXPOSURE = "freeze_exposure"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -338,9 +344,11 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     SRM = "srm"
+    UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
 
@@ -402,6 +410,15 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = (
         "kept_by_test_account_filter_percentage",
         "exposed_count as a share of exposed_without_test_account_filter_count",
+    )
+    UNSERVED_EXPOSED_COUNT = (
+        "unserved_exposed_count",
+        "Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag "
+        "doesn't serve since that save",
+    )
+    UNSERVED_EXPOSED_PERCENTAGE = (
+        "unserved_exposed_percentage",
+        "unserved_exposed_count as a share of the users or groups first exposed after that day",
     )
     ONLY_COUNT_MATURED_USERS = (
         "only_count_matured_users",
@@ -472,9 +489,35 @@ class ExperimentHealthCheckResult:
 
 
 @frozen
+class ExperimentHealthReleaseCondition:
+    """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
+    must match, and the group type it assigns variants by (None for users)."""
+
+    rollout_percentage: float
+    property_count: int
+    aggregation_group_type_index: int | None
+
+
+@frozen
+class ExperimentHealthSetup:
+    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+
+    # The flag's condition sets as stored, in evaluation order.
+    release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
+    early_exit: bool
+    bucketing_identifier: str
+    aggregation_group_type_index: int | None
+    evaluation_runtime: str
+    evaluation_contexts: tuple[str, ...]
+    ensure_experience_continuity: bool
+
+
+@frozen
 class ExperimentHealth:
     findings: tuple[ExperimentHealthFinding, ...]
     checks: tuple[ExperimentHealthCheckResult, ...]
+    # None when not loaded or when the experiment has no flag. Only the health endpoint loads it.
+    setup: ExperimentHealthSetup | None = None
 
 
 @frozen
@@ -898,3 +941,90 @@ class LinkedExperiment:
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class StaffTeamExperimentCounts:
+    total: int
+    running: int
+
+
+@frozen
+class StaffExperiment:
+    """An experiment as PostHog Admin shows it to staff."""
+
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    status: str
+    is_launched: bool
+    is_legacy: bool
+    has_malformed_properties: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+    created_at: datetime
+
+
+@frozen
+class StaffSharedMetric:
+    id: int
+    name: str
+    is_legacy: bool
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffSavedMetric:
+    id: int
+    name: str
+    team_id: int
+    team_name: str
+    is_legacy: bool
+    migrated_from_id: int | None
+    migrated_to_id: int | None
+
+
+@frozen
+class StaffRecalculationFailure:
+    metric_uuid: str
+    metric_name: str
+    error: str
+
+
+@frozen
+class StaffRecalculation:
+    """A metrics recalculation run as PostHog Admin shows it to staff."""
+
+    id: str
+    experiment_id: int
+    team_id: int
+    status: str
+    trigger: str
+    total_metrics: int
+    # None in lists, because counting needs a query per run.
+    completed_metrics: int | None
+    failed_metrics: int | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration: str | None
+    is_terminal: bool
+    temporal_url: str
+    failures: tuple[StaffRecalculationFailure, ...]
+
+
+@frozen
+class StaffMigration:
+    """The new-engine copy of a legacy experiment or shared metric."""
+
+    copy_id: int
+    # An earlier migration made the copy, so this one created nothing.
+    already_migrated: bool
+
+
+@frozen
+class RecalculationStart:
+    outcome: RecalculationStartOutcome
+    recalculation_id: str | None = None
+    detail: str = ""

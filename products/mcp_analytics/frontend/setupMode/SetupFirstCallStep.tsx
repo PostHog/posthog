@@ -1,4 +1,5 @@
 import * as errorPng from '@posthog/brand/hoggies/png/error'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as partyPng from '@posthog/brand/hoggies/png/party'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -6,16 +7,18 @@ import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
-import { SetupCallsPanel } from './SetupCallsPanel'
+import type { MCPServerTools } from './setupMode'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
+import { SetupToolsPanel } from './SetupToolsPanel'
 import { ToolCallHeroCard } from './ToolCallHeroCard'
 import { ToolCallRevealCard } from './ToolCallRevealCard'
 
 const HedgehogParty = pngHoggie(partyPng)
 const HedgehogError = pngHoggie(errorPng)
+const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 
-/** The newest call as a hero card and the one before it as a smaller card. Later calls go to the panel. */
+/** The newest call as a hero card and the one before it as a smaller card. */
 const REVEALED_CALLS = 2
 
 const COPY = {
@@ -26,31 +29,47 @@ const COPY = {
         lead: 'Call a tool from your agent and it shows up here.',
     },
     success: {
-        title: (count: number) =>
-            count > 1 ? 'Your first tool calls just landed' : 'Your first tool call just landed',
+        title: (count: number, latest: boolean) =>
+            latest
+                ? count > 1
+                    ? 'Your latest tool calls'
+                    : 'Your latest tool call'
+                : count > 1
+                  ? 'Your first tool calls just landed'
+                  : 'Your first tool call just landed',
         lead: 'This is what every call looks like in PostHog: which client called which tool, why, and how it went.',
         next: 'Make it useful',
     },
     failure: {
-        title: (count: number, failed: number) =>
+        title: (count: number, failed: number, latest: boolean) =>
             count === 1
-                ? 'Your first tool call failed'
+                ? `Your ${latest ? 'latest' : 'first'} tool call failed`
                 : failed === count
-                  ? 'Both of your first tool calls failed'
-                  : 'Two calls in, and one already needs you',
+                  ? `Both of your ${latest ? 'latest' : 'first'} tool calls failed`
+                  : latest
+                    ? 'One of your latest tool calls failed'
+                    : 'Two calls in, and one already needs you',
         lead: "PostHog caught the error your agent got back. Failures like this are the ones you'll want to hear about.",
         next: 'Catch these automatically',
     },
-    live: 'New calls keep arriving here.',
 }
 
 interface SetupFirstCallStepProps {
     calls: MCPActivityRecentCallApi[] | null
+    /** Every call the project has had, so a returning project's calls are not called its first. */
+    toolCallsTotal: number
     loadFailed: boolean
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
     onNext: () => void
 }
 
-function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): JSX.Element {
+function FirstCallBody({
+    calls,
+    toolCallsTotal,
+    loadFailed,
+    onNext,
+}: Pick<SetupFirstCallStepProps, 'calls' | 'toolCallsTotal' | 'loadFailed' | 'onNext'>): JSX.Element {
     if (calls === null) {
         return loadFailed ? (
             <LemonBanner type="error">{COPY.failedToLoad}</LemonBanner>
@@ -81,18 +100,23 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
     if (calls.length === 0) {
         return (
             <>
-                <SetupStepHero Hedgehog={HedgehogParty} title={COPY.none.title} lead={COPY.none.lead} />
+                <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.none.title} lead={COPY.none.lead} />
                 {next}
             </>
         )
     }
 
     const [newest, previous] = revealed
+    const latest = toolCallsTotal > revealed.length
     return (
         <>
             <SetupStepHero
                 Hedgehog={failed > 0 ? HedgehogError : HedgehogParty}
-                title={failed > 0 ? COPY.failure.title(revealed.length, failed) : COPY.success.title(revealed.length)}
+                title={
+                    failed > 0
+                        ? COPY.failure.title(revealed.length, failed, latest)
+                        : COPY.success.title(revealed.length, latest)
+                }
                 lead={copy.lead}
             />
             <ToolCallHeroCard call={newest} />
@@ -104,15 +128,7 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
 
 export function SetupFirstCallStep(props: SetupFirstCallStepProps): JSX.Element {
     return (
-        <SetupStepLayout
-            aside={
-                <SetupCallsPanel
-                    calls={props.calls?.slice(REVEALED_CALLS) ?? null}
-                    status={{ kind: 'live', text: COPY.live }}
-                    empty={null}
-                />
-            }
-        >
+        <SetupStepLayout aside={<SetupToolsPanel tools={props.serverTools} failed={props.serverToolsFailed} />}>
             <FirstCallBody {...props} />
         </SetupStepLayout>
     )

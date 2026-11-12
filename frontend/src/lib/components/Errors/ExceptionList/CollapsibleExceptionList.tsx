@@ -161,7 +161,7 @@ export function CollapsibleExceptionList({
     return (
         <div className="contents [--frame-border:var(--color-border-primary)]">
             <div data-quill className="contents">
-                <div className={cn('flex flex-col gap-y-2', className)}>
+                <div className={cn('flex flex-col gap-y-2', className)} aria-busy={stackFrameRecordsLoading}>
                     <ExceptionListRenderer
                         exceptionList={exceptionList}
                         renderException={(exception, exceptionIndex) => {

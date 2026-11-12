@@ -29,10 +29,11 @@ from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
-from products.logs.backend.platform_cutover import hand_over, in_an_environment, takes_new_alert
+from products.logs.backend.platform_cutover import hand_over, in_an_environment, takes_new_alert, team_cutover_at
 from products.logs.backend.platform_source_config import filters_of
 
 GROUPING_NOT_AVAILABLE: Final = "Grouping isn't available for this alert yet. Set the mode to single to save it."
+LABELS_NOT_AVAILABLE: Final = "Labels aren't available for this alert yet. Remove them to save it."
 
 
 def _refuse_grouping_on_logs(grouping: Grouping | None) -> None:
@@ -42,22 +43,50 @@ def _refuse_grouping_on_logs(grouping: Grouping | None) -> None:
         raise InvalidPlatformAlertEdit("grouping", GROUPING_NOT_AVAILABLE)
 
 
-def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
-    """Hands a new alert to the platform, and creates the copy with `grouping`, unless its team keeps
-    its alerts on logs. False when the alert stays with logs.
+def _refuse_labels_on_logs(labels: dict[str, str] | None) -> None:
+    if labels:
+        raise InvalidPlatformAlertEdit("labels", LABELS_NOT_AVAILABLE)
 
-    Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping.
+
+def on_created(
+    alert: LogsAlertConfiguration,
+    at: datetime,
+    *,
+    grouping: Grouping | None = None,
+    labels: dict[str, str] | None = None,
+) -> bool:
+    """Hands a new alert to the platform, and creates the copy with `grouping` and `labels`, unless
+    its team keeps its alerts on logs. False when the alert stays with logs.
+
+    Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping or the labels.
     """
     grouping = grouping if grouping is not None else Grouping()
     if in_an_environment(alert) or not takes_new_alert(alert.team_id, new_alert_id=alert.id):
         _refuse_grouping_on_logs(grouping)
+        _refuse_labels_on_logs(labels)
         return False
     if grouping.mode != GroupingMode.SINGLE and (problem := grouping_problem(grouping.keys, alert.threshold_operator)):
         raise InvalidPlatformAlertEdit("grouping", problem)
-    if hand_over(alert, at, grouping=grouping):
+    if _hand_over_new(alert, at, grouping):
+        if labels:
+            # The hand-over's upsert does not validate labels. The edit path does.
+            update_owned_copy(
+                team_id=alert.team_id,
+                legacy_configuration_id=alert.id,
+                change=lambda stored: replace(stored, labels=labels),
+                snooze_until=None,
+                snooze_changed=False,
+            )
         return True
     _refuse_grouping_on_logs(grouping)
+    _refuse_labels_on_logs(labels)
     return False
+
+
+def _hand_over_new(alert: LogsAlertConfiguration, at: datetime, grouping: Grouping | None) -> bool:
+    # A week of its own per alert would keep the legacy evaluator running while the team adds alerts.
+    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id)
+    return hand_over(alert, at, grouping=grouping, shadow_from=shadow_from)
 
 
 def admit_platform_write(
@@ -91,43 +120,72 @@ def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit,
     )
     _set_settings(alert, edit)
     alert.save()
-    if not hand_over(alert, now, grouping=edit.grouping):
+    if not _hand_over_new(alert, now, edit.grouping):
         raise RuntimeError(f"Logs alert {alert.id} was created with a platform copy already firing")
     return alert.id
 
 
-def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping: Grouping | None = None) -> None:
-    """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
-    A `grouping` of None keeps the copy's own. An alert logs owns has no copy to write.
+def on_updated(
+    alert: LogsAlertConfiguration,
+    *,
+    snooze_changed: bool,
+    grouping: Grouping | None = None,
+    labels: dict[str, str] | None = None,
+    at: datetime | None = None,
+) -> None:
+    """Writes an edit the logs API saved onto the platform's copy, with the grouping and labels the
+    edit set. A `grouping` or `labels` of None keeps the copy's own. An alert logs owns has no copy
+    to write. `at` is when the edit started, before its `LogsAlertEvent` row.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
-    alert cannot take the grouping.
+    alert cannot take the grouping or the labels.
     """
     if not alert.platform_owned:
         _refuse_grouping_on_logs(grouping)
+        _refuse_labels_on_logs(labels)
         return
     update_owned_copy(
         team_id=alert.team_id,
         legacy_configuration_id=alert.id,
-        change=_platform_change_of(alert, grouping),
+        change=platform_change_of(alert, grouping, labels),
         snooze_until=alert.snooze_until,
         snooze_changed=snooze_changed,
+        at=at,
     )
 
 
-def on_deleted(*, team_id: int, alert_id: UUID) -> None:
-    delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+def on_deleted(*, team_id: int, alert_id: UUID) -> bool:
+    """Deletes the alert's copy. True when the copy was the platform's, whose destinations went with it."""
+    return delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
-def _platform_change_of(
-    alert: LogsAlertConfiguration, grouping: Grouping | None
+def platform_edit_of(
+    alert: LogsAlertConfiguration, grouping: Grouping, labels: dict[str, str] | None
+) -> PlatformAlertConfigurationEdit:
+    """A logs alert's settings as a whole platform edit."""
+    upsert = platform_upsert_of(alert)
+    return PlatformAlertConfigurationEdit(
+        enabled=upsert.enabled,
+        grouping=grouping,
+        labels=labels or {},
+        **{field: getattr(upsert, field) for field in SETTINGS_FIELDS},
+    )
+
+
+def platform_change_of(
+    alert: LogsAlertConfiguration, grouping: Grouping | None, labels: dict[str, str] | None
 ) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
-    # Only the settings a logs alert has, and a grouping the edit named. The logs row has no grouping,
-    # so an edit that names none keeps what the copy stores rather than resetting it.
+    """The platform edit that carries a logs alert's settings onto its configuration."""
+    # Only the settings a logs alert has, and the grouping and labels the edit named. The logs row
+    # stores neither, so an edit that names none keeps what the copy stores rather than resetting it.
     upsert = platform_upsert_of(alert)
     shared = {field: getattr(upsert, field) for field in SETTINGS_FIELDS}
     return lambda stored: replace(
-        stored, enabled=upsert.enabled, grouping=grouping if grouping is not None else stored.grouping, **shared
+        stored,
+        enabled=upsert.enabled,
+        grouping=grouping if grouping is not None else stored.grouping,
+        labels=labels if labels is not None else stored.labels,
+        **shared,
     )
 
 

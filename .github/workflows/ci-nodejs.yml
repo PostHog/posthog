@@ -82,6 +82,7 @@ jobs:
             # full history here measured 75s (median of 12 runs) of an 80s job, and every job in
             # this workflow waits on it.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   clean: false
                   filter: blob:none
@@ -141,6 +142,13 @@ jobs:
                         # A migration change makes the test job build Postgres from the Django
                         # models, and the Jest integration tests read product tables too.
                         - 'products/*/backend/migrations/**'
+                        # The schema-check test reads every Django app's migrations and the routing
+                        # file to prove that each table Node SQL reads has a migration the check covers.
+                        - 'posthog/*/migrations/**'
+                        - 'products/db_routing.yaml'
+                        - 'rust/persons_migrations/**'
+                        - 'rust/cyclotron-node-migrations/**'
+                        - 'rust/behavioral_cohorts_migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
@@ -336,6 +344,9 @@ jobs:
                   count=$(printf '%s\n' $NODE_SRC_FILES | grep -c . || true)
                   [ "$count" -le 200 ] || full over_ceiling
                   [ -n "${files// /}" ] || full empty_file_list
+                  # This test reads Node SQL and the migrations from disk, so no import connects it to the
+                  # changed files and --findRelatedTests would never select it.
+                  files="$files src/schema-check/derive-requirements.test.ts"
 
                   echo "::notice::selective jest over $count changed Node source file(s)"
                   {
@@ -477,9 +488,9 @@ jobs:
     tests:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
-        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
+        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ${{ matrix.runner }}
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
         # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
         timeout-minutes: 45
@@ -490,15 +501,19 @@ jobs:
                     - lane: parallel
                       shard: 1
                       shard_count: 1
+                      runner: depot-ubuntu-24.04-4
                     - lane: serial
                       shard: 1
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 2
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 3
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

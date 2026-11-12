@@ -12,8 +12,8 @@ import type {
 
 /** How far before and after the send the page looks for what the person did. */
 export const ACTIVITY_WINDOW_DAYS = 7
-export const ACTIVITY_BEFORE_LIMIT = 50
-export const ACTIVITY_AFTER_LIMIT = 100
+/** A row with no session of its own stays with activity it happened this close to. */
+export const ACTIVITY_JOIN_MINUTES = 30
 
 export interface ActivityEvent {
     uuid: string
@@ -81,6 +81,8 @@ export type ActivityEventRow = {
     event: ActivityEvent
     /** How many identical events in a row this one stands for. */
     count: number
+    /** When the last of those identical events happened. */
+    lastAt: string
 }
 export type ActivityOtherEmailRow = {
     kind: 'otherEmail'
@@ -88,33 +90,31 @@ export type ActivityOtherEmailRow = {
     at: string
     entry: TransactionalEmailLogEntryApi
 }
-export type ActivityEmailRow = { kind: 'email'; key: string; at: string; event: TransactionalEmailLogEventApi }
-export type ActivityRow =
-    | { kind: 'session'; key: string; sessionId: string; at: string }
-    | ActivityEventRow
-    | ActivityOtherEmailRow
-    | { kind: 'emailGroup'; key: string; at: string; rows: ActivityEmailRow[] }
+export type ActivityRow = ActivityEventRow | ActivityOtherEmailRow
 
 export interface ActivityTimeline {
     /** What the person did before the email went out. */
     before: ActivityRow[]
-    /** The email's own steps, then what the person did after it went out. */
+    /** What the person did after the email went out. */
     after: ActivityRow[]
 }
 
-/**
- * The person's events, this email's steps and their other emails, in time order and split at the send. A row starts
- * each session, the email's consecutive steps fold into one block, and repeats of one interaction fold into one row.
- */
+/** The person's events and other emails, in time order and split at the send. Repeats of one interaction fold into one row. */
 export function buildActivityTimeline(
     events: ActivityEvent[],
-    emailEvents: TransactionalEmailLogEventApi[],
     otherEmails: TransactionalEmailLogEntryApi[],
     sentAt: string
 ): ActivityTimeline {
-    const merged: (ActivityEventRow | ActivityEmailRow | ActivityOtherEmailRow)[] = [
+    const merged: ActivityRow[] = [
         ...events.map(
-            (event): ActivityEventRow => ({ kind: 'event', key: event.uuid, at: event.timestamp, event, count: 1 })
+            (event): ActivityEventRow => ({
+                kind: 'event',
+                key: event.uuid,
+                at: event.timestamp,
+                lastAt: event.timestamp,
+                event,
+                count: 1,
+            })
         ),
         ...otherEmails.map(
             (entry): ActivityOtherEmailRow => ({
@@ -124,54 +124,31 @@ export function buildActivityTimeline(
                 entry,
             })
         ),
-        ...emailEvents.map(
-            (event, index): ActivityEmailRow => ({
-                kind: 'email',
-                key: `email-${event.kind}-${index}`,
-                at: event.at,
-                event,
-            })
-        ),
     ].sort((a, b) => dayjs(a.at).valueOf() - dayjs(b.at).valueOf())
 
     const sent = dayjs(sentAt)
-    const isBefore = (row: ActivityEventRow | ActivityEmailRow | ActivityOtherEmailRow): boolean =>
-        row.kind !== 'email' && dayjs(row.at).isBefore(sent)
+    const isBefore = (row: ActivityRow): boolean => dayjs(row.at).isBefore(sent)
     return {
         before: foldRows(merged.filter(isBefore)),
         after: foldRows(merged.filter((row) => !isBefore(row))),
     }
 }
 
-function foldRows(merged: (ActivityEventRow | ActivityEmailRow | ActivityOtherEmailRow)[]): ActivityRow[] {
+function foldRows(merged: ActivityRow[]): ActivityRow[] {
     const rows: ActivityRow[] = []
-    let currentSession: string | null = null
     for (const row of merged) {
         const last = rows[rows.length - 1]
-        if (row.kind === 'email') {
-            if (last?.kind === 'emailGroup') {
-                last.rows.push(row)
-            } else {
-                rows.push({ kind: 'emailGroup', key: `group-${row.key}`, at: row.at, rows: [row] })
-            }
-            continue
-        }
-        if (row.kind === 'otherEmail') {
-            rows.push(row)
-            continue
-        }
         if (
+            row.kind === 'event' &&
             last?.kind === 'event' &&
             last.event.event === row.event.event &&
             last.event.sessionId === row.event.sessionId &&
+            (!!row.event.sessionId || dayjs(row.at).diff(dayjs(last.lastAt), 'minute') < ACTIVITY_JOIN_MINUTES) &&
             describeActivityEvent(last.event) === describeActivityEvent(row.event)
         ) {
             last.count += 1
+            last.lastAt = row.at
             continue
-        }
-        if (row.event.sessionId && row.event.sessionId !== currentSession) {
-            currentSession = row.event.sessionId
-            rows.push({ kind: 'session', key: `session-${row.key}`, sessionId: row.event.sessionId, at: row.at })
         }
         rows.push(row)
     }
@@ -188,49 +165,60 @@ export function relativeToSend(at: string, sentAt: string): string {
     return seconds < 0 ? `${duration} before` : `${duration} after`
 }
 
-export interface ActivityAfterSummary {
-    /** For example "Back in your app 3m after clicking", when the person returned after engaging with the email. */
-    comeback: string | null
-    eventCount: number
-    sessionCount: number
-    /** The custom events they did after the email, in the order they first did them. */
-    outcomes: string[]
-}
-
 /** When the email went out, which is the line between what the person did before and after it. */
 export function emailSentAt(email: Pick<TransactionalEmailLogDetailApi, 'timeline' | 'created_at'>): string {
     return email.timeline.find((event) => event.kind === 'sent')?.at ?? email.created_at
 }
 
+/** A server-side event has no session or page, so it does not show that the person came back. */
+function isPersonInApp(event: ActivityEvent): boolean {
+    return !!event.sessionId || event.event === '$pageview' || event.event === '$screen'
+}
+
+/** The person may have had the app open all along when they opened the email, so only a fresh start counts as coming back. */
+function cameBack(event: ActivityEvent, earlier: ActivityEvent[]): boolean {
+    if (event.sessionId) {
+        return !earlier.some((other) => other.sessionId === event.sessionId)
+    }
+    return !earlier.some(
+        (other) =>
+            isPersonInApp(other) &&
+            dayjs(event.timestamp).diff(dayjs(other.timestamp), 'minute') < ACTIVITY_JOIN_MINUTES
+    )
+}
+
 function firstReturnToApp(
-    after: ActivityEvent[],
+    activity: Pick<PersonActivity, 'before' | 'after'>,
     timeline: readonly TransactionalEmailLogEventApi[]
 ): { event: ActivityEvent; engagement: TransactionalEmailLogEventApi } | null {
     const engagements = timeline.filter((event) => event.kind === 'clicked' || event.kind === 'opened').reverse()
-    for (const event of after) {
-        const engagement = engagements.find((candidate) => dayjs(event.timestamp).isAfter(candidate.at))
-        if (engagement) {
-            return { event, engagement }
+    const loaded = [...activity.before, ...activity.after]
+    for (const event of activity.after.filter(isPersonInApp)) {
+        const earlierEngagements = engagements.filter((candidate) => dayjs(event.timestamp).isAfter(candidate.at))
+        const click = earlierEngagements.find((candidate) => candidate.kind === 'clicked')
+        if (click) {
+            return { event, engagement: click }
+        }
+        const earlier = loaded.filter((other) => dayjs(other.timestamp).isBefore(event.timestamp))
+        if (earlierEngagements.length && cameBack(event, earlier)) {
+            return { event, engagement: earlierEngagements[0] }
         }
     }
     return null
 }
 
-export function summarizeAfter(
-    after: ActivityEvent[],
+/** For example "Back in your app 3m after clicking the email", when the person returned after engaging with it. */
+export function describeComeback(
+    activity: Pick<PersonActivity, 'before' | 'after'>,
     timeline: readonly TransactionalEmailLogEventApi[]
-): ActivityAfterSummary {
-    const firstReturn = firstReturnToApp(after, timeline)
-    const comeback = firstReturn
-        ? `Back in your app ${humanFriendlyDuration(
-              Math.max(1, dayjs(firstReturn.event.timestamp).diff(dayjs(firstReturn.engagement.at), 'second')),
-              { maxUnits: 1 }
-          )} after ${firstReturn.engagement.kind === 'clicked' ? 'clicking the email' : 'opening the email'}`
-        : null
-    return {
-        comeback,
-        eventCount: after.length,
-        sessionCount: new Set(after.map((event) => event.sessionId).filter(Boolean)).size,
-        outcomes: Array.from(new Set(after.filter(isCustomEvent).map((event) => event.event))),
+): string | null {
+    const firstReturn = firstReturnToApp(activity, timeline)
+    if (!firstReturn) {
+        return null
     }
+    const backAfter = humanFriendlyDuration(
+        Math.max(1, dayjs(firstReturn.event.timestamp).diff(dayjs(firstReturn.engagement.at), 'second')),
+        { maxUnits: 1 }
+    )
+    return `Back in your app ${backAfter} after ${firstReturn.engagement.kind === 'clicked' ? 'clicking' : 'opening'} the email`
 }
