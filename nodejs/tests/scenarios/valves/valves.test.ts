@@ -391,24 +391,33 @@ describe('valves', () => {
             expect(valves.timeline()[0].error).toBeUndefined()
         })
 
-        it('records a throttle that no send went over as never observed once the drive ends, and lifts it', async () => {
-            const valves = createValves({ pollMs: 5 })
+        it.each<[string, string, boolean]>([
+            ['its hold ends', '100ms', true],
+            ['the drive ends', '1m', false],
+        ])(
+            'records a throttle that no send went over as never observed once %s, and lifts it',
+            async (_story, holdFor, releasedBeforeDriveEnds) => {
+                const valves = createValves({ pollMs: 5 })
 
-            await valves.start([throttle(1, '1m')], onEdge())
-            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
-            expect(await send()).toBe('sent')
-            await valves.releaseAll()
+                await valves.start([throttle(1, holdFor)], onEdge())
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                expect(await send()).toBe('sent')
+                if (releasedBeforeDriveEnds) {
+                    await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+                }
+                await valves.releaseAll()
 
-            expect(await send()).toBe('sent')
-            expect(valves.timeline()[0]).toEqual(
-                expect.objectContaining({
-                    error: 'applied but not observed',
-                    appliedAt: expect.any(String),
-                    releasedAt: expect.any(String),
-                })
-            )
-            expect(valves.timeline()[0].observedAt).toBeUndefined()
-        })
+                expect(await send()).toBe('sent')
+                expect(valves.timeline()[0]).toEqual(
+                    expect.objectContaining({
+                        error: 'applied but not observed',
+                        appliedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    })
+                )
+                expect(valves.timeline()[0].observedAt).toBeUndefined()
+            }
+        )
     })
 
     it('keeps both reasons when a fault it never observed fails to release', async () => {
