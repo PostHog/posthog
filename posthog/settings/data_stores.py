@@ -306,6 +306,9 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_LOGS_HOST: str = os.getenv("CLICKHOUSE_LOGS_HOST", "clickhouse")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+# Where queries from projects on the native events table connect. Unset keeps them on the hosts above.
+CLICKHOUSE_EVENTS_ONLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_ONLINE_HOST", None)
+CLICKHOUSE_EVENTS_OFFLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_OFFLINE_HOST", None)
 # Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
 # Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
 CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
@@ -498,6 +501,17 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
+
+CLICKHOUSE_EVENTS_ONLINE_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_ONLINE_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_EVENTS_ONLINE_HOST
+    else None
+)
+CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_OFFLINE_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_EVENTS_OFFLINE_HOST
+    else None
+)
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)

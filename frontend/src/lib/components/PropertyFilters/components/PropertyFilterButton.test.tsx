@@ -54,6 +54,17 @@ describe('PropertyFilterButton', () => {
         // covered by the isGroupCardFilterKey() unit tests.)
         expect(contentTitle(container)).toBeNull()
     })
+    it('labels a commented HogQL filter with its comment and titles it with the whole expression', () => {
+        const key = "properties.$browser = 'Chrome' -- Chrome users"
+        const { container } = render(
+            <Provider>
+                <PropertyFilterButton item={{ type: PropertyFilterType.HogQL, key, value: null }} onClick={jest.fn()} />
+            </Provider>
+        )
+
+        expect(container.querySelector('.PropertyFilterButton-content')).toHaveTextContent('Chrome users')
+        expect(contentTitle(container)).toBe(key)
+    })
     it('resolves relationship member names without opening the picker and keeps unknown IDs readable', async () => {
         useMocks({
             get: {

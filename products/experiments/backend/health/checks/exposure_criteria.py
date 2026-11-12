@@ -14,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.events_received import joined, not_received_severity, quoted
 from products.experiments.backend.health.context import (
@@ -28,6 +29,7 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     CheckOutcome,
     CheckSkip,
+    CheckValues,
     not_applicable,
     not_checked,
 )
@@ -36,6 +38,16 @@ from products.experiments.backend.health.skips import (
 EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
 FILTER_ON_PROPERTY_NOT_INGESTED = "filter_on_property_not_ingested"
+
+
+def exposure_criteria_values(ctx: HealthContext) -> CheckValues:
+    event = ctx.exposure_events.custom_event if ctx.exposure_events else None
+    if ctx.archived or event is None:
+        return {}
+    return {
+        ExperimentHealthValueKey.EVENT: event,
+        ExperimentHealthValueKey.EVENT_RECEIVED: ctx.events_received.get(event),
+    }
 
 
 def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:

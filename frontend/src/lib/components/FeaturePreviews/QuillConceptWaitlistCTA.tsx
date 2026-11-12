@@ -22,6 +22,7 @@ export function QuillConceptWaitlistCTA({ feature }: QuillConceptWaitlistCTAProp
         return (
             <Button
                 variant="primary"
+                size="sm"
                 disabledReason={
                     enabled ? "You have already expressed your interest. We'll contact you when it's ready" : undefined
                 }
@@ -67,6 +68,7 @@ export function QuillConceptWaitlistCTA({ feature }: QuillConceptWaitlistCTAProp
             <Button
                 type="submit"
                 variant="primary"
+                size="sm"
                 disabledReason={!email ? 'Enter your email' : undefined}
                 aria-label={`Get notified when ${feature.name} is ready`}
             >

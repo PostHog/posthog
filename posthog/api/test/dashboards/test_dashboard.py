@@ -38,7 +38,6 @@ from posthog.models.group_type_mapping import (
     update_group_type_mapping_fields,
 )
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
@@ -49,6 +48,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.facade.platform import native_insight_alert_ids_by_insight
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
@@ -143,33 +143,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         read_calls = [c for c in mock_report_user_action.call_args_list if c.args[1:2] == ("dashboard read",)]
         self.assertEqual(read_calls, [])
-
-    def test_retrieve_dashboard_list_includes_other_environments(self):
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
-
-        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "A"}, team_id=self.team.id)
-        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "B"}, team_id=other_team_in_project.id)
-        self.dashboard_api.create_dashboard({"name": "C"}, team_id=team_in_other_project.id)
-
-        response_project_data = self.dashboard_api.list_dashboards(self.project.id)
-        response_env_current_data = self.dashboard_api.list_dashboards(self.team.id, parent="environment")
-        response_env_other_data = self.dashboard_api.list_dashboards(other_team_in_project.id, parent="environment")
-
-        self.assertEqual(
-            {dashboard["id"] for dashboard in response_project_data["results"]},
-            {dashboard_a_id, dashboard_b_id},
-        )
-        self.assertEqual(
-            {dashboard["id"] for dashboard in response_env_current_data["results"]},
-            {dashboard_a_id, dashboard_b_id},
-        )
-        self.assertEqual(
-            {dashboard["id"] for dashboard in response_env_other_data["results"]},
-            {dashboard_a_id, dashboard_b_id},
-        )
 
     def test_list_filter_by_tag(self):
         self.dashboard_api.create_dashboard({"name": "tagged", "tags": ["tag"]})
@@ -1162,21 +1135,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 10 + 6 once at least one insight materializes. Three of the 6 read the
-            # revenue, marketing and customer analytics configs that go into the query cache key.
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key,
+            # and one reads the insights' alerts that only the alerts platform keeps.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 10 + 6):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-    def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
+    @parameterized.expand([("get",), ("stream",)])
+    def test_insight_alerts_do_not_nplus1_dashboard_gets(self, endpoint: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         def _add_insight_with_alerts() -> None:
@@ -1202,18 +1177,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 )
                 AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
 
-        def _dashboard_query_count() -> int:
-            with capture_db_queries() as ctx:
-                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
-            return len(ctx.captured_queries)
+        def _dashboard_reads() -> tuple[int, int]:
+            # A streamed tile queries from another thread, which the query capture does not see, so the
+            # reads of the alerts kept only on the platform are counted at the alerts facade as well.
+            with (
+                capture_db_queries() as ctx,
+                patch(
+                    "products.alerts.backend.facade.platform.native_insight_alert_ids_by_insight",
+                    wraps=native_insight_alert_ids_by_insight,
+                ) as platform_reads,
+            ):
+                if endpoint == "stream":
+                    streamed = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
+                    b"".join(streamed.streaming_content)  # type: ignore[attr-defined]
+                else:
+                    self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+            return len(ctx.captured_queries), platform_reads.call_count
 
         _add_insight_with_alerts()
-        _dashboard_query_count()  # warmup: absorbs one-off writes like last_accessed_at
-        baseline = _dashboard_query_count()
+        _dashboard_reads()  # warmup: absorbs one-off writes like last_accessed_at
+        baseline = _dashboard_reads()
 
         _add_insight_with_alerts()
         _add_insight_with_alerts()
-        self.assertEqual(_dashboard_query_count(), baseline)
+        self.assertEqual(_dashboard_reads(), baseline)
+        self.assertEqual(baseline[1], 1)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:

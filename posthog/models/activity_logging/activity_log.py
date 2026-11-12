@@ -626,6 +626,16 @@ platform_alert_runtime_fields = [
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
+    # Written by the runner on every run, not by a person editing the check.
+    "DataQualityCheck": [
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        "failing_since",
+        "last_succeeded_at",
+        "updated_at",
+    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -821,6 +831,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+        "embedding",
+        "embedding_model",
+        "embedding_text_hash",
     ],
     "DataQualityCheck": [
         # Written by the runner, not by a person editing the check.
@@ -828,6 +841,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_status",
         "subject_name",
         "subject_status",
+        "failing_since",
+        "last_succeeded_at",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
         "metric",
         "saved_query",
@@ -913,6 +928,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "version",
         # Internal pointer to the flag-cleanup task, not a user-meaningful change.
         "flag_cleanup_task_id",
+        # The copy of the rule that a launch stores for the analysis. It holds the rule's seed.
+        "feature_flag_rule_snapshot",
     ],
     "ExperimentSavedMetric": [
         "experiments",

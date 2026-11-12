@@ -76,7 +76,7 @@
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
         "free_only": {
-            "description": "Run only while the organization has free credits left this billing period, so the scanner never adds spend.",
+            "description": "Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`.",
             "type": "boolean"
         },
         "goal": {
