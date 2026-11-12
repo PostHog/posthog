@@ -22,11 +22,28 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
+from posthog.scope_docs import get_scope_docs
+from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
 SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
+
+
+def validate_scopes_fit_scoped_teams(scopes: list[str], scoped_teams: list[int] | None) -> None:
+    if not scoped_teams:
+        return
+    scope_docs = get_scope_docs()
+    organization_wide = [
+        scope
+        for scope in scopes
+        if (doc := scope_docs.get(cast(APIScopeObject, scope.split(":")[0]))) is not None and doc.organization_wide
+    ]
+    if organization_wide:
+        raise serializers.ValidationError(
+            f"Keys limited to specific projects can't have organization-wide scopes. "
+            f"Remove {', '.join(organization_wide)}, or give the key access to the whole organization."
+        )
 
 
 def validate_personal_api_key_scopes(
@@ -216,6 +233,17 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid organization UUID")
 
         return scoped_organizations
+
+    def validate(self, attrs: dict) -> dict:
+        if not {"scopes", "scoped_teams"}.intersection(attrs):
+            return attrs
+        scopes = attrs.get("scopes", self.instance.scopes if self.instance is not None else [])
+        scoped_teams = attrs.get("scoped_teams", self.instance.scoped_teams if self.instance is not None else None)
+        try:
+            validate_scopes_fit_scoped_teams(scopes or [], scoped_teams)
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"scopes": error.detail}) from None
+        return attrs
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         request = self.context["request"]

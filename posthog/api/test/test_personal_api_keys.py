@@ -595,6 +595,83 @@ class TestPersonalAPIKeysAPIValidation(APIBaseTest):
         if expected_status == 201:
             assert PersonalAPIKey.objects.get(id=response.json()["id"]).expires_at == expires_at
 
+    @parameterized.expand(
+        [
+            ("project_scoped", True, [], 400),
+            ("organization_scoped", False, ["org"], 201),
+            ("unscoped", False, [], 201),
+        ]
+    )
+    def test_create_key_with_organization_wide_scope(self, _, scope_to_team, scoped_organizations, expected_status):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "org wide",
+                "scopes": ["organization:read", "insight:read"],
+                "scoped_organizations": [str(self.organization.id)] if scoped_organizations else [],
+                "scoped_teams": [self.team.id] if scope_to_team else [],
+            },
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert response.json()["attr"] == "scopes"
+            assert "organization:read" in response.json()["detail"]
+            assert not PersonalAPIKey.objects.filter(label="org wide").exists()
+
+    @parameterized.expand(
+        [
+            ("limit_to_project_keeping_scopes", None, {"scoped_teams": "team"}),
+            ("add_scope_to_project_key", "team", {"scopes": ["organization:read"]}),
+            ("both_at_once", None, {"scoped_teams": "team", "scopes": ["organization_member:write"]}),
+        ]
+    )
+    def test_cannot_update_key_into_project_scoped_key_with_organization_wide_scope(self, _, initial_teams, patch):
+        initial_scopes = ["organization:read"] if initial_teams is None else ["insight:read"]
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=initial_scopes,
+            scoped_teams=[self.team.id] if initial_teams else [],
+        )
+        body = {name: [self.team.id] if value == "team" else value for name, value in patch.items()}
+
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "scopes"
+        key.refresh_from_db()
+        assert key.scopes == initial_scopes
+        assert key.scoped_teams == ([self.team.id] if initial_teams else [])
+
+    def test_can_rename_existing_project_key_that_already_holds_organization_wide_scope(self):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["organization:read"],
+            scoped_teams=[self.team.id],
+        )
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"label": "Renamed"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        key.refresh_from_db()
+        assert key.label == "Renamed"
+
+    def test_can_limit_key_to_project_after_dropping_organization_wide_scope(self):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["organization:read", "error_tracking:write"],
+        )
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}", {"scoped_teams": [self.team.id], "scopes": ["error_tracking:write"]}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        key.refresh_from_db()
+        assert key.scopes == ["error_tracking:write"]
+        assert key.scoped_teams == [self.team.id]
+
     def test_cannot_create_key_with_empty_scopes(self):
         response = self.client.post(
             "/api/personal_api_keys/",

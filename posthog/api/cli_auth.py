@@ -32,7 +32,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
-from posthog.api.personal_api_key import validate_personal_api_key_scopes
+from posthog.api.personal_api_key import validate_personal_api_key_scopes, validate_scopes_fit_scoped_teams
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
@@ -235,6 +235,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         try:
             validate_personal_api_key_scopes(scopes, user, allowed_scopes=UNPRIVILEGED_SCOPES)
+            validate_scopes_fit_scoped_teams(scopes, [project_id])
         except serializers.ValidationError as error:
             return Response(
                 {"error": "invalid_scope", "error_description": get_validation_error_description(error)},

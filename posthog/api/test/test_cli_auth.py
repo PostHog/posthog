@@ -154,6 +154,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
             ("unknown_object", "not_a_scope:read"),
             ("unknown_action", "query:admin"),
             ("internal_object", "signal_scout_internal:write"),
+            ("organization_wide_object", "organization:write"),
         ]
     )
     def test_authorization_rejects_invalid_or_disallowed_scopes(self, _name: str, scope: str):

@@ -198,6 +198,28 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload.scopes).toEqual(['*'])
     })
 
+    it.each([
+        ['teams' as const, [1], ['insight:read']],
+        ['all' as const, [], ['organization:read', 'insight:read']],
+    ])(
+        'drops organization-wide scopes only for project scoped keys (access_type %s)',
+        async (accessType, scopedTeams, expectedScopes) => {
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setEditingKeyValues({
+                label: 'Test key',
+                access_type: accessType,
+                scoped_teams: scopedTeams,
+                scopes: ['organization:read', 'insight:read'],
+            })
+
+            await logic.asyncActions.submitEditingKey()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturedCreatePayload).not.toBeNull()
+            expect(capturedCreatePayload.scopes).toEqual(expectedScopes)
+        }
+    )
+
     it('opens a new key with the preset scopes for a ?preset= link, all available to a project scoped key', () => {
         router.actions.push(urls.settings('user-api-keys'), { preset: 'source_map_upload' })
 

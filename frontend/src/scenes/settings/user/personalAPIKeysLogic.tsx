@@ -476,12 +476,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 // "Read-only access" that expand to every scope in API_SCOPES.
                 // `*` (all access) is preserved as-is.
                 const allowed = values.allowedScopeKeys
+                const projectScoped = payload.access_type === 'teams'
                 const sanitizedScopes =
                     payload.scopes?.filter((scope) => {
                         if (scope === '*') {
                             return true
                         }
                         const [object] = scope.split(':')
+                        if (projectScoped && SCOPE_DOCS[object as keyof typeof SCOPE_DOCS]?.organizationWide) {
+                            return false
+                        }
                         return !!object && allowed.has(object)
                     }) ?? []
                 const { expiration, ...rest } = payload
