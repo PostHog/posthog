@@ -62,11 +62,12 @@ Search Console has neither, so the choice is to keep it or turn it off.
 
 ## Scouts
 
-| Control                | How it works                                                                                                                           | How to change it                                                                                                  | What the user loses                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Pause a scout          | Stops its scheduled runs. Its past reports stay.                                                                                       | `posthog:scout-config-update` with `enabled: false`                                                               | Everything that scout would find                              |
-| Run a scout less often | Spend falls in proportion to runs. Going from hourly to every 6 hours cuts that scout's spend by about five sixths.                    | `posthog:scout-config-update` with a larger `run_interval_minutes`, or a cron schedule                            | Findings arrive later                                         |
-| Add a pre-check        | A HogQL query runs before each scheduled run. When it finds nothing new, the run does not start, so there is no sandbox or model call. | Test with `posthog:scout-config-precheck-test`, then save with `posthog:scout-config-update` and `precheck_query` | A query that is too strict hides real activity from the scout |
+| Control                 | How it works                                                                                                                           | How to change it                                                                                                      | What the user loses                                             |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Pause a scout           | Stops its scheduled runs. Its past reports stay.                                                                                       | `posthog:scout-config-update` with `enabled: false`                                                                   | Everything that scout would find                                |
+| Run a scout less often  | Spend falls in proportion to runs. Going from hourly to every 6 hours cuts that scout's spend by about five sixths.                    | `posthog:scout-config-update` with a larger `run_interval_minutes`, or a cron schedule                                | Findings arrive later                                           |
+| Add a pre-check         | A HogQL query runs before each scheduled run. When it finds nothing new, the run does not start, so there is no sandbox or model call. | Test with `posthog:scout-config-precheck-test`, then save with `posthog:scout-config-update` and `precheck_query`     | A query that is too strict hides real activity from the scout   |
+| Trigger from a workflow | A workflow's "Run scout" step starts a run when an event fires. Spend then follows the events, not the clock.                          | Add the step to a workflow, then slow the scout's schedule to a backstop. See [Workflow triggers](#workflow-triggers) | Anything the event does not announce waits for the backstop run |
 
 When `run_cron_schedule` is set, it decides when the scout runs, not `run_interval_minutes`. Read the schedule from the one that applies, and change that one.
 
@@ -82,7 +83,64 @@ It suits a scout poorly when a query cannot tell whether a run would matter, suc
 - The dry run reads as you, and a scheduled check reads as the scout's acting user. A query that passes the dry run can still fail on schedule, so read `last_precheck_outcome` after the next scheduled tick. It holds only the latest result.
 - Add a backstop when the scout should still run from time to time.
 
-The `authoring-scouts` skill has the query rules and placeholders in `references/scheduled-precheck.md`. Read it before you write a query.
+How to write one:
+
+- The query is one HogQL `SELECT`. It stops after 10 seconds and reads at most 50 rows.
+- No rows, or one row with one false value such as a zero `count()`, skips the run. Any other result starts it.
+  A row with two columns never skips, so use `GROUP BY` or `HAVING` when you select more than one column.
+- `{since}` is the start of the last run that started, `{now}` is the current time, and `{interval_minutes}` is the gap between two scheduled runs.
+- Test the thing the scout reads, not a proxy for it. A scout that triages new exceptions tests for new `$exception` events, not for any event.
+
+This query runs the scout when new exceptions arrived, and at least once a week:
+
+```sql
+SELECT count() > 0 OR {since} < {now} - INTERVAL 7 DAY
+FROM events
+WHERE event = '$exception' AND timestamp > {since}
+```
+
+After you save a pre-check, read `last_precheck_outcome` after the next scheduled tick, and compare the scout's runs and spend after one week.
+Many `skip` outcomes with the same number of reports mean it works. No reports at all means the query is too strict.
+
+The `authoring-scouts` skill has the full query rules in `references/scheduled-precheck.md`. Read it before you write a query.
+
+### Schedules
+
+Each run costs about the same, so the schedule sets most of a scout's spend.
+
+- `run_interval_minutes` takes 30 to 43200 (30 days). The default is 1440, one run a day.
+- `run_cron_schedule` is a five-field cron expression in the project's timezone, with runs at least 30 minutes apart. Set it to null to return to the interval.
+- A cron schedule can drop the hours when nobody acts on a report. `0 9 * * 1-5` runs once each weekday morning, which is 5 runs a week where an hourly scout makes 168.
+- Match the schedule to how fast someone acts on a finding. A scout whose reports are read once a day gains nothing from hourly runs.
+- A slower schedule delays findings. A pre-check does not. When a query can tell that nothing is new, use the pre-check first, and slow the schedule only for what remains.
+
+### Workflow triggers
+
+Use a workflow trigger when a known event says there is work, for example a new GitHub issue, a merged pull request, a deploy, or an alert that fires.
+The scout then runs when the event arrives, and its schedule only has to catch what the event misses.
+
+1. Build a workflow whose trigger is the event, with a "Run scout" step that names the scout. The `building-workflows` skill has the steps.
+   Write the step's note from identifiers, for example `Issue #{event.properties.issue_number}`, so the run handles that subject first.
+2. Slow the scout's schedule to a backstop with `posthog:scout-config-update`, for example once a day or once a week.
+   Do not pause the scout. A paused scout rejects workflow triggers.
+3. After a week, compare the scout's runs and spend with the week before, using "Spend by scout" in [queries-spend.md](queries-spend.md).
+
+What to know before you recommend it:
+
+- A workflow run always starts. The pre-check does not gate it, so the workflow's trigger filters are the only gate. A trigger on a frequent event can cost more than the schedule it replaced.
+- A scout starts at most one workflow run every 30 minutes. Triggers that arrive sooner, or during a run, wait and are handled together by the next run. At most 20 wait.
+- A run with a note handles the named subject and skips the scout's routine unless the scout's skill says otherwise. Keep a scheduled backstop so the routine still runs.
+- The spend limit stops workflow runs too.
+- The scout's skill may need a section for workflow-triggered runs. The `authoring-scouts` skill covers it under "Workflow-triggered runs".
+
+Which control to choose:
+
+| Situation                                                     | Control                                |
+| ------------------------------------------------------------- | -------------------------------------- |
+| A query can tell that nothing is new                          | Pre-check                              |
+| Findings are read on a fixed rhythm, such as a morning review | Cron schedule                          |
+| A specific event says there is work                           | Workflow trigger, with a slow backstop |
+| Nobody reads the reports                                      | Pause                                  |
 
 ## Project steering instructions
 

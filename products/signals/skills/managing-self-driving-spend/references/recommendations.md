@@ -77,6 +77,11 @@ Before you judge a scout, read its description, `output_destinations`, `structur
   Say "up to" and give `empty_run_credits`, scaled to a month, as the saving: some empty runs will still start, because the query can find new data that is not worth a report.
   For a measurement scout, gate only on whether new samples exist. Its empty runs can still record data, so its `empty_run_credits` overstates waste.
   Do not count this saving together with a slower schedule for the same scout.
+- **Scout schedules.** For each finder or watchdog scout that runs more often than once a day, compare its schedule with how fast someone acts on its reports.
+  When reports are opened hours or days after they appear, recommend a slower interval or a cron schedule that covers working hours, and give the saving as the share of runs removed.
+- **Workflow triggers.** When a scout's job starts from an event the project already receives, such as a new issue, a merged pull request, or a firing alert, suggest a workflow trigger with a daily or weekly backstop schedule.
+  Estimate the new run count from how often the event fired in the period, at most one run every 30 minutes, plus the backstop runs.
+  Recommend it only when that count is clearly below the current run count. Say that it needs a workflow, and that you cannot apply it with the scout tools alone.
 - **Research steering.** When one kind of report has a low settled rate and neither a setting nor source steering selects it, suggest research instructions that name it.
   Give no dollar figure.
 - **Automatic pull requests.** Compare pull requests linked and merged, by source and by scout (see queries-controls.md).
