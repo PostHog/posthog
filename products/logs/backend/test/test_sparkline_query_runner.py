@@ -12,6 +12,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
 from products.logs.backend.sparkline_query_runner import SPARKLINE_TOP_BREAKDOWN_VALUES
+from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups
 
 
 class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -81,7 +82,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 49)
         self.assertEqual(sum(r["count"] for r in response), 900)
 
-    def _service_sparkline(self, rank_by: str | None = None) -> list:
+    def _service_sparkline(self, rank_by: str | None = None, search_term: str | None = None) -> list:
         query_params = {
             "dateRange": {"date_from": "2026-03-01T00:00:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"},
             "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
@@ -89,7 +90,66 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         if rank_by is not None:
             query_params["sparklineRankBy"] = rank_by
+        if search_term is not None:
+            query_params["searchTerm"] = search_term
         return self._make_sparkline_api_request(query_params)
+
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
+    def test_rollup_keeps_the_bucket_boundaries_of_the_logs_table(self):
+        query_params = {
+            "dateRange": {"date_from": "2026-03-01T00:07:13.000000Z", "date_to": "2026-03-01T20:41:00.000000Z"},
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+        from_rollup = self._make_sparkline_api_request(query_params)
+        from_logs = self._make_sparkline_api_request({**query_params, "sparklineRankBy": "bytes"})
+
+        self.assertNotIn("bytes_uncompressed", from_rollup[0])
+        self.assertEqual(
+            [(r["time"], r["severity"], r["count"]) for r in from_rollup],
+            [(r["time"], r["severity"], r["count"]) for r in from_logs],
+        )
+
+    @time_machine.travel("2026-03-15T00:10:00Z", tick=False)
+    def test_rollup_drops_the_part_of_the_first_bucket_older_than_the_shortest_retention(self):
+        # The range starts at the cutoff, so its first bucket starts 10 minutes before the cutoff.
+        response = self._make_sparkline_api_request(
+            {"dateRange": {"date_from": "2026-03-01T00:10:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"}}
+        )
+
+        self.assertNotIn("bytes_uncompressed", response[0])
+        self.assertEqual(sum(r["count"] for r in response), self.SERVICE_COUNT * (self.BUCKET_COUNT - 1))
+
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
+    def test_severity_filter_with_upper_case_reads_the_logs_table(self):
+        response = self._make_sparkline_api_request(
+            {
+                "dateRange": {"date_from": "2026-03-01T00:00:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"},
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "severity_level", "type": "log", "operator": "exact", "value": ["ERROR"]}
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertIn("bytes_uncompressed", response[0])
+
+    @time_machine.travel("2026-03-20T00:10:00Z", tick=False)
+    def test_range_older_than_the_shortest_retention_reads_the_logs_table(self):
+        # Only logs table rows carry bytes, and the test logs table has no TTL.
+        self.assertIn("bytes_uncompressed", self._service_sparkline()[0])
+
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
+    def test_body_search_reads_the_logs_table_not_the_rollup(self):
+        response = self._service_sparkline(search_term="text-that-no-fixture-log-contains")
+
+        self.assertEqual(sum(r["count"] for r in response), 0)
 
     @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_service_breakdown_collapses_the_tail_into_one_other_bucket(self):
@@ -121,9 +181,9 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(self.HEAVY_SERVICE, by_bytes)
 
         expected_bytes = self.BUCKET_COUNT * (self.HEAVY_BYTES_PER_LOG + (self.SERVICE_COUNT - 1) * self.BYTES_PER_LOG)
-        for rank_by in ("count", "bytes"):
-            response = self._service_sparkline(rank_by=rank_by)
-            self.assertEqual(sum(r["bytes_uncompressed"] for r in response), expected_bytes, rank_by)
+        response = self._service_sparkline(rank_by="bytes")
+        self.assertEqual(sum(r["bytes_uncompressed"] for r in response), expected_bytes)
+        self.assertNotIn("bytes_uncompressed", self._service_sparkline(rank_by="count")[0])
 
     @classmethod
     def _insert_logs_across_services(cls, start: str, bucket_count: int, services: dict[str, int]) -> None:
@@ -134,7 +194,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             template = json.loads(f.readline())
         start_at = datetime.fromisoformat(start)
-        rows = ""
+        rows = []
         for service_name, bytes_per_log in services.items():
             for bucket_index in range(bucket_count):
                 log_item = dict(template)
@@ -146,9 +206,6 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 timestamp = start_at + timedelta(minutes=30 * bucket_index, seconds=61)
                 log_item["timestamp"] = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
                 log_item["observed_timestamp"] = log_item["timestamp"]
-                rows += json.dumps(log_item) + "\n"
-        sync_execute(f"""
-            INSERT INTO logs
-            FORMAT JSONEachRow
-            {rows}
-        """)
+                rows.append(log_item)
+        # The test `logs` table feeds no volume rollup, so the sparkline needs the rollup rows too.
+        insert_logs_and_rollups(rows)
