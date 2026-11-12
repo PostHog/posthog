@@ -286,6 +286,14 @@ class TestManageScheduledEmails(EmailsApiTestBase):
             ("claimed_by_a_worker", "claimed", [], status.HTTP_409_CONFLICT, "already_sending", "claimed"),
             ("a_repeat_after_the_job_is_gone", None, [("canceled", 60, "")], status.HTTP_200_OK, None, None),
             ("gone_after_it_went_out", None, [("sent", 60, "")], status.HTTP_404_NOT_FOUND, "not_found", None),
+            (
+                "gone_before_its_status_landed",
+                None,
+                [("scheduled", 60, "")],
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "delivery_unavailable",
+                None,
+            ),
             ("unknown", None, [], status.HTTP_404_NOT_FOUND, "not_found", None),
         ]
     )
@@ -533,6 +541,7 @@ class TestManageScheduledEmails(EmailsApiTestBase):
                 "2026-07-16T00:00:00Z",
                 {"outcome": "invalid_scheduled_at", "lead_time_bucket": "over_30d"},
             ),
+            ("move_without_an_offset", "move", "waiting", "2026-06-17T09:00:00", {"outcome": "invalid_request"}),
         ]
     )
     def test_records_each_call_for_usage(self, mock_post, _flag, _name, call, job, scheduled_at, expected):

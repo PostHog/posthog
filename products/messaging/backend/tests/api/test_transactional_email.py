@@ -1255,6 +1255,15 @@ class TestTransactionalEmail(APIBaseTest):
         fields = schema["components"]["schemas"][reference.rsplit("/", 1)[-1]]["properties"]
         assert {name: fields[name]["default"] for name in CODE_SEND_FIELDS if "default" in fields[name]} == {}
 
+    def test_the_send_schema_types_the_time_and_address_fields(self, _mock_post, _flag, _capture):
+        schema = self.client.get("/api/schema/").data
+
+        send_email = schema["paths"]["/api/projects/{project_id}/messaging/send/email/"]["post"]
+        reference = send_email["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        fields = schema["components"]["schemas"][reference.rsplit("/", 1)[-1]]["properties"]
+        assert (fields["scheduled_at"].get("format"), "oneOf" in fields["scheduled_at"]) == ("date-time", False)
+        assert [option["type"] for option in fields["cc"]["oneOf"]] == ["string", "array", "null"]
+
     def test_a_code_send_passes_its_idempotency_key_and_reports_a_replay(self, mock_post, _flag, _capture):
         mock_post.return_value = MagicMock(
             status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}

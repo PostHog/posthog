@@ -327,18 +327,18 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def partial_update(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
         _require_project_secret_api_key(request)
         require_email_status_read(self.team)
-        serializer = RescheduleEmailSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        requested_at = serializer.validated_data["scheduled_at"]
-        bucket = lead_time_bucket(requested_at)
-        if bucket != "now":
-            # Moving an email to now needs no flag, so turning the flag off still lets callers flush what waits.
-            require_scheduled_sends(
-                self.team,
-                "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time that "
-                "already passed to send it now.",
-            )
-        with self._reporting_manage(request, "reschedule", lead_time_bucket=bucket) as report:
+        with self._reporting_manage(request, "reschedule") as report:
+            serializer = RescheduleEmailSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            requested_at = serializer.validated_data["scheduled_at"]
+            report["lead_time_bucket"] = lead_time_bucket(requested_at)
+            if report["lead_time_bucket"] != "now":
+                # Moving an email to now needs no flag, so turning the flag off still lets callers flush what waits.
+                require_scheduled_sends(
+                    self.team,
+                    "Scheduled sends aren't on for this project, so PostHog didn't move the email. Send a time that "
+                    "already passed to send it now.",
+                )
             message_id = _message_id(pk)
             scheduled_at = reschedule_email(self.team_id, message_id, requested_at)
             report["outcome"] = "scheduled"
@@ -353,6 +353,9 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         report: dict[str, Any] = {"outcome": "error"}
         try:
             yield report
+        except serializers.ValidationError:
+            report["outcome"] = "invalid_request"
+            raise
         except EmailNotFound:
             report["outcome"] = "not_found"
             raise NotFound() from None
