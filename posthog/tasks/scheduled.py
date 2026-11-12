@@ -37,6 +37,7 @@ from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     capture_task_run_state_metrics,
+    capture_task_status_shadow_metrics,
     check_async_migration_health,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
@@ -1040,6 +1041,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        capture_task_status_shadow_metrics.s(),
+        name="tasks status shadow metrics",
     )
 
     # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
