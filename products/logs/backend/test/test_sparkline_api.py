@@ -8,7 +8,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
+from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -20,16 +20,8 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
-            sql = ""
-            for line in f:
-                log_item = json.loads(line)
-                log_item["team_id"] = cls.team.id
-                sql += json.dumps(log_item) + "\n"
-            sync_execute(f"""
-                INSERT INTO logs
-                FORMAT JSONEachRow
-                {sql}
-            """)
+            # A sparkline over the full fixture window reads the volume rollup, so the rows go to both.
+            insert_logs_and_rollups([{**json.loads(line), "team_id": cls.team.id} for line in f])
 
     def _sparkline(self, query_params, expected_status=status.HTTP_200_OK):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/sparkline", data={"query": query_params})
