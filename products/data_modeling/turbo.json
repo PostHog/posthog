@@ -11,6 +11,7 @@
                 "backend/tasks/**",
                 "backend/apps.py",
                 "backend/console.py",
+                "backend/integration_hooks.py",
                 "backend/signals.py",
                 "backend/schedule.py",
                 "backend/logic/node_materialization.py",
