@@ -35,6 +35,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { tryShowDidYouKnow } from 'lib/components/DidYouKnow/didYouKnowLogic'
+import { DID_YOU_KNOW_TIPS } from 'lib/components/DidYouKnow/didYouKnowTips'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -4583,6 +4585,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
     })),
     afterMount(({ actions, props, values, cache }) => {
+        if (props.mode === SQLEditorMode.FullScene) {
+            tryShowDidYouKnow(DID_YOU_KNOW_TIPS.SQL_EDITOR_SHORTCUT)
+        }
+
         cache.lastSchemaConnectionId = values.selectedSchemaConnectionId
         claimConnectionScope(props.tabId, values.selectedSchemaConnectionId)
         cache.activeQueryDecorationIds = [] as string[]

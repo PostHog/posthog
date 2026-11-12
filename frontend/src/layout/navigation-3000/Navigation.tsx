@@ -3,6 +3,7 @@ import './Navigation.scss'
 import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useLayoutEffect } from 'react'
 
+import { didYouKnowLogic } from 'lib/components/DidYouKnow/didYouKnowLogic'
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -27,6 +28,7 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
+    useMountedLogic(didYouKnowLogic)
     useMountedLogic(mcpHintLogic)
     // Its mount resumes an AI approval that an SSO re-login interrupted, on whichever page the user lands.
     useMountedLogic(aiConsentLogic)

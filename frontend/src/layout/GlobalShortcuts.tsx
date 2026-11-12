@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
+import { markDidYouKnowTipAsMastered } from 'lib/components/DidYouKnow/didYouKnowLogic'
+import { DID_YOU_KNOW_TIPS } from 'lib/components/DidYouKnow/didYouKnowTips'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
@@ -72,6 +74,7 @@ export function GlobalShortcuts(): null {
         keybind: [keyBinds.sqlEditor],
         intent: 'Open SQL editor',
         interaction: 'function',
+        onKeyboardInvoke: () => markDidYouKnowTipAsMastered(DID_YOU_KNOW_TIPS.SQL_EDITOR_SHORTCUT),
         callback: () => {
             if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()) {
                 router.actions.push(urls.sqlEditor())

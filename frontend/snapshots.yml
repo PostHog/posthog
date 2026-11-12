@@ -884,6 +884,14 @@ snapshots:
         hash: v1.k794b7964.89b139d3fd955cba46c4764c502cd723c30ba9c22edf12284fb28831edf2fa4a.ChXzyQTW4DpBjF_0yRT5eepsn3Ug6CpFxxFql0TGaVk
     components-definition-popover--without-timestamps--light:
         hash: v1.k794b7964.e2fd03de3331355a4c4ce091a24b7863c1df80eaa48f49403de0a6436c96ab18.q2BCdg1-r5ZAbu37LMuxfqzOHN0rUS6J4HUH-0zs7gM
+    components-did-you-know-toast--sql-editor-shortcut--dark:
+        hash: v1.k794b7964.0e05610e1cb06f123af16f0fde813a6fa416551aac6251afb269f0f6886d5014.ZfJpzAw5yOVlTZ3R1FQNhO6-i10hrCbw7nsnWCFQmo0
+    components-did-you-know-toast--sql-editor-shortcut--light:
+        hash: v1.k794b7964.47e53c0c971ca75c2771831b26690826bbc2efe9febab0353b415a08c87e27f9.5LG6iBc3rK1FbWfIKLCtpC9aI4lDkf7WyPwR13rCQt8
+    components-did-you-know-toast--with-action--dark:
+        hash: v1.k794b7964.4c7271425eea9db85debf6f913a099ea4547f4637efaf6164b8f1bee0fbc8a7e.nzJ0ytO4O-FYtCkyf4fdASiSfEZX7xR4XE0OF0XQ8CA
+    components-did-you-know-toast--with-action--light:
+        hash: v1.k794b7964.e2f0d81aac36a5c5217bae3a2fa8d22f6e016accb57d29e61b019cf7932339e4.EGtTXkS-v8KVxTcA12G6x33p-kzEGvInoUq5h8p7rJc
     components-editable-field--default--dark:
         hash: v1.k794b7964.96cebd9a9ee9f961e2a7c9c793859ca01448010be1de0946158aa8908e8d04e7.4aWIbpNZqJzaemsfdq5O9DV4qRUWQ9CwbR5XwLyMQJY
     components-editable-field--default--light:
