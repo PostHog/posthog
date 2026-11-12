@@ -53,6 +53,20 @@ def store_session_id_chunks(
     return prefix, total_chunks
 
 
+def discard_session_id_chunks(prefix: str, total_chunks: int) -> list[str]:
+    """Delete uploaded chunks that no workflow reads, from the sync write path. Returns the keys left behind."""
+    failed_keys = object_storage.delete_objects([generate_chunk_key(prefix, i) for i in range(total_chunks)])
+    if failed_keys:
+        logger.warning(
+            "Could not discard %d of %d session ID chunks under %s: %s",
+            len(failed_keys),
+            total_chunks,
+            prefix,
+            failed_keys,
+        )
+    return failed_keys
+
+
 @asynccontextmanager
 async def _s3_client() -> AsyncIterator:
     session = aioboto3.Session()

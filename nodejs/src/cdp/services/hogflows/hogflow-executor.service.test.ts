@@ -232,7 +232,7 @@ describe('Hogflow Executor', () => {
             new EmailSuppressionService(suppressionDb ?? hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() },
+            { report: jest.fn(), reportEmailSent: jest.fn() },
             undefined,
             null,
             teamEmailRateLimiter,
@@ -287,7 +287,8 @@ describe('Hogflow Executor', () => {
                         backoffMaxMs: 30000,
                     },
                     undefined as any,
-                    undefined as any
+                    undefined as any,
+                    { reportPushSent: () => Promise.resolve() }
                 ),
             }
         )
@@ -3598,7 +3599,7 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
-        const emailFlow = (email: Record<string, any>): HogFlow =>
+        const emailFlow = (email: Record<string, any>, stepConfig: Record<string, any> = {}): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3616,6 +3617,7 @@ describe('Hogflow Executor', () => {
                             config: {
                                 template_id: 'template-email-routing-test',
                                 inputs: { email: { value: email } },
+                                ...stepConfig,
                             },
                         },
                         exit: {
@@ -4035,21 +4037,32 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a template send as the step renders it',
                 step: storedStep,
+                stepConfig: { template_uuid: 'template-1' },
                 send: (): QueuedSend | undefined => undefined,
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: { template_uuid: 'template-1' } }),
+            },
+            {
+                name: 'a step whose email input names a template, with the template the step was saved from',
+                step: () => ({ ...storedStep(), template: { template_uuid: 'another-template' } }),
+                stepConfig: { template_uuid: 'template-1' },
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep(), template: { template_uuid: 'template-1' } }),
             },
             {
                 name: 'a code send for a local template as the step renders it',
                 step: storedStep,
+                stepConfig: {},
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false } }),
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
             {
                 name: "a code send with the caller's content, sender, reply-to and copies over the step",
                 step: codeKeyStep,
+                stepConfig: { template_key: 'reset_password' },
                 send: codeSend,
                 expected: () => ({
                     type: 'email',
+                    template: { template_key: 'reset_password' },
                     to: { email: 'recipient@example.com', name: 'Recipient' },
                     from: { integrationId, email: 'security@posthog.com', name: 'Security' },
                     cc: 'manager@example.com, team@example.com',
@@ -4064,18 +4077,20 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a code send with the metadata of its files, which the email worker loads by job id',
                 step: storedStep,
+                stepConfig: {},
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false }, attachments: [attachmentFile] }),
-                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
+                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile], template: {} }),
             },
             {
                 name: 'a step whose own email input lists files without them, because only an accepted send has files',
                 step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                stepConfig: {},
                 send: (): QueuedSend | undefined => undefined,
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
-        ])('hands the email queue $name', async ({ step, send, expected }) => {
+        ])('hands the email queue $name', async ({ step, stepConfig, send, expected }) => {
             await insertEmailSetup('ses')
-            const invocation = flowInvocation(emailFlow(step()))
+            const invocation = flowInvocation(emailFlow(step(), stepConfig))
             invocation.state.variables = { name: 'Ada' }
             invocation.state.send = send()
 

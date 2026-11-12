@@ -11,7 +11,6 @@ export function QuillMetricProvenance({ metric }: { metric: DataCatalogMetricApi
             <CollapsibleTrigger>AI provenance</CollapsibleTrigger>
             <CollapsibleContent className="flex flex-col gap-1">
                 {metric.ai_model && <Text size="xs">Model: {metric.ai_model}</Text>}
-                {metric.confidence != null && <Text size="xs">Confidence: {Math.round(metric.confidence * 100)}%</Text>}
                 {metric.reasoning && <Text size="xs">{metric.reasoning}</Text>}
             </CollapsibleContent>
         </Collapsible>

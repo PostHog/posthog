@@ -1276,6 +1276,58 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Restore a past version of a feature flag.
+ *
+ * Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+ * what they were at `version_number`. Read that version first with the versions endpoint to see
+ * what will change. The flag's key, its enabled state, and its archived state stay as they are,
+ * as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+ * version, so it can be undone by restoring the version before it.
+ *
+ * Send the flag's current `version`. A change after that version is refused with 409. An
+ * approval policy that gates the change opens a change request instead. A restore to a version
+ * that matches the current configuration writes nothing and returns the flag.
+ */
+export const featureFlagsVersionsRestoreCreateBodyAskRollbackReasonDefault = false
+export const featureFlagsVersionsRestoreCreateBodyRollbackReasonNoteMax = 1000
+
+export const featureFlagsVersionsRestoreCreateBodyVersionMin = 0
+
+export const FeatureFlagsVersionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    ask_rollback_reason: zod
+        .boolean()
+        .default(featureFlagsVersionsRestoreCreateBodyAskRollbackReasonDefault)
+        .describe(
+            "When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag."
+        ),
+    rollback_reason: zod
+        .union([
+            zod
+                .enum(['errors', 'metrics', 'planned', 'wrong_configuration', 'other'])
+                .describe(
+                    '\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.\n\n\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other"
+        ),
+    rollback_reason_note: zod
+        .string()
+        .max(featureFlagsVersionsRestoreCreateBodyRollbackReasonNoteMax)
+        .nullish()
+        .describe('A free-text note for `rollback_reason`. Requires `rollback_reason`.'),
+    version: zod
+        .number()
+        .min(featureFlagsVersionsRestoreCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            "The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0."
+        ),
+})
+
+/**
  * Bulk delete feature flags by filter criteria or explicit IDs.
  *
  * Accepts either:
