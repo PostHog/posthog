@@ -33,7 +33,14 @@ def _first_party_pin(product: str) -> list[str]:
 
 
 # Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
-_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5-mini")
+_DESKTOP_LEGACY_MODEL_ADAPTERS: dict[str, str] = {"gpt-5.4": "codex", "gpt-5.3-codex": "codex", "gpt-5-mini": "codex"}
+_DESKTOP_LEGACY_MODELS: tuple[str, ...] = tuple(_DESKTOP_LEGACY_MODEL_ADAPTERS)
+
+
+def uncataloged_runtime_adapter(model_id: str) -> str | None:
+    if model_id in SDK_IMPLICIT_MODELS:
+        return "claude"
+    return _DESKTOP_LEGACY_MODEL_ADAPTERS.get(model_id)
 
 
 def gateway_pin(models: list[str]) -> list[str]:

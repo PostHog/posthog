@@ -4655,10 +4655,14 @@ export interface ModelChoiceApi {
      * @nullable
      */
     cost_multiplier?: string | null
+    /** Largest context window the model accepts, in tokens. */
+    context_window?: number
+    /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
+    allowed?: boolean
 }
 
 export interface ModelCatalogueResponseApi {
-    /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+    /** Every model a PostHog Code run may use, read from the PostHog model catalog. */
     models: ModelChoiceApi[]
 }
 

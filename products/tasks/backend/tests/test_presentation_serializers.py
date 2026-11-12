@@ -21,7 +21,6 @@ from posthog.temporal.oauth import (
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.model_catalogue import GatewayModel
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
     SandboxEnvironmentWriteSerializer,
@@ -160,18 +159,18 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("gpt-5.5", "high", "codex"),
             ("gpt-5.3-codex", "high", "codex"),
+            ("claude-haiku-4-5", None, "claude"),
+            ("claude-sonnet-4-5", None, "claude"),
             ("claude-sonnet-4-6", "medium", "claude"),
             ("unknown-model", "high", None),
-            ("gpt-5.3-codex", "ultracode", None),
+            ("gpt-5.5", "ultracode", None),
         ]
     )
-    @patch(
-        "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-        return_value=(GatewayModel(id="gpt-5.3-codex", owned_by="openai", context_window=200_000),),
-    )
-    def test_model_only_selection(self, model: str, effort: str, adapter: str | None, _models) -> None:
-        serializer = TaskRunCreateRequestSerializer(data={"model": model, "reasoning_effort": effort})
+    def test_model_only_selection(self, model: str, effort: str | None, adapter: str | None) -> None:
+        data = {"model": model} if effort is None else {"model": model, "reasoning_effort": effort}
+        serializer = TaskRunCreateRequestSerializer(data=data)
         assert serializer.is_valid() is (adapter is not None), serializer.errors
         if adapter is not None:
             assert serializer.validated_data["runtime_adapter"] == adapter

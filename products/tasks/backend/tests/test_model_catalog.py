@@ -1,14 +1,15 @@
 from typing import Any
 
 import pytest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from syrupy.extensions.json import JSONSnapshotExtension
 
+from posthog.llm.gateway_client import Product
+
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
-from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
+from products.tasks.backend.facade.model_catalogue import FREE_TIER_PIN_KEY, available_model_choices, plan_model_choices
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
@@ -206,37 +207,34 @@ def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
 
 
 class TestAvailableModelChoices:
-    """The gateway-backed list the `/tasks/models` endpoint serves. Slack and the web read
-    the catalog directly, so this path is the only one still asking what is served now."""
+    @parameterized.expand(
+        [
+            ("posthog_code", "zai-org/glm-5.3", True),
+            ("posthog_code", "claude-opus-5-5", True),
+            ("posthog_code", "gpt-6.1-terra", False),
+            ("posthog_code", "claude-opus-4-7", False),
+            ("slack_app", "zai-org/glm-5.3", False),
+            ("slack_app", "claude-opus-5-5", True),
+        ]
+    )
+    def test_offers_the_offered_models_the_product_pin_admits(
+        self, product: Product, model: str, offered: bool
+    ) -> None:
+        assert (model in {c.model for c in available_model_choices(product)}) is offered
 
-    def test_drops_providers_we_cannot_route(self) -> None:
-        gateway = (
-            GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
-            GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
-        )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
-            assert [c.model for c in available_model_choices("posthog_code")] == ["claude-fable-5"]
+    def test_every_offered_model_carries_a_context_window(self) -> None:
+        assert all(c.context_window > 0 for c in available_model_choices("posthog_code"))
 
-    def test_keeps_vendor_served_models_the_catalog_routes(self) -> None:
-        # The gateway owns these under the party serving them, not the harness that drives
-        # them, so routing on the owner alone dropped every one from the web picker.
-        gateway = (
-            GatewayModel(id="deepseek-ai/deepseek-v4-flash-0731", owned_by="baseten", context_window=128000),
-            GatewayModel(id="zai-org/glm-5.3-flash", owned_by="cloudflare", context_window=128000),
-            GatewayModel(id="moonshotai/kimi-k3", owned_by="moonshotai", context_window=128000),
-        )
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
-        ):
-            choices = available_model_choices("posthog_code")
-
-        assert [c.model for c in choices] == [m.id for m in gateway]
-        assert {c.runtime_adapter for c in choices} == {"claude"}
-        assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
+    @parameterized.expand(
+        [
+            ("posthog_code", "claude-opus-5-5", True),
+            (FREE_TIER_PIN_KEY, "claude-opus-5-5", False),
+            (FREE_TIER_PIN_KEY, "moonshotai/kimi-k3", True),
+        ]
+    )
+    def test_marks_whether_the_plan_pin_admits_each_model(self, plan_pin: str, model: str, allowed: bool) -> None:
+        choices = {c.model: c for c in plan_model_choices("posthog_code", plan_pin)}
+        assert choices[model].allowed is allowed
 
 
 def test_every_model_resolves_to_its_catalog_flag() -> None:

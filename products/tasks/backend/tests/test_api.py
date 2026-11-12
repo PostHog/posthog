@@ -34,6 +34,7 @@ from rest_framework.test import APIClient
 from rest_framework.views import APIView
 
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
@@ -93,7 +94,6 @@ from products.tasks.backend.logic.services.connection_token import (
     get_sandbox_jwt_public_key,
     reset_sandbox_jwt_key_cache,
 )
-from products.tasks.backend.logic.services.model_catalogue import GatewayModel
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -19583,50 +19583,24 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):
-    GATEWAY_MODELS = (
-        GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
-        GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
-        GatewayModel(id="titan-express", owned_by="bedrock", context_window=8_000),
-    )
+    @parameterized.expand([("paid", True), ("free", False)])
+    def test_returns_catalog_models_marked_by_plan(self, plan: str, opus_allowed: bool):
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage"}] if plan == "paid" else []
+        )
+        self.organization.save()
 
-    def test_returns_routable_gateway_models_with_their_efforts(self):
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=self.GATEWAY_MODELS,
-        ):
+        with patch("posthog.llm.gateway_client.get_llm_client", side_effect=AssertionError("no gateway call")):
             response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        models = response.json()["models"]
-        # Bedrock has no runtime adapter, so `titan-express` can't be offered.
-        self.assertEqual([m["model"] for m in models], ["claude-opus-4-8", "gpt-5.5"])
-        self.assertEqual(models[0]["runtime_adapter"], "claude")
-        self.assertEqual(models[0]["display_name"], "Claude Opus 4.8")
-        self.assertIn("max", models[0]["supported_efforts"])
-
-    def test_unreachable_cache_yields_an_empty_catalogue_rather_than_an_error(self):
-        # The cache is an optimization in front of the gateway; if Redis is down the endpoint still has to
-        # answer with the documented empty catalogue rather than 500 every caller.
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.cache.get",
-            side_effect=RuntimeError("redis down"),
-        ):
-            response = self.client.get("/api/projects/@current/tasks/models/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"models": []})
-
-    def test_unreachable_gateway_yields_an_empty_catalogue_rather_than_an_error(self):
-        # `list_gateway_models` swallows gateway failures into an empty tuple; the endpoint must pass
-        # that through so a client falls back to its own default instead of showing an error state.
-        with patch(
-            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=(),
-        ):
-            response = self.client.get("/api/projects/@current/tasks/models/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"models": []})
+        models = {m["model"]: m for m in response.json()["models"]}
+        self.assertNotIn("claude-opus-4-7", models)
+        self.assertEqual(models["claude-opus-5-5"]["runtime_adapter"], "claude")
+        self.assertEqual(models["claude-opus-5-5"]["context_window"], 1_000_000)
+        self.assertIn("max", models["claude-opus-5-5"]["supported_efforts"])
+        self.assertIs(models["claude-opus-5-5"]["allowed"], opus_allowed)
+        self.assertIs(models["moonshotai/kimi-k3"]["allowed"], True)
 
 
 class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):

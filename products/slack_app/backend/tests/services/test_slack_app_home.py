@@ -12,7 +12,6 @@ from __future__ import annotations
 import sys
 import json
 import importlib
-from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from types import ModuleType
 from typing import Any
@@ -234,39 +233,21 @@ def _stub_picker_facade():
     fake.validate_model_selection = fake_validate_selection
     fake.REASONING_EFFORTS = public_efforts
 
-    @dataclass(frozen=True)
-    class _GatewayModel:
-        id: str
-        owned_by: str
-        context_window: int = 200_000
-
-    gateway_models = (
-        _GatewayModel(id="claude-opus-4-7", owned_by="anthropic"),
-        _GatewayModel(id="claude-sonnet-4-6", owned_by="anthropic"),
-        _GatewayModel(id="gpt-5", owned_by="openai"),
-        _GatewayModel(id="gpt-5.5", owned_by="openai"),
-    )
     # The catalogue reads the run-config internals directly rather than through the facade,
     # so those lookups are replaced one at a time. Standing the facade stub in for the whole
     # module would blank every other name on it — the GitHub helpers `facade.api` defers to
     # among them.
     utils_name = "products.tasks.backend.temporal.process_task.utils"
-    model_catalogue = importlib.import_module("products.tasks.backend.logic.services.model_catalogue")
 
     saved_facade = sys.modules.get(facade_name)
     sys.modules[facade_name] = fake
-    # The provider → adapter map is cached for the process, so the fake only governs once
-    # the cache is dropped on the way in and back out.
-    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
         with (
             patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
             patch(f"{utils_name}.get_provider_for_runtime_adapter", fake_get_provider),
-            patch.object(model_catalogue, "list_gateway_models", return_value=gateway_models),
         ):
             yield
     finally:
-        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
