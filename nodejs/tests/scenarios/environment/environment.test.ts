@@ -6,6 +6,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readdirSync,
     realpathSync,
     rmSync,
     rmdirSync,
@@ -928,7 +929,7 @@ describe('scenario environment', () => {
             }
         }, 15_000)
 
-        it('does not take credit for a role that exited on its own before the kill landed', async () => {
+        it('refuses to kill a role whose process exited before its exit was reported', async () => {
             const crashing = createSupervisor({
                 command: process.execPath,
                 args: ['-e', 'process.exit(3)'],
@@ -938,16 +939,35 @@ describe('scenario environment', () => {
                 restartBackoffMs: 60_000,
             })
             const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            const zombieChildren = (): number[] =>
+                readdirSync('/proc')
+                    .filter((name) => /^\d+$/.test(name))
+                    .flatMap((name) => {
+                        try {
+                            const stat = readFileSync(`/proc/${name}/stat`, 'utf8')
+                            const [state, ppid] = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+                            return state === 'Z' && Number(ppid) === process.pid ? [Number(name)] : []
+                        } catch {
+                            return []
+                        }
+                    })
+            const before = new Set(zombieChildren())
             try {
                 await crashing.start([spec])
-                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
+                const deadline = Date.now() + 10_000
+                while (zombieChildren().every((pid) => before.has(pid)) && Date.now() < deadline) {
+                    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+                }
 
-                const observed = await crashing.kill(spec.role, 2000)
-
-                expect({ observed, exits: crashing.exits() }).toEqual({
-                    observed: false,
-                    exits: [expect.objectContaining({ role: spec.role, code: 3, signal: null, byValve: false })],
-                })
+                await expect(crashing.kill(spec.role, 2000)).rejects.toThrow(`${spec.role} is not running`)
+                await waitForExpect(
+                    () =>
+                        expect(crashing.exits()).toEqual([
+                            expect.objectContaining({ role: spec.role, code: 3, signal: null, byValve: false }),
+                        ]),
+                    5000,
+                    20
+                )
             } finally {
                 await crashing.stop()
             }
