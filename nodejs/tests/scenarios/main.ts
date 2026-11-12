@@ -4,7 +4,8 @@ import { parseArgs } from 'util'
 import { CardError, LoadedCard, load } from './cards'
 import { createEnvironment } from './environment/environment'
 import { Runner, createRunner } from './runner/runner'
-import { EXIT_CODE } from './runner/status'
+import { EXIT_CODE, exitCodeOf } from './runner/status'
+import { credentialsOf } from './scorecard/write'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = 'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]'
@@ -15,9 +16,11 @@ function cardPathOf(card: string): string {
 
 function preflight(
     cards: string[],
-    profilePath: string | undefined
+    profilePath: string | undefined,
+    env: NodeJS.ProcessEnv
 ): { loaded: LoadedCard[] } | { problems: string[] } {
-    const problems: string[] = []
+    const { problem } = credentialsOf(env)
+    const problems = problem === undefined ? [] : [problem]
     const loaded = cards.flatMap((card) => {
         try {
             return [load(cardPathOf(card), { profilePath })]
@@ -29,7 +32,7 @@ function preflight(
     return problems.length > 0 ? { problems } : { loaded }
 }
 
-async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { positionals, values } = parseArgs({
         args: argv,
         allowPositionals: true,
@@ -40,7 +43,7 @@ async function main(argv: string[]): Promise<number> {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
-    const checked = preflight(cards, values.profile)
+    const checked = preflight(cards, values.profile, env)
     if ('problems' in checked) {
         process.stderr.write(`${checked.problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid
@@ -49,7 +52,7 @@ async function main(argv: string[]): Promise<number> {
     const interrupt = new AbortController()
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
-    return runCards(createRunner(createEnvironment()), checked.loaded, interrupt.signal)
+    return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
 }
 
 export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: AbortSignal): Promise<number> {
@@ -64,7 +67,12 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
             const result = await runner.run(loaded, interrupt)
             process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
             process.stdout.write(`evidence: ${result.evidenceDir}\n`)
-            code = Math.max(code, EXIT_CODE[result.status])
+            const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
+            const recording = result.recorded ? ['recorded'] : readBackSkipped
+            const problems = result.scorecardError ? [result.scorecardError] : []
+            const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
+            process.stdout.write(`scorecard: ${scorecard}\n`)
+            code = Math.max(code, exitCodeOf(result))
             ran += 1
         }
     } catch (error) {

@@ -2,7 +2,16 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { once } from 'events'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import fs, {
+    appendFileSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    readdirSync,
+    rmSync,
+    writeFileSync,
+} from 'fs'
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
@@ -41,6 +50,7 @@ import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment
 import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
+import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { RunResult, Runner, createRunner } from './runner'
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
@@ -68,6 +78,7 @@ describe('runner', () => {
     let cacheHome: string
     let stateDir: string
     let duringReset: () => void
+    let api: FakeProjectApi
     let runner: Runner
 
     const environment: Environment = {
@@ -80,7 +91,8 @@ describe('runner', () => {
         down: () => Promise.resolve(),
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
@@ -88,6 +100,7 @@ describe('runner', () => {
             ...process.env,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: PROCESS_DATABASE_URL,
+            ...api.credentials,
         })
     })
 
@@ -95,14 +108,16 @@ describe('runner', () => {
         jest.restoreAllMocks()
         await runner.down()
         rmSync(cacheHome, { recursive: true, force: true })
+        await api.close()
     })
 
-    it.each<[string, () => void, LoadedCard, RegExp]>([
+    it.each<[string, () => void, LoadedCard, RegExp, unknown]>([
         [
             'seeds through the database the profile names',
             () => undefined,
             withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /^the run stopped: .*127\.0\.0\.1:1\b/,
+            undefined,
         ],
         [
             'seeds through the database the profile builds from its connection settings',
@@ -114,19 +129,66 @@ describe('runner', () => {
                 POSTHOG_POSTGRES_PORT: '3',
             }),
             /^the run stopped: .*127\.0\.0\.1:3\b/,
+            undefined,
         ],
         [
             'keeps the result when its evidence cannot be written',
             () => writeFileSync(stateDir, 'not a directory'),
             withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /; the evidence could not be written: .*ENOTDIR/,
+            undefined,
         ],
-    ])('%s', async (_story, arrange, loaded, statusReason) => {
+        [
+            'fails the run when the disk fills while its scorecard is written',
+            () => {
+                const write = fs.writeFileSync
+                jest.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+                    if (!String(file).endsWith('scorecard.json.partial')) {
+                        return write(file, data, options)
+                    }
+                    write(file, String(data).slice(0, 8))
+                    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+                })
+            },
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+            /; the evidence could not be written: ENOSPC/,
+            undefined,
+        ],
+    ])('%s', async (_story, arrange, loaded, statusReason, scorecardError) => {
         arrange()
 
         const result = await runner.run(loaded, NEVER_ABORTED)
 
-        expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringMatching(statusReason),
+            scorecardError,
+        })
+        expect(api.captured.map(({ properties }) => properties)).toEqual([
+            expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
+        ])
+    })
+
+    it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
+        let onDisk: unknown
+        api.onCapture = ({ properties }) => {
+            onDisk = parseJSON(readFileSync(path.join(String(properties.evidence_dir), 'scorecard.json'), 'utf8'))
+        }
+
+        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        expect(result.recorded).toBe(true)
+        expect(onDisk).toEqual({
+            ...result,
+            recorded: undefined,
+            captured: undefined,
+            scorecardError: undefined,
+            event: api.captured[0].properties,
+        })
+        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
+        expect(readdirSync(result.evidenceDir).filter((file) => file.startsWith('scorecard'))).toEqual([
+            'scorecard.json',
+        ])
     })
 
     it.each<[string, boolean, AbortSignal, RegExp]>([
@@ -503,6 +565,7 @@ describe('runner through seed, drive and judge', () => {
     let cacheHome: string
     let env: NodeJS.ProcessEnv
     let edge: ProviderEdge
+    let api: FakeProjectApi
     let roles: DeliveringRoles | undefined
     let results: RunResult[]
     let cdp: Cdp
@@ -575,12 +638,14 @@ describe('runner through seed, drive and judge', () => {
     })
 
     beforeEach(async () => {
+        api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
             ...process.env,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: defaultConfig.DATABASE_URL,
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
+            ...api.credentials,
         }
         edge = await startProviderEdge({ port: 0, trackingKeys: secretsOf(env).encryptionSaltKeys })
         results = []
@@ -626,6 +691,7 @@ describe('runner through seed, drive and judge', () => {
             await client.query('DELETE FROM posthog_organization WHERE id = ANY($1)', [organizations])
         }, defaultConfig.DATABASE_URL)
         rmSync(cacheHome, { recursive: true, force: true })
+        await api.close()
     }
 
     const run = async (delivering: Parameters<typeof environmentOf>[0]): Promise<RunResult> => {
@@ -688,7 +754,20 @@ describe('runner through seed, drive and judge', () => {
                 ({ answer }) => answer.accepted
             )
             expect(result).toMatchObject(verdict)
-            expect(evidenceOf(result, 'scorecard.json')).toEqual(result)
+            expect(evidenceOf(result, 'scorecard.json')).toEqual({
+                ...result,
+                recorded: undefined,
+                captured: undefined,
+                scorecardError: undefined,
+                event: api.captured[0]?.properties,
+            })
+            expect(api.captured.map(({ properties }) => properties)).toEqual([
+                expect.objectContaining({
+                    run_id: result.runId,
+                    status: result.status,
+                    status_reason: result.statusReason,
+                }),
+            ])
             expect(deliveriesOf(evidenceOf(result, 'truth.json') as TruthRecord[])).toEqual(
                 delivered ? offered.map(({ unitId }) => `${unitId}/email/200`).sort() : []
             )

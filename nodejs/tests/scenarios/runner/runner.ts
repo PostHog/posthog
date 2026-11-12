@@ -1,5 +1,14 @@
 import { randomUUID } from 'crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import {
+    createReadStream,
+    createWriteStream,
+    existsSync,
+    mkdirSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import path from 'path'
 import { pipeline } from 'stream/promises'
@@ -14,15 +23,22 @@ import { Environment, defaultStateDir } from '../environment/environment'
 import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
-import { Convergence, InvariantResult, Judge, createJudge } from '../judge/judge'
+import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
+import { provenanceOf } from '../scorecard/provenance'
+import { scorecardOf } from '../scorecard/scorecard'
+import { publish } from '../scorecard/write'
 import { Status, statusOf } from './status'
+
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
 
 export type RunResult = {
     runId: string
     status: Status
     statusReason: string
     recorded: boolean
+    captured?: true
+    scorecardError?: string
     cardId: string
     cardHash: string
     profileHash: string
@@ -106,11 +122,35 @@ function keepLogTails(stateDir: string): (evidenceDir: string) => Promise<void> 
     }
 }
 
-function writeEvidence(result: RunResult, judge: Judge): void {
-    const { journal, truth } = judge.evidence()
-    writeFileSync(path.join(result.evidenceDir, 'journal.json'), JSON.stringify(journal, null, 2))
-    writeFileSync(path.join(result.evidenceDir, 'truth.json'), JSON.stringify(truth, null, 2))
-    writeFileSync(path.join(result.evidenceDir, 'scorecard.json'), JSON.stringify(result, null, 2))
+function writeJson(evidenceDir: string, name: string, value: unknown): void {
+    const file = path.join(evidenceDir, name)
+    const partial = `${file}.partial`
+    try {
+        writeFileSync(partial, JSON.stringify(value, null, 2))
+        renameSync(partial, file)
+    } catch (error) {
+        rmSync(partial, { force: true })
+        throw error
+    }
+}
+
+async function errorOf(write: () => Promise<void> | void): Promise<string | undefined> {
+    try {
+        await write()
+        return undefined
+    } catch (error) {
+        return messageOf(error)
+    }
+}
+
+function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunVerdict {
+    return error === undefined
+        ? verdict
+        : {
+              ...verdict,
+              status: 'invalid',
+              statusReason: `${verdict.statusReason}; the evidence could not be written: ${error}`,
+          }
 }
 
 type OpenPool = {
@@ -263,10 +303,9 @@ export function createRunner(
                     }
                 }
             }
-            const result: RunResult = {
+            const verdict: RunVerdict = {
                 runId,
                 ...outcome,
-                recorded: false,
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
@@ -277,16 +316,24 @@ export function createRunner(
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
-            try {
+            const provenance = provenanceOf()
+            const evidenceError = await errorOf(async () => {
                 await writeLogTails(evidenceDir)
-                writeEvidence(result, judge)
-                return result
-            } catch (error) {
-                return {
-                    ...result,
-                    status: 'invalid',
-                    statusReason: `${result.statusReason}; the evidence could not be written: ${messageOf(error)}`,
-                }
+                const { journal, truth } = judge.evidence()
+                writeJson(evidenceDir, 'journal.json', journal)
+                writeJson(evidenceDir, 'truth.json', truth)
+                writeJson(evidenceDir, 'scorecard.json', {
+                    ...verdict,
+                    event: scorecardOf(verdict, loaded, provenance),
+                })
+            })
+            const judged = withEvidenceError(verdict, evidenceError)
+            const written = await publish(scorecardOf(judged, loaded, provenance), env, signal)
+            return {
+                ...judged,
+                recorded: written.recorded,
+                captured: written.captured,
+                scorecardError: written.problem,
             }
         },
 
