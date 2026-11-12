@@ -113,6 +113,9 @@ class UsageSnapshotPayload:
     stays None until its step has run."""
 
     metric_runs: list[MetricRunCounts] | None = None
+    # Session ids that one agent conversation spans, for conversations that span more than one. The
+    # API does not return this section; later steps read it to count and match per conversation.
+    conversations: list[list[str]] | None = None
     adjusted_runs: list[AdjustedRun] | None = None
     topics: list[TopicCluster] | None = None
     uncovered: list[UncoveredGroup] | None = None

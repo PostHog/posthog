@@ -195,6 +195,7 @@ class PayloadSections(TypedDict, total=False):
     """The sections a scan step can write. Each key must match a ``UsageSnapshotPayload`` field."""
 
     metric_runs: list[MetricRunCounts]
+    conversations: list[list[str]]
     adjusted_runs: list[AdjustedRun]
     topics: list[TopicCluster]
     uncovered: list[UncoveredGroup]

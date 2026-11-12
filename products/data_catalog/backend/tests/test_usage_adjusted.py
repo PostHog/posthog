@@ -27,9 +27,11 @@ from products.data_catalog.backend.logic.usage_adjusted import (
     _plan_detection,
     assemble_adjusted_runs,
     build_candidate_groups,
+    calls_in_conversations,
     detect_adjusted_runs_into_snapshot,
     fetch_agent_queries,
     fetch_catalog_calls,
+    in_conversations,
     read_metric_first,
     select_for_judging,
 )
@@ -82,6 +84,13 @@ class TestAdjustedRunDetection(SimpleTestCase):
     )
     def test_read_metric_first(self, _name: str, calls: list[CatalogCall], expected: bool) -> None:
         assert read_metric_first(_query(), "signups", calls) is expected
+
+    def test_a_read_in_an_earlier_piece_of_the_conversation_counts_as_read_first(self) -> None:
+        units = {"t1": "t1", "t2": "t1"}
+        query = in_conversations([_query(trace="t2")], units)[0]
+        calls = calls_in_conversations({"t1": [_call("metric-describe", "signups", trace="t1")]}, units)
+
+        assert read_metric_first(query, "signups", calls[query.trace_id])
 
     def test_repeated_sql_is_judged_once_per_intent_and_scout_only_groups_go_last(self) -> None:
         sliced = "SELECT count() FROM events WHERE event = 'signup' AND properties.plan = 'pro'"

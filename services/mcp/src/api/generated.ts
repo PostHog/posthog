@@ -13690,7 +13690,7 @@ export namespace Schemas {
       /** When the agent ran the query. */
       occurred_at: string;
       /**
-         * Agent session of the query, when known.
+         * Agent conversation of the query, when known: the session id of the conversation's first piece. Every query in one conversation carries the same id.
          * @nullable
          */
       session_id: string | null;
