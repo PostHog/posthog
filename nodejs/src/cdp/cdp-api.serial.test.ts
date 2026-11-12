@@ -1,5 +1,5 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
@@ -1887,6 +1887,8 @@ describe('CDP API', () => {
                 id: new UUIDT().toString(),
                 billable_action_types: ['function'],
             })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
             await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
             mockProducerObserver.resetKafkaProducer()
 
@@ -1899,7 +1901,7 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(429)
                 expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(hogflowQueue.queued).toEqual([])
                 const metrics = mockProducerObserver
                     .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                     .map((message) => message.value)
