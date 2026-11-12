@@ -1,1 +1,21 @@
-from django.db import migrations, modelsclass Migration(migrations.Migration):    dependencies = [        ("cohorts", "0022_cohort_population_mode_and_marker"),    ]    operations = [        migrations.AddField(            model_name="cohortcalculationhistory",            name="mode",            field=models.CharField(                blank=True,                choices=[("append", "Append"), ("replace", "Replace")],                help_text="How this static calculation ran: append added matches to existing members, and replace also pruned non-matches. Null for dynamic cohorts or runs that recorded no mode.",                max_length=16,                null=True,            ),        ),    ]
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("cohorts", "0022_cohort_population_mode_and_marker"),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name="cohortcalculationhistory",
+            name="mode",
+            field=models.CharField(
+                blank=True,
+                choices=[("append", "Append"), ("replace", "Replace")],
+                help_text="How this static calculation ran: append added matches to existing members, and replace also pruned non-matches. Null for dynamic cohorts or runs that recorded no mode.",
+                max_length=16,
+                null=True,
+            ),
+        ),
+    ]
