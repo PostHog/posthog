@@ -21,7 +21,7 @@ from posthog.models.integration import (
 from posthog.models.integration.email import (
     ORGANIZATION_PROOF_REQUIRED_KEY,
     lock_sender_domain,
-    lock_sender_if_unverified,
+    lock_sender_if_expirable,
 )
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
@@ -197,7 +197,7 @@ def expire_unverified_email_senders() -> None:
             continue
         domain = sender.config.get("domain")
         with transaction.atomic():
-            if not lock_sender_if_unverified(sender):
+            if not lock_sender_if_expirable(sender):
                 continue
             # The budget paces SES identity deletes, so a sender that leaves siblings on its domain does not use it.
             frees_identity = (

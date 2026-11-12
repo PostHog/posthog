@@ -284,9 +284,10 @@ class TestIntegrationsTasks(APIBaseTest):
         expire_unverified_email_senders()
         assert Integration.objects.filter(kind="email").count() == 0
 
+    @parameterized.expand([("verified", {"verified": True}), ("contested", {"organization_proof_required": True})])
     @patch("posthog.tasks.integrations.delete_ses_identity")
-    def test_expire_unverified_email_senders_keeps_a_sender_that_verifies_during_the_sweep(
-        self, mock_delete_identity: MagicMock
+    def test_expire_unverified_email_senders_keeps_a_sender_that_changes_during_the_sweep(
+        self, _name: str, change: dict, mock_delete_identity: MagicMock
     ) -> None:
         config = {"email": "a@late.com", "domain": "late.com", "provider": "ses", "verified": False}
         sender = Integration.objects.create(team=self.team, kind="email", integration_id="a@late.com", config=config)
@@ -295,7 +296,7 @@ class TestIntegrationsTasks(APIBaseTest):
 
         def list_then_verify(reader: IntegrationReader, cross_team_filter: CrossTeamFilter) -> list:
             senders = list_across_teams(reader, cross_team_filter)
-            Integration.objects.filter(id=sender.id).update(config={**config, "verified": True})
+            Integration.objects.filter(id=sender.id).update(config={**config, **change})
             return senders
 
         with (
