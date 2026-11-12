@@ -4,7 +4,7 @@ from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError, connection
 from django.utils import timezone
@@ -207,7 +207,7 @@ class TestIntegrationsTasks(APIBaseTest):
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
     def test_expire_unverified_email_senders_removes_old_unverified_senders_and_their_identities(
-        self, mock_delete_identity
+        self, mock_delete_identity: MagicMock
     ) -> None:
         for email, verified, age_days in [
             ("a@stale.com", False, 15),
@@ -226,12 +226,14 @@ class TestIntegrationsTasks(APIBaseTest):
             expire_unverified_email_senders()
 
         remaining = Integration.objects.filter(kind="email").values_list("integration_id", flat=True)
-        assert sorted(remaining) == ["b@fresh.com", "c@verified.com"]
+        assert set(remaining) == {"b@fresh.com", "c@verified.com"}
         assert [call.args[0] for call in mock_delete_identity.call_args_list] == ["stale.com"]
 
     @patch("posthog.tasks.integrations.EXPIRED_EMAIL_SENDERS_PER_RUN", 2)
     @patch("posthog.tasks.integrations.delete_ses_identity")
-    def test_expire_unverified_email_senders_drains_a_backlog_over_several_runs(self, _mock_delete_identity) -> None:
+    def test_expire_unverified_email_senders_drains_a_backlog_over_several_runs(
+        self, _mock_delete_identity: MagicMock
+    ) -> None:
         for index in range(3):
             email = f"a@stale{index}.com"
             sender = Integration.objects.create(
@@ -249,7 +251,7 @@ class TestIntegrationsTasks(APIBaseTest):
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
     def test_expire_unverified_email_senders_keeps_a_sender_that_verifies_during_the_sweep(
-        self, mock_delete_identity
+        self, mock_delete_identity: MagicMock
     ) -> None:
         config = {"email": "a@late.com", "domain": "late.com", "provider": "ses", "verified": False}
         sender = Integration.objects.create(team=self.team, kind="email", integration_id="a@late.com", config=config)
@@ -295,7 +297,9 @@ class TestIntegrationsTasks(APIBaseTest):
         )
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
-    def test_identity_cleanup_waits_for_a_sender_create_in_progress_on_the_domain(self, mock_delete_identity) -> None:
+    def test_identity_cleanup_waits_for_a_sender_create_in_progress_on_the_domain(
+        self, mock_delete_identity: MagicMock
+    ) -> None:
         other = connection.get_new_connection(connection.get_connection_params())
         try:
             with other.cursor() as cursor:
