@@ -97,6 +97,7 @@ APIScopeObject = Literal[
     "llm_provider_key",
     "llm_skill",
     "logs",
+    "logs_unredacted",
     "loop",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "marketing_analytics",
     "mcp_builtin_agent",
@@ -246,6 +247,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         "batch_import_support",
         # Its only route accepts project secret API keys alone, so only that key picker offers it.
         "messaging_preference",
+        # No endpoint checks it. The MCP server reads it and returns log text without credential
+        # redaction. Hidden so that an MCP client that requests every advertised scope does not get it.
+        "logs_unredacted",
     }
 )
 

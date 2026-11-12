@@ -109,6 +109,7 @@ class ResourceType(StrEnum):
     BUSINESS_KNOWLEDGE = "business_knowledge"
     ERROR_TRACKING = "error_tracking"
     LOGS = "logs"
+    LOGS_UNREDACTED = "logs_unredacted"
     MCP_ANALYTICS = "mcp_analytics"
     METRICS = "metrics"
     TRACING = "tracing"

@@ -1,5 +1,6 @@
 import { isCredentialName, redactCredentials, REDACTED_VALUE } from '@/lib/credential-redaction'
 import { isRecord } from '@/lib/plain-object'
+import { holdsUnredactedLogsScope } from '@/tools/logs/redactCredentialsHooks'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
@@ -22,7 +23,10 @@ function dimensionKeys(params: GroupByParams): string[] {
 }
 
 // Grouped values come back by position in `values`, so the name-based rule in redactCredentials never sees the key.
-function afterResponse(_context: Context, params: GroupByParams, result: unknown): unknown {
+async function afterResponse(context: Context, params: GroupByParams, result: unknown): Promise<unknown> {
+    if (await holdsUnredactedLogsScope(context)) {
+        return result
+    }
     const masked = dimensionKeys(params).map((key) => !SESSION_ID_KEYS.has(key.toLowerCase()) && isCredentialName(key))
     if (masked.some(Boolean) && isRecord(result) && Array.isArray(result.groups)) {
         result = {
