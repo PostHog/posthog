@@ -24,6 +24,9 @@ SUBACCOUNT_PAGE_SIZE = 100
 # Mailgun doesn't publish a limit for these reads, and the windows vary by API, so stay gentle next to live sending.
 REQUESTS_PER_SECOND = 2
 MAX_RATE_LIMIT_WAITS = 5
+# A long import sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
+MAX_TRANSIENT_RETRIES = 3
+TRANSIENT_RETRY_BASE_SECONDS = 2
 MAX_WAIT_SECONDS = 60
 DEFAULT_TIMEOUT_SECONDS = 30
 USER_AGENT = "posthog-messaging-import/1.0"
@@ -165,6 +168,8 @@ class MailgunClient:
         if on_behalf_of:
             headers[ON_BEHALF_OF_HEADER] = on_behalf_of
         waits = 0
+        # A client that doesn't wait out a rate limit, like the key check, doesn't retry either.
+        retries_left = MAX_TRANSIENT_RETRIES if self._max_rate_limit_waits else 0
         while True:
             self._pace()
             try:
@@ -177,6 +182,10 @@ class MailgunClient:
                     allow_redirects=False,
                 )
             except requests.RequestException as e:
+                if retries_left:
+                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                    retries_left -= 1
+                    continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise MailgunAPIError(f"Couldn't reach Mailgun ({type(e).__name__}).") from None
             if response.status_code == 429:
@@ -184,6 +193,10 @@ class MailgunClient:
                     raise MailgunRateLimited("Mailgun asked PostHog to slow down.", status_code=429)
                 waits += 1
                 time.sleep(_reset_wait_seconds(response) or min(2**waits, MAX_WAIT_SECONDS))
+                continue
+            if response.status_code >= 500 and retries_left:
+                time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                retries_left -= 1
                 continue
             body = _parse(response)
             if _remaining(response) == 0 and self._max_rate_limit_waits:

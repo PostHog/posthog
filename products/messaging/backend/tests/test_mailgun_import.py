@@ -366,7 +366,7 @@ class TestMailgunImport(BaseTest):
 
     def test_a_failure_on_one_domain_resumes_there_after_a_retry_and_after_a_new_import(self) -> None:
         run = self._start(["bounces"], "us")
-        self.mailgun.failures = [Failure(r"news\.example\.com/bounces$", 500, 2)]
+        self.mailgun.failures = [Failure(r"news\.example\.com/bounces$", 500, 8)]
 
         for attempt in (1, 2):
             with self.assertRaises(ImportProviderUnavailable):
@@ -402,7 +402,7 @@ class TestMailgunImport(BaseTest):
             for index in range(1500)
         ]
         run = self._start(["bounces"], "us")
-        self.mailgun.failures = [Failure(r"/v3/mg\.example\.com/bounces$", 500, only_later_pages=True)]
+        self.mailgun.failures = [Failure(r"/v3/mg\.example\.com/bounces$", 500, 4, only_later_pages=True)]
 
         with self.assertRaises(ImportProviderUnavailable):
             runs.run_step(self.team.id, run.id, "bounces", attempt=1)
@@ -416,6 +416,14 @@ class TestMailgunImport(BaseTest):
         assert run.progress["bounces"]["status"] == "completed"
         assert run.progress["bounces"]["processed"] == 1500 + 3
         assert len(self._suppressions()) == 1500 + 3
+
+    def test_a_passing_server_error_is_retried_inside_the_step(self) -> None:
+        self.mailgun.failures = [Failure(r"news\.example\.com/bounces$", 503)]
+
+        run = self._run(["bounces"], region="us")
+
+        assert run.status == "completed"
+        assert "josé@example.com" in self._suppressions()
 
     def test_a_domain_mailgun_lost_is_named_and_the_rest_import(self) -> None:
         self.mailgun.failures = [Failure(r"mg\.example\.com/bounces$", 404, 5)]
