@@ -92,6 +92,30 @@ describe('rolloutSteps', () => {
             expected: [['2026-11-01', '10%', false]],
         },
         {
+            name: 'shows opt-in alongside the rollout when early access enrollment is on',
+            current: flag(0, true, { feature_enrollment: true }),
+            activity: [],
+            scheduled: [],
+            expected: [['2026-11-01', '0% + opt-in', false]],
+        },
+        {
+            name: 'skips scheduled changes that will not run and ignores malformed groups',
+            current: flag(50),
+            activity: [],
+            scheduled: [
+                {
+                    ...schedule('2026-11-14T00:00:00Z', { operation: 'update_status', value: false }),
+                    is_recurring: true,
+                },
+                {
+                    ...schedule('2026-11-15T00:00:00Z', { operation: 'add_release_condition', value: groups(75) }),
+                    end_date: '2026-11-10T00:00:00Z',
+                },
+                schedule('2026-11-16T00:00:00Z', { operation: 'add_release_condition', value: { groups: {} } }),
+            ],
+            expected: [['2026-11-01', '50%', false]],
+        },
+        {
             name: 'draws no history for a flag stored as rules',
             current: flag(100, true, { version: 2 }),
             activity: [],

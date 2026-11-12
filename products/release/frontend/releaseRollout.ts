@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { hasDeniedApprovalRequest, isSchedulePaused } from 'scenes/feature-flags/scheduleOccurrences'
 
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type {
@@ -23,6 +24,7 @@ interface RolloutGroup {
 interface RolloutFilters {
     groups?: RolloutGroup[] | null
     early_exit?: boolean
+    feature_enrollment?: boolean
     holdout?: { exclusion_percentage?: number } | null
 }
 
@@ -53,14 +55,21 @@ function audienceOf(state: RolloutState): { percent: number; label: string } {
     }
     const reach = reachOf(state.filters)
     if (!reach) {
-        return { percent: 0, label: 'No one' }
+        return state.filters.feature_enrollment ? { percent: 0, label: 'Opt-in only' } : { percent: 0, label: 'No one' }
     }
     const holdout = state.filters.holdout?.exclusion_percentage ?? 0
     const percent = Math.round(reach.percent * (100 - holdout)) / 100
+    const optIn = state.filters.feature_enrollment ? ' + opt-in' : ''
     if (reach.targeted) {
-        return { percent: Math.max(percent / 4, 8), label: percent === 100 ? 'Targeted' : `Targeted, ${percent}%` }
+        const label = percent === 100 ? 'Targeted' : `Targeted, ${percent}%`
+        return { percent: Math.max(percent / 4, 8), label: `${label}${optIn}` }
     }
-    return { percent, label: percent === 100 ? 'Everyone' : `${percent}%` }
+    return { percent, label: percent === 100 && !optIn ? 'Everyone' : `${percent}%${optIn}` }
+}
+
+function groupsOf(filters: unknown): RolloutGroup[] {
+    const groups = filtersOf(filters).groups
+    return Array.isArray(groups) ? groups.filter((group) => group && typeof group === 'object') : []
 }
 
 function filtersOf(filters: unknown): RolloutFilters {
@@ -102,19 +111,27 @@ export function rolloutSteps(
     const current: RolloutState = { active: !!flag.active, filters: filtersOf(flag.filters) }
     points.push({ at: today.toISOString(), state: current })
     const pending = scheduled
-        .filter((change) => !change.executed_at && change.record_id === String(flag.id))
+        .filter(
+            (change) =>
+                change.record_id === String(flag.id) &&
+                !change.executed_at &&
+                !change.is_recurring &&
+                !isSchedulePaused(change as never) &&
+                !hasDeniedApprovalRequest(change as never) &&
+                !(change.end_date && dayjs(change.end_date).isBefore(today))
+        )
         .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
     state = current
     for (const change of pending) {
         const payload = (change.payload ?? {}) as { operation?: string; value?: unknown }
         if (payload.operation === 'update_status') {
             state = { ...state, active: Boolean(payload.value) }
-        } else if (payload.operation === 'add_release_condition') {
+        } else if (payload.operation === 'add_release_condition' && groupsOf(payload.value).length) {
             state = {
                 ...state,
                 filters: {
                     ...state.filters,
-                    groups: [...(state.filters.groups ?? []), ...(filtersOf(payload.value).groups ?? [])],
+                    groups: [...(state.filters.groups ?? []), ...groupsOf(payload.value)],
                 },
             }
         } else {
