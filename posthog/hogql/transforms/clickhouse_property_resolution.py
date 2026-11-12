@@ -939,7 +939,7 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     source_properties = _mirrored_source_properties(field_type, context)
     restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
     if (
-        any(source_property in restricted_keys for source_property in source_properties)
+        not restricted_keys.isdisjoint(source_properties)
         if source_properties
         else restricted_key_path(node.keys, restricted_keys) is not None
     ):
@@ -1390,17 +1390,21 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         )
         return ast.Call(name="if", args=[is_restricted_row, masked, super().visit_field(node)])
 
-    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
+    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Expr | None:
         """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.
 
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
+        An array column of hashes copies no single value, so it reads as an empty array that array functions accept.
         """
         resolved_field = field_type.resolve_database_field(self.context)
         if not isinstance(resolved_field, DatabaseField):
             return None
         if not mirrored_column_is_restricted(field_type.table_type, resolved_field.name, self.context):
             return None
+        constant_type = resolved_field.get_constant_type()
+        if isinstance(constant_type, ast.ArrayType):
+            return ast.Array(exprs=[], type=replace(constant_type, nullable=False))
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     # --- comparison / call rewrites ---

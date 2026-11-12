@@ -232,7 +232,7 @@ Several catalog tables expose such columns because reading them scans far less d
 The web analytics dimensional tables `web_stats_dimensional_preaggregated` and `web_bounces_dimensional_preaggregated` copy event properties into dimension columns, such as `pathname` from `$pathname` and `country_code` from `$geoip_country_code`, and copy session properties that the sessions table builds from event properties, such as `utm_source` from `utm_source` and `entry_pathname` from `$current_url`.
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
-`flag_evaluations`, `ai_events`, and web analytics dimensional mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 `intent_text` on `posthog.mcp_intent_assignments` and `posthog.raw_mcp_intent_assignments` holds a truncated copy of `$mcp_intent` and masks the same way.
 `intent_hash` on both tables masks with it, because it is the unsalted sha256 of the full text, so a reader could confirm a guessed text by comparing hashes.
 When `intent_hash` is masked, `posthog.mcp_intent_assignments` returns no rows, because it picks one row per hash and a NULL hash would merge every intent into one row.
@@ -240,6 +240,10 @@ The intent pipeline also embeds each `$mcp_intent` value into the shared embeddi
 Other products share those columns, so `restricted_embedding_documents()` masks them per row: on a row with `product = 'mcp_analytics'` and `document_type = 'mcp-intent'`, `content` and `document_id` read as NULL and `embedding` reads as an empty array, and every other row reads as stored.
 The check uses the stored column name, so a column alias such as `FROM raw_document_embeddings AS e(document_type, product)` cannot rename a column out of the mask. When an alias hides the stored `product` or `document_type` column, every row reads as masked.
 The pipeline copies no other event property into the embedding `metadata`.
+`conversation_hashes` on `posthog.mcp_intent_calls_hourly` and `posthog.mcp_intent_topic_daily` holds the unsalted cityHash64 of each conversation id, read from `$mcp_session_id` or `$session_id`, so it masks when either property is restricted.
+It reads as an empty array rather than NULL, so array functions over it still run and count no conversations.
+`tool` on both rollups holds the effective tool name, read from `$mcp_exec_tool_call_name`, `$mcp_exec_target_tool` or `$mcp_tool_name`, so restricting any of the three masks it to NULL.
+The assignments table keeps no tool column.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask. The hidden `goe_N.key` on `flag_evaluations` reads the stored `$group_N` column through an expression field, and it masks too.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
