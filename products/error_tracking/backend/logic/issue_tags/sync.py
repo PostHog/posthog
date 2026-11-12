@@ -1,10 +1,12 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_TAGS
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_TAG
+
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def sync_issue_tag_to_clickhouse(
@@ -19,8 +21,8 @@ def sync_issue_tag_to_clickhouse(
             "key": key,
             "value": None if value is None else int(value),
             "is_deleted": 0,
-            # The writer sets updated_at while it holds the row lock, so the versions of two writes to
-            # one tag follow their commit order. A clock read after the commit can reverse that order.
-            "version": int(updated_at.timestamp() * 1000),
+            # The writer moves updated_at forward by at least a microsecond on each write, so microseconds
+            # keep the versions of one tag strictly increasing.
+            "version": (updated_at - EPOCH) // timedelta(microseconds=1),
         },
     )
