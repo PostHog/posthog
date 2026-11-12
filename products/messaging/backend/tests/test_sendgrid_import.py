@@ -302,6 +302,14 @@ class TestSendGridImport(BaseTest):
         with self.assertRaisesRegex(ImportCredentialsInvalid, "/v3/templates"):
             runs.run_step(self.team.id, run.id, "templates", attempt=1)
 
+    def test_a_passing_server_error_is_retried_inside_the_step(self) -> None:
+        self.state.failures["/v3/suppression/bounces"] = [503]
+
+        run = self._run(["suppressions"])
+
+        assert run.status == "completed"
+        assert len([r for r in self.state.requests if r["path"] == "/v3/suppression/bounces"]) >= 2
+
     def test_an_eu_key_reads_from_the_eu_host(self) -> None:
         run = self._run(["suppressions"], EU_KEY)
 

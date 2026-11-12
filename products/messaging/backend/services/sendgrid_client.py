@@ -21,6 +21,9 @@ TEMPLATE_PAGE_SIZE = 200
 # Each endpoint has its own limit that SendGrid doesn't publish, and the customer's live sending shares the account.
 REQUESTS_PER_SECOND = 2
 MAX_RATE_LIMIT_WAITS = 5
+# A long import sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
+MAX_TRANSIENT_RETRIES = 3
+TRANSIENT_RETRY_BASE_SECONDS = 2
 MAX_RATE_LIMIT_WAIT_SECONDS = 120
 DEFAULT_RATE_LIMIT_WAIT_SECONDS = 5.0
 RELATIVE_RESET_LIMIT_SECONDS = 86_400
@@ -115,6 +118,8 @@ class SendGridClient:
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         waits = 0
+        # A client that doesn't wait out a rate limit, like the key check, doesn't retry either.
+        retries_left = MAX_TRANSIENT_RETRIES if self._max_rate_limit_waits else 0
         while True:
             self._pace()
             try:
@@ -130,6 +135,10 @@ class SendGridClient:
                     allow_redirects=False,
                 )
             except requests.RequestException as e:
+                if retries_left:
+                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                    retries_left -= 1
+                    continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise SendGridAPIError(f"Couldn't reach SendGrid ({type(e).__name__}).") from None
             if response.status_code == 429:
@@ -137,6 +146,10 @@ class SendGridClient:
                     raise SendGridRateLimited("SendGrid asked PostHog to slow down.", status_code=429)
                 waits += 1
                 time.sleep(_seconds_until_reset(response))
+                continue
+            if response.status_code >= 500 and retries_left:
+                time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                retries_left -= 1
                 continue
             self._respect_exhausted_limit(response)
             return _parse(response, path)
