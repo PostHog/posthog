@@ -14,6 +14,13 @@ if TYPE_CHECKING:
     from posthog.admin.console.tools import Page
 
 
+def is_internal_path(href: str) -> bool:
+    # Browsers read a leading "/\\" like "//" and drop tabs and newlines anywhere, so "/\t/host" leaves the site too.
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in href):
+        return False
+    return href.startswith("/") and not href.startswith(("//", "/\\"))
+
+
 class Tone(StrEnum):
     DEFAULT = "default"
     INFO = "info"
@@ -49,8 +56,7 @@ class Fact:
         if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
-        # Browsers read a leading "/\\" like "//", so both would leave the site.
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
+        if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
@@ -151,6 +157,8 @@ class Operation:
     gate: Gate | None = None
     # Staff confirm on a page that shows what will change, for an action that is hard to take back.
     preview: RecordPreviewHandler | None = None
+    # The run button shows this until the next page loads, for an operation that takes a while.
+    pending_label: str = ""
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)

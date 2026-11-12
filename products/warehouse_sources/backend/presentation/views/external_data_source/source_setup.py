@@ -138,6 +138,10 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
     return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
+def _is_column_name_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(column, str) for column in value)
+
+
 def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
     """A table's `sync_frequency` from the create payload, such as `1hour`, or the 6-hour default.
 
@@ -1729,10 +1733,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             payload_masked_columns = schema.get("masked_columns")
             # Dropping a malformed mask would sync the column in plaintext, so reject it.
-            if payload_masked_columns is not None and not (
-                isinstance(payload_masked_columns, list)
-                and all(isinstance(column, str) for column in payload_masked_columns)
-            ):
+            if payload_masked_columns is not None and not _is_column_name_list(payload_masked_columns):
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1741,6 +1742,16 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
             masked_columns: list[str] | None = payload_masked_columns or None
+
+            # A stored string key would later split into one key per character.
+            if primary_key_columns is not None and not _is_column_name_list(primary_key_columns):
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"primary_key_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
@@ -1758,6 +1769,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
+            detected_primary_keys = source_schema.detected_primary_keys if source_schema else None
+            # A caller who sent no key gets the one discovery detected. Sync-time re-detection can
+            # disagree with discovery (e.g. permissions differences across query paths) and leave
+            # the merge without a key.
+            effective_primary_key_columns = primary_key_columns or detected_primary_keys
 
             # An incremental sync merges rows on a primary key. Created without one, the table
             # syncs once (the first write overwrites) and then fails on every later run, so the
@@ -1773,7 +1789,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 and sync_type == "incremental"
                 and not primary_key_columns
                 and introspected_columns
-                and not source_schema.detected_primary_keys  # type: ignore[union-attr]
+                and not detected_primary_keys
                 and not has_id_column
             ):
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
@@ -1862,13 +1878,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # enables get a concrete CDC method + config.
             cdc_not_set_up = is_cdc_schema and not should_sync
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
-                # If the caller didn't provide primary_key_columns, fall back to whatever the
-                # source detected during schema discovery. Otherwise we rely on sync-time
-                # re-detection, which can disagree with discovery (e.g. permissions differences
-                # across query paths) and leave incremental syncs without a primary key.
-                effective_primary_key_columns = primary_key_columns or (
-                    source_schema.detected_primary_keys if source_schema else None
-                )
                 # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
                 # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
                 # creation paths reject the same inputs instead of silently dropping null/float values.
@@ -1925,6 +1934,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "cdc_table_mode": cdc_table_mode,
                 }
                 sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
+            elif sync_type == ExternalDataSchema.SyncType.XMIN and new_source_model.supports_scheduled_sync:
+                # The xmin reader keys on the source's own primary key, so a caller's pick would not match it.
+                sync_type_config = {
+                    "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": detected_primary_keys} if detected_primary_keys else {}),
+                }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
@@ -1936,7 +1951,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     source_columns=[column[0] for column in introspected_columns],
                     # A sync merges and partitions on `id` when no key is stored or detected.
                     primary_key_columns=sync_type_config.get("primary_key_columns")
-                    or (source_schema.detected_primary_keys if source_schema else None)
+                    or detected_primary_keys
                     or [column[0] for column in introspected_columns if column[0].lower() == "id"][:1],
                     incremental_fields=[incremental_field],
                 )
@@ -2006,7 +2021,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     columns=filter_dwh_columns_by_enabled_columns(
                         direct_engine_adapter.columns_to_dwh_columns(source_schema.columns if source_schema else []),
                         enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
+                        detected_primary_keys,
                         incremental_field,
                         normalize=False,
                     ),

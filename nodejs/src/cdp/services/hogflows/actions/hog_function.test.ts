@@ -640,6 +640,27 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
     })
 
+    it('should not drop a held send that the email queue delays past the hold deadline', async () => {
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({ capped: false })
+        invocation.state.currentAction!.frequencyCapHoldDeadlineAt = DateTime.now().minus({ hours: 1 }).toISO()!
+        invocation.state.currentAction!.hogFunctionState = {
+            globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+            timings: [],
+            attempts: 0,
+        } as any
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'email',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(mockRecipientPreferencesService.checkFrequencyCap).toHaveBeenCalledTimes(1)
+        expect(invocationResult.metrics).not.toContainEqual(
+            expect.objectContaining({ metric_name: 'message_frequency_capped' })
+        )
+    })
+
     it('should skip, not hold, a capped send that resumes on the email queue', async () => {
         // A hold here would drop the pending send that the email queue continuation carries.
         ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({

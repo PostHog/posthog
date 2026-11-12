@@ -53,6 +53,7 @@ import {
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
     PreferencesTokenSource,
     RecipientTokensService,
@@ -190,7 +191,7 @@ class EmailSendDeadlineError extends Error {
 
 class MessageTooLargeError extends Error {
     constructor() {
-        super('The attachment files of this email are larger than one email can carry')
+        super('This email and its attachment files are larger than one email can carry')
         this.name = 'MessageTooLargeError'
     }
 }
@@ -243,7 +244,7 @@ function describeAttachmentFailure(
     if (error instanceof MessageTooLargeError) {
         return {
             reason: EMAIL_MESSAGE_TOO_LARGE,
-            message: `${EMAIL_MESSAGE_TOO_LARGE}: the attachment files of this email are larger than one email can carry, so it was not sent.`,
+            message: `${EMAIL_MESSAGE_TOO_LARGE}: this email and its attachment files are larger than one email can carry, so it was not sent.`,
         }
     }
     if (isAttachmentLoadFailure(error)) {
@@ -1463,6 +1464,16 @@ export class EmailService {
                   params.preheader
               )
             : null
+        if (
+            files.length > 0 &&
+            estimateMessageBytes(
+                files.map(({ bytes }) => bytes.byteLength),
+                [html ?? '', params.text ?? ''],
+                sanitizeEmailSubject(params.subject)
+            ) > MESSAGE_MAX_BYTES
+        ) {
+            throw new MessageTooLargeError()
+        }
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
