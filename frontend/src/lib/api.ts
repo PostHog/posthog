@@ -4444,6 +4444,8 @@ const api = {
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${token}` },
                     credentials: 'omit',
+                    // A long page URL as the Referer pushes the headers past recording-api's size limit, which answers 431.
+                    referrerPolicy: 'no-referrer',
                     signal: controller.signal,
                 })
                 if (!response.ok) {

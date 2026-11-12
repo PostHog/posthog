@@ -175,12 +175,18 @@ pub async fn export_metrics_http(
         }
     }
 
-    let labelled = service.series_label_gate.decide(token, &mut rows);
+    let (labelled, records_bytes) = service.series_label_gate.decide_metered(token, &mut rows);
 
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
+        .write_metrics(
+            token,
+            rows,
+            body.len() as u64,
+            Some(records_bytes),
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send metrics to Kafka: {}", e);

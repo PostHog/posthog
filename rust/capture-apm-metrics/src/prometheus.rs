@@ -155,12 +155,18 @@ pub async fn export_prometheus_remote_write_http(
     // fingerprint them.
     service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
-    let labelled = service.series_label_gate.decide(&token, &mut rows);
+    let (labelled, records_bytes) = service.series_label_gate.decide_metered(&token, &mut rows);
     let row_count = rows.len();
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            Some(records_bytes),
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");

@@ -1,32 +1,39 @@
 # Cross-signal correlation (metric exemplar → trace → logs)
 
-Use when investigating a metric anomaly (latency spike, error rate jump) and you want to inspect a representative trace and the logs from that request in one round trip.
+Use when investigating a metric anomaly (latency spike, error rate jump) and you want to inspect a representative trace and the logs from that request.
 
-The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `logs` — share `trace_id` as a join key. The schema is wired so `posthog.metrics` can carry an exemplar `trace_id` on every point when the SDK attached one (OpenTelemetry exemplar pattern).
+The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `logs` — share `trace_id`. `posthog.metrics` can carry an exemplar `trace_id` on every point when the SDK attached one (OpenTelemetry exemplar pattern).
+
+**`posthog.metrics` lives on a separate cluster from `logs` and `posthog.trace_spans`.** A single query cannot read `posthog.metrics` together with either of them: it fails with "Cannot query tables from different clusters". Pick the exemplar in one query, then pass its `trace_id` as a literal to a second query over spans and logs. `posthog.trace_spans` and `logs` share a cluster, so they can be joined or unioned in one query.
 
 **Namespacing:** `logs` is registered at the HogQL root level; `posthog.trace_spans` and `posthog.metrics` live under the `posthog.` namespace and must be referenced with the prefix. Bare names fail.
 
-**`trace_id` format:** All three tables store `trace_id` as base64-encoded 16 bytes. Joins are direct equality (no decoding needed). Use `hex(tryBase64Decode(trace_id))` to display in hex.
+**`trace_id` format:** All three tables store `trace_id` as base64-encoded 16 bytes, so a value from one table matches the others by direct equality (no decoding needed). Use `hex(tryBase64Decode(trace_id))` to display in hex.
 
 > **Exemplars are sparse.** Only metric points whose SDK attached an exemplar carry a `trace_id`. An empty result from the query below means no spans or logs matched the chosen trace (the trace may not be exported or retained); it does not prove the metric has no exemplars. Count `trace_id != ''` rows in `posthog.metrics` for the same metric and window first. Use the span-anchored alternative further down when that count is zero, or when the exemplar traces have no retained spans or logs. In the second case, try the next exemplar from the variant query below before you fall back.
 
 ## Pattern
 
 1. **Locate the spike** in `metrics` for a specific `(service, metric, time window)`.
-2. **Pick an exemplar** — `argMax(trace_id, value)` returns the trace_id from the row with the highest value.
-3. **Fetch spans and logs** for that trace_id in a single `UNION ALL`, ordered by timestamp so the timeline interleaves.
+2. **Pick an exemplar** — `argMax(trace_id, value)` returns the trace_id from the row with the highest value. This is its own query.
+3. **Fetch spans and logs** for that trace_id in a second query with a single `UNION ALL`, ordered by timestamp so the timeline interleaves.
 
-## Query
+## Queries
+
+First, the exemplar:
 
 ```sql
-WITH exemplar AS (
-    SELECT argMax(trace_id, value) AS trace_id
-    FROM posthog.metrics
-    WHERE service_name = 'checkout'
-      AND metric_name = 'http.server.duration'
-      AND timestamp >= now() - INTERVAL 15 MINUTE
-      AND trace_id != ''
-)
+SELECT argMax(trace_id, value) AS trace_id
+FROM posthog.metrics
+WHERE service_name = 'checkout'
+  AND metric_name = 'http.server.duration'
+  AND timestamp >= now() - INTERVAL 15 MINUTE
+  AND trace_id != ''
+```
+
+Then the spans and logs for the returned `trace_id`:
+
+```sql
 SELECT
     'span' AS source,
     name AS detail,
@@ -36,7 +43,7 @@ SELECT
     NULL AS severity_number,
     timestamp
 FROM posthog.trace_spans
-WHERE trace_id = (SELECT trace_id FROM exemplar)
+WHERE trace_id = '<trace_id from the first query>'
 
 UNION ALL
 
@@ -49,7 +56,7 @@ SELECT
     severity_number,
     timestamp
 FROM logs
-WHERE trace_id = (SELECT trace_id FROM exemplar)
+WHERE trace_id = '<trace_id from the first query>'
 
 ORDER BY timestamp
 ```
