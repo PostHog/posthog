@@ -3380,7 +3380,8 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: 'discard' | 'publish' | null,
+            workflowHasActionErrors: boolean
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
@@ -4411,11 +4412,12 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowHasActionErrors],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: 'publish' | 'discard' | null,
+                workflowHasActionErrors: boolean
             ): string | undefined => {
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
@@ -4425,7 +4427,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (hasUnsavedChanges) {
                     return 'Save your changes first'
                 }
-                return hasStagedDraft ? undefined : 'No changes staged to publish'
+                if (!hasStagedDraft) {
+                    return 'No changes staged to publish'
+                }
+                // With the form saved it holds the staged draft, so its step errors are the draft's.
+                return workflowHasActionErrors ? 'Fix the steps with errors first' : undefined
             },
         ],
 
@@ -4808,7 +4814,14 @@ export const workflowLogic = kea<workflowLogicType>([
                     }
                 }
 
-                if (originalWorkflow.draft) {
+                const stepsNeedingWork = values.workflow.actions
+                    .filter((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                    .map((action) => action.name)
+                    .join(', ')
+
+                if (originalWorkflow.draft && stepsNeedingWork) {
+                    lemonToast.warning(`Draft saved. Fix these steps before you publish: ${stepsNeedingWork}`)
+                } else if (originalWorkflow.draft) {
                     // Saving used to deploy immediately, so the changed contract needs a loud cue at
                     // the moment of saving, not only the status bar.
                     lemonToast.success('Draft saved. The live version keeps running until you publish.', {
@@ -4830,6 +4843,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     } else {
                         lemonToast.success('Broadcast saved')
                     }
+                } else if (stepsNeedingWork) {
+                    lemonToast.warning(`Workflow saved. These steps still need work: ${stepsNeedingWork}`)
                 } else {
                     lemonToast.success('Workflow saved')
                 }
