@@ -12,7 +12,12 @@ from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPers
 from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.mcp_intent_assignments import MCPIntentAssignmentsTable, RawMCPIntentAssignmentsTable
+from posthog.hogql.database.schema.mcp_intent_assignments import (
+    MCPIntentAssignmentsTable,
+    MCPIntentCallsHourlyTable,
+    MCPIntentTopicDailyTable,
+    RawMCPIntentAssignmentsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDimensionalPreAggregatedTable,
@@ -107,7 +112,16 @@ WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
 
 # The intent clustering pipeline stores a truncated copy of each `$mcp_intent` value, keyed by its unsalted
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
-_MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS = {"intent_text": "$mcp_intent", "intent_hash": "$mcp_intent"}
+# The rollups also keep the unsalted cityHash64 of each conversation id, which the pipeline reads from
+# `$mcp_session_id` and falls back to `$session_id`. The hash reveals the id, so restricting either masks it.
+# Their `tool` column copies the tool name, so restricting any property it is read from masks it.
+_MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "intent_text": ("$mcp_intent",),
+    "intent_hash": ("$mcp_intent",),
+    "conversation_hashes": ("$mcp_session_id", "$session_id"),
+    # The rollups' effective tool name reads the exec wrapper's target before `$mcp_tool_name`.
+    "tool": ("$mcp_tool_name", "$mcp_exec_tool_call_name", "$mcp_exec_target_tool"),
+}
 
 
 # The same pipeline embeds each `$mcp_intent` value into the shared embedding tables, with the text in `content`,
@@ -143,27 +157,25 @@ def mirrored_properties_for_column(table_type: ast.Type, column_name: str, conte
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
         return ()
 
-    if isinstance(table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable):
-        return WEB_DIMENSIONAL_MIRRORED_COLUMNS.get(column_name, ())
+    source_property: str | None = None
     if isinstance(table, AiEventsTable):
-        source = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
+        source_property = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     elif isinstance(table, FlagEvaluationsTable):
-        source = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
-    elif isinstance(table, MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable):
-        source = _MCP_INTENT_ASSIGNMENTS_MIRRORED_COLUMNS.get(column_name)
-    else:
-        source = None
-    return (source,) if source is not None else ()
+        source_property = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    elif isinstance(
+        table,
+        MCPIntentAssignmentsTable | RawMCPIntentAssignmentsTable | MCPIntentCallsHourlyTable | MCPIntentTopicDailyTable,
+    ):
+        return _MCP_INTENT_MIRRORED_COLUMNS.get(column_name, ())
+    return (source_property,) if source_property is not None else ()
 
 
 def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, context: HogQLContext) -> bool:
-    """Whether a read of this stored column masks to NULL because a property it copies is restricted."""
+    """Whether a read of this stored column is masked because a property it copies is restricted."""
     source_properties = mirrored_properties_for_column(table_type, column_name, context)
-    if not source_properties:
-        return False
-    restricted_keys = restricted_property_keys_for_table_type(table_type, context)
-    # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
-    return any(key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties)
+    return bool(source_properties) and not restricted_property_keys_for_table_type(table_type, context).isdisjoint(
+        source_properties
+    )
 
 
 def restricted_embedding_documents(
@@ -237,6 +249,8 @@ def restricted_property_keys_for_table_type(
             WebBouncesDimensionalPreAggregatedTable,
             MCPIntentAssignmentsTable,
             RawMCPIntentAssignmentsTable,
+            MCPIntentCallsHourlyTable,
+            MCPIntentTopicDailyTable,
             ModelSpecificEmbeddingTable,
             RawDocumentEmbeddingsTable,
         ),
