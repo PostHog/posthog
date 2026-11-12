@@ -20,7 +20,11 @@ from products.ai_observability.backend.logic.message_normalizer.normalizer impor
     merge_recipes,
 )
 from products.ai_observability.backend.logic.message_normalizer.pipeline import RecipePipeline
-from products.ai_observability.backend.logic.traces.step_content import NODE_READ_TIME_LIMIT_SECONDS, step_content
+from products.ai_observability.backend.logic.traces.step_content import (
+    NODE_READ_TIME_LIMIT_SECONDS,
+    read_step,
+    step_content,
+)
 
 TEAM_ID = 7
 CONVERSATION = [{"role": "user", "content": "Hi"}]
@@ -348,3 +352,67 @@ def test_deeply_nested_tool_result_stays_text_and_the_response_serializes():
     [call] = content.output.messages[0].parts
     assert isinstance(call, contracts.TraceToolCallPart) and call.result == nested
     content.model_dump_json()
+
+
+AGENT_SAID = {"who": "agent", "said": "Hi"}
+
+
+@parameterized.expand(
+    [
+        ("conversations", "generation", CONVERSATION, REPLY, RecipeNormalizer, (True, True)),
+        ("salvaged generation input", "generation", AGENT_SAID, REPLY, RecipeNormalizer, (False, True)),
+        ("json span input beside an empty output", "span", AGENT_SAID, None, RecipeNormalizer, (False, True)),
+        ("span input a team recipe parses", "span", AGENT_SAID, None, with_team_recipe(AGENT_RECIPE), (True, True)),
+        (
+            "span input a team recipe matches but renders nothing for",
+            "span",
+            {"k": 1},
+            None,
+            with_team_recipe(MATCH_EVERYTHING_RECIPE),
+            (False, True),
+        ),
+        ("empty span sides", "span", "", None, RecipeNormalizer, (True, True)),
+        (
+            "generation output whose message is empty",
+            "generation",
+            CONVERSATION,
+            [{"role": "assistant", "content": ""}],
+            RecipeNormalizer,
+            (True, True),
+        ),
+        ("span output that is plain text", "span", AGENT_SAID, "done", RecipeNormalizer, (False, True)),
+        ("span output that is a number", "span", AGENT_SAID, 42, RecipeNormalizer, (False, True)),
+        ("span output that is an empty object", "span", AGENT_SAID, {}, RecipeNormalizer, (False, True)),
+        ("span output that is an array", "span", AGENT_SAID, [1, 2], RecipeNormalizer, (False, False)),
+        (
+            "generation input a team recipe matches but renders nothing for",
+            "generation",
+            {"k": {"x": 1}},
+            REPLY,
+            with_team_recipe(MATCH_EVERYTHING_RECIPE),
+            (False, True),
+        ),
+    ]
+)
+def test_read_step_reports_whether_each_side_was_recognized(
+    _name, kind, input_value, output_value, build_normalizer, expected
+):
+    reading = read_step(kind, "node-1", input_value, output_value, build_normalizer=build_normalizer, team_id=TEAM_ID)
+
+    assert (reading.input.recognized, reading.output.recognized) == expected
+
+
+@parameterized.expand(
+    [
+        ("a bounded failure carries its message", RecipeTimeoutError("too slow"), "too slow"),
+        ("an unexpected failure carries none", KeyError("boom"), None),
+    ]
+)
+def test_a_side_that_fails_is_unrecognized(_name, error, runtime_error):
+    with patch("products.ai_observability.backend.logic.traces.step_content.capture_exception"):
+        reading = read_step(
+            "generation", "node-1", "Hi", REPLY, build_normalizer=failing_output(error), team_id=TEAM_ID
+        )
+
+    assert (reading.output.recognized, reading.output.runtime_error) == (False, runtime_error)
+    assert reading.input.recognized

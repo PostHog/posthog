@@ -69,6 +69,7 @@ export interface commentsLogicValues {
     commentContexts: Record<string, string>
     comments: CommentType[] | null
     commentsInitialLoading: boolean
+    commentsLoadFailed: boolean
     commentsLoading: boolean
     commentsWithReplies: CommentWithRepliesType[]
     composerDrafts: Record<string, JSONContent | null>
@@ -432,6 +433,15 @@ export const commentsLogic = kea<commentsLogicType>([
         setComposerSlackChannel: (channel: string | null) => ({ channel }),
     }),
     reducers({
+        // `comments` stays null after a failed first load, the same as before any load, so the failure needs its own flag.
+        commentsLoadFailed: [
+            false,
+            {
+                loadComments: () => false,
+                loadCommentsSuccess: () => false,
+                loadCommentsFailure: () => true,
+            },
+        ],
         composerSendToSlack: [
             false,
             {

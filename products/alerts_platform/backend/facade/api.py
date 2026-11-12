@@ -30,7 +30,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertEvents,
     PlatformAlertHistory,
+    PlatformAlertListHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
@@ -44,12 +46,18 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceKind,
+    StateInterval,
     StoredAlertDestination,
     StoredAlertReceiver,
     StoredAlertRoute,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import (
+    HoldRelease,
+    HoldReleasedBy,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
 from products.alerts_platform.backend.logic import (
     alert_destinations,
     alert_routing,
@@ -58,6 +66,7 @@ from products.alerts_platform.backend.logic import (
     platform_lifecycle,
     platform_reads,
     platform_writes,
+    state_timeline as state_timeline_logic,
     verdict_changes,
 )
 
@@ -206,9 +215,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    created_by_uuid: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `created_by_uuid`, only the ones that user created."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -216,6 +227,7 @@ def list_configurations(
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
+        created_by_uuid=created_by_uuid,
     )
 
 
@@ -247,10 +259,12 @@ def enabled_native_configurations(
     source_config_key: str | None = None,
     values: Collection[Any] = (),
     limit: int | None = None,
+    firing_at: datetime | None = None,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled alerts of a kind with no source row in these teams, newest first. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
-    `source_config[key]` is one of `values`. With `limit`, at most that many."""
+    `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
+    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds."""
     return platform_reads.enabled_native_configurations(
         team_ids=team_ids,
         source_kind=source_kind.value,
@@ -258,6 +272,27 @@ def enabled_native_configurations(
         source_config_key=source_config_key,
         values=values,
         limit=limit,
+        firing_at=firing_at,
+    )
+
+
+def native_source_config_values(
+    *, team_ids: Collection[int], source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> set[Any]:
+    """Which of `values` an alert of a kind with no source row in these teams holds as
+    `source_config[key]`, enabled or not."""
+    return platform_reads.native_source_config_values(
+        team_ids=team_ids, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    )
+
+
+def native_configuration_ids_by_source_config(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> dict[Any, list[UUID]]:
+    """The ids of a kind's alerts with no source row in the team, oldest first, by which of `values`
+    each holds as `source_config[key]`, enabled or not. A value no alert holds is left out."""
+    return platform_reads.native_configuration_ids_by_source_config(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
     )
 
 
@@ -416,6 +451,25 @@ def control_changes_by_public_id(
     return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
 
 
+def alert_list_history(
+    *, team_id: int, configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> PlatformAlertListHistory:
+    """Each configuration's newest check, its state changes across every group, and its control-plane
+    changes in `[since, until)`, keyed by configuration id.
+
+    Raises when ClickHouse fails, so a caller can show the list without them.
+    """
+    return platform_reads.alert_list_history(
+        team_id=team_id, configuration_ids=configuration_ids, since=since, until=until
+    )
+
+
+def alert_events(*, team_id: int, configuration_id: UUID, since: datetime, limit: int) -> PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes since `since`,
+    each newest first. Raises when ClickHouse fails."""
+    return platform_reads.alert_events(team_id=team_id, configuration_id=configuration_id, since=since, limit=limit)
+
+
 def control_history_by_public_id(
     *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformControlHistory]:
@@ -425,6 +479,26 @@ def control_history_by_public_id(
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
     return platform_reads.control_history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
+
+
+def state_timeline(
+    *,
+    history: PlatformAlertHistory | None,
+    control: PlatformControlHistory | None,
+    current_group_states: Mapping[str, PlatformAlertState],
+    current_enabled: bool,
+    snooze_until: datetime | None,
+    window: tuple[datetime, datetime],
+) -> tuple[StateInterval, ...]:
+    """An alert's state over `window` from its check history and control-plane changes, oldest first."""
+    return state_timeline_logic.state_timeline(
+        history=history,
+        control=control,
+        current_group_states=current_group_states,
+        current_enabled=current_enabled,
+        snooze_until=snooze_until,
+        window=window,
+    )
 
 
 def update_configuration(
@@ -643,6 +717,14 @@ def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUI
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def destination_types_by_configuration(
+    *, team_id: int, configuration_ids: Collection[UUID]
+) -> dict[UUID, tuple[str, ...]]:
+    """The types of each named configuration's enabled destinations, for an alert list. A configuration
+    with none is left out."""
+    return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
 def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:

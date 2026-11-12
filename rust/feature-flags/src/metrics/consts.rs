@@ -20,15 +20,21 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
-// Incremented once per unsupported cohort filter leaf (e.g. a `behavioral` filter)
-// skipped during dependency extraction, instead of failing the whole cohort parse.
+// Incremented once per unsupported cohort filter leaf (e.g. a `behavioral` filter) or
+// unsupported group type (e.g. `XOR`) skipped during dependency extraction, instead of
+// failing the whole cohort parse.
 pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_filter_total";
 // Incremented once per cohort whose filters fail dependency extraction or evaluation
 // with CohortFiltersParsingError — most commonly a malformed leaf of a known type
 // (CohortValuesItem::MalformedKnownType), but also excessive nesting depth or other
-// structural errors. Cohort and team ids are in the companion debug log, not metric
+// structural errors. Cohort and team ids are in the companion warn log, not metric
 // labels (cardinality).
 pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
+// Incremented once per evaluation whose requested cohort's membership stays unknown
+// because no sibling decided an unsupported group (e.g. `XOR`), possibly inside a
+// referenced cohort. The evaluation fails with CohortFiltersParsingError. Cohort and
+// team ids are in the companion warn log, not metric labels (cardinality).
+pub const COHORT_UNKNOWN_MEMBERSHIP_COUNTER: &str = "flags_cohort_unknown_membership_total";
 // Counts evaluated cohorts the two MembershipStampPolicy variants route differently.
 // Labels: direction="would_lose" | "would_gain", active_policy = the policy this process
 // runs, which says whether the reroute is still pending or already applied. Cohort and

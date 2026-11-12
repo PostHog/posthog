@@ -88,6 +88,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
+    imageUrl = serializers.URLField(source="image_url")
     flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
     payload = serializers.SerializerMethodField()
     assignee = serializers.SerializerMethodField()
@@ -100,6 +101,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "description",
             "stage",
             "documentationUrl",
+            "imageUrl",
             "flagKey",
             "payload",
             "assignee",
@@ -159,6 +161,12 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         allow_blank=True,
         help_text="URL to external documentation for this feature. Shown to users in the opt-in UI.",
     )
+    image_url = serializers.URLField(
+        max_length=800,
+        required=False,
+        allow_blank=True,
+        help_text="URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI.",
+    )
     payload = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(
         read_only=True,
@@ -176,6 +184,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "stage",
             "documentation_url",
+            "image_url",
             "payload",
             "created_at",
             "created_by",
@@ -377,6 +386,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "description",
             "stage",
             "documentation_url",
+            "image_url",
             "payload",
             "created_at",
             "created_by",
