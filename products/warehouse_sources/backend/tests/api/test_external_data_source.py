@@ -3782,6 +3782,8 @@ class TestExternalDataSource(APIBaseTest):
                     "label": schema.label,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
+                    "live_query_enabled": False,
+                    "live_query_unavailable_reason": "Live queries are only available on synced sources that have live queries turned on.",
                     "status": schema.status,
                     "pending_self_managed_table": False,
                     "sync_type": schema.sync_type,
