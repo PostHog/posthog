@@ -4,16 +4,8 @@ import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { AREA_WINDOW_OPTIONS } from './areaDisplay'
 import { AreaGroupTable } from './AreaGroupTable'
+import { HeadlineNumber } from './HeadlineNumber'
 import { AREA_PAGE_SIZE, stamphogAreaSceneLogic } from './stamphogAreaSceneLogic'
-
-function HeadlineNumber({ value, label }: { value: number; label: string }): JSX.Element {
-    return (
-        <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold">{value}</span>
-            <span className="text-secondary">{label}</span>
-        </div>
-    )
-}
 
 export function AreaList(): JSX.Element {
     const { owner, windowDays, groups, headline, runsResponse, runsResponseLoading, runsFailed, showsOnlyNewest } =

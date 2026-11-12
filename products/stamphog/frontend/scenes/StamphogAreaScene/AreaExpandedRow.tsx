@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
@@ -13,7 +13,8 @@ import { AreaRow, otherOwnerStatus, whySentence, whyTitle } from './areaDisplay'
 import { stamphogAreaSceneLogic } from './stamphogAreaSceneLogic'
 
 export function AreaExpandedRow({ row }: { row: AreaRow }): JSX.Element {
-    const { owner, runDetails } = useValues(stamphogAreaSceneLogic)
+    const { owner, runDetails, runDetailsFailed } = useValues(stamphogAreaSceneLogic)
+    const { loadRunDetail } = useActions(stamphogAreaSceneLogic)
     const { run, decision } = row
     const files = runDetails[run.id]?.owners.find((entry) => entry.owner === owner)?.files
     const otherOwners = run.owners.filter((entry) => entry.owner !== owner)
@@ -36,6 +37,10 @@ export function AreaExpandedRow({ row }: { row: AreaRow }): JSX.Element {
                             </li>
                         ))}
                     </ul>
+                ) : runDetailsFailed[run.id] ? (
+                    <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadRunDetail(run.id) }}>
+                        Couldn't load the files your team owns. Try again.
+                    </LemonBanner>
                 ) : (
                     <Spinner />
                 )}

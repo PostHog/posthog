@@ -66,7 +66,7 @@ export interface stamphogAreaSceneLogicValues {
     owners: StamphogRoutingOwnerCountApi[]
     ownersLoading: boolean
     runDetails: Record<string, StamphogRoutingRunDetailApi>
-    runDetailsLoading: boolean
+    runDetailsFailed: Record<string, boolean>
     runs: StamphogRoutingRunApi[]
     runsFailed: boolean
     runsResponse: PaginatedStamphogRoutingRunListApi | null
@@ -98,20 +98,18 @@ export interface stamphogAreaSceneLogicActions {
             value: true
         }
     }
-    loadRunDetail: (id: string) => string
-    loadRunDetailFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    loadRunDetail: (id: string) => {
+        id: string
+    }
+    loadRunDetailFailure: (id: string) => {
+        id: string
     }
     loadRunDetailSuccess: (
-        runDetails: Record<string, StamphogRoutingRunDetailApi>,
-        payload?: string
+        id: string,
+        detail: StamphogRoutingRunDetailApi
     ) => {
-        runDetails: Record<string, StamphogRoutingRunDetailApi>
-        payload?: string
+        detail: StamphogRoutingRunDetailApi
+        id: string
     }
     loadRuns: () => {
         value: true
@@ -182,6 +180,9 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
         setWindowDays: (windowDays: AreaWindowDays) => ({ windowDays }),
         // Applies a whole link at once, so opening a link is one change instead of one per filter.
         setFilters: (filters: AreaFilterValues) => ({ filters }),
+        loadRunDetail: (id: string) => ({ id }),
+        loadRunDetailSuccess: (id: string, detail: StamphogRoutingRunDetailApi) => ({ id, detail }),
+        loadRunDetailFailure: (id: string) => ({ id }),
     }),
 
     reducers({
@@ -210,6 +211,18 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
                 loadRunsFailure: () => true,
             },
         ],
+        // Keyed by run id, because each expanded row loads its own run's files.
+        runDetails: [
+            {} as Record<string, StamphogRoutingRunDetailApi>,
+            { loadRunDetailSuccess: (state, { id, detail }) => ({ ...state, [id]: detail }) },
+        ],
+        runDetailsFailed: [
+            {} as Record<string, boolean>,
+            {
+                loadRunDetail: (state, { id }) => ({ ...state, [id]: false }),
+                loadRunDetailFailure: (state, { id }) => ({ ...state, [id]: true }),
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -230,9 +243,16 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
                         ordering: StamphogRoutingRunsListOrdering.MergedAt,
                         limit: AREA_PAGE_SIZE,
                     }
-                    const response = await stamphogRoutingRunsList(String(values.currentProjectId), params)
+                    let response: PaginatedStamphogRoutingRunListApi
+                    try {
+                        response = await stamphogRoutingRunsList(String(values.currentProjectId), params)
+                    } catch (error) {
+                        // A superseded request must not show its error over the newer load either.
+                        await breakpoint()
+                        throw error
+                    }
                     // A filter change while this request ran started a newer load, so drop this response.
-                    breakpoint()
+                    await breakpoint()
                     return response
                 },
             },
@@ -241,19 +261,6 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
             [] as StamphogRoutingOwnerCountApi[],
             {
                 loadOwners: async () => stamphogRoutingRunsOwnersList(String(values.currentProjectId)),
-            },
-        ],
-        runDetails: [
-            {} as Record<string, StamphogRoutingRunDetailApi>,
-            {
-                loadRunDetail: async (id: string) => {
-                    if (values.runDetails[id]) {
-                        return values.runDetails
-                    }
-                    const detail = await stamphogRoutingRunsRetrieve(String(values.currentProjectId), id)
-                    // Read the map again after the request, so two rows opened together both keep their files.
-                    return { ...values.runDetails, [id]: detail }
-                },
             },
         ],
     })),
@@ -285,7 +292,18 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        loadRunDetail: async ({ id }) => {
+            if (values.runDetails[id]) {
+                return
+            }
+            try {
+                const detail = await stamphogRoutingRunsRetrieve(String(values.currentProjectId), id)
+                actions.loadRunDetailSuccess(id, detail)
+            } catch {
+                actions.loadRunDetailFailure(id)
+            }
+        },
         setOwner: () => actions.loadRuns(),
         setFilter: () => actions.loadRuns(),
         setWindowDays: () => actions.loadRuns(),

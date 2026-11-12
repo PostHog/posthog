@@ -30,7 +30,8 @@ const ASKED_OUTCOMES: RoutingOwnerOutcomeEnumApi[] = [
 /** The outcome filter each segment sends. "All changes" sends none. */
 export const AREA_FILTER_OUTCOMES: Record<AreaFilter, StamphogRoutingRunsListParams['outcome']> = {
     all: undefined,
-    merged_without_team: [RoutingOwnerOutcomeEnumApi.NotRequested],
+    // Matches isMergedWithoutTeam, so the segment lists every pull request the headline counts.
+    merged_without_team: [RoutingOwnerOutcomeEnumApi.NotRequested, RoutingOwnerOutcomeEnumApi.Refused],
     team_asked: ASKED_OUTCOMES,
 }
 

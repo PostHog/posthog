@@ -1,5 +1,9 @@
-import type { StamphogRoutingRunApi, StamphogRoutingRunOwnerApi } from '../../generated/api.schemas'
-import { AreaGroup, areaGroup, groupAreaRows } from './areaDisplay'
+import {
+    RoutingOwnerOutcomeEnumApi,
+    type StamphogRoutingRunApi,
+    type StamphogRoutingRunOwnerApi,
+} from '../../generated/api.schemas'
+import { AREA_FILTER_OUTCOMES, AreaGroup, areaGroup, groupAreaRows, isMergedWithoutTeam } from './areaDisplay'
 
 const run = (size: number | null, decision: Partial<StamphogRoutingRunOwnerApi>, id = 'run'): StamphogRoutingRunApi =>
     ({
@@ -39,5 +43,11 @@ describe('areaDisplay', () => {
         expect(
             groupAreaRows(runs, 'team-devex').map((group) => [group.key, group.rows.map((row) => row.run.id)])
         ).toEqual([['merged_without_team', ['large', 'small']]])
+    })
+
+    it('the merged without your team segment asks for every outcome the headline counts', () => {
+        expect(new Set(AREA_FILTER_OUTCOMES.merged_without_team)).toEqual(
+            new Set(Object.values(RoutingOwnerOutcomeEnumApi).filter(isMergedWithoutTeam))
+        )
     })
 })
