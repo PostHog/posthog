@@ -37,6 +37,7 @@ from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     capture_task_run_state_metrics,
+    capture_task_status_shadow_metrics,
     check_async_migration_health,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
@@ -95,6 +96,7 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
+from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
@@ -135,6 +137,7 @@ from products.signals.backend.facade.tasks import (
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
+    sweep_stuck_research_reports,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -171,9 +174,11 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
+    recheck_pending_email_senders,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
+    sync_sandbox_sender_tenant_state,
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -387,6 +392,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_monitoring_research_requests.s(),
         name="emit signals monitoring research requests",
         expires_seconds=60,
+    )
+
+    # Return reports whose research run timed out or was terminated to CANDIDATE - every 15 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        sweep_stuck_research_reports.s(),
+        name="recover signals reports stuck in research",
+        expires_seconds=15 * 60,
     )
 
     # Recompute the activity bands the background scout lane samples from - daily at 5:50 AM
@@ -847,6 +861,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recover stuck canvas builds",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        backfill_metric_embeddings_task.s(),
+        name="backfill catalog metric embeddings",
+    )
+
     sender.add_periodic_task(
         crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
@@ -1031,6 +1052,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="tasks run state metrics",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        capture_task_status_shadow_metrics.s(),
+        name="tasks status shadow metrics",
+    )
+
     # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
     # starts from that kick, so nothing would drain the intake table otherwise.
     add_periodic_task_with_expiry(
@@ -1057,6 +1085,19 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="7", minute="0"),
+        recheck_pending_email_senders.s(),
+        name="workflows pending email sender recheck",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sync_sandbox_sender_tenant_state.s(),
+        name="workflows sandbox sender tenant state",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13

@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, SavedQuery, TableNode
 
-from products.data_modeling.backend.logic.incremental import IncrementalConfig
+from products.data_modeling.backend.facade.contracts import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
     check_incremental_eligibility,
     propose_incremental_config,

@@ -554,10 +554,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
             )
 
-        assert database.read_flag_calls_from_flag_evaluations is expected
+        assert database.organization_reads_flag_calls_from_flag_evaluations is expected
         assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
-        union_expected = expected and union_flag_enabled
-        assert database.read_flag_calls_with_union is union_expected
+        # The build reads the union flag only when the table gate is on, and the override skips that gate.
+        union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None
+        assert database.flag_calls_union_enabled is union_expected
         assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)

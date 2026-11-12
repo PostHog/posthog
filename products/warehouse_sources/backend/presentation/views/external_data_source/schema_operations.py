@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 )
 
 from . import base, credential_store, helpers
+from .source_type_field import resolve_known_source_key
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -376,12 +377,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
         source = base.SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
@@ -444,10 +446,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             endpoint_permissions = {schema.name: None for schema in schemas}
 
-        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
-        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
-        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
-        cdc_enabled = base.is_cdc_enabled_for_team(self.team)
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
@@ -459,7 +457,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "cdc_available": schema.supports_cdc,
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0

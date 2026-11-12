@@ -24,23 +24,31 @@ def driver(config: TeamupFitnessSourceConfig) -> SourceDriver:
 
 
 @pytest.mark.parametrize(
-    "endpoint,sort",
+    "endpoint,path,sort",
     [
-        ("customers", None),
-        ("customer_memberships", "start_date"),
-        ("memberships", None),
-        ("events", "start"),
-        ("attendances", "event_starts_at"),
-        ("invoices", "due_date"),
-        ("venues", None),
-        ("instructors", None),
+        ("customers", "customers", None),
+        ("customer_memberships", "customer_memberships", "start_date"),
+        ("memberships", "memberships", None),
+        ("events", "events", "start"),
+        ("attendances", "attendances", "event_starts_at"),
+        ("invoices", "invoices", "due_date"),
+        ("venues", "venues", None),
+        ("instructors", "instructors", None),
+        ("membership_categories", "membership_categories", None),
+        ("offering_types", "offering_types", None),
+        ("lead_sources", "crm/lead_sources", None),
+        ("payment_subscriptions", "payment_subscriptions", None),
+        ("membership_payment_plans", "membership_payment_plans", None),
+        ("customer_membership_holds", "customer_membership_holds", None),
+        ("discount_codes", "discount_codes", None),
+        ("crm_status_changes", "crm/status_changes", None),
     ],
 )
-def test_full_refresh_requests_and_pagination(driver: SourceDriver, endpoint: str, sort: str | None) -> None:
+def test_full_refresh_requests_and_pagination(driver: SourceDriver, endpoint: str, path: str, sort: str | None) -> None:
     params: dict[str, str | int] = {"page_size": 100}
     if sort:
         params["sort"] = sort
-    next_url = f"{BASE_URL}/{endpoint}?{urlencode({**params, 'page': 2})}"
+    next_url = f"{BASE_URL}/{path}?{urlencode({**params, 'page': 2})}"
     result = driver.run(
         endpoint,
         [
@@ -52,6 +60,7 @@ def test_full_refresh_requests_and_pagination(driver: SourceDriver, endpoint: st
     assert result.items == [[{"id": 1}], [{"id": 2}]]
     assert result.saved_states == [TeamupFitnessResumeConfig(next_url=next_url)]
     assert len(result.requests) == 2
+    assert result.requests[0].path == f"/api/v2/{path}"
     assert dict(result.requests[0].query) == {key: (str(value),) for key, value in params.items()}
     assert dict(result.requests[1].query) == {**{key: (str(value),) for key, value in params.items()}, "page": ("2",)}
     assert result.requests[1].url == next_url
