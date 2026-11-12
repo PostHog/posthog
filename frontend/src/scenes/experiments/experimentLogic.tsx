@@ -2762,6 +2762,11 @@ export const experimentLogic = kea<experimentLogicType>([
                         return values.exposures
                     }
 
+                    /**
+                     * End the exposures at the window of the metrics on screen. Without a recalculation run, the
+                     * backend evaluates the window at now.
+                     */
+                    const asOf = experimentMetricsLogic.findMounted({ experiment })?.values.resultsQueryTo ?? null
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: values.experimentId,
@@ -2770,6 +2775,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         feature_flag: experiment.feature_flag,
                         start_date: experiment.start_date,
                         end_date: experiment.end_date,
+                        as_of: asOf,
                         holdout: experiment.holdout,
                     })
                     // Show the cached exposures immediately when the backend is recomputing in the
