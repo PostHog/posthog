@@ -11,6 +11,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.exceptions import (
@@ -324,6 +326,8 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         response: bool | None,
         expected: ErrorsByLastValue,
     ) -> None:
+        # A team on the native JSON events table reads flag calls from flag_evaluations on every mode.
+        calls_in_flag_evaluations = calls_in_flag_evaluations or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
