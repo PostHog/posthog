@@ -29,6 +29,18 @@ const collectAlwaysAvailableToolNames = (): string[] =>
 
 describe('Tool Filtering - Features', () => {
     it.each([
+        { scopes: ['llm_analytics:read'], enabled: true, visible: true },
+        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, visible: false },
+        { scopes: ['llm_analytics:read'], enabled: false, visible: false },
+        { scopes: ['llm_analytics:read'], enabled: undefined, visible: false },
+    ])('composite validation requires scorer read access and rollout: %j', async ({ scopes, enabled, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: enabled === undefined ? {} : { 'ai-observability-composite-validation': enabled },
+        })
+        expect(tools.some((tool) => tool.name === 'llma-score-definition-validate')).toBe(visible)
+    })
+
+    it.each([
         { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
         {
             scopes: ['evaluation:read', 'llm_analytics:read'],
@@ -1162,6 +1174,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'ui-customization',
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
+            'platform-alerts-source-warehouse',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1209,6 +1222,7 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
+        expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
         expect(flags).toHaveLength(38)

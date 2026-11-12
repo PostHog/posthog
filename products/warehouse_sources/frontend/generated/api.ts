@@ -14,6 +14,7 @@ import type {
     ApplyMigrationItemApi,
     ApplyMigrationItemResponseApi,
     CdcEnableResponseApi,
+    CdcPrerequisitesRequestApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
     CreateWebhookResponseApi,
@@ -1263,11 +1264,14 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
  */
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
+    cdcPrerequisitesRequestApi: CdcPrerequisitesRequestApi,
     options?: RequestInit
 ): Promise<CdcPrerequisitesResponseApi> => {
     return apiMutator<CdcPrerequisitesResponseApi>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cdcPrerequisitesRequestApi),
     })
 }
 

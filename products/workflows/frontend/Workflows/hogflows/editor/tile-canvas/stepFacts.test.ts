@@ -75,6 +75,12 @@ describe('stepFacts', () => {
     it.each<[string, HogFlowAction, string, string | undefined]>([
         ['an email', email, 'Welcome to Example Co.', 'Your first doc takes two minutes'],
         [
+            'an email from the sandbox sender',
+            step('welcome', 'email_sandbox', { inputs: { email: (email.config as any).inputs.email } }),
+            'Welcome to Example Co.',
+            'Your first doc takes two minutes',
+        ],
+        [
             'an email that greets the person by name',
             step('greet', 'function_email', {
                 template_id: 'template-email',

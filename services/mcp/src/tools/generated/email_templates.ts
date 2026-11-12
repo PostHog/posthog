@@ -329,6 +329,12 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }
+        if (params.tracking !== undefined) {
+            body['tracking'] = params.tracking
+        }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         if (params.from !== undefined) {
             body['from'] = params.from
         }
