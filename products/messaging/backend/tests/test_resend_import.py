@@ -1,6 +1,7 @@
 import re
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -13,7 +14,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -426,6 +427,12 @@ class TestResendImport(BaseTest):
         assert '"free"' in html
         assert any("user.created" in note for note in items["Welcome series"]["notes"])
         assert any("couldn't read this email's template" in note for note in items["Re-engagement"]["notes"])
+        receipt = next(a for a in actions if a["id"] == "receipt")["config"]["inputs"]["email"]["value"]
+        assert receipt["subject"] == "Thanks for upgrading"
+        opt_out = next(a for a in actions if a["id"] == "update_opt_out")["config"]
+        assert opt_out["template_id"] == "template-posthog-opt-out-of-messages"
+        reads = [call for call in self.resend.calls if call.startswith(("/templates/", "/segments/"))]
+        assert len(reads) == len(set(reads))
 
     def test_segments_become_one_static_cohort_that_later_imports_respect(self) -> None:
         run = self._run(["automations"])
@@ -462,6 +469,15 @@ class TestResendImport(BaseTest):
 
         assert resend._imported_email(template, {}).from_name == '{{ "{{" }} person.properties.a }}'
         assert resend._step_email(step, {}).from_name == '{{ "{{" }} person.properties.b }}'
+        assert resend._step_email({**step, "reply_to": ["{{x}}@example.com", "b@example.com"]}, {}).reply_to == (
+            '{{ "{{" }}x}}@example.com, b@example.com'
+        )
+
+    def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
+        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))
+        template = {**FIXTURES["templates"][0], "from": "hello@example.com"}
+
+        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == "Acme team"
 
     def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
         self.resend.data = {**self.resend.data, "segments": []}
@@ -470,6 +486,12 @@ class TestResendImport(BaseTest):
         items = {item["label"]: item for item in run.progress["automations"]["items"]}
         assert items["Welcome series"]["status"] == "created"
         assert any("no longer exists in Resend" in note for note in items["Welcome series"]["notes"])
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
+
+        self.resend.data = {**self.resend.data, "segments": FIXTURES["segments"]}
+        run = self._run(["automations"])
+
+        assert run.progress["automations"]["counts"] == {"already_present": len(FIXTURES["automations"])}
         assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:

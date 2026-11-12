@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+import structlog
+
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -19,6 +21,11 @@ from products.workflows.backend.services.resend_import.translator import (
     TranslationContext,
     translate_automation,
 )
+
+logger = structlog.get_logger(__name__)
+
+# Resend's automation API isn't typed, so a field can hold a value of a type the translator doesn't expect.
+_UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
 
 _page_access: ContextVar[dict[tuple[int, int], UserAccessControl] | None] = ContextVar(
     "resend_import_page_access", default=None
@@ -54,9 +61,10 @@ def import_resend_automation(
     step_emails: Mapping[str, ImportedStepEmail] | None = None,
     segments: Mapping[str, str | None] | None = None,
 ) -> ProviderAutomationResult:
-    """Saves a Resend automation as a draft workflow. An automation imported before stays as it is.
+    """Saves a Resend automation as a draft workflow. An automation imported before stays as it is, unless its draft
+    was deleted.
 
-    `segments` holds each segment's name by id, or None if Resend no longer has it.
+    `segments` holds the name of each segment the automation adds people to, by id, or None if Resend no longer has it.
     """
     # The draft check lives in the views layer, and importing it at load time would bring the whole API with it.
     from products.workflows.backend.presentation.views.workflow_import_drafts import (  # noqa: PLC0415
@@ -65,28 +73,43 @@ def import_resend_automation(
 
     team = Team.objects.get(id=team_id)
     user = User.objects.filter(id=user_id).first()
-    context = TranslationContext(step_emails=step_emails or {})
-    source_id = str(automation.get("id"))
-    # A rerun leaves the earlier draft alone, so it must not create cohorts that draft doesn't use.
-    if user is not None and previous_import(team, source_id, WorkflowImportSource.RESEND).record_id is None:
-        access = _access(team, user)
-        step_types = {step.get("type") for step in automation.get("steps") or [] if isinstance(step, dict)}
-        referenced_segments = _segment_ids(automation)
-        context = TranslationContext(
-            step_emails=step_emails or {},
-            segment_cohorts={
-                segment_id: _segment_cohort(team_id, user, access, segment_id, name)
-                for segment_id, name in (segments or {}).items()
-                if segment_id in referenced_segments
-            },
-            can_opt_out=access.check_access_level_for_resource("hog_flow", "editor"),
-            unavailable_templates=frozenset(hidden_gated_template_ids(team))
-            if step_types & {"add_to_segment", "contact_update"}
-            else frozenset(),
+    if user is None:
+        return ProviderAutomationResult(
+            status="failed", workflow_id=None, notes=("The person who started this import no longer exists.",)
         )
-    return save_provider_draft(
-        team_id, user_id, translate_automation(automation, emails, context), WorkflowImportSource.RESEND
+    previous = previous_import(team, str(automation.get("id")), WorkflowImportSource.RESEND)
+    # A rerun leaves the earlier draft alone, so it must not create cohorts that draft doesn't use.
+    if previous.hog_flow_id is not None:
+        return ProviderAutomationResult(
+            status="skipped",
+            workflow_id=str(previous.hog_flow_id),
+            notes=("You imported this automation before, so PostHog left it as it is.",),
+        )
+    access = _access(team, user)
+    step_types = {step.get("type") for step in automation.get("steps") or [] if isinstance(step, dict)}
+    context = TranslationContext(
+        step_emails=step_emails or {},
+        segment_cohorts={
+            segment_id: _segment_cohort(team_id, user, access, segment_id, name)
+            for segment_id, name in (segments or {}).items()
+        },
+        can_opt_out=access.check_access_level_for_resource("hog_flow", "editor"),
+        unavailable_templates=frozenset(hidden_gated_template_ids(team))
+        if step_types & {"add_to_segment", "contact_update"}
+        else frozenset(),
     )
+    try:
+        translated = translate_automation(automation, emails, context)
+    except _UNREADABLE as error:
+        logger.info("workflows.import.unreadable_resend_automation", team_id=team_id, error=type(error).__name__)
+        return ProviderAutomationResult(
+            status="failed",
+            workflow_id=None,
+            notes=(
+                "Resend sent a value PostHog couldn't read in this automation. Check it in Resend and import it again.",
+            ),
+        )
+    return save_provider_draft(team, user, translated, WorkflowImportSource.RESEND, record_id=previous.record_id)
 
 
 def _segment_cohort(
@@ -121,11 +144,3 @@ def _reused_cohort(existing: CohortRef, access: UserAccessControl, name: str) ->
     if not access.check_access_level_for_ref(ref, "editor"):
         return SegmentCohort(problem=f'Adding people to the cohort for the Resend segment "{name}" needs edit access.')
     return SegmentCohort(name=f"{name} (from Resend)", cohort_id=existing.id)
-
-
-def _segment_ids(automation: Mapping[str, Any]) -> set[str]:
-    return {
-        str(step["config"]["segment_id"])
-        for step in automation.get("steps") or []
-        if isinstance(step, dict) and isinstance(step.get("config"), dict) and step["config"].get("segment_id")
-    }
