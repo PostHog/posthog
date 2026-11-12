@@ -279,6 +279,8 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert assign.n_intents == 120
         assert sum(r[1] for r in self._assignments()) == 120
 
+
+class TestAssignWithoutTopics(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def test_assign_without_topics_is_skipped_and_still_counts_the_calls_as_unassigned(self) -> None:
         rollups.insert_hourly_calls(
             self.team.pk,
