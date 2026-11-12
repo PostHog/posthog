@@ -8,6 +8,8 @@ import { ContentAutopilotKeywordModifiers } from './ContentAutopilotKeywordModif
 import { ContentAutopilotKeywordReportTable } from './ContentAutopilotKeywordReportTable'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { ContentAutopilotKeywordsSkeleton } from './ContentAutopilotKeywordsSkeleton'
+import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
+import { ContentAutopilotKeywordSuggestModal } from './ContentAutopilotKeywordSuggestModal'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 
 export const ContentAutopilotKeywords = (): JSX.Element => {
@@ -37,9 +39,14 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
                 <p className="m-0 mt-1 mb-3 text-muted">
                     Keywords are the words and phrases you want to be known for, like a product category or a feature.
                     For each one, PostHog shows how often the AI engines search for it and use it in their answers, and
-                    how often those answers mention or cite you. Add your first keywords to start.
+                    how often those answers mention or cite you. Add your first keywords, or ask PostHog to suggest
+                    some.
                 </p>
+                <div className="mb-3">
+                    <ContentAutopilotKeywordSuggestButton type="primary" />
+                </div>
                 <ContentAutopilotKeywordAddForm />
+                <ContentAutopilotKeywordSuggestModal />
             </LemonCard>
         )
     }
@@ -49,6 +56,7 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
             <ContentAutopilotKeywordList keywords={keywords} />
             <ContentAutopilotKeywordReportTable />
             <ContentAutopilotKeywordModifiers />
+            <ContentAutopilotKeywordSuggestModal />
         </section>
     )
 }

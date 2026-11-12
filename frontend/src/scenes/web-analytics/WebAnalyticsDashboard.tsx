@@ -702,7 +702,7 @@ const MainContent = (): JSX.Element => {
         return <AgentAnalytics />
     }
 
-    if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+    if (productTab === ProductTab.CONTENT_AUTOPILOT || productTab === ProductTab.BOT_ANALYTICS) {
         return <ContentAutopilot />
     }
 
@@ -756,7 +756,7 @@ const pagePerformanceTab = (
             key: ProductTab.PAGE_PERFORMANCE,
             label: (
                 <div className="flex items-center gap-1">
-                    Search & AI
+                    AI traffic
                     <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
@@ -919,7 +919,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     return (
         <LemonTabs<ProductTab>
-            activeKey={productTab}
+            // The retired Bots route renders AI visibility, so it keeps that tab active.
+            activeKey={productTab === ProductTab.BOT_ANALYTICS ? ProductTab.CONTENT_AUTOPILOT : productTab}
             onChange={setProductTab}
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },

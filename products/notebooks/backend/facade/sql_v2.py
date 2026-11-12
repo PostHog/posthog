@@ -21,7 +21,6 @@ from ..sql_v2_data_plane import (
 from ..sql_v2_dispatch import (
     NodeRunDispatchFailed as NodeRunDispatchFailed,
     NodeRunInvalid as NodeRunInvalid,
-    NodeRunNotPermitted as NodeRunNotPermitted,
     NodeRunRequest as NodeRunRequest,
     build_ref_specs as build_ref_specs,
     dispatch_cell_run as dispatch_cell_run,

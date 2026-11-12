@@ -1,6 +1,6 @@
-//! Types shared by the worker transport: the send failure contract, the fence
-//! guard, and the size-bounded chunking that keeps one frame under the
-//! worker's message limit.
+//! Types shared by the worker transport: the send failure contract and the
+//! size-bounded chunking that keeps one frame under the worker's message
+//! limit.
 
 use crate::types::SerializedKafkaMessage;
 
@@ -68,46 +68,6 @@ pub enum SendOutcome {
 pub struct SendError {
     pub error: TransportError,
     pub messages: Vec<SerializedKafkaMessage>,
-    /// Set on a fenced worker stream send. Hold it until `messages` are
-    /// requeued: the worker stream keeps fencing new arrivals until every
-    /// guard from that fence is dropped, so nothing enqueued before the
-    /// requeue lands can reach the worker ahead of the fenced messages on the
-    /// next stream.
-    pub fence_guard: Option<FenceGuard>,
-}
-
-/// Tells a fencing worker stream that one fenced send's messages are requeued.
-pub struct FenceGuard {
-    /// One release per fenced send this guard stands for: a split sub-batch
-    /// fenced across several chunks merges their guards into one.
-    released: Vec<tokio::sync::mpsc::UnboundedSender<()>>,
-}
-
-impl FenceGuard {
-    pub(crate) fn new(released: tokio::sync::mpsc::UnboundedSender<()>) -> Self {
-        Self {
-            released: vec![released],
-        }
-    }
-
-    /// Fold `other` into this guard, so both release only when this one drops.
-    pub(crate) fn merge(&mut self, mut other: FenceGuard) {
-        self.released.append(&mut other.released);
-    }
-}
-
-impl Drop for FenceGuard {
-    fn drop(&mut self) {
-        for released in &self.released {
-            let _ = released.send(());
-        }
-    }
-}
-
-impl std::fmt::Debug for FenceGuard {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("FenceGuard")
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

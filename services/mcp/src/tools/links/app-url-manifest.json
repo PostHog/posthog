@@ -1869,6 +1869,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "transactionalEmailLogEntry": {
         "template": "/transactional/log/{messageId}",
         "params": ["messageId"],

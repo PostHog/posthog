@@ -73,6 +73,10 @@ class FindPlaceholders(TraversingVisitor):
         ):
             self.has_date_filters = True
 
+    @property
+    def has_variables(self) -> bool:
+        return any(len(chain) > 1 and chain[0] == "variables" for chain in self.placeholder_fields)
+
 
 def find_placeholders(node: ast.Expr) -> FindPlaceholders:
     finder = FindPlaceholders()

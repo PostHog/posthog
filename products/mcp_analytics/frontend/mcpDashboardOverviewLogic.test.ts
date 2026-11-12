@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { MCPDashboardQuery, MCPDashboardSection } from '~/queries/schema/schema-general'
@@ -19,12 +20,14 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
 import { mcpLeaderboardHomeLogic } from './leaderboardHome/mcpLeaderboardHomeLogic'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import {
     type ActivityRow,
     type BucketRow,
     buildDailyActivity,
     buildKPIs,
     rankToolsByErrorRate,
+    rankToolsByP95,
     buildToolDailySeries,
     type DashboardLayout,
     deltaPct,
@@ -356,21 +359,37 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('rankToolsByErrorRate', () => {
-        const tool = (name: string, total_calls: number, error_rate_pct: number): ToolRow => ({
+    describe('ranking tools', () => {
+        const tool = (name: string, total_calls: number, error_rate_pct: number, p95_duration_ms = 0): ToolRow => ({
             tool: name,
             total_calls,
             errors: Math.round((total_calls * error_rate_pct) / 100),
             error_rate_pct,
-            p95_duration_ms: 0,
+            p95_duration_ms,
         })
 
         it.each([
             ['skips a tool with too few calls to rank', [tool('one-call', 1, 100), tool('busy', 500, 4)], ['busy']],
             ['ranks qualifying tools by error rate', [tool('a', 20, 5), tool('b', 40, 10)], ['b', 'a']],
             ['returns nothing when no tool qualifies', [tool('a', 19, 50)], []],
-        ])('%s', (_name, rows, expected) => {
+        ])('by error rate %s', (_name, rows, expected) => {
             expect(rankToolsByErrorRate(rows).map((r) => r.tool)).toEqual(expected)
+        })
+
+        it.each([
+            [
+                'skips a tool with too few calls to rank',
+                [tool('one-call', 1, 0, 90_000), tool('busy', 500, 0, 800)],
+                ['busy'],
+            ],
+            ['ranks qualifying tools by p95', [tool('a', 20, 0, 300), tool('b', 40, 0, 2500)], ['b', 'a']],
+            [
+                'skips a tool whose calls carry no duration',
+                [tool('untimed', 500, 0, 0), tool('timed', 30, 0, 50)],
+                ['timed'],
+            ],
+        ])('by p95 %s', (_name, rows, expected) => {
+            expect(rankToolsByP95(rows).map((r) => r.tool)).toEqual(expected)
         })
     })
 
@@ -962,6 +981,57 @@ describe('mcpDashboardOverviewLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
+
+        const TOGGLE = (): void => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
+        const TEAM_DEFAULT = (): void =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                test_account_filters_default_checked: true,
+            })
+        it.each([
+            ['the test-account toggle', TOGGLE, urls.mcpAnalyticsDashboard(), {}],
+            ["the team's test-account default", TEAM_DEFAULT, urls.mcpAnalyticsDashboard(), {}],
+            [
+                'the test-account toggle on a route with another date',
+                TOGGLE,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+            [
+                "the team's test-account default on a route with another date",
+                TEAM_DEFAULT,
+                urls.mcpAnalyticsToolQuality(),
+                { date_from: '-30d' },
+            ],
+        ])('reloads the dashboard once on %s', async (_label, change, path, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(path, searchParams)
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, change).toFinishAllListeners()
+
+            expect(queriesSince(callsBefore).map((query) => query.filterTestAccounts)).toEqual([true])
+        })
+
+        it.each([
+            ['no URL params', {}],
+            ['shared filters', { filter_test_accounts: true, properties: [EVENT_FILTER] }],
+            [
+                'shared filters and a date range',
+                { filter_test_accounts: true, properties: [EVENT_FILTER], date_from: '-30d' },
+            ],
+        ])('loads the dashboard once when mounting with %s', async (_label, searchParams) => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), searchParams)
+
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockApi.query).toHaveBeenCalledTimes(1)
+        })
 
         it.each([
             { label: 'shared filters', params: {}, dateFrom: '-7d' },
