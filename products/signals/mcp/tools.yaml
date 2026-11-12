@@ -1450,10 +1450,10 @@ tools:
             already carrying one for the same claim needs no second, and a report holds at most five open checks at a
             time. A `pending` check is waiting for the report to resolve before its clock starts; every status other
             than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`,
-            `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. A `paused` check also carries
-            `pause_reason`, the gate that holds it, and `resume_hint`, what restarts it or what to do when nothing
-            does. For an `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the
-            coordinator dispatched and when.
+            `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. A `paused` check also carries `pause_reason`,
+            the gate that holds it, and `resume_hint`, what restarts it or what to do when nothing does. For an `agent`
+            check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched
+            and when.
     scout-report-checks-list:
         operation: signals_scout_report_check_list
         enabled: true
