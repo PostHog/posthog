@@ -141,10 +141,10 @@ async def condense_query_results(
         for attempt in range(2):
             try:
                 result = await client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    temperature=0,
-                    max_tokens=1_200,
-                    timeout=20,
+                    model="gpt-6-luna",
+                    reasoning_effort="low",
+                    max_completion_tokens=4_096,
+                    timeout=30,
                     messages=cast(list[ChatCompletionMessageParam], messages),
                     user=user_tag,
                 )

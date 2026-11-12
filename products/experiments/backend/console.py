@@ -613,3 +613,22 @@ class ExperimentRecalculationsTool(ConsoleTool):
             return operations
         # Retrying failures reruns the latest finished run's failures, so it lives on the experiment page only.
         return operations + _start_operations(run.experiment_id, None)
+
+
+for old in ("migrate", "fix-properties", "start-recalculation"):
+    console.register_moved_page(
+        old_path=f"admin/experiments/experiment/<int:object_id>/{old}/",
+        title="This experiment action",
+        url="/admin/console/tools/experiments/?experiment={object_id}",
+    )
+console.register_moved_page(
+    old_path="admin/experiments/experimentsavedmetric/<int:object_id>/migrate/",
+    title="Migrating a shared metric",
+    url="/admin/console/tools/experiments/?saved_metric={object_id}",
+)
+for old in ("mark-failed", "mark-completed", "start", "retry-failures"):
+    console.register_moved_page(
+        old_path=f"admin/experiments/experimentmetricsrecalculation/<uuid:object_id>/{old}/",
+        title="This recalculation action",
+        url="/admin/console/tools/experiment-recalculations/?run={object_id}",
+    )

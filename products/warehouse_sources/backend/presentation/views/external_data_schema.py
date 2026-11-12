@@ -643,7 +643,8 @@ def _apply_primary_key_columns(
 ) -> None:
     """Apply primary_key_columns from request data to the sync_type_config payload.
 
-    Raises ValidationError if an established PK changed after data has been synced, or if no PK is set.
+    Raises ValidationError if an established PK changed after data has been synced, or if a switch to
+    this sync type leaves no PK set.
     """
     new_pk = data.get("primary_key_columns")
     if new_pk:
@@ -656,7 +657,9 @@ def _apply_primary_key_columns(
                 "Delete the synced data first, then change the primary key."
             )
         payload["primary_key_columns"] = new_pk
-    elif not payload.get("primary_key_columns"):
+    # A table already on this sync type keeps taking edits without a key: the sync resolves one
+    # from the source, or fails with its own error when the table has none.
+    elif not payload.get("primary_key_columns") and data.get("sync_type") != instance.sync_type:
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Select its primary key columns when you choose the sync method, "
