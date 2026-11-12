@@ -1,7 +1,7 @@
 import { Fragment, ReactNode } from 'react'
 
 import { IconInfo, IconTestTube } from '@posthog/icons'
-import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Separator, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -26,7 +26,7 @@ function InfoLabel({ tooltip, children }: { tooltip: string; children: ReactNode
     return (
         <span className="flex items-center gap-1 text-muted-foreground">
             <Tooltip>
-                <TooltipTrigger render={<span className="inline-flex text-base" />}>
+                <TooltipTrigger render={<span className="inline-flex text-sm" />}>
                     <IconInfo />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">{tooltip}</TooltipContent>
@@ -100,13 +100,13 @@ export function QuillFunnelCanvasLabel({
     }
 
     return (
-        <div className="flex items-center gap-1">
+        <Text size="xs" render={<div className="m-0 flex items-center gap-1" />}>
             {labels.map((label, index) => (
                 <Fragment key={index}>
                     {index > 0 && <Separator orientation="vertical" className="mx-1 h-3.5 self-center" />}
                     {label}
                 </Fragment>
             ))}
-        </div>
+        </Text>
     )
 }
