@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "surface": {
-            "description": "Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.\n\n* `models` - Models\n* `catalog` - Data catalog",
+            "description": "Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.\n\n* `models` - Models\n* `catalog` - Data catalog",
             "enum": ["models", "catalog"],
             "type": "string"
         }

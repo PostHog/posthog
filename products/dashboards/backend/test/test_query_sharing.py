@@ -1,0 +1,239 @@
+import json
+import asyncio
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from contextlib import nullcontext
+from threading import Barrier, BoundedSemaphore, Event
+
+from unittest.mock import Mock, patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.multi_query import SharingQuery
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.query_stats import record
+
+from products.dashboards.backend.presentation.query_sharing import DashboardQuerySharingParamsSerializer
+from products.dashboards.backend.query_sharing import DashboardQuerySharing
+from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
+from products.dashboards.backend.query_sharing_stream import (
+    DashboardQuerySharingStream,
+    DashboardQuerySharingStreamEvent,
+)
+
+
+class TestDashboardQuerySharing(SimpleTestCase):
+    @staticmethod
+    def executor(sql: str, barrier: Barrier | None = None) -> Mock:
+        executor = Mock(spec=HogQLQueryExecutor)
+        executor.query = sql
+        executor.team = Mock()
+        executor.context = Mock()
+        executor.query_type = "HogQLQuery"
+        executor.connection_id = None
+        executor.send_raw_query = False
+        executor.hogql = sql
+        executor.clickhouse_settings = None
+        executor.limit_context = LimitContext.QUERY
+        executor.query_modifiers = None
+        executor.limit = None
+        executor.offset = None
+        executor.execute.return_value = HogQLQueryResponse(results=[(7,)], columns=["n"], types=[("n", "UInt64")])
+
+        def prepare(*, query_id: str, scope_key: str) -> SharingQuery:
+            if barrier:
+                barrier.wait(timeout=10)
+            return SharingQuery(query_id=query_id, query=parse_select(sql), context_key=scope_key, sharing_enabled=True)
+
+        executor.prepare_for_sharing.side_effect = prepare
+        return executor
+
+    @parameterized.expand([("success", False), ("shared_failure", True)])
+    def test_compatible_queries_share_and_fall_back_independently(self, _name: str, fail: bool) -> None:
+        sharing = DashboardQuerySharing(match_window_seconds=30)
+        barrier = Barrier(2)
+        executors = [self.executor("SELECT count() AS n FROM events", barrier) for _ in range(2)]
+        diagnostics = [DashboardQuerySharingDebug(tile_id) for tile_id in (11, 22)]
+
+        def run(index: int) -> HogQLQueryResponse:
+            token = sharing_debug.set(diagnostics[index])
+            try:
+                return sharing.execute(executors[index])
+            finally:
+                sharing_debug.reset(token)
+
+        shared = Mock()
+        shared.execute.side_effect = ValueError("bad shared query") if fail else None
+        shared.execute.return_value = HogQLQueryResponse(
+            results=[(7,)],
+            columns=["n"],
+            types=[("n", "UInt64")],
+            clickhouse="SELECT countIf(partner_predicate)",
+            metadata={"query": "partner_predicate", "errors": [], "warnings": [], "notices": []},
+        )
+        if fail:
+            executors[0].execute.side_effect = ValueError("one bad tile")
+        with patch("products.dashboards.backend.query_sharing._CancellableExecutor", return_value=shared):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(run, index) for index in range(2)]
+                if fail:
+                    with self.assertRaisesRegex(ValueError, "one bad tile"):
+                        futures[0].result(timeout=10)
+                else:
+                    self.assertEqual(futures[0].result(timeout=10).results, [(7,)])
+                    self.assertNotIn("partner_predicate", futures[0].result(timeout=10).model_dump_json())
+                self.assertEqual(futures[1].result(timeout=10).results, [(7,)])
+        self.assertEqual(shared.execute.call_count, 1)
+        self.assertEqual([executor.execute.call_count for executor in executors], [int(fail), int(fail)])
+        decisions = [entry for debug in diagnostics for entry in debug.executions]
+        shared_decisions = [entry for entry in decisions if entry["outcome"] != "separate"]
+        self.assertEqual(len(shared_decisions), 1)
+        self.assertEqual(set(shared_decisions[0]["tile_ids"]), {11, 22})
+        self.assertEqual(shared_decisions[0]["outcome"], "fallback" if fail else "shared")
+        self.assertEqual(shared_decisions[0]["rule"], "count_fusion")
+        self.assertEqual(sum(entry["outcome"] == "separate" for entry in decisions), 2 if fail else 0)
+        self.assertNotIn("bad", json.dumps(decisions))
+
+    def test_unsupported_query_does_not_wait_or_retry_its_error(self) -> None:
+        executor = self.executor("SELECT * FROM events")
+        executor.execute.side_effect = ValueError("bad tile")
+        with self.assertRaisesRegex(ValueError, "bad tile"):
+            DashboardQuerySharing(match_window_seconds=30).execute(executor)
+        executor.execute.assert_called_once()
+
+    @parameterized.expand([("normal", False), ("debug", True)])
+    def test_stream_delivers_fast_tile_before_slow_tile(self, _name: str, debug: bool) -> None:
+        release = Event()
+
+        def slow() -> DashboardQuerySharingStreamEvent:
+            if not release.wait(timeout=10):
+                raise AssertionError("Slow tile never released")
+            record(rows_read=20, duration_ms=2)
+            return {"type": "tile", "tile": {"id": 1}}
+
+        def fast() -> DashboardQuerySharingStreamEvent:
+            record(rows_read=10, duration_ms=1)
+            return {"type": "tile", "tile": {"id": 2}}
+
+        stream = DashboardQuerySharingStream(
+            jobs=[slow, fast], team_id=1, query_id="test", debug_tile_ids=[1, 2] if debug else ()
+        )
+        iterator = stream.stream()
+        try:
+            first = json.loads(next(iterator).removeprefix(b"data: "))
+            self.assertEqual(first["tile"]["id"], 2)
+        finally:
+            release.set()
+        second = json.loads(next(iterator).removeprefix(b"data: "))
+        self.assertEqual(second["tile"]["id"], 1)
+        if debug:
+            self.assertEqual(first["debug"]["rows_read"], 10)
+            self.assertEqual(second["debug"]["rows_read"], 20)
+            self.assertEqual(first["debug"]["query_count"] + second["debug"]["query_count"], 2)
+            self.assertEqual(first["debug"]["duration_ms"] + second["debug"]["duration_ms"], 3)
+        else:
+            self.assertNotIn("debug", first)
+            self.assertNotIn("debug", second)
+        self.assertIn(b'"complete"', next(iterator))
+        with self.assertRaises(StopIteration):
+            next(iterator)
+
+    @parameterized.expand(
+        [
+            ("over_capacity_sync", False, False),
+            ("over_capacity_async", True, False),
+            ("startup_failure_sync", False, True),
+            ("startup_failure_async", True, True),
+        ]
+    )
+    def test_stream_that_cannot_start_reports_error_without_running_tiles(
+        self, _name: str, asynchronous: bool, startup_fails: bool
+    ) -> None:
+        job = Mock(return_value={"type": "tile", "tile": {"id": 1}})
+        stream = DashboardQuerySharingStream(jobs=[job], team_id=1, query_id="test")
+
+        async def collect() -> list[bytes]:
+            return [chunk async for chunk in stream.astream()]
+
+        slots = BoundedSemaphore(1)
+        failing_submit = (
+            patch.object(ThreadPoolExecutor, "submit", side_effect=RuntimeError("can't start new thread"))
+            if startup_fails
+            else nullcontext()
+        )
+        with patch("products.dashboards.backend.query_sharing_stream._stream_slots", slots), failing_submit:
+            if not startup_fails:
+                slots.acquire()
+            chunks = asyncio.run(collect()) if asynchronous else list(stream.stream())
+        self.assertEqual([json.loads(chunk.removeprefix(b"data: ")) for chunk in chunks], [{"type": "error"}])
+        job.assert_not_called()
+        if startup_fails:
+            self.assertTrue(slots.acquire(blocking=False))
+
+    @parameterized.expand([("sync", False), ("async", True)])
+    def test_disconnect_cancels_queries_and_prevents_late_execution(self, _name: str, asynchronous: bool) -> None:
+        release = Event()
+        finished = Event()
+        executor = self.executor("SELECT * FROM events")
+
+        def slow() -> DashboardQuerySharingStreamEvent:
+            try:
+                if not release.wait(timeout=10):
+                    raise AssertionError("Slow tile never released")
+                stream._sharing.execute(executor)
+                raise AssertionError("Cancelled tile executed")
+            except CancelledError:
+                return {"type": "tile", "tile": {"id": 1}}
+            finally:
+                finished.set()
+
+        def fast() -> DashboardQuerySharingStreamEvent:
+            return {"type": "tile", "tile": {"id": 2}}
+
+        stream = DashboardQuerySharingStream(jobs=[slow, fast], team_id=1, query_id="test")
+
+        async def disconnect() -> None:
+            iterator = stream.astream()
+            self.assertIn(b'"id":2', await anext(iterator))
+            await iterator.aclose()
+
+        slots = BoundedSemaphore(1)
+        try:
+            with (
+                patch("products.dashboards.backend.query_sharing_stream.cancel_query_on_cluster") as cancel,
+                patch("products.dashboards.backend.query_sharing_stream._stream_slots", slots),
+            ):
+                if asynchronous:
+                    asyncio.run(disconnect())
+                else:
+                    iterator = stream.stream()
+                    self.assertIn(b'"id":2', next(iterator))
+                    iterator.close()
+                self.assertTrue(stream.closed.wait(timeout=10))
+                cancel.assert_any_call(team_id=1, client_query_id="test-tile-0-")
+                self.assertFalse(slots.acquire(blocking=False))
+        finally:
+            release.set()
+        self.assertTrue(finished.wait(timeout=10))
+        self.assertTrue(slots.acquire(timeout=10))
+        executor.execute.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("duplicate", "1,1"),
+            ("invalid", "a"),
+            ("negative", "-1"),
+            ("oversized", ",".join(str(i) for i in range(1, 34))),
+        ]
+    )
+    def test_rejects_invalid_tile_batches(self, _name: str, tile_ids: str) -> None:
+        serializer = DashboardQuerySharingParamsSerializer(
+            data={"tile_ids": tile_ids, "client_query_id": "00000000-0000-4000-8000-000000000001"}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("tile_ids", serializer.errors)

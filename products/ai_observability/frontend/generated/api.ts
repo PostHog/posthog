@@ -33,6 +33,8 @@ import type {
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    CompositeValidationApi,
+    CompositeValidationResponseApi,
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
@@ -3332,6 +3334,26 @@ export const llmAnalyticsScoreDefinitionsVersionsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getLlmAnalyticsScoreDefinitionsValidateCompositionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/score_definitions/validate_composition/`
+}
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreate = async (
+    projectId: string,
+    compositeValidationApi: CompositeValidationApi,
+    options?: RequestInit
+): Promise<CompositeValidationResponseApi> => {
+    return apiMutator<CompositeValidationResponseApi>(
+        getLlmAnalyticsScoreDefinitionsValidateCompositionCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(compositeValidationApi),
         }
     )
 }

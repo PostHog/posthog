@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cdc_auto_drop_slot": {
+            "description": "Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode.",
+            "type": "boolean"
+        },
+        "cdc_lag_critical_threshold_mb": {
+            "description": "Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "cdc_lag_warning_threshold_mb": {
+            "description": "Replication lag in MB above which a warning shows. Must be lower than the critical threshold.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

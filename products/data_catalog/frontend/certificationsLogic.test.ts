@@ -39,7 +39,10 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 jest.mock('scenes/data-management/database/databaseTableListLogic', () => ({
-    databaseTableListLogic: { loadDatabase: jest.fn(() => ({ type: 'load database (mock)' })) },
+    databaseTableListLogic: {
+        loadDatabase: jest.fn(() => ({ type: 'load database (mock)' })),
+        refreshDatabaseSchema: jest.fn(() => ({ type: 'refresh database schema (mock)' })),
+    },
 }))
 
 jest.mock('./generated/api', () => ({
@@ -52,6 +55,8 @@ jest.mock('./generated/api', () => ({
 
 // The whole logic module is mocked above; loadDatabase is a jest.fn at runtime.
 const mockLoadDatabase = (databaseTableListLogic as unknown as { loadDatabase: jest.Mock }).loadDatabase
+const mockRefreshDatabaseSchema = (databaseTableListLogic as unknown as { refreshDatabaseSchema: jest.Mock })
+    .refreshDatabaseSchema
 
 function buildCertification(overrides: Partial<DataCatalogCertificationApi>): DataCatalogCertificationApi {
     return {
@@ -131,7 +136,7 @@ describe('certificationsLogic', () => {
             'certified'
         )
         // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
-        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+        expect(mockRefreshDatabaseSchema).toHaveBeenCalled()
     })
 
     it.each<[string, Partial<NewCertificationForm>, Record<string, string>]>([
@@ -179,10 +184,12 @@ describe('certificationsLogic', () => {
 
     it('refreshes the shared schema after a suggestion is accepted so trust badges update', () => {
         mockLoadDatabase.mockClear()
+        mockRefreshDatabaseSchema.mockClear()
 
         logic.actions.suggestionAccepted()
 
-        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+        expect(mockRefreshDatabaseSchema).toHaveBeenCalled()
+        expect(mockLoadDatabase).not.toHaveBeenCalledWith({ force: true })
     })
 
     it('opens the page that holds a highlighted certification once it loads, with the filters and sort cleared', () => {
@@ -212,6 +219,6 @@ describe('certificationsLogic', () => {
 
         expect(logic.values.certifications.map((certification) => certification.id)).not.toContain('cert-1')
         // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
-        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+        expect(mockRefreshDatabaseSchema).toHaveBeenCalled()
     })
 })

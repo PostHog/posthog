@@ -29,6 +29,18 @@ const collectAlwaysAvailableToolNames = (): string[] =>
 
 describe('Tool Filtering - Features', () => {
     it.each([
+        { scopes: ['llm_analytics:read'], enabled: true, visible: true },
+        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, visible: false },
+        { scopes: ['llm_analytics:read'], enabled: false, visible: false },
+        { scopes: ['llm_analytics:read'], enabled: undefined, visible: false },
+    ])('composite validation requires scorer read access and rollout: %j', async ({ scopes, enabled, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: enabled === undefined ? {} : { 'ai-observability-composite-validation': enabled },
+        })
+        expect(tools.some((tool) => tool.name === 'llma-score-definition-validate')).toBe(visible)
+    })
+
+    it.each([
         { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
         {
             scopes: ['evaluation:read', 'llm_analytics:read'],
@@ -1044,16 +1056,13 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(withFlags).toEqual(withoutFlags)
     })
 
-    it('notebooks-collaboration flag flips the active notebook edit tool', () => {
-        // When the flag is OFF, the legacy non-streaming PATCH tool is exposed.
-        // When the flag is ON, it's hidden and the streaming collab edit tool
-        // takes its place. The model never sees both at once.
+    it('notebooks-collaboration flag retires the legacy PATCH tool', () => {
         const off = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': false } })
         expect(off).toContain('notebooks-partial-update')
         expect(off).not.toContain('notebook-edit')
 
         const on = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': true } })
-        expect(on).toContain('notebook-edit')
+        expect(on).toContain('notebooks-update-cell')
         expect(on).not.toContain('notebooks-partial-update')
     })
 
@@ -1084,45 +1093,36 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
-    it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
-        // Flag ON: the cell tools take over create/read/edit — the model never sees two
-        // tools for the same job. Flag OFF: only the legacy surface.
-        const off = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': false } })
-        expect(off).toContain('notebooks-create')
-        expect(off).toContain('notebooks-retrieve')
-        expect(off).not.toContain('notebooks-create-markdown')
-        expect(off).not.toContain('notebooks-add-cell')
-        expect(off).not.toContain('notebooks-set-variables')
-        expect(off).not.toContain('notebooks-run')
-        expect(off).not.toContain('notebooks-run-status')
-        expect(off).not.toContain('notebooks-run-cell')
-        expect(off).not.toContain('notebooks-get')
+    it('keeps workflow disable hidden until backend draft routing is enabled', () => {
+        const hidden = getToolsForFeatures({ features: ['workflows'] })
+        expect(hidden).not.toContain('workflows-disable')
+        expect(hidden).toContain('workflows-enable')
 
-        const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
-        expect(on).toContain('notebooks-create-markdown')
-        expect(on).toContain('notebooks-add-cell')
-        expect(on).toContain('notebooks-update-cell')
-        expect(on).toContain('notebooks-delete-cell')
-        expect(on).toContain('notebooks-set-variables')
-        expect(on).toContain('notebooks-run')
-        expect(on).toContain('notebooks-run-status')
-        expect(on).toContain('notebooks-run-cell')
-        expect(on).toContain('notebooks-run-cell-result')
-        expect(on).toContain('notebooks-get')
-        expect(on).toContain('notebooks-list-frames')
-        expect(on).toContain('notebooks-configure-compute')
-        expect(on).not.toContain('notebooks-create')
-        expect(on).not.toContain('notebooks-retrieve')
+        const enabled = getToolsForFeatures({
+            features: ['workflows'],
+            featureFlags: { 'workflows-mcp-disable': true },
+        })
+        expect(enabled).toContain('workflows-disable')
+    })
 
-        // notebook-edit keeps its collaboration gate but retires under the cell tools.
-        const collabOnly = getToolsForFeatures({
-            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': false },
-        })
-        expect(collabOnly).toContain('notebook-edit')
-        const both = getToolsForFeatures({
-            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': true },
-        })
-        expect(both).not.toContain('notebook-edit')
+    it('exposes only the current notebook tools without rollout flags', () => {
+        const tools = getToolsForFeatures({ featureFlags: {} })
+        expect(tools).toContain('notebooks-create-markdown')
+        expect(tools).toContain('notebooks-add-cell')
+        expect(tools).toContain('notebooks-update-cell')
+        expect(tools).toContain('notebooks-delete-cell')
+        expect(tools).toContain('notebooks-set-variables')
+        expect(tools).toContain('notebooks-run')
+        expect(tools).toContain('notebooks-run-status')
+        expect(tools).toContain('notebooks-run-cell')
+        expect(tools).toContain('notebooks-run-cell-result')
+        expect(tools).toContain('notebooks-get')
+        expect(tools).toContain('notebooks-list-frames')
+        expect(tools).toContain('notebooks-configure-compute')
+        expect(tools).not.toContain('notebooks-create')
+        expect(tools).not.toContain('notebooks-retrieve')
+
+        expect(tools).not.toContain('notebook-edit')
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
@@ -1145,6 +1145,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
+            'workflows-mcp-disable',
             'insight-data-checks',
             'workflows-transactional-email-api',
             'workflows-email-from-code',
@@ -1162,6 +1163,9 @@ describe('Tool Filtering - Feature Flags', () => {
             'ui-customization',
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
+            'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
+            'workflows-bulk-suppressions-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1178,7 +1182,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
-                'revamped-py-notebooks',
                 'tasks',
                 'tasks-mcp-agent-run-start',
                 'marketing-analytics-mcp',
@@ -1208,6 +1211,7 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
+        expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
         expect(flags).toHaveLength(37)
@@ -1339,23 +1343,24 @@ describe('Tool Filtering - Feature Flags', () => {
 
 describe('getFlagGatedTools', () => {
     it('reports a retired tool with the successor its definition declares', () => {
-        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': true } })
+        const gated = getFlagGatedTools({ featureFlags: { 'notebooks-collaboration': true } })
 
-        expect(gated.find((tool) => tool.name === 'notebooks-create')?.supersededBy).toEqual([
-            'notebooks-create-markdown',
+        expect(gated.find((tool) => tool.name === 'notebooks-partial-update')?.supersededBy).toEqual([
+            'notebooks-update-cell',
+            'notebooks-add-cell',
         ])
     })
 
     it('leaves out a tool the flags keep in the catalog', () => {
-        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': false } })
+        const gated = getFlagGatedTools({ featureFlags: { 'notebooks-collaboration': false } })
 
-        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-create')
+        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-partial-update')
     })
 
     it('reports a tool an unset flag never enabled, so a caller learns it exists', () => {
         const gated = getFlagGatedTools({ featureFlags: {} })
 
-        const entry = gated.find((tool) => tool.name === 'notebooks-add-cell')
+        const entry = gated.find((tool) => tool.name === 'accounts-meetings-list')
         expect(entry).not.toBeUndefined()
         expect(entry?.supersededBy).toEqual([])
     })

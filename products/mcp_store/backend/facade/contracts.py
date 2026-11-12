@@ -73,16 +73,22 @@ class UnconnectedTeamTool:
 
 UnmountedInstallationReason = Literal[
     "needs_reconnect",
+    "teammate_needs_reconnect",
     "server_disabled",
     "revoked",
     "not_selected",
     "replaced_by_personal",
+    "not_shared",
 ]
 
 
 @dataclass(frozen=True)
 class UnmountedInstallation:
-    """An enabled installation a sandbox run could reach but did not mount."""
+    """An enabled installation a sandbox run could reach but did not mount.
+
+    On a built-in agent run, `id` and `name` are the gateway server's, since any one working grant to a
+    server mounts it.
+    """
 
     id: str
     name: str

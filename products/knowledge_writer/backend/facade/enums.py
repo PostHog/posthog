@@ -10,6 +10,13 @@ class DocsChangeKind(StrEnum):
     UPDATE = "update"
     CREATE = "create"
     REMOVE = "remove"
+    REVIEW_EXISTING = "review_existing_docs"
+
+
+class CriterionEffect(StrEnum):
+    BLOCKS = "blocks"
+    SUPPORTS = "supports"
+    NEUTRAL = "neutral"
 
 
 class MergeCheckFailure(StrEnum):

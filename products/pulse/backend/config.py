@@ -27,8 +27,8 @@ STALE_AFTER = dt.timedelta(minutes=25)
 REAP_BATCH_CAP = 500
 
 SYNTHESIS_MODEL = "gpt-4.1"
-LLM_TIMEOUT_SECONDS = 120
-# Worst case 2 attempts x 120s stays under the synthesize activity timeout.
+LLM_TIMEOUT_SECONDS = 90
+# Worst case a stalled gateway attempt plus 2 direct attempts x 90s stays under the synthesize activity timeout.
 LLM_MAX_RETRIES = 1
 
 # Cap on items passed into synthesis — keeps the activity payload well under Temporal's ~2 MiB cap.
