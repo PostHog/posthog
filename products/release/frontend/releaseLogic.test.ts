@@ -105,6 +105,7 @@ describe('releaseLogic', () => {
 
         expect(mockedHogFlowsList).toHaveBeenCalledWith(expect.any(String), {
             source_record: 'release:r1',
+            created_by: MOCK_DEFAULT_USER.uuid,
             limit: 50,
             offset: 0,
         })

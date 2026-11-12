@@ -923,18 +923,23 @@ export const releaseLogic = kea<releaseLogicType>([
             }
         },
         autoLinkBroadcasts: async ({ id }) => {
+            const viewer = values.user
+            if (!viewer) {
+                return
+            }
             const projectId = String(values.currentProjectId)
             const started: string[] = []
             try {
                 for (let offset = 0; offset < MAX_LINKED_BROADCASTS; offset += BROADCAST_LOOKUP_PAGE) {
                     const page = await hogFlowsList(projectId, {
                         source_record: releaseSourceRecord(id),
+                        created_by: viewer.uuid,
                         limit: BROADCAST_LOOKUP_PAGE,
                         offset,
                     })
                     started.push(
                         ...(page.results ?? [])
-                            .filter((flow) => !!values.user && flow.created_by?.id === values.user.id)
+                            .filter((flow) => flow.created_by?.id === viewer.id)
                             .map((flow) => flow.id)
                     )
                     if (!page.next) {
