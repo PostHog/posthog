@@ -56,6 +56,23 @@ class IntercomAttachmentTooLargeError(Exception):
     """Raised when an attachment exceeds the caller's byte cap, so the caller can skip it."""
 
 
+class IntercomAttachmentDownloadError(Exception):
+    """An attachment download failure whose message leaves out the signed URL.
+
+    Attachment links carry their own access signature, so a requests exception message (which
+    embeds the URL) must not reach logs or Temporal failure history.
+    """
+
+    def __init__(self, status_code: int | None) -> None:
+        self.status_code = status_code
+        super().__init__(f"Intercom attachment download failed (status={status_code})")
+
+    @property
+    def retryable(self) -> bool:
+        # A transport error has no status. An expired or deleted link (4xx) won't recover on retry.
+        return self.status_code is None or self.status_code >= 500
+
+
 class IntercomNotFoundError(Exception):
     """Raised when Intercom answers 404, so a caller can tell a deleted record from an outage."""
 
@@ -70,6 +87,8 @@ class IntercomIncompleteConversationError(Exception):
 
 def is_retryable_error(exc: BaseException) -> bool:
     """True for failures a later attempt can fix: rate limits, timeouts, connection errors, 5xx."""
+    if isinstance(exc, IntercomAttachmentDownloadError):
+        return exc.retryable
     if isinstance(exc, IntercomRateLimitError | requests.ConnectionError | requests.Timeout):
         return True
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
@@ -233,13 +252,20 @@ class IntercomImportClient:
 
         Intercom attachment URLs are signed links that need no Authorization header, so none is
         sent: the workspace token must never leave the API host. Messenger uploads expire 30
-        minutes after the conversation was fetched, so callers download right after fetching. Each hop (including redirects) goes
-        through pinned_session, which rejects private/internal addresses (SSRF).
+        minutes after the conversation was fetched, so callers download right after fetching.
+        Each hop (including redirects) goes through pinned_session, which rejects private and
+        internal addresses (SSRF).
         """
+        try:
+            return self._download_attachment(url, max_bytes=max_bytes)
+        except requests.RequestException:
+            raise IntercomAttachmentDownloadError(None) from None
+
+    def _download_attachment(self, url: str, *, max_bytes: int) -> bytes:
         current = url
         for _ in range(MAX_ATTACHMENT_REDIRECTS + 1):
             if urlsplit(current).scheme.lower() != "https":
-                raise ValueError(f"Refusing to fetch non-https attachment URL: {current!r}")
+                raise ValueError("Refusing to fetch a non-https attachment URL")
             with pinned_session(current) as session:
                 with session.get(current, timeout=120, stream=True, allow_redirects=False) as response:
                     if response.is_redirect:
@@ -248,7 +274,8 @@ class IntercomImportClient:
                             raise ValueError("Attachment redirect without a Location header")
                         current = urljoin(current, location)
                         continue
-                    response.raise_for_status()
+                    if response.status_code >= 400:
+                        raise IntercomAttachmentDownloadError(response.status_code)
                     declared = response.headers.get("Content-Length")
                     if declared is not None:
                         try:

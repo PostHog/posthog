@@ -1,13 +1,17 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_secret
 
+from products.conversations.backend.api.intercom_import import ORPHANED_PENDING_AFTER
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, IntercomImportJob
 
 URL = "/api/projects/{team_id}/conversations/intercom_imports/"
@@ -145,3 +149,28 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual(response.json()["status"], "completed")
         job = IntercomImportJob.objects.unscoped().get(team_id=self.team.id)
         self.assertEqual((job.status, job.workflow_id), (IntercomImportJob.Status.COMPLETED, "workflow-id"))
+
+    def test_orphaned_pending_reservation_is_released(self, _mock_validate, mock_start, _mock_flag):
+        orphan = IntercomImportJob.objects.unscoped().create(
+            team_id=self.team.id, status=IntercomImportJob.Status.PENDING, job_inputs={"region": "us"}
+        )
+        IntercomImportJob.objects.unscoped().filter(id=orphan.id).update(
+            created_at=timezone.now() - ORPHANED_PENDING_AFTER - timedelta(minutes=1)
+        )
+
+        status_response = self.client.get(f"{self.url}status/")
+        response = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
+
+        self.assertEqual(status_response.json()["status"], "failed")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_start.assert_called_once()
+
+    def test_recent_pending_reservation_still_blocks_a_second_import(self, _mock_validate, mock_start, _mock_flag):
+        IntercomImportJob.objects.unscoped().create(
+            team_id=self.team.id, status=IntercomImportJob.Status.PENDING, job_inputs={"region": "us"}
+        )
+
+        response = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_start.assert_not_called()

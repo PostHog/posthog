@@ -19,8 +19,10 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Priority, Status
 from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
+from products.conversations.backend.services.attachments import AttachmentStorageError
 from products.conversations.backend.temporal.intercom_import.activities import (
     ImportBatchInput,
+    ImportBatchOutput,
     UpdateJobProgressInput,
     _import_conversation_batch_sync,
     _update_job_progress_sync,
@@ -346,6 +348,53 @@ class TestIntercomImportBatchActivity(BaseTest):
             if node["type"] == "paragraph" and node["content"][0].get("marks")
         ]
         assert [n["marks"][0]["attrs"]["href"] for n in file_nodes] == ["https://media.posthog.test/file"]
+
+    def _attachment_conversation(self, cid: str, files: int = 1) -> dict[str, Any]:
+        attachments = [
+            {"name": f"f{i}.pdf", "url": f"https://downloads.example.com/{cid}/{i}", "content_type": "application/pdf"}
+            for i in range(files)
+        ]
+        return _conversation(cid, parts=[_part("p1", body="files", attachments=attachments)])
+
+    def _run_with_saves(self, conversations: dict[str, dict[str, Any]], saves: list[Any]) -> tuple[Any, MagicMock]:
+        client = MagicMock()
+        client.fetch_conversation.side_effect = lambda cid: conversations[cid]
+        client.download_attachment.return_value = b"bytes"
+        with (
+            patch(f"{M}.IntercomImportClient", return_value=client),
+            patch(f"{M}.save_file_to_uploaded_media", side_effect=saves),
+            patch(f"{M}.discard_rehosted_attachments") as discard,
+        ):
+            result: ImportBatchOutput | AttachmentStorageError
+            try:
+                result = _import_conversation_batch_sync(
+                    ImportBatchInput(
+                        job_id=str(self.job.id), team_id=self.team.id, conversation_ids=list(conversations)
+                    )
+                )
+            except AttachmentStorageError as exc:
+                result = exc
+        return result, discard
+
+    def test_storage_failure_retries_the_batch_and_deletes_staged_uploads(self) -> None:
+        result, discard = self._run_with_saves(
+            {"701": self._attachment_conversation("701"), "702": self._attachment_conversation("702")},
+            ["https://media.posthog.test/701", AttachmentStorageError("storage down")],
+        )
+
+        assert isinstance(result, AttachmentStorageError)
+        # The first conversation's upload has no persisted comment, so a retry would duplicate it.
+        assert [a["url"] for a in discard.call_args.args[1]] == ["https://media.posthog.test/701"]
+        assert not Ticket.objects.filter(team_id=self.team.id, intercom_conversation_id__in=["701", "702"]).exists()
+
+    def test_non_retryable_failure_deletes_only_that_conversations_uploads(self) -> None:
+        result, discard = self._run_with_saves(
+            {"711": self._attachment_conversation("711"), "712": self._attachment_conversation("712", files=2)},
+            ["https://media.posthog.test/711", "https://media.posthog.test/712-a", ValueError("bad file")],
+        )
+
+        assert (result.imported, result.failed) == (1, 1)
+        assert [a["url"] for a in discard.call_args.args[1]] == ["https://media.posthog.test/712-a"]
 
 
 class TestIntercomImportJobProgress(BaseTest):

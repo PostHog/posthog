@@ -29,7 +29,9 @@ with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         MAX_ATTACHMENTS_PER_MESSAGE,
+        AttachmentStorageError,
         build_content_with_images,
+        discard_rehosted_attachments,
         sanitize_attachment_filename,
         save_file_to_uploaded_media,
     )
@@ -124,8 +126,10 @@ class _Requester:
 
 
 class _AttachmentBudget:
-    def __init__(self, max_bytes: int) -> None:
+    def __init__(self, max_bytes: int, staged: list[dict[str, Any]]) -> None:
         self.remaining = max_bytes
+        # Uploads not yet referenced by a persisted comment, deleted if this attempt gives up.
+        self.staged = staged
 
 
 @frozen(eq=False)
@@ -253,19 +257,28 @@ def _process_attachments(
             continue
         except Exception as exc:
             # Timeouts and 5xx retry the whole batch through Temporal; an expired or deleted link
-            # (4xx) won't come back on a retry, so skip it.
+            # (4xx) won't come back on a retry, so skip it. Log only the type, because a requests
+            # error message embeds the signed URL.
             if is_retryable_error(exc):
                 raise
             logger.warning(
-                "intercom_import_attachment_download_failed", team_id=team.id, file_name=file_name, error=str(exc)
+                "intercom_import_attachment_download_failed",
+                team_id=team.id,
+                file_name=file_name,
+                error_type=type(exc).__name__,
+                status_code=getattr(exc, "status_code", None),
             )
             continue
         budget.remaining -= len(raw)
         is_image = content_type.startswith("image/")
-        media_url = save_file_to_uploaded_media(team, file_name, content_type, raw, validate_images=is_image)
+        media_url = save_file_to_uploaded_media(
+            team, file_name, content_type, raw, validate_images=is_image, raise_on_storage_error=True
+        )
         if not media_url:
             continue
-        (images if is_image else files).append({"url": media_url, "name": file_name})
+        entry = {"url": media_url, "name": file_name}
+        budget.staged.append(entry)
+        (images if is_image else files).append(entry)
     return build_content_with_images(content, None, images, files)
 
 
@@ -312,11 +325,13 @@ def _build_comment(
     return _BuiltComment(comment=comment, author_type=author_type, is_private=is_private)
 
 
-def _build_comments(client: IntercomImportClient, team: Team, conversation: dict[str, Any]) -> _BuiltComments:
+def _build_comments(
+    client: IntercomImportClient, team: Team, conversation: dict[str, Any], staged: list[dict[str, Any]]
+) -> _BuiltComments:
     source = conversation.get("source") or {}
     parts = (conversation.get("conversation_parts") or {}).get("conversation_parts") or []
 
-    budget = _AttachmentBudget(MAX_ATTACHMENT_BYTES_PER_CONVERSATION)
+    budget = _AttachmentBudget(MAX_ATTACHMENT_BYTES_PER_CONVERSATION, staged)
     candidates = [
         _build_comment(client, team, source, part_type=None, created_at=conversation.get("created_at"), budget=budget)
     ]
@@ -350,6 +365,7 @@ def _build_ticket(
     team: Team,
     conversation: dict[str, Any],
     default_email_channel: EmailChannel | None,
+    staged: list[dict[str, Any]],
 ) -> BuiltTicket:
     conversation_id = str(conversation["id"])
     requester = _resolve_requester(client, conversation)
@@ -386,7 +402,7 @@ def _build_ticket(
     intercom_tags = {tagify(strip_nul(str(t.get("name") or "")))[:255] for t in tags if isinstance(t, dict)}
     tag_names = sorted(t for t in intercom_tags if t)
 
-    built_comments = _build_comments(client, team, conversation)
+    built_comments = _build_comments(client, team, conversation, staged)
     return BuiltTicket(
         ticket=ticket,
         comments=built_comments.comments,
@@ -398,11 +414,16 @@ def _build_ticket(
     )
 
 
+def _should_retry_batch(exc: BaseException) -> bool:
+    return is_retryable_error(exc) or isinstance(exc, AttachmentStorageError)
+
+
 def _fetch_and_build_tickets(
     client: IntercomImportClient,
     team: Team,
     conversation_ids: list[str],
     default_email_channel: EmailChannel | None,
+    staged: list[dict[str, Any]],
 ) -> tuple[list[BuiltTicket], int]:
     """Fetch each conversation and build its ticket straight away, outside the transaction.
 
@@ -412,14 +433,17 @@ def _fetch_and_build_tickets(
     built: list[BuiltTicket] = []
     failed = 0
     for conversation_id in conversation_ids:
+        staged_before = len(staged)
         try:
             conversation = client.fetch_conversation(conversation_id)
-            built.append(_build_ticket(client, team, conversation, default_email_channel))
+            built.append(_build_ticket(client, team, conversation, default_email_channel, staged))
         except Exception as exc:
-            # Rate limits, timeouts and 5xx retry the whole batch through Temporal. Conversations
-            # already persisted are skipped on the retry, so nothing is imported twice.
-            if is_retryable_error(exc):
+            # Rate limits, timeouts, 5xx and storage failures retry the whole batch through
+            # Temporal. Nothing from this attempt is persisted yet, so the retry rebuilds it.
+            if _should_retry_batch(exc):
                 raise
+            discard_rehosted_attachments(team, staged[staged_before:])
+            del staged[staged_before:]
             failed += 1
             logger.exception(
                 "intercom_import_conversation_failed",
@@ -445,11 +469,16 @@ def _import_conversation_batch_sync(input: ImportBatchInput) -> ImportBatchOutpu
     if not partition.to_import:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=0)
 
-    built, failed = _fetch_and_build_tickets(client, team, partition.to_import, default_email_channel)
-    if not built:
-        return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
-
-    imported = persist_ticket_batch(team, built, resolve_tags(team.id, built))
+    staged: list[dict[str, Any]] = []
+    try:
+        built, failed = _fetch_and_build_tickets(client, team, partition.to_import, default_email_channel, staged)
+        if not built:
+            return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
+        imported = persist_ticket_batch(team, built, resolve_tags(team.id, built))
+    except Exception:
+        # No comment references these uploads, so delete them rather than leave copies behind.
+        discard_rehosted_attachments(team, staged)
+        raise
     return ImportBatchOutput(imported=imported, skipped=skipped, failed=failed)
 
 

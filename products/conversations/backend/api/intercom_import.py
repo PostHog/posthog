@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -37,6 +38,9 @@ logger = structlog.get_logger(__name__)
 WORKFLOW_START_FAILED_MESSAGE = "Failed to start the import. Please try again or contact support if it persists."
 ALREADY_RUNNING_MESSAGE = "An Intercom import is already running for this team"
 INTERCOM_IMPORT_FLAG = "product-support-intercom-import"
+# A started workflow moves its job to running within seconds, so a pending job with no workflow
+# this old was orphaned by a web process that died between saving the job and starting Temporal.
+ORPHANED_PENDING_AFTER = timedelta(minutes=10)
 
 
 class IntercomImportStartSerializer(serializers.Serializer):
@@ -151,6 +155,19 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             logger.warning("intercom_import_flag_eval_failed", team_id=self.team.id, error=str(e))
             return False
 
+    def _release_orphaned_reservations(self) -> None:
+        now = timezone.now()
+        IntercomImportJob.objects.filter(
+            status=IntercomImportJob.Status.PENDING,
+            workflow_id__isnull=True,
+            created_at__lt=now - ORPHANED_PENDING_AFTER,
+        ).update(
+            status=IntercomImportJob.Status.FAILED,
+            latest_error=WORKFLOW_START_FAILED_MESSAGE,
+            finished_at=now,
+            updated_at=now,
+        )
+
     def _mark_failed_if_pending(self, job: IntercomImportJob) -> None:
         IntercomImportJob.objects.filter(id=job.id, status=IntercomImportJob.Status.PENDING).update(
             status=IntercomImportJob.Status.FAILED,
@@ -179,6 +196,7 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        self._release_orphaned_reservations()
         running = IntercomImportJob.objects.filter(
             status__in=[IntercomImportJob.Status.PENDING, IntercomImportJob.Status.RUNNING],
         ).exists()
@@ -273,6 +291,8 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def status(self, request: Request, *args, **kwargs) -> Response:
         if not self._flag_enabled(request):
             return Response({"detail": "Intercom import is not available"}, status=drf_status.HTTP_403_FORBIDDEN)
+        # The settings page disables Start while a job is pending, so release orphans here too.
+        self._release_orphaned_reservations()
         job = IntercomImportJob.objects.order_by("-created_at").first()
         if job is None:
             return Response({"detail": "No Intercom import job found"}, status=drf_status.HTTP_404_NOT_FOUND)

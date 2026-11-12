@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -9,6 +9,7 @@ import requests
 
 from products.conversations.backend.temporal.intercom_import.client import (
     MAX_PART_PAGES,
+    IntercomAttachmentDownloadError,
     IntercomAttachmentTooLargeError,
     IntercomCredentials,
     IntercomImportClient,
@@ -186,7 +187,7 @@ class TestIntercomImportClient:
 
 class TestIntercomAttachmentDownload:
     @contextmanager
-    def _pinned(self, responses: list[_FakeResponse]) -> Iterator[MagicMock]:
+    def _pinned(self, responses: Sequence[_FakeResponse | Exception]) -> Iterator[MagicMock]:
         session = MagicMock()
         session.get.side_effect = responses
         self.session = session
@@ -221,6 +222,30 @@ class TestIntercomAttachmentDownload:
         with self._pinned([]) as pinned, pytest.raises(ValueError):
             client.download_attachment("http://downloads.example.com/file", max_bytes=100)
         pinned.assert_not_called()
+
+    @pytest.mark.parametrize("status_code,retryable", [(403, False), (404, False), (503, True)])
+    def test_http_error_keeps_the_signed_url_out_of_the_message(self, status_code: int, retryable: bool) -> None:
+        client, _ = _client()
+        signed = "https://downloads.example.com/f?expires=1&signature=secret-sig"
+        with self._pinned([_FakeResponse(status_code=status_code)]):
+            with pytest.raises(IntercomAttachmentDownloadError) as caught:
+                client.download_attachment(signed, max_bytes=100)
+
+        assert "secret-sig" not in str(caught.value)
+        assert caught.value.__cause__ is None and caught.value.__context__ is None
+        assert is_retryable_error(caught.value) is retryable
+
+    def test_transport_error_is_retryable_without_the_signed_url(self) -> None:
+        client, _ = _client()
+        signed = "https://downloads.example.com/f?expires=1&signature=secret-sig"
+        with self._pinned([requests.ConnectionError(f"Max retries exceeded with url: {signed}")]):
+            with pytest.raises(IntercomAttachmentDownloadError) as caught:
+                client.download_attachment(signed, max_bytes=100)
+
+        assert "secret-sig" not in str(caught.value)
+        # `from None` hides the original requests error, whose message holds the signed URL.
+        assert caught.value.__suppress_context__
+        assert is_retryable_error(caught.value)
 
     def test_aborts_once_streamed_bytes_exceed_cap(self) -> None:
         client, _ = _client()
