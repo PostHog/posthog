@@ -186,7 +186,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             is_setup_delegation=is_setup_delegation,
         )
 
-        send_invite(invite.id)
+        with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"):
+            send_invite(invite.id)
 
         invite.refresh_from_db()
         assert invite.email_suppressed is True

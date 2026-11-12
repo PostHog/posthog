@@ -27,6 +27,7 @@ from posthog.email import (
     EmailRecipientUndeliverableError,
     get_email_team_and_org_context,
     is_email_available,
+    is_http_email_service_available,
     single_line,
 )
 from posthog.event_usage import groups
@@ -558,9 +559,16 @@ def send_invite(invite_id: str) -> None:
                 organization_id=str(invite.organization_id),
                 campaign_key=campaign_key,
             )
-    else:
+    elif is_http_email_service_available():
+        # Only a synchronous Workflows send reports a refused address. SMTP keeps the queued send and its spaced retries.
         undeliverable = message.send(send_async=False)
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+    else:
+        message.send()
+        OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+        return
+    # The send ran eagerly in this worker, so it captured through the global client, which a recycled worker does not flush.
+    posthoganalytics.flush()
     if undeliverable:
         _mark_invite_email_suppressed(invite)
 

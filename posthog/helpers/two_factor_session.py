@@ -320,13 +320,13 @@ NO_EMAIL_HTTP_SERVICE = "no_email_http_service"
 
 
 class CodeBasedVerifier:
-    def _capture_suppression_bypass_event(self, user: User, reason: str) -> None:
+    def _capture_no_http_service_bypass_event(self, user: User) -> None:
         try:
             posthoganalytics.capture(
                 distinct_id=str(user.distinct_id),
                 event="code_based_verification_bypassed_due_to_suppression",
                 properties={
-                    "reason": reason,
+                    "reason": NO_EMAIL_HTTP_SERVICE,
                     "cached": False,
                 },
             )
@@ -354,7 +354,7 @@ class CodeBasedVerifier:
                 "Code-based verification bypassed - HTTP email service not configured",
                 user_id=user.pk,
             )
-            self._capture_suppression_bypass_event(user, NO_EMAIL_HTTP_SERVICE)
+            self._capture_no_http_service_bypass_event(user)
             return False
 
         # An exempting rule drops only the emailed code. TOTP and passkey 2FA are gated earlier in the login flow.
