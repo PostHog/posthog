@@ -177,8 +177,20 @@ function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): b
 }
 
 /**
- * The pane to show after a page change. A person, group or cohort opened while Analytics shows keeps Analytics, so a
- * drill-in from an insight does not switch the rail. `shownPane` is the pane on screen before the change, which is the
+ * Whether an open Analytics pane stays open on this page: a product By PostHog lists, the SQL editor its sidebar links
+ * to, or a person, group or cohort, so a drill-in from an insight does not switch the rail. Each of these opens its
+ * own pane when Analytics is not showing.
+ */
+function analyticsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
+    return (
+        (routePane === 'people' && isPeopleDetailPath(path)) ||
+        !!byPostHogItemForPath(path) ||
+        isUnderPath(path, urls.sqlEditor())
+    )
+}
+
+/**
+ * The pane to show after a page change. `shownPane` is the pane on screen before the change, which is the
  * route's pane when nothing was picked.
  */
 function paneAfterNavigation(
@@ -197,10 +209,7 @@ function paneAfterNavigation(
     ) {
         return shownPane
     }
-    if (shownPane === 'analytics' && routePane === 'people' && isPeopleDetailPath(path)) {
-        return shownPane
-    }
-    if (shownPane === 'analytics' && byPostHogItemForPath(path)) {
+    if (shownPane === 'analytics' && analyticsPaneKeepsPath(path, routePane)) {
         return shownPane
     }
     return routePane ?? openPane
