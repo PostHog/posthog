@@ -286,6 +286,16 @@ def native_source_config_values(
     )
 
 
+def native_configuration_ids_by_source_config(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> dict[Any, list[UUID]]:
+    """The ids of a kind's alerts with no source row in the team, oldest first, by which of `values`
+    each holds as `source_config[key]`, enabled or not. A value no alert holds is left out."""
+    return platform_reads.native_configuration_ids_by_source_config(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    )
+
+
 def native_configuration_team_id(*, configuration_id: UUID, source_kind: SourceKind) -> int | None:
     """The team of an alert of a kind with no source row, or None when there is none. The caller
     authorizes against the team before it acts on the alert."""

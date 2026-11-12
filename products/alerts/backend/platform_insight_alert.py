@@ -19,6 +19,7 @@ from products.alerts_platform.backend.facade.api import (
     delete_owned_configuration,
     get_configuration,
     list_configurations,
+    native_configuration_ids_by_source_config,
     native_configuration_matches,
     update_configuration,
 )
@@ -175,6 +176,14 @@ def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tup
     )
     return tuple(
         configuration for configuration in page.configurations if configuration.legacy_configuration_id is None
+    )
+
+
+def native_insight_alert_ids_by_insight(team_id: int, insight_ids: Collection[int]) -> dict[int, list[UUID]]:
+    """The ids of the team's insight alerts with no insight row on these insights, oldest first. An
+    insight with none is left out."""
+    return native_configuration_ids_by_source_config(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=insight_ids
     )
 
 
