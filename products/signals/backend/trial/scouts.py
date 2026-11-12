@@ -24,22 +24,20 @@ def trial_counted_scouts(team_id: int) -> "QuerySet[SignalScoutConfig]":
     An operational scout is seeded enabled for every project, so nobody chose it and it takes no slot.
     """
     from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
-    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
-        canonical_operational_scout_names,
+    from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
+        operational_config_q,
     )
 
     return (
-        SignalScoutConfig.objects.for_team(team_id, canonical=True)
-        .filter(enabled=True)
-        .exclude(skill_name__in=canonical_operational_scout_names())
+        SignalScoutConfig.objects.for_team(team_id, canonical=True).filter(enabled=True).exclude(operational_config_q())
     )
 
 
 @contextmanager
 def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
     from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
-    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
-        is_operational_scout,
+    from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
+        is_operational_config,
     )
 
     if not config.enabled:
@@ -47,7 +45,7 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
         return
     team = config.team
     policy = TrialPolicy(team)
-    if not policy.enabled() or is_operational_scout(config.skill_name):
+    if not policy.enabled() or is_operational_config(config):
         yield
         return
     team_id = team.parent_team_id or team.id

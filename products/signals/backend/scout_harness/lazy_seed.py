@@ -759,6 +759,8 @@ def is_operational_scout(skill_name: str) -> bool:
     False for a custom scout, and for a canonical specialist. Callers must confirm the name is
     canonical first — a team's own `signals-scout-*` skill can share a canonical name, and it
     inherits nothing from disk, least of all a role that exempts it from the harness's controls.
+    For a scout config, use `operational.is_operational_config` or `operational.operational_config_q`,
+    which make that check.
     """
     return skill_name in _canonical_operational_scouts()
 

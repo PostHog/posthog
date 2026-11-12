@@ -27,6 +27,7 @@ from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.suggestions import (
     ACTIVITY_READ_MAX_ROWS,
     ACTIVITY_READ_MAX_ROWS_READ,
@@ -364,10 +365,20 @@ class TestPlanSuggestionRuns(BaseTest):
                 [("signals-scout-apm", False), ("signals-scout-inbox-validation", False)],
                 True,
             ),
+            ("team_skill_under_operational_name", [("signals-scout-inbox-validation", False)], True, False),
         ]
     )
-    def test_set_up_ignores_background_and_operational_scouts(self, _name, scouts, expected_set_up):
+    def test_set_up_ignores_background_and_operational_scouts(
+        self, _name, scouts, expected_set_up, operational_seeded=True
+    ):
         team = self._team("candidate")
+        LLMSkill.objects.create(
+            team=team,
+            name="signals-scout-inbox-validation",
+            description="d",
+            body="b",
+            metadata={"seeded_by": HARNESS_SEEDED_BY} if operational_seeded else {},
+        )
         for skill_name, background in scouts:
             SignalScoutConfig.objects.create(
                 team=team,
