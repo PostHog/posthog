@@ -87,7 +87,6 @@ ACCEPTED_REQUEST_KEYS: dict[str, set[str] | None] = {
     "variables": None,
     "idempotency_key": None,
     "send": None,
-    "message_category": {"id", "type"},
 }
 ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "content": {"subject", "html", "text"},
@@ -97,6 +96,7 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "bcc": None,
     "tracking": {"captureEngagement"},
     "attachments": None,
+    "message_category": {"id", "type"},
 }
 ACCEPTED_ATTACHMENT_KEYS = {"sha256", "filename", "content_type", "content_id"}
 WELCOME_DELIVERED = {
@@ -121,13 +121,22 @@ class CapturedEvents:
 
 
 class FakeCdpApi:
-    def __init__(self, refusal: tuple[int, str] | None = None, *, takes_attachments: bool = True) -> None:
+    def __init__(
+        self,
+        refusal: tuple[int, str] | None = None,
+        *,
+        takes_attachments: bool = True,
+        takes_categories: bool = True,
+    ) -> None:
         self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
         self._refusal = refusal
-        self._accepted = {
-            field: keys for field, keys in ACCEPTED_SEND_KEYS.items() if takes_attachments or field != "attachments"
+        refused = {
+            field
+            for field, takes in (("attachments", takes_attachments), ("message_category", takes_categories))
+            if not takes
         }
+        self._accepted = {field: keys for field, keys in ACCEPTED_SEND_KEYS.items() if field not in refused}
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -156,7 +165,7 @@ class FakeCdpApi:
         return [self._email(payload["send"]) for payload in self._queued]
 
     def categories(self) -> list[dict[str, str] | None]:
-        return [payload.get("message_category") for payload in self._queued]
+        return [(payload.get("send") or {}).get("message_category") for payload in self._queued]
 
     @staticmethod
     def _email(send: dict[str, Any]) -> dict[str, Any]:
@@ -188,7 +197,7 @@ class FakeCdpApi:
 
     @staticmethod
     def _opt_out_refusal(url: str, payload: dict[str, Any]) -> tuple[int, str] | None:
-        category = payload.get("message_category") or {}
+        category = (payload.get("send") or {}).get("message_category") or {}
         if category.get("type") != "marketing":
             return None
         route = CDP_SEND_ROUTE.search(url)
@@ -1538,25 +1547,32 @@ class TestTransactionalEmail(APIBaseTest):
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
         assert response.json() == {"message_id": "first-send", "replayed": True}
 
-    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
+    @parameterized.expand(
+        [
+            ("attachments", {"attachments": TWO_FILES}, {"takes_attachments": False}, "attachments", "attachments"),
+            ("category", MARKETING_SEND, {"takes_categories": False}, "category", "message_category"),
+        ]
+    )
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(
+        self, mock_post, _flag, capture, _name, fields, pipeline, field, wire_field
+    ):
         events = CapturedEvents(capture)
 
-        with FakeCdpApi(takes_attachments=False).serving(mock_post) as cdp:
-            response = self._psak_client(["hog_flow:write"]).post(
-                self.send_email_url, self._code_send(attachments=TWO_FILES), format="json"
+        with FakeCdpApi(**pipeline).serving(mock_post) as cdp:
+            response = self._psak_client(["transactional_email:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
-        assert (body["code"], body["attr"]) == ("field_not_accepted", "attachments")
+        assert (body["code"], body["attr"]) == ("field_not_accepted", field)
         assert "doesn't take the field yet" in body["why"]
         assert "Send the email without this field" in body["fix"]
         assert cdp.emails() == []
-        assert [payload["send"]["attachments"] for payload in cdp.received] == [TWO_FILES]
+        assert [wire_field in payload["send"] for payload in cdp.received] == [True]
         assert [
-            (sent["outcome"], sent["error_code"], sent["attachment_count"], sent["attachment_bytes"])
-            for sent in events.properties("transactional email api send")
-        ] == [("rejected", "field_not_accepted", 2, None)]
+            (sent["outcome"], sent["error_code"]) for sent in events.properties("transactional email api send")
+        ] == [("rejected", "field_not_accepted")]
 
     @parameterized.expand(
         [

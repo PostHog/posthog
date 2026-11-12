@@ -613,9 +613,9 @@ def send_code_email(
                 hog_flow_id = _key_workflow_id(team.id, email.key)
                 _require_active(team.id, hog_flow_id)
                 category = code_send_category(team.id, email.category)
-    payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     if category is not None:
-        payload["message_category"] = {"id": str(category.id), "type": category.type}
+        accepted_send["message_category"] = {"id": str(category.id), "type": category.type}
+    payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
@@ -807,6 +807,9 @@ def _attachment_bytes(answer: dict[str, Any]) -> int | None:
     return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
 
 
+SEND_FIELDS_BY_WIRE_FIELD = {"message_category": "category"}
+
+
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     try:
         issues = json.loads(error or "")
@@ -816,7 +819,7 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
         if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
-                return keys[0]
+                return SEND_FIELDS_BY_WIRE_FIELD.get(keys[0], keys[0])
     return None
 
 
