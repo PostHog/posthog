@@ -6,6 +6,7 @@ import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 
+import { AccountViewTileHeaderActions } from '../../scenes/CustomerAnalyticsAccountScene/AccountViewTileHeaderActions'
 import { DOT_MATRIX_WEEK_OPTIONS, type DotMatrixWeeks } from '../ProductActivity/dotMatrixTileConfig'
 import type { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
 import { DotMatrixSourcePicker } from './DotMatrixSourcePicker'
@@ -16,7 +17,7 @@ export function DotMatrixTileSettings({ logic }: { logic: ReturnType<typeof acco
     const { config, sourceKind, queryEditorOpen } = useValues(logic)
     const { chooseSource, setMode, setWeeks, editQuery } = useActions(logic)
     return (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <AccountViewTileHeaderActions>
             {sourceKind === 'hogql' && !queryEditorOpen && (
                 <LemonButton size="small" onClick={editQuery}>
                     Edit query
@@ -69,16 +70,16 @@ export function DotMatrixTileSettings({ logic }: { logic: ReturnType<typeof acco
                 }
             >
                 <LemonButton
-                    size="small"
-                    type="secondary"
+                    size="xsmall"
+                    type="tertiary"
                     icon={<IconGear />}
                     onClick={() => setOpen(!open)}
                     aria-expanded={open}
+                    aria-label="Options"
+                    tooltip="Options"
                     data-attr="account-dot-matrix-settings"
-                >
-                    Settings
-                </LemonButton>
+                />
             </Popover>
-        </div>
+        </AccountViewTileHeaderActions>
     )
 }

@@ -107,12 +107,13 @@ export function DotMatrixLegend({
                                 Show all
                             </LemonButton>
                         )}
-                        {onSelectedSeriesChange && (
+                        {onSelectedSeriesChange && labels?.hint !== false && (
                             <span>{labels?.hint ?? `Shift-click to add or remove a ${itemLabel}.`}</span>
                         )}
                     </div>
                 ) : (
-                    onSelectedSeriesChange && (
+                    onSelectedSeriesChange &&
+                    labels?.hint !== false && (
                         <span>{labels?.hint ?? `Click a ${itemLabel} to filter. Shift-click to add more.`}</span>
                     )
                 )}

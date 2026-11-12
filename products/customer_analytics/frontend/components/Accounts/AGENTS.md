@@ -37,6 +37,11 @@ Activity requests share the DataNode query queue. Disposing a queued tile preven
 Account tiles and the book grid share setup-specific empty messages from `../ProductActivity/productUsagePresentation.ts`. Product usage preserves loaded user details when optional first-use history fails. History failures have a separate retry.
 Custom HogQL matrices cap columns times series at 512 glyph slots per row. Chronological columns keep the most recent periods, and the bound notice explains omitted columns.
 Account tile queries use metadata-only query telemetry for every source, including custom HogQL. Query contents and translated SQL stay out of analytics events.
+Account activity matrices use its embedded mode edge to edge inside view cards and hide legend filter instructions.
+Unconfigured tiles keep an inset setup state with a source picker sized to its content.
+`AccountViewTileHeaderActions` places widget-owned controls in the enclosing tile header, with an inline fallback outside a tile.
+`DotMatrixTileSettings` uses this slot for the Options gear and custom-query edit action.
+Product grouping and first-use controls share a left-aligned, inset row with a focusable activity-definition info icon.
 Its Storybook fixtures live beside the renderer stories.
 `accountDotMatrixTileLogic` saves the data source, display mode, and weeks through the account view config callback. Series selection stays local to the mounted tile. Selecting Custom HogQL again reopens the saved query as a draft without saving or rerunning it.
 
@@ -184,11 +189,14 @@ Account view widgets follow the composition pattern.
 A view is an ordered list of independent widgets, and shared code knows a widget only through its entry in the `ACCOUNT_VIEW_COMPONENTS` registry (`accountViewComponents.tsx`).
 Before you add or change a widget, read the [creating-customer-analytics-account-widgets](../../../../../.agents/skills/creating-customer-analytics-account-widgets/SKILL.md) skill for the steps.
 
-- **A registry entry is the whole contract.** It holds `kind`, `tagName`, `label`, and the widget's `Component`, which takes `AccountViewWidgetProps`. Optional fields are `featureFlag`, `systemTabId`, `ConfigEditor`, `onConfigSaved`, and `tileInsetClassName`.
+- **A registry entry is the whole contract.** It holds `kind`, `tagName`, `label`, and the widget's `Component`, which takes `AccountViewWidgetProps`. Optional fields are `featureFlag`, `systemTabId`, `ConfigEditor`, `onConfigSaved`, `tileInsetClassName`, `tileContentClassName`, and `remountOnConfigReload`.
 - **Shared code never branches on a `kind`.** `AccountViewComponent`, `AccountViewTile`, `AccountViewTileEditorModal`, `accountViewsLogic`, and `validate_account_view_content` read the entry. When a widget needs something the others do not, add an optional field to the entry.
-- **A widget owns its data, logic, and config shape.** It reads `initialConfig` once, reports changes through `onConfigChange`, and keys its logic by `instanceId` so two tiles of one kind stay separate.
+- **A widget owns its data, logic, and config shape.** It reads `initialConfig` once, reports changes through `onConfigChange`, and keys its logic by account and `instanceId` so accounts and tiles keep separate state.
 - **A widget does not inherit from another widget.** `AccountViewTile` supplies the shared card, title, and menu.
 - **The backend mirrors the registry by `tagName`.** `ACCOUNT_VIEW_COMPONENT_LABELS` in `backend/logic/account_views.py` lists every `tagName`, and `ACCOUNT_VIEW_CONFIG_VALIDATORS` maps a `tagName` to its config validator.
+
+`tileContentClassName` overrides the body inset and table margins. DotMatrix sets it to an empty string for edge-to-edge content.
+`remountOnConfigReload` defaults to true. DotMatrix sets it to false because it restores saved config from props while retaining an unsaved query draft.
 
 Account views store a reusable Markdown document, not an account ID. `accountViewComponents.tsx` lists the system tabs and view components. `listAvailableAccountSystemTabs` selects only entries with a `systemTabId`, so widget-only entries cannot become standalone tabs. `accountViewsLogic` owns view editing and tile settings. The account scene supplies the current account ID when it renders a view. Each tile keeps a stable `nodeId`, so two tiles of the same kind keep separate settings. `UserCustomerAnalyticsConfig.account_detail_tabs` stores each user's tab order, hidden tabs, and default for the project. A direct link can still open a hidden tab. View components render in document order and use `span` to share a row in a wide container. They stack in a narrow container.
 The view-only Properties component stores ordered custom-property, relationship, and supported account JSONB references under each tile's `config.properties`.

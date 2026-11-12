@@ -86,6 +86,7 @@ export interface DotMatrixProps<D extends Record<string, unknown>>
     cellWidth?: number
     rowClassName?: (row: DotMatrixAxisItem) => string | null
     className?: string
+    embedded?: boolean
     legend?: false | DotMatrixLegendLabels
     loading?: boolean
     emptyState?: ReactNode
@@ -97,6 +98,6 @@ export interface DotMatrixLegendLabels {
     valueLabel?: string
     countLabel?: string
     selectionLabel?: (count: number, mode: 'dots' | 'count') => string
-    hint?: string
+    hint?: string | false
     footer?: ReactNode
 }

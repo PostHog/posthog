@@ -34,6 +34,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
     cellWidth = mode === 'dots' ? 110 : 64,
     rowClassName,
     className,
+    embedded = false,
     legend,
     loading = false,
     emptyState = 'No data to display. Add data to see the matrix.',
@@ -66,7 +67,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
     }
 
     return (
-        <div className={clsx('DotMatrix', `DotMatrix--${mode}`, className)}>
+        <div className={clsx('DotMatrix', `DotMatrix--${mode}`, embedded && 'DotMatrix--embedded', className)}>
             {legend !== false && (coloredSeries.length > 0 || (mode === 'count' && !!resolvedCountScale?.length)) && (
                 <DotMatrixLegend
                     series={coloredSeries}
@@ -91,6 +92,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
                 loading={loading}
                 emptyState={emptyState}
                 pageSize={pageSize}
+                embedded={embedded}
             />
         </div>
     )
