@@ -10977,6 +10977,26 @@ export interface CancelReportCheckRequestApi {
 }
 
 /**
+ * * `report_not_resolved` - Report not resolved
+ * * `report_resolved_with_monitoring` - Report resolved with Monitoring on
+ * * `metric_check_outside_monitoring` - Metric check outside Monitoring
+ * * `not_measured_in_monitoring` - Not measured during Monitoring
+ * * `monitoring_window_ended` - Monitoring window ended
+ * * `horizon_passed` - Horizon passed
+ */
+export type ReportCheckPauseReasonEnumApi =
+    (typeof ReportCheckPauseReasonEnumApi)[keyof typeof ReportCheckPauseReasonEnumApi]
+
+export const ReportCheckPauseReasonEnumApi = {
+    ReportNotResolved: 'report_not_resolved',
+    ReportResolvedWithMonitoring: 'report_resolved_with_monitoring',
+    MetricCheckOutsideMonitoring: 'metric_check_outside_monitoring',
+    NotMeasuredInMonitoring: 'not_measured_in_monitoring',
+    MonitoringWindowEnded: 'monitoring_window_ended',
+    HorizonPassed: 'horizon_passed',
+} as const
+
+/**
  * One check as a scout run reads it back.
  */
 export interface ScoutCheckSummaryApi {
@@ -11002,8 +11022,22 @@ export interface ScoutCheckSummaryApi {
      * @nullable
      */
     last_outcome_reason: string | null
-    /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+    /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but a coordinator gate holds it, so nothing runs it. `pause_reason` names the gate. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
     run_state: string
+    /** Set only when `run_state` is `paused`. The gate that holds the check: `report_not_resolved` (the report has no fix to measure), `report_resolved_with_monitoring` (Monitoring is on, so a resolved report runs no follow-up checks), `metric_check_outside_monitoring` (a metric check runs only during Monitoring), `not_measured_in_monitoring` (Monitoring takes no interim measurement for this check), `monitoring_window_ended`, or `horizon_passed`. Null in every other state.
+     *
+     * * `report_not_resolved` - Report not resolved
+     * * `report_resolved_with_monitoring` - Report resolved with Monitoring on
+     * * `metric_check_outside_monitoring` - Metric check outside Monitoring
+     * * `not_measured_in_monitoring` - Not measured during Monitoring
+     * * `monitoring_window_ended` - Monitoring window ended
+     * * `horizon_passed` - Horizon passed */
+    pause_reason: ReportCheckPauseReasonEnumApi | null
+    /**
+     * Set only when `run_state` is `paused`. A short instruction: what restarts the check, or what to do when nothing does. Null in every other state.
+     * @nullable
+     */
+    resume_hint: string | null
     /** True while an `agent` check waits on a dispatched run to record its verdict. */
     waiting_on_run: boolean
     /**

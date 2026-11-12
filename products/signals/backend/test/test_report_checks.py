@@ -30,7 +30,7 @@ from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult, Dismissal, NoteArtefact
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import ReportCheckPauseReason, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -908,18 +908,24 @@ class TestReportCheckExecution(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("due", True, "metric", -1, "due"),
-            ("scheduled", True, "metric", 60, "scheduled"),
-            ("window_ended", True, "window_ended", -1, "paused"),
-            ("expired", True, "expired", -1, "paused"),
-            ("missing_start", True, "missing_start", -1, "paused"),
-            ("agent", True, "agent", -1, "paused"),
-            ("legacy_metric", True, "legacy_metric", -1, "paused"),
-            ("flag_off", False, "metric", -1, "paused"),
+            ("due", True, "metric", -1, "due", None),
+            ("scheduled", True, "metric", 60, "scheduled", None),
+            ("window_ended", True, "window_ended", -1, "paused", ReportCheckPauseReason.MONITORING_WINDOW_ENDED),
+            ("expired", True, "expired", -1, "paused", ReportCheckPauseReason.HORIZON_PASSED),
+            ("missing_start", True, "missing_start", -1, "paused", ReportCheckPauseReason.NOT_MEASURED_IN_MONITORING),
+            ("agent", True, "agent", -1, "paused", ReportCheckPauseReason.NOT_MEASURED_IN_MONITORING),
+            ("legacy_metric", True, "legacy_metric", -1, "paused", ReportCheckPauseReason.NOT_MEASURED_IN_MONITORING),
+            ("flag_off", False, "metric", -1, "paused", ReportCheckPauseReason.METRIC_CHECK_OUTSIDE_MONITORING),
         ]
     )
     def test_scout_monitoring_run_state_matches_coordinator(
-        self, _name: str, flag: bool, variant: str, due_in_minutes: int, expected: str
+        self,
+        _name: str,
+        flag: bool,
+        variant: str,
+        due_in_minutes: int,
+        expected: str,
+        pause_reason: ReportCheckPauseReason | None,
     ) -> None:
         now = timezone.now()
         with (
@@ -941,7 +947,8 @@ class TestReportCheckExecution(APIBaseTest):
                 SignalReport.objects.filter(team_id=self.team.id, id=self.report.id).update(monitoring_started_at=None)
             check.save()
             (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
-            assert listed.run_state == expected
+            assert (listed.run_state, listed.pause_reason) == (expected, pause_reason)
+            assert (listed.resume_hint is None) == (pause_reason is None)
             assert {row.id for row in collect_due_checks(now)} == ({check.id} if expected == "due" else set())
 
     @parameterized.expand(
@@ -2445,11 +2452,17 @@ class TestCheckResultTool(APIBaseTest):
             allowed = flag_result is not True
             if allowed:
                 assert listed.run_state in {"queued", "running"}
-                assert listed.waiting_on_run is True
+                assert (listed.waiting_on_run, listed.pause_reason) == (True, None)
                 self._record(check)
             else:
                 assert listed.run_state == "paused"
                 assert listed.waiting_on_run is False
+                assert listed.pause_reason == (
+                    ReportCheckPauseReason.REPORT_RESOLVED_WITH_MONITORING
+                    if report_status == SignalReport.Status.RESOLVED
+                    else ReportCheckPauseReason.NOT_MEASURED_IN_MONITORING
+                )
+                assert listed.resume_hint
                 with self.assertRaises(InvalidCheckResultError):
                     self._record(check)
         check.refresh_from_db()
