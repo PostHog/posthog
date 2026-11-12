@@ -46,6 +46,8 @@ def _is_float_at_boundary(value: float, boundary: Decimal, step: Decimal | None)
 def _validate_categorical_score(config: dict[str, object], categorical_values: list[str] | None) -> dict[str, str]:
     if categorical_values is None:
         return {"categorical_values": "This scorer requires `categorical_values`."}
+    if len(set(categorical_values)) != len(categorical_values):
+        return {"categorical_values": "Category keys must be distinct."}
 
     configured_options = config.get("options", [])
     options = configured_options if isinstance(configured_options, list) else []

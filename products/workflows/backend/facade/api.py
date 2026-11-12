@@ -239,14 +239,18 @@ def _team_workflows(team_id: int, workflow_ids: Iterable[str] | None) -> QuerySe
 
 
 def get_viewable_workflow_ids(
-    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Iterable[str] | None = None
+    *,
+    team_id: int,
+    user_access_control: UserAccessControl,
+    workflow_ids: Iterable[str] | None = None,
+    tag_name: str | None = None,
 ) -> set[str]:
     """The ids, as strings, of the team's workflows the reader may view."""
+    workflows = _team_workflows(team_id, workflow_ids)
+    if tag_name is not None:
+        workflows = workflows.filter(tagged_items__tag__name=tag_name)
     return {
-        str(pk)
-        for pk in user_access_control.filter_queryset_by_access_level(
-            _team_workflows(team_id, workflow_ids)
-        ).values_list("id", flat=True)
+        str(pk) for pk in user_access_control.filter_queryset_by_access_level(workflows).values_list("id", flat=True)
     }
 
 

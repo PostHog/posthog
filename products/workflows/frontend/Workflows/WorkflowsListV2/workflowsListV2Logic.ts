@@ -214,6 +214,35 @@ function legacyParamsToValue(searchParams: Record<string, unknown>): FacetSearch
     return { filters, text: rawSearchParam('search') }
 }
 
+/** The kept filters come back only when the list opens without filters in the URL. */
+function restoresKeptFilters(searchParams: Record<string, unknown>, kept: FacetSearchValue): boolean {
+    const urlHasFilters =
+        'q' in searchParams || 'text' in searchParams || LEGACY_PARAMS.some((param) => param in searchParams)
+    return !urlHasFilters && (kept.filters.length > 0 || !!kept.text)
+}
+
+/** An old filter link can also arrive while the list is open. A later `page` param alone is not one. */
+function isLegacyLink(searchParams: Record<string, unknown>, opening: boolean): boolean {
+    return LEGACY_FILTER_PARAMS.some((param) => param in searchParams) || (opening && 'page' in searchParams)
+}
+
+/** The URL params with an old filter link folded into the facet query. */
+function migrateLegacyLink(searchParams: Record<string, unknown>, current: FacetSearchValue): Record<string, unknown> {
+    const legacy = legacyParamsToValue(searchParams)
+    const next = { ...searchParams }
+    for (const param of LEGACY_PARAMS) {
+        delete next[param]
+    }
+    return withFacetParams(next, {
+        filters: [...current.filters, ...legacy.filters],
+        text: current.text || legacy.text,
+    })
+}
+
+function sameFacetValue(a: FacetSearchValue, b: FacetSearchValue): boolean {
+    return serializeFacetQuery(a.filters) === serializeFacetQuery(b.filters) && a.text === b.text
+}
+
 /** The flag-off list writes tags as a JSON list, which kea-router has usually parsed already. */
 function legacyTagsOf(raw: unknown): string[] {
     const parsed = typeof raw === 'string' ? parseJsonOr(raw, [raw]) : raw
@@ -847,38 +876,12 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             }
             const opening = !cache.opened
             cache.opened = true
-            // The kept filters come back only when the list opens without filters in the URL.
-            if (
-                opening &&
-                !('q' in searchParams || 'text' in searchParams) &&
-                !LEGACY_PARAMS.some((param) => param in searchParams) &&
-                (values.value.filters.length > 0 || values.value.text)
-            ) {
-                router.actions.replace(
-                    router.values.location.pathname,
-                    withFacetParams(searchParams, values.value),
-                    hashParams
-                )
-                return
-            }
-            // An old filter link can also arrive while the list is open. A later `page` param alone is not one.
-            if (LEGACY_FILTER_PARAMS.some((param) => param in searchParams) || (opening && 'page' in searchParams)) {
-                const legacy = legacyParamsToValue(searchParams)
-                const next = { ...searchParams }
-                for (const param of LEGACY_PARAMS) {
-                    delete next[param]
-                }
-                const merged = {
-                    filters: [...current.filters, ...legacy.filters],
-                    text: current.text || legacy.text,
-                }
-                router.actions.replace(router.values.location.pathname, withFacetParams(next, merged), hashParams)
-                return
-            }
-            if (
-                serializeFacetQuery(current.filters) !== serializeFacetQuery(values.value.filters) ||
-                current.text !== values.value.text
-            ) {
+            const { pathname } = router.values.location
+            if (opening && restoresKeptFilters(searchParams, values.value)) {
+                router.actions.replace(pathname, withFacetParams(searchParams, values.value), hashParams)
+            } else if (isLegacyLink(searchParams, opening)) {
+                router.actions.replace(pathname, migrateLegacyLink(searchParams, current), hashParams)
+            } else if (!sameFacetValue(current, values.value)) {
                 actions.setValue(current)
             }
         }
