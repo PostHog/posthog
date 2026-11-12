@@ -2,7 +2,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import type { ErrorTrackingIssueTag } from '~/queries/schema/schema-general'
 
-function answeredBy(source: string): string | null {
+function answeredBy(source: string | undefined): string | null {
     switch (source) {
         case 'jev':
             return 'Answered by AI'
