@@ -189,7 +189,6 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     else:
         txt_body = comment.content or ""
         # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
-        # The renderer drops links to origins outside the allowlist and leaves code untouched.
         html_body = render_markdown_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
