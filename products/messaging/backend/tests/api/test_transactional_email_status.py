@@ -1,3 +1,4 @@
+import json
 import base64
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -33,6 +34,13 @@ RANK = {
     "bounced": 6,
     "complained": 7,
 }
+
+
+_CURSOR_ID = "01890000-0000-7000-8000-000000000000"
+
+
+def _encoded_cursor(due: str, message_id: object) -> str:
+    return base64.urlsafe_b64encode(json.dumps([due, message_id]).encode()).decode()
 
 
 class EmailsApiTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -697,7 +705,25 @@ class TestListScheduledEmails(EmailsApiTestBase):
             ("a_made_up_cursor", "status=scheduled&cursor=not-a-cursor", "cursor", "invalid_input"),
             (
                 "a_cursor_with_a_number_for_an_id",
-                f"status=scheduled&cursor={base64.urlsafe_b64encode(b'["2026-06-16T12:00:00+00:00", 123]').decode()}",
+                f"status=scheduled&cursor={_encoded_cursor('2026-06-16T12:00:00+00:00', 123)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_without_an_offset",
+                f"status=scheduled&cursor={_encoded_cursor('2026-06-16T12:00:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_before_the_first_utc_day",
+                f"status=scheduled&cursor={_encoded_cursor('0001-01-01T00:00:00+01:00', _CURSOR_ID)}",
+                "cursor",
+                "invalid_input",
+            ),
+            (
+                "a_cursor_time_clickhouse_cannot_hold",
+                f"status=scheduled&cursor={_encoded_cursor('0001-01-01T00:00:00+00:00', _CURSOR_ID)}",
                 "cursor",
                 "invalid_input",
             ),

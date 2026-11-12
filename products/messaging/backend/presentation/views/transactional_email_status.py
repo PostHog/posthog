@@ -3,7 +3,7 @@ import base64
 import binascii
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -124,6 +124,10 @@ class ListedEmailStatus(LabeledStrEnum):
     SCHEDULED = "scheduled", "Scheduled"
 
 
+# ClickHouse's DateTime64 holds 1900 to 2299, so the list query fails on a cursor time outside that range.
+_CURSOR_TIMES = (datetime(1900, 1, 1, tzinfo=UTC), datetime(2300, 1, 1, tzinfo=UTC))
+
+
 class ScheduledEmailListQuerySerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=ListedEmailStatus.choices,
@@ -141,8 +145,14 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
             due, message_id = json.loads(base64.urlsafe_b64decode(value.encode()))
             if not (isinstance(due, str) and isinstance(message_id, str)):
                 raise ValueError
-            return datetime.fromisoformat(due), str(UUID(message_id))
-        except (binascii.Error, UnicodeDecodeError, TypeError, ValueError):
+            due_at = datetime.fromisoformat(due)
+            if due_at.tzinfo is None:
+                raise ValueError
+            due_at = due_at.astimezone(UTC)
+            if not _CURSOR_TIMES[0] <= due_at < _CURSOR_TIMES[1]:
+                raise ValueError
+            return due_at, str(UUID(message_id))
+        except (binascii.Error, UnicodeDecodeError, TypeError, ValueError, OverflowError):
             raise serializers.ValidationError("This cursor isn't one a page returned. Start again without it.")
 
 
