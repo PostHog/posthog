@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Mapping
 from typing import Optional
 
 import structlog
@@ -20,16 +21,19 @@ from products.subscriptions.backend.models.subscription import Subscription, get
 logger = structlog.get_logger(__name__)
 
 
-def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
+def _get_asset_data_for_email(asset: ExportedAsset, group_heading: str | None = None) -> dict:
+    data: dict = {"group_heading": group_heading} if group_heading else {}
     if _has_asset_failed(asset):
         details = failed_asset_details(asset)
         return {
+            **data,
             "error": True,
             "insight_name": details.insight_name,
             "error_message": details.error_text,
         }
 
     return {
+        **data,
         "error": False,
         "image_url": asset.get_subscription_delivery_content_url(),
     }
@@ -45,6 +49,7 @@ def send_email_subscription_report(
     change_summary: Optional[str] = None,
     summary_skipped_over_budget: bool = False,
     delivery_id: Optional[uuid.UUID] = None,
+    group_headings: Optional[Mapping[int, str]] = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -87,7 +92,7 @@ def send_email_subscription_report(
         subject=subject,
         template_name="subscription_report",
         template_context={
-            "asset_data": [_get_asset_data_for_email(x) for x in assets],
+            "asset_data": [_get_asset_data_for_email(x, (group_headings or {}).get(x.id)) for x in assets],
             "resource_noun": resource_info.kind,
             "resource_name": resource_info.name,
             "resource_url": f"{resource_info.url}?{utm_tags}",

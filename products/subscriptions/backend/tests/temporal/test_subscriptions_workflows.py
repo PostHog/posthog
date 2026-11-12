@@ -36,7 +36,7 @@ from posthog.temporal.exports.types import ExportError
 from posthog.test.insight_queries import default_pageview_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.product_analytics.backend.facade.models import Insight
@@ -642,6 +642,118 @@ async def test_deliver_subscription_report_teams(
     assert delivery.recipient_results == [{"recipient": "prod-25.westeurope.logic.azure.com", "status": "success"}]
     # The delivery row is read-only history the API returns, so it keeps the host, not the URL.
     assert delivery.target_value == "prod-25.westeurope.logic.azure.com"
+
+
+def _create_grouped_dashboard(team, *, grouped: bool) -> Dashboard:
+    dashboard = Dashboard.objects.create(
+        team=team,
+        name="Grouped",
+        customization={"groups": {"revenue": {"title": "Revenue"}, "untitled": {}}} if grouped else {},
+    )
+    # (name, group, y): the untitled group's first tile sits above the Revenue group's, so it comes first.
+    placements = [
+        ("Top", None, 0),
+        ("Signups", "untitled", 2),
+        ("MRR", "revenue", 4),
+        ("Bottom", None, 6),
+        ("Activations", "untitled", 8),
+    ]
+    for name, group_key, y in placements:
+        insight = Insight.objects.create(team=team, name=name)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            group_key=group_key if grouped else None,
+            layouts={"sm": {"x": 0, "y": y, "w": 6, "h": 2}},
+        )
+    # A text tile counts toward the untitled group's heading, as it does on the dashboard.
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        text=Text.objects.create(team=team, body="Notes"),
+        group_key="untitled" if grouped else None,
+        layouts={"sm": {"x": 0, "y": 10, "w": 6, "h": 2}},
+    )
+    return dashboard
+
+
+@pytest.mark.parametrize(
+    "grouped,flag_enabled,expected",
+    [
+        (
+            True,
+            True,
+            ["Top", "Bottom", "# 3 tiles", "Signups", "Activations", "# Revenue", "MRR"],
+        ),
+        (True, False, ["Top", "Signups", "MRR", "Bottom", "Activations"]),
+        (False, True, ["Top", "Signups", "MRR", "Bottom", "Activations"]),
+    ],
+)
+@patch("products.subscriptions.backend.logic.insight_groups.feature_enabled_or_false")
+@patch("products.subscriptions.backend.temporal.delivery_webhook.pinned_session")
+@patch("products.subscriptions.backend.temporal.activities.build_insight_delivery_snapshot", return_value={})
+@pytest.mark.asyncio
+async def test_dashboard_report_follows_tile_groups(
+    _mock_build_snapshot: MagicMock,
+    mock_pinned_session: MagicMock,
+    mock_flag: MagicMock,
+    grouped: bool,
+    flag_enabled: bool,
+    expected: list[str],
+    team,
+    user,
+):
+    mock_flag.return_value = flag_enabled
+    mock_post = mock_pinned_session.return_value.__enter__.return_value.request
+    mock_post.return_value = MagicMock(status_code=202)
+
+    dashboard = await sync_to_async(_create_grouped_dashboard)(team, grouped=grouped)
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        dashboard=dashboard,
+        created_by=user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+
+    # The activities in the order the workflow runs them, so the sections pass from export to delivery
+    # only through the delivery row, as they do between two activity workers.
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            temporal_workflow_id="wf",
+            idempotency_key=str(uuid.uuid4()),
+        ),
+    )
+    export = await env.run(
+        create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=delivery_id)
+    )
+    await sync_to_async(
+        lambda: ExportedAsset.objects.filter(id__in=export.exported_asset_ids).update(
+            content_location="s3://bucket/teams.png"
+        )
+    )()
+    await env.run(
+        deliver_subscription_v2,
+        DeliverSubscriptionInputs(
+            subscription_id=subscription.id,
+            exported_asset_ids=export.exported_asset_ids,
+            total_insight_count=export.total_insight_count,
+            delivery_id=delivery_id,
+        ),
+    )
+
+    assert mock_post.call_count == 1
+    body = mock_post.call_args.kwargs["json"]["attachments"][0]["content"]["body"]
+    delivered = [
+        f"# {element['text']}" if element.get("weight") == "Bolder" else element["altText"]
+        for element in body
+        if element["type"] == "Image" or element.get("weight") == "Bolder"
+    ]
+    assert delivered == expected
 
 
 @patch("products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription")

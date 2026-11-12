@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any
 
 from django.conf import settings
@@ -101,6 +102,12 @@ def _element_for_asset(asset: ExportedAsset, resource_url: str) -> dict[str, Any
     return image
 
 
+def _group_heading_block(heading: str) -> dict[str, Any]:
+    block = teams_text_block(strip_external_links_markdown(heading))
+    block.update({"size": "Medium", "weight": "Bolder", "spacing": "Large"})
+    return block
+
+
 def build_teams_subscription_card(
     subscription: Subscription,
     assets: list[ExportedAsset],
@@ -109,6 +116,7 @@ def build_teams_subscription_card(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
+    group_headings: Mapping[int, str] | None = None,
 ) -> dict[str, Any]:
     resource_info = subscription.resource_info
     if not resource_info:
@@ -148,12 +156,15 @@ def build_teams_subscription_card(
 
     shown = 0
     for asset in assets:
-        element = _element_for_asset(asset, resource_url=resource_info.url)
-        size = teams_byte_size(element.get("text", ""))
+        elements = []
+        if heading := (group_headings or {}).get(asset.id):
+            elements.append(_group_heading_block(heading))
+        elements.append(_element_for_asset(asset, resource_url=resource_info.url))
+        size = sum(teams_byte_size(element.get("text", "")) for element in elements)
         # The first asset always goes in, so a card is never all notice and no content.
         if shown and size > remaining:
             break
-        body.append(element)
+        body.extend(elements)
         remaining -= size
         shown += 1
 

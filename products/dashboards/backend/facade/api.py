@@ -45,6 +45,7 @@ from products.dashboards.backend.facade.contracts import (
     DashboardRef,
     DashboardSummary,
     DashboardTemplateDefinition,
+    DashboardTileGroupSummary,
     InsightPlacement,
     MembershipChange,
     PlacedInsightTile,
@@ -325,10 +326,19 @@ def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
             insight_id=tile.insight_id,
             layouts=tile.layouts or {},
             filters_overrides=tile.filters_overrides,
+            group_key=tile.group_key or None,
         )
         for tile in tiles
         if tile.insight_id is not None
     ]
+
+
+def tile_groups(*, dashboard_id: int) -> list[DashboardTileGroupSummary]:
+    """The tile groups of a dashboard that hold a live tile, in the order the dashboard shows them.
+
+    A group sits where its top-left tile is. Empty when the dashboard has no grouped tiles.
+    """
+    return tiles_logic.tile_groups(dashboard_id=dashboard_id)
 
 
 def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, Any] | None:
