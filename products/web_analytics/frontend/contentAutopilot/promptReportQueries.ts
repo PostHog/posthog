@@ -3,6 +3,8 @@ import { escapeRegex } from 'lib/utils/actions'
 import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
+
 import type { PromptVisibilityMetric } from './promptReport'
 import { ENGINE_LABELS } from './utils'
 
@@ -17,6 +19,10 @@ export interface PromptReportWindow {
 export interface PromptSetWindow {
     /** First day of the window, YYYY-MM-DD in the project's timezone. */
     from: string
+    /** The words a prompt must contain to count as branded. */
+    brandNames: string[]
+    /** Which checks to keep, by whether the prompt as it ran names the brand. */
+    branded: BrandedSegmentEnumApi
 }
 
 export const PROMPT_REPORT_TOP_SOURCES = 50
@@ -28,9 +34,10 @@ export const PROMPT_SOURCE_COLUMNS = ['domain', 'answers', 'share_of_answers', '
 export const PROMPT_CITATION_COLUMNS = ['url', 'answers', 'share_of_answers', 'is_target'] as const
 export const PROMPT_SEARCH_COLUMNS = ['query', 'searches', 'engines'] as const
 
-// Every query is answered checks inside the window, for one prompt or for the whole set. The prompt id and the
-// window start travel as placeholder values, so the HogQL text never embeds user data.
-const SET_WHERE = 'created_at >= toDateTime({window_start}) AND NOT check_failed'
+// Every query is answered web-search checks inside the window, for one prompt or for the whole set. No-search checks
+// never cite, so they would pull every citation share down. The prompt id and the window start travel as placeholder
+// values, so the HogQL text never embeds user data.
+const SET_WHERE = "created_at >= toDateTime({window_start}) AND NOT check_failed AND mode = 'web_search'"
 const WHERE = `prompt_id = {prompt_id} AND ${SET_WHERE}`
 
 const answered = (where: string): string => `(SELECT count() FROM system.aeo_citation_checks WHERE ${where})`
@@ -44,7 +51,12 @@ const hogql = (query: string, window: PromptReportWindow, values: Record<string,
 const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
     kind: NodeKind.HogQLQuery,
     query,
-    values: { window_start: `${window.from} 00:00:00` },
+    values: {
+        window_start: `${window.from} 00:00:00`,
+        ...(window.branded !== 'all' && window.brandNames.length
+            ? { brand_pattern: brandMentionPattern(window.brandNames) }
+            : {}),
+    },
 })
 
 /** RE2 pattern for `match()`: any brand name as a whole word, case folded by the caller. */
@@ -98,9 +110,22 @@ export const promptVisibilityQuery = (
     )
 }
 
+/** The set's checks on one side of the branded split, matching the API's `branded` filter. Without brand names no
+ * prompt is branded. */
+const setWhere = ({ branded, brandNames }: PromptSetWindow): string => {
+    if (branded === 'all') {
+        return SET_WHERE
+    }
+    if (!brandNames.length) {
+        return branded === 'branded' ? `${SET_WHERE} AND false` : SET_WHERE
+    }
+    const namesBrand = 'match(lower(prompt_text), {brand_pattern})'
+    return `${SET_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
+}
+
 /** Daily citation rate per engine across every prompt in the set. */
 export const promptSetCitationQuery = (window: PromptSetWindow): DataVisualizationNode =>
-    dailyRateChart(setHogql(dailyRateSql(SET_WHERE, 'cited'), window))
+    dailyRateChart(setHogql(dailyRateSql(setWhere(window), 'cited'), window))
 
 const citedUrls = (where: string): string =>
     `SELECT id, engine, arrayJoin(JSONExtract(cited_urls, 'Array(String)')) AS url, target_urls
@@ -134,7 +159,7 @@ export const promptSourcesQuery = (window: PromptReportWindow): DataTableNode =>
 
 /** The same ranking across every prompt in the set. */
 export const promptSetSourcesQuery = (window: PromptSetWindow): DataTableNode =>
-    table(setHogql(sourcesSql(SET_WHERE, PROMPT_SET_TOP_SOURCES), window), PROMPT_SOURCE_COLUMNS)
+    table(setHogql(sourcesSql(setWhere(window), PROMPT_SET_TOP_SOURCES), window), PROMPT_SOURCE_COLUMNS)
 
 /** Cited URLs ranked by how many answers cited them. */
 export const promptCitationsQuery = (window: PromptReportWindow): DataTableNode =>

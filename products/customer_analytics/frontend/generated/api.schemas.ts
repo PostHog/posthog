@@ -3327,12 +3327,12 @@ export interface CustomPropertySyncRunApi {
      */
     readonly attempt: number | null
     /**
-     * Temporal workflow identifier associated with the current account sync phase.
+     * Staff-only Temporal workflow identifier of the run. Null for non-staff users.
      * @nullable
      */
     readonly workflow_id: string | null
     /**
-     * Temporal run identifier associated with the current account sync phase.
+     * Identifier of the worker job that executed the run. Person and group runs use it to find the run's progress log lines. Null for runs recorded before it was stored.
      * @nullable
      */
     readonly workflow_run_id: string | null

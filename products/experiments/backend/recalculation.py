@@ -426,6 +426,8 @@ def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
     capped_task_queues = {
         settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
         settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE,
     } - {settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE}
     return ClickHouseUser.EXPERIMENTS if task_queue in capped_task_queues else None
 

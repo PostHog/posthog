@@ -1,7 +1,3 @@
-// Keeps the repository in the URL: forwards a repo-less product URL (old links, the product root) to a
-// repository, remembers the last repository used per project so the root reopens it, and switches
-// repository from any page of the product.
-
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -174,8 +170,7 @@ export const repoScopeLogic = kea<repoScopeLogicType>([
             (s) => [s.githubSources],
             (githubSources: GitHubSourceApi[] | null): boolean => (githubSources ?? []).length > 1,
         ],
-        // One option per selectable (source, repo). The value encodes both so a multi-repo source's repos are
-        // distinct entries; the label is the repo (falling back to prefix).
+        // The value encodes both source and repo, so the repos of a multi-repo source are distinct entries.
         sourceOptions: [
             (s) => [s.githubSources],
             (githubSources: GitHubSourceApi[] | null): { value: string; label: string }[] =>
@@ -243,7 +238,7 @@ export const repoScopeLogic = kea<repoScopeLogicType>([
                 actions.noRepoToForward()
             },
             // The same page in the picked repository, or the list tab when the page is about one entity.
-            // The path names the repository; `?source` only rides along when two sources sync it, or when
+            // The path names the repository. `?source` is added only when two sources sync it, or when
             // a legacy source names no repository and its pages stay repo-less.
             switchRepo: ({ scopeValue }) => {
                 const { sourceId, repo } = scopeFromValue(scopeValue)

@@ -38,7 +38,6 @@ MAX_MATERIALIZATION_AGE = ci_rows.SYNC_FREQUENCY * 2
 
 
 def ci_tables(tables: GitHubTables, depot: depot_ci.DepotJobAttempts | None) -> list[str]:
-    """Every raw table a CI read of this repository touches."""
     names = [tables.pull_requests, tables.workflow_runs, tables.workflow_jobs]
     if depot is not None:
         names.append(depot.table)
@@ -77,8 +76,7 @@ class MaterializedCI:
     repository: str
     freshness: CIDataFreshness
     cache_scope: str
-    # The creation time of the oldest row both views hold. A full build seeds SEED_LOOKBACK before
-    # it starts, and incremental runs only add newer rows.
+    # The creation time of the oldest row both views hold.
     covers_from: datetime
 
     @classmethod
@@ -114,7 +112,6 @@ class MaterializedCI:
         if not all(_readable(catalog, name) for name in raw_tables):
             return None
 
-        # Read completion and its published table in one snapshot, so publication cannot race readiness.
         # A refresh publishes only on completion, so a running or failed one leaves the previous build readable.
         newest_build = {
             job.saved_query.name: job
@@ -207,8 +204,7 @@ class MaterializedCI:
         """True when every row a read windowed from ``since`` scans was created inside the coverage.
 
         Coverage is by creation time, so a run created before it and rerun inside the window is
-        missing from the stored rows. SPEC §5 accepts that. A naive ``since`` cannot be compared with
-        the coverage start, so it reads the raw tables.
+        missing from the stored rows. A naive ``since`` returns False.
         """
         if since.tzinfo is None:
             return False

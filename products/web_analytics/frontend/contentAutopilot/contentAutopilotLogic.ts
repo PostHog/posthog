@@ -24,7 +24,15 @@ import { ContentAutopilotPageTarget, opportunitiesNeedRefresh, pageToUpdate, pro
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
 
 export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
-export type ContentAutopilotWorkspaceTab = 'overview' | 'rankings' | 'prompts' | 'opportunities' | 'drafts' | 'settings'
+export type ContentAutopilotWorkspaceTab =
+    | 'overview'
+    | 'rankings'
+    | 'traffic'
+    | 'prompts'
+    | 'keywords'
+    | 'opportunities'
+    | 'drafts'
+    | 'settings'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
 export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>

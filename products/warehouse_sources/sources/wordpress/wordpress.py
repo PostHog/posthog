@@ -35,6 +35,10 @@ BLOCKED_REQUEST_ERROR = (
     "A firewall, security plugin or bot check on your WordPress site blocked PostHog. "
     "Allow PostHog's IP addresses through it, then try again."
 )
+TLS_CERTIFICATE_ERROR = (
+    "Couldn't establish a secure connection to the WordPress site — its TLS certificate failed "
+    "verification. Install a publicly trusted certificate (not a self-signed one) on the site and try again."
+)
 
 # WordPress `after`/`modified_after` filter on the site-LOCAL post_date/post_modified columns, which
 # can be non-monotonic across a DST transition. We re-request a small overlap on each incremental run
@@ -255,10 +259,7 @@ def validate_credentials(
             allow_redirects=False,
         )
     except requests.exceptions.SSLError:
-        return False, (
-            "Couldn't establish a secure connection to the WordPress site — its TLS certificate failed "
-            "verification. Install a publicly trusted certificate (not a self-signed one) on the site and try again."
-        )
+        return False, TLS_CERTIFICATE_ERROR
     except requests.exceptions.ConnectionError:
         return False, "Couldn't connect to the WordPress site. Check the site URL is correct and the site is reachable."
     except requests.exceptions.Timeout:

@@ -229,7 +229,7 @@ export class CdpCyclotronWorker<
         return { backgroundTask, invocationResults }
     }
 
-    private startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
+    protected startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
         const intervalMs = this.config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS
         if (intervalMs <= 0) {
             return () => {}

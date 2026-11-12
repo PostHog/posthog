@@ -38,6 +38,7 @@ from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
+    HOGQL_FILTER_KEY,
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
@@ -57,6 +58,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.hybrid_search import SearchMode
 from products.signals.backend.report_check_monitoring_timing import (
     MonitoringCheckTiming,
@@ -87,6 +89,7 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_filters import compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -424,6 +427,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
                 source_product, source_type, config[ISSUE_FILTERS_KEY]
             )
+        if config is not None and HOGQL_FILTER_KEY in config:
+            config[HOGQL_FILTER_KEY] = self._saved_hogql_filter(source_product, source_type, config[HOGQL_FILTER_KEY])
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -445,6 +450,29 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    def _saved_hogql_filter(self, source_product: str | None, source_type: str | None, raw: object) -> object:
+        current_config = self.instance.config if self.instance is not None else None
+        current = current_config.get(HOGQL_FILTER_KEY) if isinstance(current_config, dict) else None
+        # A whole-config write echoes the stored filter back; keep it without re-checking the rollout gate.
+        if current is not None and raw == current:
+            return current
+        if not isinstance(raw, str):
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY} must be a string expression"})
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None or not source_product or not source_type:
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY} needs a project and source"})
+        try:
+            saved = compile_source_filter(
+                organization_id=str(team.organization_id),
+                source_product=source_product,
+                source_type=source_type,
+                expression=raw,
+            )
+        except FilterValidationError as error:
+            raise serializers.ValidationError({"config": f"{HOGQL_FILTER_KEY}: {error}"})
+        return saved.to_config()
 
     def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
         if (source_product, source_type) not in ISSUE_FILTER_SOURCES:

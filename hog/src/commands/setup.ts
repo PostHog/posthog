@@ -1,0 +1,206 @@
+import { z } from 'zod'
+
+import { defineCommand, type OptionSpec } from '@/core/command'
+import { EXIT_USAGE, HogError } from '@/core/errors'
+import { escapeControls, type Output } from '@/core/output'
+import { parseOrThrow, type ParseFailure } from '@/core/schema'
+import { plural } from '@/core/text'
+import { REGION_IDS } from '@/posthog/host'
+import { PRODUCT_IDS, ProductListSchema } from '@/setup/products'
+import type { NextAction, SetupResult } from '@/setup/result'
+
+const Reason = z
+    .string()
+    .trim()
+    .min(1, { error: 'Write what the person wants to use PostHog for, in a few words.' })
+    .max(1000, { error: 'Keep the reason under 1000 characters.' })
+
+const PRODUCTS_HINT = `Pass product ids separated by commas, from this list: ${PRODUCT_IDS.join(', ')}.`
+
+const OPTIONS = {
+    reason: {
+        type: 'string',
+        placeholder: 'text',
+        parse: (raw: string, failure: ParseFailure) => parseOrThrow(Reason, raw, failure),
+        description:
+            'What the person wants to use PostHog for, in their words. It goes to PostHog unless telemetry is off',
+    },
+    products: {
+        type: 'string',
+        placeholder: 'ids',
+        parse: (raw: string, failure: ParseFailure) =>
+            parseOrThrow(ProductListSchema, raw, { ...failure, hint: PRODUCTS_HINT }),
+        description: `The products that match the reason, separated by commas: ${PRODUCT_IDS.join(', ')}`,
+    },
+    region: {
+        type: 'string',
+        choices: REGION_IDS,
+        placeholder: 'region',
+        description:
+            'Where to host the PostHog data when posthog.json names no host. Defaults to us. Pass eu when the person mentions the EU or data residency',
+    },
+    reviewed: {
+        type: 'boolean',
+        description: 'You checked your changes against the install rules and fixed any that broke one',
+    },
+} as const satisfies Record<string, OptionSpec>
+
+function printBlocks(out: Output, blocks: readonly (readonly string[])[]): void {
+    for (const block of blocks.filter((lines) => lines.length > 0)) {
+        out.line()
+        for (const line of block) {
+            out.line(line)
+        }
+    }
+}
+
+// The lines below are for a person at a terminal. The instructions in the result are for an agent.
+function printDone(out: Output, result: SetupResult): void {
+    const { context } = result
+    if (result.status === 'connected') {
+        out.line(`${out.style('PostHog is set up', 'green', 'bold')} in ${escapeControls(context.folder)}.`)
+        out.line(`Project ${context.projectId ?? 'unknown'} on ${escapeControls(context.host ?? 'an unknown host')}`)
+        out.line(context.loggedIn ? 'Logged in' : out.style('Not logged in', 'yellow'))
+        return
+    }
+
+    out.line(`Setting up PostHog in ${escapeControls(context.folder)}`)
+    for (const step of result.done) {
+        out.line(`${out.style('Done', 'green')}  ${escapeControls(step.summary)}`)
+    }
+}
+
+function printContext(out: Output, result: SetupResult): void {
+    const { warnings, token, apiHost, events, products = [], skills = [], agentsMd = [] } = result.context
+    const finished = result.status === 'connected' && products.length > 0
+
+    printBlocks(out, [
+        warnings.map((warning) => out.style(escapeControls(warning), 'yellow')),
+        token && apiHost ? [`Project token: ${escapeControls(token)}`, `Host for the SDK: ${apiHost}`] : [],
+        events?.count === 0
+            ? [out.style(`No events since ${events.since}`, 'yellow')]
+            : events?.count != null
+              ? [`${plural(events.count, 'event')} since ${events.since}`]
+              : [],
+        finished
+            ? [
+                  out.style('What else PostHog can do:', 'bold'),
+                  ...products.map(
+                      ({ label, description, command }) =>
+                          `  ${label}: ${description} ${out.style(escapeControls(command), 'dim')}`
+                  ),
+              ]
+            : [],
+        finished && skills.length > 0
+            ? [
+                  out.style('Skills you can add later with hog skills add <id...>:', 'bold'),
+                  ...skills.map((skill) => `  ${escapeControls(skill.id)}: ${escapeControls(skill.description)}`),
+              ]
+            : [],
+        result.status === 'connected'
+            ? agentsMd.map((file) => out.style(`The PostHog note is in ${escapeControls(file.path)}`, 'dim'))
+            : [],
+    ])
+}
+
+function nextLines(out: Output, next: NextAction): [string, ...string[]] {
+    const setupNext = out.style('hog setup next', 'bold')
+
+    switch (next.kind) {
+        case 'ask_user':
+            return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
+        case 'wait':
+            return [
+                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. New users can sign up on the same page. Then run ${setupNext}.`,
+                `  ${escapeControls(next.url)}`,
+            ]
+        case 'read':
+            return [escapeControls(next.instructions), ...next.read.map((command) => `  ${out.style(command, 'bold')}`)]
+        case 'run':
+            return [escapeControls(next.instructions), `  ${out.style(next.command, 'bold')}`]
+        case 'done':
+            return [escapeControls(next.instructions)]
+    }
+}
+
+function printNext(out: Output, next: NextAction): void {
+    const [first, ...rest] = nextLines(out, next)
+
+    out.line()
+    out.line(`${out.style('Next:', 'bold')} ${first}`)
+    for (const line of rest) {
+        out.line(line)
+    }
+}
+
+export default defineCommand({
+    description: 'Set up PostHog in this folder, one step at a time',
+    args: {
+        action: {
+            description: '`next` does the current step and every step after it that needs nobody',
+            optional: true,
+        },
+    },
+    options: OPTIONS,
+    writes: true,
+    refusesCI: {
+        reason: 'sets up a folder with a person',
+        hint: 'Run `hog setup` on your machine and commit what it writes. To let a CI job use hog, run `hog ci setup` on your machine.',
+    },
+    scopes: ['project:read', 'query:read'],
+    notes: [
+        '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',
+        '`hog setup next` does the current step and keeps going until a step needs you or your agent. Its output names that step.',
+        'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
+        'An agent passes the answers as options, and asks the person only what it does not know. It runs `hog setup next` again only when a step stops.',
+    ].join('\n'),
+    examples: [
+        'hog setup',
+        'hog setup next',
+        'hog setup next --reason "See where users drop off" --products product-analytics,session-replay',
+        'hog setup next --reason "Track errors in our EU app" --products error-tracking --region eu',
+        'hog setup next --reviewed',
+    ],
+
+    async run({ args, options, ctx }): Promise<SetupResult> {
+        if (args.action !== undefined && args.action !== 'next') {
+            throw new HogError(
+                'invalid_setup_command',
+                `There is no \`hog setup ${escapeControls(args.action)}\`.`,
+                'Run `hog setup` to see the current step, or `hog setup next` to do it.',
+                EXIT_USAGE
+            )
+        }
+
+        const next = args.action === 'next'
+        const given = Object.values(options).some((value) => value !== undefined && value !== false)
+        if (!next && given) {
+            throw new HogError(
+                'setup_options_need_next',
+                'These options go with `hog setup next`.',
+                'Run `hog setup next` with them instead of `hog setup`.',
+                EXIT_USAGE
+            )
+        }
+
+        const { runSetup } = await import('@/setup/run')
+        return runSetup(ctx, { next, ...options })
+    },
+
+    human({ result, out }) {
+        printDone(out, result)
+        printContext(out, result)
+        printNext(out, result.next)
+    },
+
+    agent({ result, out }) {
+        out.json(result)
+    },
+
+    telemetry: ({ args, result }) => ({
+        setup_action: args.action ?? 'status',
+        setup_step: result.step,
+        setup_status: result.status,
+        setup_code: result.code,
+    }),
+})

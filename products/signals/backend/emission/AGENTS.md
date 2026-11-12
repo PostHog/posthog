@@ -65,6 +65,9 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
   An absent, empty, or malformed list means no narrowing.
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
+  A saved `hogql_filter` (`contracts.HOGQL_FILTER_KEY`) is bound to the filter catalog version it was saved against and ANDed into the same query before the limit (`source_filters.py`).
+  A row with a malformed value in a field the filter uses never passes: the fetcher drops it and logs the count.
+  Unlike a malformed scope list, a saved filter that cannot be read or bound raises, so emission stops rather than reading unfiltered rows.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
   The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.

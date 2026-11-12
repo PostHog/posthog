@@ -1,6 +1,7 @@
 import { ApiConfig } from '~/lib/api'
 
 import {
+    aiObservabilityTracesNodesDatasetItemRetrieve,
     datasetItemsArchive,
     datasetItemsCreate,
     datasetItemsList,
@@ -42,12 +43,24 @@ import type {
     DatasetRetentionReadApi,
     DatasetsRetentionRetrieveParams,
 } from '../generated/api.schemas'
+import { encodeTraceIdSegment } from '../redesign/trace/traceIdSegment'
+import { type DatasetItemDraft, type TraceStep, toDatasetItemDraft } from './traceStepDatasetItem'
 
 function getCurrentProjectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
 
 export const datasetsApi = {
+    async getTraceStepItem(step: TraceStep): Promise<DatasetItemDraft> {
+        const item = await aiObservabilityTracesNodesDatasetItemRetrieve(
+            getCurrentProjectId(),
+            encodeTraceIdSegment(step.traceId),
+            encodeTraceIdSegment(step.nodeId),
+            { timestamp_hint: step.timestamp }
+        )
+        return toDatasetItemDraft(item)
+    },
+
     getRetention(params?: DatasetsRetentionRetrieveParams): Promise<DatasetRetentionReadApi> {
         return datasetsRetentionRetrieve(getCurrentProjectId(), params)
     },

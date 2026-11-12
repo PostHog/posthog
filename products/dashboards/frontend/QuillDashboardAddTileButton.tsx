@@ -1,16 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuTrigger,
-} from '@posthog/quill'
+import { Button, DropdownMenu, DropdownMenuTrigger } from '@posthog/quill'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { reportDashboardAddMenuOpened } from 'scenes/dashboard/dashboardEvents'
@@ -20,21 +11,8 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import {
-    DashboardAddTileKey,
-    getDashboardAddTileOptions,
-    groupDashboardAddTileOptions,
-} from './dashboardAddTileOptions'
-
-// pinned: autocapture data-attrs for the header's Add menu items
-const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
-    insight: 'dashboard-add-insight',
-    text: 'dashboard-add-text-tile',
-    image: 'dashboard-add-image-tile',
-    button: 'dashboard-add-button-tile',
-    widget: 'dashboard-add-widget',
-    group: 'dashboard-add-tile-group',
-}
+import { getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import { QuillDashboardAddTileMenuContent } from './QuillDashboardAddTileMenuContent'
 
 export function QuillDashboardAddTileButton(): JSX.Element | null {
     const { dashboard, tiles, tileGroupSectionsEnabled } = useValues(dashboardLogic)
@@ -103,31 +81,7 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
                         <IconPlus />
                         Add
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-40">
-                        {groupDashboardAddTileOptions(options).map(({ section, title, options: sectionOptions }) => {
-                            return (
-                                <DropdownMenuGroup key={section}>
-                                    <DropdownMenuLabel>{title}</DropdownMenuLabel>
-                                    {sectionOptions.map((option) => {
-                                        return (
-                                            <DropdownMenuItem
-                                                key={option.key}
-                                                onClick={option.onClick}
-                                                data-attr={ADD_TILE_MENU_DATA_ATTRS[option.key]}
-                                            >
-                                                {option.label}
-                                                {option.tag && (
-                                                    <Badge variant="success" className="ml-auto">
-                                                        {option.tag.toUpperCase()}
-                                                    </Badge>
-                                                )}
-                                            </DropdownMenuItem>
-                                        )
-                                    })}
-                                </DropdownMenuGroup>
-                            )
-                        })}
-                    </DropdownMenuContent>
+                    <QuillDashboardAddTileMenuContent options={options} align="end" />
                 </DropdownMenu>
             )}
         </MaxTool>

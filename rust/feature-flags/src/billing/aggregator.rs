@@ -253,6 +253,10 @@ pub struct BillingAggregatorConfig {
     /// timing deterministic under paused tokio time. Not intended for production.
     #[doc(hidden)]
     pub jitter_override: Option<Duration>,
+    /// When false, `record` drops every request, so nothing reaches Redis.
+    /// Only the cloud billing task drains these counters, so on a self-hosted
+    /// install they grow forever.
+    pub enabled: bool,
 }
 
 impl Default for BillingAggregatorConfig {
@@ -263,6 +267,7 @@ impl Default for BillingAggregatorConfig {
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(15),
             jitter_override: None,
+            enabled: true,
         }
     }
 }
@@ -439,6 +444,10 @@ impl BillingAggregator {
     /// outlive `axum::serve()` and still hold the aggregator `Arc` would
     /// violate this constraint — don't do that.
     pub fn record(&self, team_id: i32, request_type: FlagRequestType, library: Option<Library>) {
+        if !self.inner.config.enabled {
+            return;
+        }
+
         // Time the body so the duration histogram can surface `pending` mutex
         // contention. Empty label slice so the per-call emission doesn't
         // allocate inside `apply_label_filter`.
@@ -1205,6 +1214,7 @@ mod tests {
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(1),
             jitter_override: None,
+            enabled: true,
         }
     }
 
@@ -1488,6 +1498,21 @@ mod tests {
             "expected team 7 team key with count 1, got {:?}",
             calls
         );
+    }
+
+    #[tokio::test]
+    async fn test_disabled_aggregator_writes_nothing() {
+        let (redis, agg) = new_test_aggregator(BillingAggregatorConfig {
+            enabled: false,
+            ..test_config()
+        });
+
+        agg.record(42, FlagRequestType::Decide, Some(Library::PosthogJs));
+        agg.record(42, FlagRequestType::FlagDefinitions, None);
+        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
+
+        assert_eq!(agg.pending_len(), 0);
+        assert!(hincrby_calls(&redis).is_empty());
     }
 
     #[tokio::test]

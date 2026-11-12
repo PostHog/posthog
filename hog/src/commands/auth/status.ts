@@ -24,7 +24,11 @@ function sourceLabel(
 
 export default defineCommand({
     description: 'Show whether hog is logged in, where its credentials come from, and what they can do',
-    notes: 'Exits with code 1 when hog has no working credentials, so scripts and agents can branch on it.',
+    notes: [
+        'Each project has its own login. Status shows the posthog.json it found, the login it uses, and why.',
+        'Without a project in posthog.json or HOG_PROJECT_ID, commands use your latest login to the host.',
+        'Exits with code 1 when hog has no working credentials, so scripts and agents can branch on it.',
+    ].join('\n'),
     examples: ['hog auth status', 'hog auth status -o json'],
 
     run: ({ ctx }) => checkAuthStatus(ctx),
@@ -48,6 +52,15 @@ export default defineCommand({
         }
         if (result.expiresAt) {
             out.line(out.style(`Expires ${result.expiresAt}. hog renews it before then.`, 'dim'))
+        }
+        out.line(
+            out.style(
+                result.config ? `Config: ${escapeControls(result.config)}` : 'Config: no posthog.json found',
+                'dim'
+            )
+        )
+        if (result.login) {
+            out.line(out.style(`Login picked because ${escapeControls(result.login.reason)}.`, 'dim'))
         }
     },
 

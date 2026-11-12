@@ -4,6 +4,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
+import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
@@ -16,6 +17,7 @@ import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
+import { ContentAutopilotTraffic } from './ContentAutopilotTraffic'
 
 export interface ContentAutopilotBotsTab {
     active: boolean
@@ -154,9 +156,19 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                     content: <ContentAutopilotRankings />,
                                 },
                                 {
+                                    key: 'traffic',
+                                    label: 'Traffic',
+                                    content: <ContentAutopilotTraffic />,
+                                },
+                                {
                                     key: 'prompts',
                                     label: 'Prompts',
                                     content: <ContentAutopilotPrompts />,
+                                },
+                                {
+                                    key: 'keywords',
+                                    label: 'Keywords',
+                                    content: <ContentAutopilotKeywords />,
                                 },
                                 bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
                                 {
