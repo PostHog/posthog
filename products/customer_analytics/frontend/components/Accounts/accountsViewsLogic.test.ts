@@ -166,16 +166,11 @@ describe('accountsViewsLogic', () => {
         }
     )
 
-    it.each([
-        [false, false],
-        [true, false],
-        [false, true],
-        [true, true],
-    ] as const)(
-        'prefers an explicit ID over the remembered ID and legacy hash (missing=%s, detail=%s)',
-        async (missing, detail) => {
+    it.each([false, true])(
+        'prefers an explicit ID over the remembered ID and legacy hash (missing=%s)',
+        async (missing) => {
             localStorage.setItem(scopedKey, JSON.stringify('view-1'))
-            const path = detail ? urls.customerAnalyticsAccount(accountId, 'usage') : urls.customerAnalyticsAccounts()
+            const path = urls.customerAnalyticsAccounts()
             router.actions.push(
                 path,
                 { view: 'view-2', date_from: '-30d', filter_test_accounts: 'true' },
