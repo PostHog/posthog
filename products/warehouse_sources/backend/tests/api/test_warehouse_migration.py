@@ -323,6 +323,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             {
                 "migration_id": str(migration.id),
                 "usage_reports": 3,
+                "table_overrides": 0,
                 "reported_count": 0,
                 "estimated_count": 1,
                 "unknown_count": 0,
@@ -331,6 +332,23 @@ class TestWarehouseMigrationAPI(APIBaseTest):
                 "has_prices": True,
             },
         )
+
+        # A table the user leaves out at apply costs nothing, and an override must name a connection that moves.
+        dropped = [{"item_id": str(moving.id), "vendor_table": "public.orders", "posthog_table": None}]
+        with requests_mock.Mocker() as billing:
+            billing.get(f"{BILLING_SERVICE_URL}/api/products-v2", json=products)
+            response = self.client.post(
+                f"{self.url}{migration.id}/cost_estimate/", {"usage": usage, "table_overrides": dropped}, format="json"
+            )
+            unknown = self.client.post(
+                f"{self.url}{migration.id}/cost_estimate/",
+                {"table_overrides": [{**dropped[0], "item_id": str(uuid4())}]},
+                format="json",
+            )
+        assert response.status_code == 200, response.json()
+        assert response.json()["items"][0]["monthly_rows"] == 0
+        assert unknown.status_code == 400
+        assert unknown.json()["attr"] == "table_overrides"
 
     def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
         oldest, *tied = (self._migration() for _ in range(3))

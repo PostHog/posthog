@@ -7,8 +7,6 @@ from django.core.cache import cache
 
 import structlog
 
-from posthog.cloud_utils import get_cached_instance_license
-
 from products.warehouse_sources.backend.migration.cost import PriceTier
 
 from ee.billing.billing_manager import BillingManager
@@ -27,7 +25,7 @@ def row_price_tiers() -> tuple[PriceTier, ...] | None:
     if cached is not None:
         return _parsed_tiers(cached)
     try:
-        billing = BillingManager(get_cached_instance_license())
+        billing = BillingManager(None)
         raw_tiers = _paid_plan_tiers(billing.get_default_products(None, timeout=_TIMEOUT_SECONDS)["products"])
     except Exception:
         # An estimate without prices still shows the rows, so a billing outage only drops the price.

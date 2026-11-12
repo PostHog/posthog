@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.migration.apply import (
     with_table_overrides,
 )
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
-from products.warehouse_sources.backend.migration.cost import USAGE_QUERY, Confidence, ReportedUsage
+from products.warehouse_sources.backend.migration.cost import USAGE_QUERY
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
 from products.warehouse_sources.backend.migration.types import ItemProposal, VendorSnapshot, VendorTable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -165,13 +165,24 @@ def list_migration_items(
 
 
 def estimate_migration_cost(
-    team_id: int, migration_id: UUID, usage: Sequence[contracts.MigrationUsageReport]
+    team_id: int,
+    migration_id: UUID,
+    usage: Sequence[contracts.MigrationUsageReport],
+    table_overrides: Mapping[UUID, Sequence[contracts.MigrationTableOverride]],
 ) -> contracts.WarehouseMigrationCostEstimate | None:
-    """Monthly rows and list price per connection, from the usage the user reported. None when not found."""
+    """Monthly rows and list price per connection, from the usage the user reported. None when not found.
+
+    Raises `WarehouseMigrationUnknownItemsError` or `WarehouseMigrationTableOverrideError` for overrides that do not
+    fit the plan.
+    """
     estimate = service.estimate_migration_cost(
         team_id=team_id,
         migration_id=migration_id,
-        usage=[_to_reported_usage(report) for report in usage],
+        usage=usage,
+        table_overrides={
+            item_id: [TableOverride(vendor_table=o.vendor_table, posthog_table=o.posthog_table) for o in overrides]
+            for item_id, overrides in table_overrides.items()
+        },
     )
     if estimate is None:
         return None
@@ -182,7 +193,7 @@ def estimate_migration_cost(
                 item_id=UUID(connection.item_id),
                 name=connection.name,
                 source_type=connection.source_type,
-                confidence=contracts.WarehouseMigrationCostConfidence(connection.confidence),
+                confidence=connection.confidence,
                 monthly_rows=connection.monthly_rows,
                 monthly_cost_usd=connection.monthly_cost_usd,
                 notes=list(connection.notes),
@@ -191,20 +202,11 @@ def estimate_migration_cost(
         ],
         monthly_rows=estimate.monthly_rows,
         monthly_cost_usd=estimate.monthly_cost_usd,
-        reported_count=confidences[Confidence.REPORTED],
-        estimated_count=confidences[Confidence.ESTIMATED],
-        unknown_count=confidences[Confidence.UNKNOWN],
+        reported_count=confidences[contracts.WarehouseMigrationCostConfidence.REPORTED],
+        estimated_count=confidences[contracts.WarehouseMigrationCostConfidence.ESTIMATED],
+        unknown_count=confidences[contracts.WarehouseMigrationCostConfidence.UNKNOWN],
         free_first_sync_days=FREE_HISTORICAL_WINDOW.days,
-        unmatched_usage=[
-            contracts.MigrationUsageReport(
-                connection_name=report.connection_name,
-                monthly_rows=report.monthly_rows,
-                destination_id=report.destination_id,
-                schema_name=report.schema_name,
-                table_name=report.table_name,
-            )
-            for report in estimate.unmatched_usage
-        ],
+        unmatched_usage=list(estimate.unmatched_usage),
         price_tiers=[
             contracts.WarehouseMigrationPriceTier(
                 up_to=tier.up_to, unit_amount_usd=tier.unit_amount_usd, flat_amount_usd=tier.flat_amount_usd
@@ -214,16 +216,6 @@ def estimate_migration_cost(
         if estimate.tiers is not None
         else None,
         usage_query=USAGE_QUERY,
-    )
-
-
-def _to_reported_usage(report: contracts.MigrationUsageReport) -> ReportedUsage:
-    return ReportedUsage(
-        connection_name=report.connection_name,
-        monthly_rows=report.monthly_rows,
-        destination_id=report.destination_id,
-        schema_name=report.schema_name,
-        table_name=report.table_name,
     )
 
 

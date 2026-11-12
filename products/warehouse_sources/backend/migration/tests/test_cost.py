@@ -6,14 +6,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.migration.cost import (
-    Confidence,
-    CostedConnection,
-    CostEstimate,
-    PriceTier,
-    ReportedUsage,
-    estimate_cost,
+from products.warehouse_sources.backend.facade.contracts import (
+    MigrationUsageReport,
+    WarehouseMigrationCostConfidence as Confidence,
 )
+from products.warehouse_sources.backend.migration import catalog
+from products.warehouse_sources.backend.migration.cost import CostedConnection, CostEstimate, PriceTier, estimate_cost
 from products.warehouse_sources.backend.migration.pricing import _paid_plan_tiers, _parsed_tiers
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -60,7 +58,7 @@ def _connection(
     )
 
 
-def _estimate(connections: list[CostedConnection], usage: list[ReportedUsage], **kwargs: Any) -> CostEstimate:
+def _estimate(connections: list[CostedConnection], usage: list[MigrationUsageReport], **kwargs: Any) -> CostEstimate:
     return estimate_cost(
         connections,
         usage,
@@ -114,7 +112,7 @@ class TestEstimateCost(SimpleTestCase):
         monthly_rows: int | None,
     ) -> None:
         usage = [
-            ReportedUsage(connection_name="hubspot", schema_name="hubspot", table_name=table, monthly_rows=rows)
+            MigrationUsageReport(connection_name="hubspot", schema_name="hubspot", table_name=table, monthly_rows=rows)
             for table, rows in reported
         ]
 
@@ -126,14 +124,15 @@ class TestEstimateCost(SimpleTestCase):
         database = _connection(
             "prod_db",
             source_type=ExternalDataSourceType.POSTGRES,
-            tables={"public.orders": "public.orders", "billing.invoices": "billing.invoices"},
+            tables={"public.orders": "public.orders", "Billing.OrderItems": "Billing.OrderItems"},
         )
+        # Fivetran writes names to the destination in snake case.
         usage = [
-            ReportedUsage(
+            MigrationUsageReport(
                 connection_name="PROD_DB", schema_name="prod_db_public", table_name="orders", monthly_rows=10
             ),
-            ReportedUsage(
-                connection_name="prod_db", schema_name="prod_db_billing", table_name="invoices", monthly_rows=5
+            MigrationUsageReport(
+                connection_name="prod_db", schema_name="prod_db_billing", table_name="order_items", monthly_rows=5
             ),
         ]
 
@@ -142,25 +141,26 @@ class TestEstimateCost(SimpleTestCase):
         assert connection.monthly_rows == 15
         assert connection.confidence == Confidence.ESTIMATED
 
-    def test_paused_connection_costs_nothing(self) -> None:
-        usage = [ReportedUsage(connection_name="hubspot", table_name="contact", monthly_rows=1_000)]
+    def test_paused_connection_costs_nothing_without_usage(self) -> None:
+        (connection,) = _estimate([_connection("hubspot", tables=_HUBSPOT_TABLES, start_paused=True)], []).connections
 
-        (connection,) = _estimate(
-            [_connection("hubspot", tables=_HUBSPOT_TABLES, start_paused=True)], usage
-        ).connections
+        assert (connection.confidence, connection.monthly_rows) == (Confidence.REPORTED, 0)
 
-        assert connection.monthly_rows == 0
+    def test_fixed_schema_sources_know_their_full_refresh_tables(self) -> None:
+        assert "full_refresh" in catalog.default_sync_types(ExternalDataSourceType.HUBSPOT).values()
 
     def test_usage_matches_one_connection_or_is_returned_unmatched(self) -> None:
         connections = [
             _connection("shop", tables=_HUBSPOT_TABLES, destination_id="dest_eu"),
             _connection("shop", tables=_HUBSPOT_TABLES, destination_id="dest_us"),
         ]
-        no_destination = ReportedUsage(connection_name="shop", table_name="contact", monthly_rows=3)
-        unknown = ReportedUsage(connection_name="no_such_connection", monthly_rows=4)
-        skipped = ReportedUsage(connection_name="skipped_one", monthly_rows=5)
+        no_destination = MigrationUsageReport(connection_name="shop", table_name="contact", monthly_rows=3)
+        unknown = MigrationUsageReport(connection_name="no_such_connection", monthly_rows=4)
+        skipped = MigrationUsageReport(connection_name="skipped_one", monthly_rows=5)
         usage = [
-            ReportedUsage(connection_name="shop", destination_id="dest_us", table_name="contact", monthly_rows=2),
+            MigrationUsageReport(
+                connection_name="shop", destination_id="dest_us", table_name="contact", monthly_rows=2
+            ),
             no_destination,
             unknown,
             skipped,
@@ -177,8 +177,8 @@ class TestEstimateCost(SimpleTestCase):
     def test_usage_of_a_skipped_connection_with_the_same_name_is_dropped(self) -> None:
         kept = _connection("shop", tables=None, destination_id="dest_us")
         usage = [
-            ReportedUsage(connection_name="shop", destination_id="dest_eu", monthly_rows=9),
-            ReportedUsage(connection_name="shop", destination_id="dest_us", monthly_rows=2),
+            MigrationUsageReport(connection_name="shop", destination_id="dest_eu", monthly_rows=9),
+            MigrationUsageReport(connection_name="shop", destination_id="dest_us", monthly_rows=2),
         ]
 
         estimate = _estimate([kept], usage, left_out_names=["shop"])
@@ -198,8 +198,8 @@ class TestEstimateCost(SimpleTestCase):
     ) -> None:
         connections = [_connection(name, tables=None) for name in ("first", "second")]
         usage = [
-            ReportedUsage(connection_name="first", monthly_rows=first_rows),
-            ReportedUsage(connection_name="second", monthly_rows=second_rows),
+            MigrationUsageReport(connection_name="first", monthly_rows=first_rows),
+            MigrationUsageReport(connection_name="second", monthly_rows=second_rows),
         ]
 
         estimate = _estimate(connections, usage)
@@ -208,7 +208,7 @@ class TestEstimateCost(SimpleTestCase):
         assert [c.monthly_cost_usd for c in estimate.connections] == [total / 2, total / 2]
 
     def test_rows_without_prices_when_billing_is_unreadable(self) -> None:
-        usage = [ReportedUsage(connection_name="hubspot", monthly_rows=5_000_000)]
+        usage = [MigrationUsageReport(connection_name="hubspot", monthly_rows=5_000_000)]
 
         estimate = _estimate([_connection("hubspot", tables=None)], usage, tiers=None)
 

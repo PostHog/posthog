@@ -15,22 +15,20 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.facade.contracts import (
     MigrationConnectionUpload,
+    MigrationUsageReport,
     WarehouseMigrationBulkSkip,
     WarehouseMigrationBusyError,
     WarehouseMigrationHasVendorKeyError,
     WarehouseMigrationItemClaimedError,
     WarehouseMigrationKeyRejectedError,
+    WarehouseMigrationTableOverrideError,
     WarehouseMigrationUnknownItemsError,
     WarehouseMigrationUploadedError,
     WarehouseMigrationVendorUnreachableError,
 )
 from products.warehouse_sources.backend.migration import catalog
-from products.warehouse_sources.backend.migration.cost import (
-    CostedConnection,
-    CostEstimate,
-    ReportedUsage,
-    estimate_cost,
-)
+from products.warehouse_sources.backend.migration.apply import TableOverride, TableOverrideError, with_table_overrides
+from products.warehouse_sources.backend.migration.cost import CostedConnection, CostEstimate, estimate_cost
 from products.warehouse_sources.backend.migration.crawl import plan_snapshot, save_plan
 from products.warehouse_sources.backend.migration.fivetran.client import (
     FivetranAPIError,
@@ -232,10 +230,18 @@ def item_counts(*, team_id: int, migration_ids: Sequence[UUID]) -> dict[UUID, di
     return {migration_id: {key: counter[key] for key in ITEM_COUNT_KEYS} for migration_id, counter in counts.items()}
 
 
-def estimate_migration_cost(*, team_id: int, migration_id: UUID, usage: Sequence[ReportedUsage]) -> CostEstimate | None:
+def estimate_migration_cost(
+    *,
+    team_id: int,
+    migration_id: UUID,
+    usage: Sequence[MigrationUsageReport],
+    table_overrides: Mapping[UUID, Sequence[TableOverride]],
+) -> CostEstimate | None:
     """Price the migration's connections from the reported usage. None when the migration is not found.
 
-    Skipped and unsupported connections are left out.
+    Skipped and unsupported connections are left out. `table_overrides` are the table choices the user confirmed for
+    apply, by item, so the estimate prices the tables apply will create. Raises `WarehouseMigrationUnknownItemsError`
+    for an override of an item that does not move, and `WarehouseMigrationTableOverrideError` when one does not fit.
     """
     if not migration_exists(team_id=team_id, migration_id=migration_id):
         return None
@@ -247,7 +253,13 @@ def estimate_migration_cost(*, team_id: int, migration_id: UUID, usage: Sequence
         if proposal is None or item.status == WarehouseMigrationItem.Status.SKIPPED:
             left_out_names.append(item.name)
         else:
-            kept.append((item, proposal))
+            try:
+                kept.append((item, with_table_overrides(proposal, table_overrides.get(item.id, ()))))
+            except TableOverrideError as error:
+                raise WarehouseMigrationTableOverrideError(f"{item.name}: {error}") from error
+    unknown = set(table_overrides) - {item.id for item, _ in kept}
+    if unknown:
+        raise WarehouseMigrationUnknownItemsError(sorted(unknown, key=str))
     names = Counter([*(item.name.lower() for item, _ in kept), *(name.lower() for name in left_out_names)])
     # Only read when two connections share a name, since the snapshot can be large. A skipped connection counts, so
     # its usage, named by destination, does not land on the kept one.

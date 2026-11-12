@@ -25,6 +25,9 @@ from products.warehouse_sources.backend.facade import (
     contracts,
     warehouse_migration as migrations,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.migration_apply import (
+    MigrationTableOverrideSerializer,
+)
 
 _UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 DEFAULT_PAGE_SIZE = 100
@@ -316,6 +319,10 @@ class MigrationUsageReportSerializer(serializers.Serializer):
     )
 
 
+class MigrationCostTableOverrideSerializer(MigrationTableOverrideSerializer):
+    item_id = serializers.UUIDField(help_text="The migration item the table belongs to.")
+
+
 class WarehouseMigrationCostEstimateRequestSerializer(serializers.Serializer):
     usage = serializers.ListField(
         child=MigrationUsageReportSerializer(),
@@ -324,6 +331,14 @@ class WarehouseMigrationCostEstimateRequestSerializer(serializers.Serializer):
         max_length=MAX_USAGE_REPORTS,
         help_text="Monthly active rows the user reported, per connection or per table. Send it empty to get "
         "`usage_query` and the prices before the user has numbers.",
+    )
+    table_overrides = serializers.ListField(
+        child=MigrationCostTableOverrideSerializer(),
+        required=False,
+        default=list,
+        max_length=MAX_USAGE_REPORTS,
+        help_text="The table choices the user confirmed for apply, so the estimate prices the tables apply creates. "
+        "Same shape as apply's `table_overrides`, with the item each one belongs to.",
     )
 
 
@@ -365,7 +380,10 @@ class WarehouseMigrationCostEstimateSerializer(serializers.Serializer):
     items = WarehouseMigrationCostItemSerializer(
         many=True, help_text="One estimate per connection that moves. Skipped and unsupported ones are left out."
     )
-    monthly_rows = serializers.IntegerField(help_text="Estimated rows synced each month, across every connection.")
+    monthly_rows = serializers.IntegerField(
+        help_text="Estimated rows synced each month, across the connections with an estimate. `unknown` ones count "
+        "as nothing, so check `unknown_count` before reading this as a total."
+    )
     monthly_cost_usd = serializers.DecimalField(
         max_digits=28,
         decimal_places=2,
@@ -609,11 +627,23 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     @action(methods=["POST"], detail=True)
     def cost_estimate(self, request: ValidatedRequest, pk: str, *args: Any, **kwargs: Any) -> Response:
         """Estimate the monthly rows and cost of moving the connections, from the usage the user reported."""
-        estimate = migrations.estimate_migration_cost(
-            self.team_id,
-            UUID(pk),
-            [contracts.MigrationUsageReport(**report) for report in request.validated_data["usage"]],
-        )
+        data = request.validated_data
+        overrides: dict[UUID, list[contracts.MigrationTableOverride]] = {}
+        for override in data["table_overrides"]:
+            overrides.setdefault(override["item_id"], []).append(
+                contracts.MigrationTableOverride(
+                    vendor_table=override["vendor_table"], posthog_table=override["posthog_table"]
+                )
+            )
+        try:
+            estimate = migrations.estimate_migration_cost(
+                self.team_id,
+                UUID(pk),
+                [contracts.MigrationUsageReport(**report) for report in data["usage"]],
+                overrides,
+            )
+        except (contracts.WarehouseMigrationTableOverrideError, contracts.WarehouseMigrationUnknownItemsError) as error:
+            raise exceptions.ValidationError({"table_overrides": str(error)})
         if estimate is None:
             raise exceptions.NotFound()
         report_user_action(
@@ -621,7 +651,8 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             "warehouse migration cost estimated",
             {
                 "migration_id": pk,
-                "usage_reports": len(request.validated_data["usage"]),
+                "usage_reports": len(data["usage"]),
+                "table_overrides": len(data["table_overrides"]),
                 "reported_count": estimate.reported_count,
                 "estimated_count": estimate.estimated_count,
                 "unknown_count": estimate.unknown_count,
