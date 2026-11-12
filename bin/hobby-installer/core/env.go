@@ -178,7 +178,7 @@ func UpdateEnvForUpgrade(version string) error {
 		if err != nil {
 			return err
 		}
-		if err := AppendToEnv(key, value); err != nil {
+		if err := UpdateEnvValue(key, value); err != nil {
 			return err
 		}
 	}

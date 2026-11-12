@@ -24,7 +24,7 @@ x-logging: &default-logging
 x-hypercache-s3: &hypercache-s3
     OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
     AWS_ACCESS_KEY_ID: 'object_storage_root_user'
-    AWS_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+    AWS_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
 
 # Hobby runs one temporal-django-worker, and a worker polls one task queue. The services that
 # start workflows and the worker that runs them collapse every Temporal task queue onto that
@@ -147,7 +147,8 @@ services:
             # Same default as web, so web and both workers make the same capture decision.
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
@@ -230,7 +231,8 @@ services:
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -293,7 +295,7 @@ services:
             # Django's TEMPORAL_SECRET_KEY defaults to SECRET_KEY, so the evaluation scheduler must encrypt with the same value.
             TEMPORAL_SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             OBJECT_STORAGE_ENABLED: true
@@ -332,7 +334,7 @@ services:
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
-            AI_BLOB_S3_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            AI_BLOB_S3_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
@@ -476,7 +478,7 @@ services:
         # has the identity stored, possibly with an older secret, and an s3.configure that
         # fails while the filer starts would otherwise go unnoticed.
         environment:
-            OBJECT_STORAGE_SECRET: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            OBJECT_STORAGE_SECRET: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
         entrypoint:
             - /bin/sh
             - -c
@@ -555,7 +557,7 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
             # Replaces the default secret this service otherwise gets from .env.services.
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
 
     # Temporal containers
     temporal:
@@ -601,7 +603,8 @@ services:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             # Replaces the default secret this service otherwise gets from .env.services.
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET:-object_storage_root_password}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET: '${OBJECT_STORAGE_SECRET:?run bin/upgrade-hobby to add OBJECT_STORAGE_SECRET to .env}'
             # The documented telemetry opt-out. web already receives it; the Temporal
             # activities run Django code here, so without it the opt-out never reaches them.
             # Same default as web, so web and both workers make the same capture decision.

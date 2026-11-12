@@ -49,8 +49,8 @@ printf '%s\n' "$${ELAPSED}s"
                 result = subprocess.run(["sh", "-c", command], text=True, capture_output=True, check=True, env=env)
                 self.assertEqual(result.stdout.splitlines(), ["example_events", "example_logs", "2s"])
 
-    def test_object_storage_secret_comes_from_env(self) -> None:
-        # A service with the literal default loses object storage access on installs that have their own secret.
+    def test_object_storage_secret_is_required(self) -> None:
         compose = (Path(__file__).resolve().parents[2] / "docker-compose.hobby.yml").read_text()
-        default = "object_storage_root_password"
-        self.assertNotIn(default, compose.replace("${OBJECT_STORAGE_SECRET:-" + default + "}", ""))
+        self.assertNotIn("object_storage_root_password", compose)
+        self.assertNotIn("${OBJECT_STORAGE_SECRET:-", compose)
+        self.assertNotIn("$OBJECT_STORAGE_SECRET}", compose.replace("$$OBJECT_STORAGE_SECRET", ""))

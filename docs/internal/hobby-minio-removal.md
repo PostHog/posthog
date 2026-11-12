@@ -90,7 +90,8 @@ Only the `posthog` identity is registered, so SeaweedFS rejects unsigned request
 For the same reason, the `posthog` identity's secret is per install.
 It used to be `object_storage_root_password` on every install, so anyone could sign requests to any install's storage.
 Now it is `OBJECT_STORAGE_SECRET` in `.env`, a random hex value written by `bin/deploy-hobby` or the hobby installer.
-`bin/upgrade-hobby` adds one to older installs.
+`bin/upgrade-hobby` and a re-run of `bin/deploy-hobby` add one to older installs, and replace an empty value.
 On restart, `objectstorage` registers the same access key with the new secret, which replaces the old one, and stored objects stay readable.
-Without the key, everything falls back to the old secret, as before.
+Without the key, Compose refuses to start the stack and says to run `bin/upgrade-hobby`.
+An upgrade started from a checkout older than this change copies the new Compose file before it adds the key, so that first run stops with this message, and running `bin/upgrade-hobby` again finishes it.
 Use hex only: the value goes through `weed shell`, which splits on spaces.

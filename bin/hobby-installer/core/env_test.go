@@ -15,6 +15,7 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 		}{
 			{name: "fresh install generates it"},
 			{name: "upgrade adds it when missing", existing: "POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n"},
+			{name: "upgrade replaces an empty value", existing: "POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n" + key + "=\"\"\n"},
 			{
 				name:      "upgrade keeps an existing value",
 				existing:  "POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n" + key + "=keep-me\n",
@@ -49,6 +50,13 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 				}
 				if value == "" || value == ReadEnvValue("POSTHOG_SECRET") {
 					t.Fatalf("%s = %q, want a value of its own", key, value)
+				}
+				data, err := os.ReadFile(".env")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if count := strings.Count("\n"+string(data), "\n"+key+"="); count != 1 {
+					t.Fatalf(".env has %d %s lines, want 1", count, key)
 				}
 			})
 		}

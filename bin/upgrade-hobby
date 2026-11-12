@@ -167,8 +167,11 @@ fi
 # docs/internal/hobby-minio-removal.md. Installs from before a secret existed have none, so add
 # it. Keep this list in step with dedicatedSecretKeys in bin/hobby-installer.
 for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET OBJECT_STORAGE_SECRET; do
-    if ! grep -qE "^$key=.+" .env; then
-        echo "$key=$(openssl rand -hex 32)" >> .env
+    if [ -z "$(read_env_value "$key")" ]; then
+        value=$(openssl rand -hex 32)
+        sed -i "/^$key=/d" .env
+        echo "$key=$value" >> .env
+        export "$key=$value"
         echo "Added missing $key to .env file"
         if [ "$key" = OBJECT_STORAGE_SECRET ]; then
             echo "Object storage now uses this secret instead of object_storage_root_password."

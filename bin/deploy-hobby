@@ -137,6 +137,13 @@ fi
 # Tag changes on an existing instance are handled by bin/upgrade-hobby.
 if [ -f .env ]; then
     echo "Existing .env found, preserving configuration"
+    for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET OBJECT_STORAGE_SECRET; do
+        if [ -z "$(grep "^$key=" .env | tail -n 1 | cut -d '=' -f2- | tr -d "\"'")" ]; then
+            sed -i "/^$key=/d" .env
+            echo "$key=$(openssl rand -hex 32)" >> .env
+            echo "Added missing $key to .env file"
+        fi
+    done
 else
     # Optional AI provider keys. PostHog's AI features (the Max assistant, SQL/regex assist)
     # run on your own LLM provider key. These are safe to leave blank now — you can add them
