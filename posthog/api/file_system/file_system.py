@@ -50,6 +50,7 @@ from posthog.api.file_system.access_levels import (
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     FileChangeContext,
+    FileObjectRef,
     check_file_system_object_changes,
     delete_file_system_object,
     file_system_object_creator_ids,
@@ -653,7 +654,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             FileChangeContext(user=self.request.user, request=self.request), refs_by_type
         )
         for target in owned:
-            if error := refused.get((target.team_id, target.type, target.ref)):
+            if error := refused.get(FileObjectRef(team_id=target.team_id, type=target.type, ref=target.ref)):
                 denied[target] = error
         return denied
 

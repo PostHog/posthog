@@ -91,6 +91,13 @@ class FileChangeContext:
     request: Any | None
 
 
+@dataclass(frozen=True)
+class FileObjectRef:
+    team_id: int
+    type: str
+    ref: str
+
+
 PrepareDeleteHook = Callable[[Any | None, int, Any], None]
 FileChangeCheck = Callable[[FileChangeContext, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
@@ -212,11 +219,11 @@ def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple
 
 def check_file_system_object_changes(
     context: FileChangeContext, refs_by_type: Mapping[tuple[int, str], Iterable[str]]
-) -> dict[tuple[int, str, str], PermissionDenied]:
-    """Run each type's change check and return the refs it refused, keyed by (team_id, type, ref)."""
+) -> dict[FileObjectRef, PermissionDenied]:
+    """Run each type's change check and return the refs it refused."""
     checked = {key: refs for key, refs in refs_by_type.items() if key[1] in _FILE_CHANGE_CHECKS}
     prepare_file_system_objects(context.request, checked)
-    denied: dict[tuple[int, str, str], PermissionDenied] = {}
+    denied: dict[FileObjectRef, PermissionDenied] = {}
     for (team_id, type_string), refs in sorted(checked.items()):
         registration = _MODEL_REGISTRY.get(type_string)
         if registration is None:
@@ -229,7 +236,7 @@ def check_file_system_object_changes(
                 check(context, obj)
             except PermissionDenied as error:
                 for ref in refs_by_value.get(getattr(obj, registration.lookup_field), []):
-                    denied[(team_id, type_string, ref)] = error
+                    denied[FileObjectRef(team_id=team_id, type=type_string, ref=ref)] = error
     return denied
 
 
