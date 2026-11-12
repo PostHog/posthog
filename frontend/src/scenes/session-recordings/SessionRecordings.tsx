@@ -84,7 +84,7 @@ function Header(): JSX.Element {
                             onChange={setStaffLayoutOverride}
                             options={STAFF_REPLAY_LAYOUTS.map((layout) => ({
                                 value: layout,
-                                label: STAFF_REPLAY_LAYOUT_LABELS[layout],
+                                label: STAFF_REPLAY_LAYOUT_LABELS[layout] ?? layout,
                                 'data-attr': `replay-layout-override-${layout}`,
                             }))}
                         />
