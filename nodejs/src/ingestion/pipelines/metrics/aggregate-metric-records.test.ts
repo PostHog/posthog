@@ -219,6 +219,18 @@ describe('aggregateMetricRecords', () => {
                 [NEXT_BUCKET, [1, 5], [0n, 0n, 1n], 6, 1n, false],
             ],
         ],
+        [
+            'starts a new merged point before a count would pass the signed Avro long range',
+            [
+                { ts: 1n, buckets: [2n ** 62n, 0n, 0n], sum: 1 },
+                { ts: 2n, buckets: [2n ** 62n, 0n, 0n], sum: 2 },
+                { ts: 3n, buckets: [0n, 1n, 0n], sum: 3 },
+            ],
+            [
+                [1n, [1, 5], [2n ** 62n, 0n, 0n], 1, 2n ** 62n, false],
+                [3n, [1, 5], [2n ** 62n, 1n, 0n], 5, 2n ** 62n + 1n, false],
+            ],
+        ],
     ])('%s', (_name, points, expected) => {
         expect(summarizeHistograms(aggregateMetricRecords(points.map(histogram)))).toEqual(expected)
     })

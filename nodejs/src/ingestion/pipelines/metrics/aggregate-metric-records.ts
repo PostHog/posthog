@@ -97,31 +97,57 @@ function sortByTimestamp(records: MetricRecord[]): MetricRecord[] {
     })
 }
 
-function aggregateDelta(records: MetricRecord[]): MetricRecord[] {
-    const sorted = sortByTimestamp(records)
-    let value = 0
-    let count = 0n
+// Avro writes `count` and `histogram_counts` as signed 64-bit longs, so a merged point never adds past
+// this. Without the cap, one encode error would leave the whole batch unaggregated.
+const MAX_AVRO_LONG = 2n ** 63n - 1n
+
+// Splits sorted points into runs whose summed counts each stay within the Avro long range.
+function runsWithinLongRange(sorted: MetricRecord[], countsOf: (record: MetricRecord) => bigint[]): MetricRecord[][] {
+    const runs: MetricRecord[][] = []
+    let run: MetricRecord[] = []
+    let totals: bigint[] = []
     for (const record of sorted) {
-        value += valueOf(record)
-        count += countOf(record)
+        const counts = countsOf(record)
+        if (run.length > 0 && counts.some((count, index) => totals[index] + count > MAX_AVRO_LONG)) {
+            runs.push(run)
+            run = []
+            totals = []
+        }
+        run.push(record)
+        totals = counts.map((count, index) => (totals[index] ?? 0n) + count)
     }
-    return [withValueAndCount(sorted[sorted.length - 1], value, count)]
+    runs.push(run)
+    return runs
+}
+
+function aggregateDelta(records: MetricRecord[]): MetricRecord[] {
+    return runsWithinLongRange(sortByTimestamp(records), (record) => [countOf(record)]).map((run) => {
+        let value = 0
+        let count = 0n
+        for (const record of run) {
+            value += valueOf(record)
+            count += countOf(record)
+        }
+        return withValueAndCount(run[run.length - 1], value, count)
+    })
 }
 
 function aggregateDeltaHistogram(records: MetricRecord[]): MetricRecord[] {
-    const sorted = sortByTimestamp(records)
-    let sum = 0
-    let count = 0n
-    const bucketCounts = bucketCountsOf(sorted[0]).map(() => 0n)
-    for (const record of sorted) {
-        sum += valueOf(record)
-        count += countOf(record)
-        bucketCountsOf(record).forEach((bucketCount, bucket) => {
-            bucketCounts[bucket] += bucketCount
-        })
-    }
-    const latest = sorted[sorted.length - 1]
-    return [{ ...withValueAndCount(latest, sum, count), histogram_counts: { array: bucketCounts } }]
+    const countsOf = (record: MetricRecord): bigint[] => [countOf(record), ...bucketCountsOf(record)]
+    return runsWithinLongRange(sortByTimestamp(records), countsOf).map((run) => {
+        let sum = 0
+        let count = 0n
+        const bucketCounts = bucketCountsOf(run[0]).map(() => 0n)
+        for (const record of run) {
+            sum += valueOf(record)
+            count += countOf(record)
+            bucketCountsOf(record).forEach((bucketCount, bucket) => {
+                bucketCounts[bucket] += bucketCount
+            })
+        }
+        const latest = run[run.length - 1]
+        return { ...withValueAndCount(latest, sum, count), histogram_counts: { array: bucketCounts } }
+    })
 }
 
 // A value only rises within one start time, so first and last points keep the increase. The counter
@@ -131,9 +157,12 @@ function aggregateCumulative(records: MetricRecord[]): MetricRecord[] {
     if (sorted.length <= 3) {
         return sorted
     }
-    const last = sorted[sorted.length - 1]
-    const restCount = sorted.slice(2).reduce((total, record) => total + countOf(record), 0n)
-    return [sorted[0], sorted[1], withValueAndCount(last, valueOf(last), restCount)]
+    const rest = runsWithinLongRange(sorted.slice(2), (record) => [countOf(record)]).map((run) => {
+        const last = run[run.length - 1]
+        const count = run.reduce((total, record) => total + countOf(record), 0n)
+        return withValueAndCount(last, valueOf(last), count)
+    })
+    return [sorted[0], sorted[1], ...rest]
 }
 
 const AGGREGATORS: Record<AggregationKind, (records: MetricRecord[]) => MetricRecord[]> = {
