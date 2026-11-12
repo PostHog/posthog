@@ -229,6 +229,8 @@ class TestPrinter(BaseTest):
             ("web_stats_dimensional_preaggregated", 12, "web_stats_dimensional_preaggregated.period_bucket"),
             ("web_bounces_dimensional_preaggregated", 12, "web_bounces_dimensional_preaggregated.period_bucket"),
             ("posthog.flag_evaluations", 12, "flag_evaluations.timestamp"),
+            ("posthog.mcp_intent_calls_hourly", 12, "mcp_intent_calls_hourly.hour"),
+            ("posthog.mcp_intent_topic_daily", 12, "mcp_intent_topic_daily.day"),
         ]
     )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
