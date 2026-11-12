@@ -13,6 +13,7 @@ const BROKEN_TAG = '[Action:email] Errored: Error: invalid value expression: "pe
 const CUT_TAG = '[Action:email] Errored: Error: invalid value expression: "person.properties.first..."'
 const NO_SENDER = '[Action:email] Errored: Error: Email integration not found'
 const OUTAGE = '[Action:email] Errored: Error: Failed to send email via SES: service unavailable'
+const PUSH_TIMEOUT = '[Action:push] Errored: Error: Request timed out'
 const UNKNOWN = '[Action:email] Errored: Error: Something odd happened'
 
 interface Run {
@@ -159,7 +160,7 @@ describe('BroadcastSendErrorBanner', () => {
         },
         {
             name: 'a push problem on our side',
-            run: { channel: 'push' as const, sent: 1, failed: 2, errorLogs: [OUTAGE] },
+            run: { channel: 'push' as const, sent: 1, failed: 2, errorLogs: [PUSH_TIMEOUT] },
             text: "2 people didn't get this notification. A problem on our side stopped the send. Sending it again goes to the whole audience, including the 1 person who got this notification.",
             action: 'Resend it',
         },
