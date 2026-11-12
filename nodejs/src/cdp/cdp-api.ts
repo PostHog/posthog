@@ -51,6 +51,10 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
+import {
+    HOG_FLOW_QUOTA_LIMITED_MESSAGE,
+    shouldBlockHogFlowDueToQuota,
+} from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
@@ -100,6 +104,7 @@ import {
     sameWatcherState,
     sameWatcherStates,
 } from './services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -201,6 +206,20 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
     return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
 }
 
+// Null means the run asks to resolve its audience up front but its deadline is unreadable, so the caller
+// rejects it instead of running the live query the snapshot was meant to replace.
+function parseAudienceSnapshot(value: unknown): BatchResolverState['audienceSnapshot'] | null {
+    if (typeof value !== 'object' || value === null) {
+        return undefined
+    }
+    const { wait_until } = value as { wait_until?: unknown }
+    const waitUntil = typeof wait_until === 'string' ? new Date(wait_until) : null
+    if (!waitUntil || isNaN(waitUntil.getTime())) {
+        return null
+    }
+    return { waitUntil: waitUntil.toISOString() }
+}
+
 const emailRenderLimitExceeded = (emailStep: EmailStep): SendRefusal => ({
     status: 400,
     body: {
@@ -288,6 +307,7 @@ export class CdpApi {
     private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
+    private workflowsActivationReporter: WorkflowsActivationReporter
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private hogQueue: JobQueue
@@ -341,6 +361,7 @@ export class CdpApi {
         this.hogWatcher = services.hogWatcher
         this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.emailStatusService = services.emailStatusService
         this.personsManager = services.personsManager
 
@@ -1145,6 +1166,21 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
             }
 
+            const quotaLimited = await shouldBlockHogFlowDueToQuota(
+                { teamId: team.id, functionId: hogFlow.id, hogFlow },
+                {
+                    quotaLimiting: this.deps.quotaLimiting,
+                    hogFunctionMonitoringService: this.invocationResultsService.monitoringService,
+                    workflowsActivationReporter: this.workflowsActivationReporter,
+                }
+            )
+            if (quotaLimited) {
+                void this.invocationResultsService.monitoringService.flush().catch((error) => {
+                    logger.error('Error flushing hogflow quota metrics', { error })
+                })
+                return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
+            }
+
             // Build a synthetic event for the scheduled run. Schedule triggers don't have a real
             // event, but the executor expects one to populate globals.event used by downstream actions.
             const syntheticEvent: HogFunctionInvocationGlobals['event'] = {
@@ -1658,6 +1694,8 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
+                case 'idempotency_unavailable':
+                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }
@@ -1692,6 +1730,7 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
+                idempotencyKeys: this.transactionalEmailIdempotencyKeys,
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
@@ -2079,6 +2118,10 @@ export class CdpApi {
             if (realtimeCohort === null) {
                 return res.status(400).json({ error: 'realtime_cohort.wait_until must be an ISO 8601 date' })
             }
+            const audienceSnapshot = parseAudienceSnapshot(req.body.audience_snapshot)
+            if (audienceSnapshot === null) {
+                return res.status(400).json({ error: 'audience_snapshot.wait_until must be an ISO 8601 date' })
+            }
 
             const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
             const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
@@ -2118,6 +2161,7 @@ export class CdpApi {
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 realtimeCohort,
+                audienceSnapshot,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

@@ -73,7 +73,7 @@ export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Ele
                         onClick={reloadAll}
                         icon={isReloading ? <Spinner textColored /> : <IconRefresh />}
                         disabledReason={isReloading ? 'Loading' : undefined}
-                        aria-label="Reload Search & AI"
+                        aria-label="Reload AI traffic"
                     />
                     <DateFilter
                         dateOptions={webAnalyticsDateMapping}

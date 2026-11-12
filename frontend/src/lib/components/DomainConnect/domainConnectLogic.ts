@@ -88,7 +88,15 @@ export type domainConnectLogicType = MakeLogicType<
 function openBlankProviderTab(): Window | null {
     const providerTab = window.open('', '_blank')
     if (providerTab) {
-        providerTab.opener = null
+        try {
+            providerTab.opener = null
+        } catch {
+            // Mobile Safari can treat the blank tab as cross-origin and throw a SecurityError on this write.
+            // A tab that keeps its opener lets the provider page navigate the PostHog tab, so close it
+            // and let sendProviderTabTo use the current tab instead.
+            providerTab.close()
+            return null
+        }
     }
     return providerTab
 }

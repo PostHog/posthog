@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "compact": {
+            "default": true,
+            "description": "Return one short health row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full sync configuration of each table.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
