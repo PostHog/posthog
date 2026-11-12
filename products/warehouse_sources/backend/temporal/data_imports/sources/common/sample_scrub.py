@@ -65,6 +65,9 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         # Twilio's Accounts list returns each subaccount's live Auth Token here; the source's
         # `data_map` drops it from rows, but that runs after sample capture.
         "auth_token",
+        # Together AI's GPU cluster list returns each cluster's kubeconfig, which grants access to
+        # the cluster; the source's `data_map` drops it from rows, but that runs after sample capture.
+        "kube_config",
     }
 )
 

@@ -4,6 +4,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -36,6 +37,8 @@ const hogInvocationResultsPendingMessages = new Gauge({
 })
 
 export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | CdpOutput
+
+export type TerminalFailureRecord = 'recorded' | 'disabled' | 'unbuildable' | 'produce_failed'
 
 /**
  * Lifecycle row produced to ClickHouse via Kafka. Mirrors the columns on the
@@ -208,7 +211,15 @@ const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
 // A sensitive message carries reset links, login codes or private text, so its snapshot keeps no
 // variables either, and a rerun can't rebuild the send. A step paused mid-send (e.g. for a provider
 // retry) holds the rendered message on its VM stack, and the person and group properties it read, so those go too.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'vmState', 'person', 'groups', 'send'])
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+    'inputs',
+    'variables',
+    'vmState',
+    'person',
+    'groups',
+    'send',
+    'idempotencyKey',
+])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
@@ -467,31 +478,52 @@ export class HogInvocationResultsService {
         invocation: CyclotronJobInvocation,
         opts: { error?: unknown; errorKind?: string } = {}
     ): Promise<boolean> {
-        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
-            return false
-        }
-
-        // Build inside the try too — a malformed invocation (e.g. an unparseable
-        // date) must fail this record safely so the caller keeps the job, never
-        // crash the whole janitor cycle.
-        try {
-            const row = this.buildLifecycleRow(invocation, 'failed', opts)
-            await this.produceRow(row)
-            counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
-            return true
-        } catch (error) {
-            counterHogInvocationResultProduceFailed.inc()
-            logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
-                error: String(error),
-                invocation_id: invocation.id,
-            })
-            captureException(error)
-            return false
-        }
+        return (await this.recordTerminalFailure(invocation, opts)) === 'recorded'
     }
 
-    private async produceRow(row: HogInvocationResultRow): Promise<void> {
-        await this.produceEncodedRow(row, await this.encodeRow(row))
+    /**
+     * Same as `recordTerminalFailureDurably`, but tells a row that can never
+     * be written (`unbuildable`: it cannot be built, or is too large for
+     * Kafka) from a produce that failed (`produce_failed`), so a caller can
+     * retry the same row only when the failure was transient.
+     */
+    async recordTerminalFailure(
+        invocation: CyclotronJobInvocation,
+        opts: { error?: unknown; errorKind?: string } = {}
+    ): Promise<TerminalFailureRecord> {
+        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return 'disabled'
+        }
+
+        // Build inside a try too — a malformed invocation (e.g. an unparseable
+        // date) must fail this record safely so the caller keeps the job, never
+        // crash the whole janitor cycle.
+        let row: HogInvocationResultRow
+        let value: Buffer
+        try {
+            row = this.buildLifecycleRow(invocation, 'failed', opts)
+            value = await this.encodeRow(row)
+        } catch (error) {
+            this.reportTerminalFailureError(invocation, error)
+            return 'unbuildable'
+        }
+        try {
+            await this.produceEncodedRow(row, value)
+        } catch (error) {
+            this.reportTerminalFailureError(invocation, error)
+            return error instanceof MessageSizeTooLarge ? 'unbuildable' : 'produce_failed'
+        }
+        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+        return 'recorded'
+    }
+
+    private reportTerminalFailureError(invocation: CyclotronJobInvocation, error: unknown): void {
+        counterHogInvocationResultProduceFailed.inc()
+        logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
+            error: String(error),
+            invocation_id: invocation.id,
+        })
+        captureException(error)
     }
 
     private async encodeRow(row: HogInvocationResultRow): Promise<Buffer> {

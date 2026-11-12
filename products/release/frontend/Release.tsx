@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import {
@@ -62,8 +63,15 @@ function ReleaseSkeleton(): JSX.Element {
 
 function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
     const { rows, dataLoading, loadFailed, canEditReleases } = useValues(releaseLogic)
-    const { updateRelease } = useActions(releaseLogic)
+    const { updateRelease, autoLinkBroadcasts } = useActions(releaseLogic)
     const row = rows.find((item) => item.id === id)
+    const loaded = !!row
+
+    useEffect(() => {
+        if (loaded && canEditReleases && id) {
+            autoLinkBroadcasts(id)
+        }
+    }, [id, loaded, canEditReleases, autoLinkBroadcasts])
 
     if (!row) {
         return (

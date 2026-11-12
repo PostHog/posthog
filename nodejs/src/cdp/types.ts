@@ -288,9 +288,11 @@ export type MinimalAppMetric = {
         | 'push_opened'
         | 'quota_limited'
         | 'conversion'
+        | 'conversion_by_start'
         | 'exited_workflow_changed'
         | 'redirected_workflow_changed'
     count: number
+    timestamp?: DateTime
     // Key parts for the mirrored version-scoped row: the flow and the `version` of the HogFlow row that
     // actually executed the step. Not columns on `app_metrics2` — the monitoring service consumes these
     // to key a row under the `hog_flow_version` app source, and never forwards them to Kafka. Absent
@@ -333,8 +335,17 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email', 'emailsandbox'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
+    'hog',
+    'hogoverflow',
+    'hogdlq',
+    'hogflow',
+    'email',
+    'emailsandbox',
+] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
+
+export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
@@ -418,6 +429,7 @@ export type ConversionWatcherRow = {
     person_id: string | null
     flow_version: number | null
     goal: PinnedConversionGoal
+    created_at: Date
     expires_at: Date
 }
 
@@ -482,6 +494,13 @@ export type MessageOptOutRecord = {
     identifier: string
     // A message category id, or '$all' for all marketing messages.
     categoryId: string
+}
+
+export type QueuedIdempotencyKey = {
+    hash: string
+    fingerprint: string
+    scheduledAt?: string
+    replayFields?: Record<string, number>
 }
 
 export type HogFlowInvocationContext = {
@@ -612,6 +631,7 @@ export type HogFlowInvocationContext = {
     send?: QueuedSend
     scheduledAt?: string
     statusAt?: string
+    idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
