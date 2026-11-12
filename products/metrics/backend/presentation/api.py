@@ -383,7 +383,6 @@ class _MetricQueryBodySerializer(serializers.Serializer):
                 )
             attrs["time"] = _resolve_query_bound(attrs.get("time"), now=now, field="time") or now
             try:
-                # Instant queries read a few buckets back from 'time', up to weeks for 'interval': 'week'.
                 attrs["time"] - _INSTANT_LOOKBACK_LIMIT
             except OverflowError:
                 raise serializers.ValidationError({"time": "Too early for an instant query."})

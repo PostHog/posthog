@@ -1341,7 +1341,6 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         [
             # The bucket at anchor-4m is still filling at that time, so the last complete one is anchor-5m.
             ("last_bucket_has_samples", 4, {"prod": 2.0, "dev": 10.0}, 5),
-            # The last complete bucket, anchor-4m, has no samples: an older bucket must not stand in for it.
             ("last_bucket_is_empty", 3, {"prod": None, "dev": None}, None),
         ]
     )
@@ -1417,9 +1416,7 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("non_auto_scope", {"metricName": "req", "groupBy": [{"key": "env", "scope": "resource"}]}),
-            # The viewer drops an empty filter value, so the link would match series the query excluded.
             ("empty_filter_value", {"metricName": "req", "filters": [{"key": "env", "op": "neq", "value": ""}]}),
-            # The viewer rejects clause names outside [a-z][a-z0-9_]*, and the formula refers to them.
             ("uppercase_clause_name", {"clauses": [{"name": "A", "metricName": "req"}], "formula": "A * 2"}),
         ]
     )
