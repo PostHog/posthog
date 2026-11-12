@@ -35,10 +35,11 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.event_usage import report_team_action
+from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -461,16 +462,19 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             set_declared_target(node, floor)
             rewritten.append((node, previous))
         maybe_reconcile_dag(dag)
-    for node, previous in rewritten:
-        report_team_action(
-            dag.team,
-            PLAN_FLOOR_CLAMP_EVENT,
-            {
-                "saved_query_id": str(node.saved_query_id),
-                "previous_cadence": format_cadence(previous),
-                "plan_floor": format_cadence(floor),
-            },
-        )
+    if rewritten:
+        with ph_scoped_capture() as capture:
+            for node, previous in rewritten:
+                capture(
+                    distinct_id=str(dag.team.uuid),
+                    event=PLAN_FLOOR_CLAMP_EVENT,
+                    properties={
+                        "saved_query_id": str(node.saved_query_id),
+                        "previous_cadence": format_cadence(previous),
+                        "plan_floor": format_cadence(floor),
+                    },
+                    groups=groups(team=dag.team),
+                )
     return len(rewritten)
 
 

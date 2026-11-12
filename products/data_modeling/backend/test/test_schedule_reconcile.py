@@ -611,10 +611,11 @@ class TestMaybeReconcileDag(BaseTest):
         with (
             mock.patch(FLOOR_FLAG, return_value=flag_on),
             mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
-            mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
+            mock.patch(f"{RECONCILE}.ph_scoped_capture") as scoped_capture,
         ):
             rewritten = clamp_targets_to_plan_floor()
 
+        capture = scoped_capture.return_value.__enter__.return_value
         node.refresh_from_db()
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
         self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
@@ -637,7 +638,7 @@ class TestMaybeReconcileDag(BaseTest):
         with (
             mock.patch(FLOOR_FLAG, return_value=True),
             mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=save_during_reconcile),
-            mock.patch("posthog.event_usage.posthoganalytics.capture"),
+            mock.patch(f"{RECONCILE}.ph_scoped_capture"),
         ):
             rewritten = clamp_targets_to_plan_floor()
 
@@ -680,10 +681,11 @@ class TestMaybeReconcileDag(BaseTest):
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=error)),
-            mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
+            mock.patch(f"{RECONCILE}.ph_scoped_capture") as scoped_capture,
         ):
             rewritten = clamp_targets_to_plan_floor()
 
+        capture = scoped_capture.return_value.__enter__.return_value
         node.refresh_from_db()
         self.assertEqual((rewritten, get_declared_target(node)), expected)
         self.assertEqual(capture.call_count, expected[0])
