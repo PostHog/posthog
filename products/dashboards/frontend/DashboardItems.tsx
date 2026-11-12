@@ -53,6 +53,7 @@ import { getDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { DashboardEmptyGroupAddButton } from './DashboardEmptyGroupAddButton'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
+import { QuillDashboardEmptyGroupAddButton } from './QuillDashboardEmptyGroupAddButton'
 import { getDashboardWidgetFetchDisplayError } from './widgets/constants'
 
 const ROW_HEIGHT = 80
@@ -166,6 +167,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         openButtonTileModal,
         setAddWidgetModalOpen,
         removeTileGroup,
+        addTileGroup,
         toggleTileGroup,
         selectTileGroupTab,
         updateTileGroupSectionLayout,
@@ -297,32 +299,35 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         // Each band grid reports only its own tiles.
         updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
     })
-    const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
-    const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
-    const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
-    const getAddTileOptions =
-        canEditDashboard && isEditablePlacement
-            ? (groupKey: string) =>
-                  getDashboardAddTileOptions({
-                      onAddInsight: openAddInsightModal,
-                      onAddText: openTextTileModal,
-                      onAddImage: openImageTileModal,
-                      onAddButton: openButtonTileModal,
-                      setAddWidgetModalOpen,
-                  }).map((option) => ({
-                      key: option.key,
-                      label: option.label,
-                      onClick: () => {
-                          setAddTargetTileGroupKey(groupKey)
-                          option.onClick()
-                      },
-                  }))
-            : undefined
-    const getEmptyGroupAddAction =
-        canEditDashboard && isEditablePlacement
-            ? (groupKey: string) => <DashboardEmptyGroupAddButton groupKey={groupKey} />
-            : undefined
-    const onRemoveTileGroup = canEditDashboard && isEditablePlacement ? removeTileGroup : undefined
+    const canEditTileGroups = canEditDashboard && isEditablePlacement
+    const onCopyGroupToDashboard = canEditTileGroups ? copyGroupToDashboard : undefined
+    const onChangeGroupDisplay = canEditTileGroups ? changeTileGroupDisplay : undefined
+    const onRenameTileGroup = canEditTileGroups ? renameTileGroup : undefined
+    const getAddTileOptions = canEditTileGroups
+        ? (groupKey: string) =>
+              getDashboardAddTileOptions({
+                  onAddInsight: openAddInsightModal,
+                  onAddText: openTextTileModal,
+                  onAddImage: openImageTileModal,
+                  onAddButton: openButtonTileModal,
+                  setAddWidgetModalOpen,
+              }).map((option) => ({
+                  key: option.key,
+                  label: option.label,
+                  onClick: () => {
+                      setAddTargetTileGroupKey(groupKey)
+                      option.onClick()
+                  },
+              }))
+        : undefined
+    const getBandEmptyAddAction = canEditTileGroups
+        ? (groupKey: string) => <DashboardEmptyGroupAddButton groupKey={groupKey} />
+        : undefined
+    const getTabEmptyAddAction = canEditTileGroups
+        ? (groupKey: string) => <QuillDashboardEmptyGroupAddButton groupKey={groupKey} />
+        : undefined
+    const onRemoveTileGroup = canEditTileGroups ? removeTileGroup : undefined
+    const onAddTileGroup = canEditTileGroups && tileGroupSectionsEnabled ? () => addTileGroup() : undefined
 
     const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
     const margin = useMemo<[number, number]>(() => [gridGap, gridGap], [gridGap])
@@ -934,7 +939,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             copyLoading={copyGroupToDashboardLoading}
             onChangeGroupDisplay={onChangeGroupDisplay}
             getAddTileOptions={getAddTileOptions}
-            getEmptyGroupAddAction={getEmptyGroupAddAction}
+            getEmptyGroupAddAction={getBandEmptyAddAction}
         >
             {renderSectionGrid(section, index)}
         </DashboardTileSectionBand>
@@ -957,7 +962,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         copyLoading={copyGroupToDashboardLoading}
                         onChangeGroupDisplay={onChangeGroupDisplay}
                         getAddTileOptions={getAddTileOptions}
-                        getEmptyGroupAddAction={getEmptyGroupAddAction}
+                        getEmptyGroupAddAction={getTabEmptyAddAction}
+                        onAddGroup={onAddTileGroup}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>

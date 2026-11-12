@@ -21,12 +21,17 @@ class TestTinyemailSource:
         assert config.iconPath == "/static/services/tinyemail.png"
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_are_full_refresh_only(self) -> None:
+    def test_get_schemas_sync_modes(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
-        # tinyEmail has no server-side timestamp filter on any endpoint, so nothing
-        # may advertise incremental or append sync.
+        # Only the engagement report takes a server-side date range. Its recent rows change as
+        # opens arrive, so it merges with a one-window overlap and never appends.
         for schema in schemas:
-            assert schema.supports_incremental is False
             assert schema.supports_append is False
-            assert schema.incremental_fields == []
+            if schema.name == "new_subscriber_engagement":
+                assert schema.supports_incremental is True
+                assert [f["field"] for f in schema.incremental_fields] == ["date"]
+                assert schema.default_incremental_lookback_seconds == 7 * 24 * 60 * 60
+            else:
+                assert schema.supports_incremental is False
+                assert schema.incremental_fields == []
