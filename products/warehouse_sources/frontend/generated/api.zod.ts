@@ -1626,6 +1626,7 @@ export const WarehouseMigrationsConnectionsCreateBody = /* @__PURE__ */ zod.obje
 export const warehouseMigrationsCostEstimateCreateBodyUsageItemConnectionNameMax = 400
 
 export const warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMin = 0
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMax = 2147483647
 
 export const warehouseMigrationsCostEstimateCreateBodyUsageItemDestinationIdMax = 400
 
@@ -1648,6 +1649,7 @@ export const WarehouseMigrationsCostEstimateCreateBody = /* @__PURE__ */ zod.obj
                 monthly_rows: zod
                     .number()
                     .min(warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMin)
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMax)
                     .describe(
                         'Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.'
                     ),

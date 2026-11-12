@@ -2841,6 +2841,7 @@ export interface MigrationUsageReportApi {
     /**
      * Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.
      * @minimum 0
+     * @maximum 2147483647
      */
     monthly_rows: number
     /**
@@ -2906,7 +2907,7 @@ export interface WarehouseMigrationCostItemApi {
     /**
      * This connection's share of the monthly cost at list price. Null when rows or prices are unknown.
      * @nullable
-     * @pattern ^-?\d{0,18}(?:\.\d{0,2})?$
+     * @pattern ^-?\d{0,26}(?:\.\d{0,2})?$
      */
     monthly_cost_usd: string | null
     /** What the estimate assumed for this connection. */
@@ -2939,7 +2940,7 @@ export interface WarehouseMigrationCostEstimateApi {
     /**
      * Monthly cost of `monthly_rows` at PostHog's list price, free tier included. Ignores discounts, credits, and rows the project already syncs. Null when PostHog could not read its prices.
      * @nullable
-     * @pattern ^-?\d{0,18}(?:\.\d{0,2})?$
+     * @pattern ^-?\d{0,26}(?:\.\d{0,2})?$
      */
     monthly_cost_usd: string | null
     /** Connections with a `reported` estimate. */
