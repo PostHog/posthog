@@ -379,12 +379,13 @@ describe('FacetSearchBar', () => {
         expect(kept.textContent).toEqual('Folder: Billing')
     })
 
-    it('exposes the combobox and labels each pill remove button', () => {
+    it('exposes the combobox, labels each pill remove button, and keeps the values out of autocapture', () => {
         setup({ filters: [{ facet: 'status', value: 'draft', negated: true }], text: '' })
         expect(input()).toHaveAttribute('role', 'combobox')
         expect(input()).toHaveAttribute('aria-expanded', 'false')
-        expect(document.querySelector('[aria-label="Remove filter Status is not: Draft"]')).not.toBeNull()
-        expect(document.querySelector('[title="Status is not: Draft"]')).not.toBeNull()
+        const remove = document.querySelector('[aria-label="Remove filter Status is not: Draft"]')
+        expect(remove?.closest('.ph-no-capture')).not.toBeNull()
+        expect(document.querySelector('[title="Status is not: Draft"]')?.closest('.ph-no-capture')).not.toBeNull()
 
         clickInput()
         typeText('status:')
@@ -396,6 +397,8 @@ describe('FacetSearchBar', () => {
 
         changeInput('')
         typeText('sends:')
-        expect(document.querySelector('[role="option"] [title="Your trial ends"]')).not.toBeNull()
+        expect(
+            document.querySelector('[role="option"] [title="Your trial ends"]')?.closest('.ph-no-capture')
+        ).not.toBeNull()
     })
 })

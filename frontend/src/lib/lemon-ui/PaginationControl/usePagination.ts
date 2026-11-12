@@ -17,8 +17,9 @@ export function usePagination<T>(
     const [localCurrentPage, setLocalCurrentPage] = useState(1)
 
     const syncPageToUrl = pagination?.useUrl !== false
-    const ownedPage = pagination && !pagination.controlled ? pagination.currentPage : undefined
-    const onPageChange = pagination && !pagination.controlled ? pagination.onPageChange : undefined
+    const autoPagination = pagination && !pagination.controlled ? pagination : undefined
+    const ownedPage = autoPagination?.currentPage
+    const onPageChange = autoPagination?.onPageChange
     const setCurrentPage = useCallback(
         (newPage: number) => {
             if (onPageChange) {

@@ -46,6 +46,12 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
+class HogFlowBatchJobAudienceStatus(LabeledStrEnum):
+    RESOLVING = "resolving"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
