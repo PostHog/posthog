@@ -564,6 +564,23 @@ class TestCustomerioConditions(SimpleTestCase):
                 ["plan changed to trial from free"],
             ),
             (
+                "a to rule with no from",
+                {
+                    "and": [
+                        {
+                            "event": {
+                                "type": "attribute_change",
+                                "name": "plan",
+                                "filters": {"and": [{"field": "to", "operator": "eq", "value": "trial"}]},
+                            },
+                            "times": 1,
+                            "within": 0,
+                        }
+                    ]
+                },
+                ["plan changed to trial"],
+            ),
+            (
                 "an attribute change within a time window",
                 {"and": [{**_attribute_rule({"field": "plan", "value": "trial"}), "within": 604800}]},
                 ["plan changed to trial"],
@@ -649,6 +666,7 @@ class TestCustomerioConditions(SimpleTestCase):
         [
             ("country code", "de", ["DE", "de", "De"], ["DEU", "d"]),
             ("accents and emoji", "zoë 🚀", ["Zoë 🚀", "ZOË 🚀"], ["Zoe 🚀"]),
+            ("sharp s", "straße", ["STRAẞE", "Straße"], ["STRASSE"]),
             (
                 "regex characters",
                 "a.b+(c) #1 & ~x-y",

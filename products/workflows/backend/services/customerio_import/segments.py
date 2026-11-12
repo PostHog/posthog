@@ -4,7 +4,9 @@ Only rules a cohort matches exactly are translated: person attribute comparisons
 is not translated at all, because a cohort built from part of its rules would hold a different audience.
 """
 
+import sys
 import json
+import functools
 from typing import Any
 
 from products.workflows.backend.facade.contracts import SegmentCohortFilters
@@ -106,8 +108,8 @@ class _Translation:
 def _current_attribute(node: dict[str, Any]) -> dict[str, Any] | None:
     """The attribute check in an `attribute_change` rule, which is how Customer.io stores "attribute is X".
 
-    Its `to` filter is the check on the current value. A `from` filter only repeats it, inverted, so any other
-    `from`, or a time window, is a rule this can't read as a plain attribute check.
+    Its `to` filter is the check on the current value, and its `from` filter repeats it, inverted. A rule with any
+    other filters, or with a time window, is one this can't read as a plain attribute check.
     """
     event = node.get("event")
     if not isinstance(event, dict) or event.get("type") != "attribute_change":
@@ -118,7 +120,8 @@ def _current_attribute(node: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(field, str) or not field or not isinstance(leaves, list) or node.get("within") not in (0, None):
         return None
     to = [leaf for leaf in leaves if isinstance(leaf, dict) and leaf.get("field") == "to"]
-    if len(to) != 1:
+    # Without the mirrored `from` it may be a change rule, so both must be there.
+    if len(to) != 1 or len(leaves) != 2:
         return None
 
     def check(leaf: dict[str, Any]) -> tuple[Any, ...]:
@@ -204,11 +207,25 @@ def _ignoring_case(item: dict[str, Any]) -> dict[str, Any]:
 
 def _any_case(character: str) -> str:
     # A character class rather than an (?i) flag, which the JavaScript HogVM can't read.
-    lower, upper = character.lower(), character.upper()
-    if lower != upper and len(lower) == 1 and len(upper) == 1:
-        return f"[{lower}{upper}]"
+    lower = character.lower()
+    variants = _case_variants().get(lower) if len(lower) == 1 else None
+    if variants:
+        return f"[{lower}{variants}]"
     # Only the characters every engine reads as syntax: Rust's regex rejects some escapes Python's re.escape adds.
     return f"\\{character}" if character in _REGEX_SYNTAX else character
+
+
+@functools.cache
+def _case_variants() -> dict[str, str]:
+    """Each lowercase character to the other characters that lowercase to it, such as "ß" to "ẞ"."""
+    # Built from lower() rather than upper(), which turns "ß" into the two characters "SS".
+    variants: dict[str, set[str]] = {}
+    for code_point in range(sys.maxunicode + 1):
+        character = chr(code_point)
+        lower = character.lower()
+        if len(lower) == 1 and lower != character:
+            variants.setdefault(lower, set()).add(character)
+    return {lower: "".join(sorted(characters)) for lower, characters in variants.items()}
 
 
 def _with_set_value(item: dict[str, Any]) -> dict[str, Any]:
