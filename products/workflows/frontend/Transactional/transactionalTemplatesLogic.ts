@@ -66,7 +66,7 @@ export const transactionalTemplatesLogic = kea<transactionalTemplatesLogicType>(
         transactionalTemplates: [
             [] as MessageTemplateApi[],
             {
-                loadTransactionalTemplates: async () => {
+                loadTransactionalTemplates: async (): Promise<MessageTemplateApi[]> => {
                     const templates = await listAllPages((params) =>
                         messagingTemplatesList(String(values.currentTeamIdStrict), {
                             ...params,
