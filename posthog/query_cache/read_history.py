@@ -7,6 +7,7 @@ from posthog.query_cache.freshness_index import insight_identifier
 _REDIS_KEY_PREFIX = "cache_reads"
 HISTORY_DAYS = 7
 _TTL = timedelta(days=HISTORY_DAYS + 1)
+_RECORD_TIMEOUT_SECONDS = 0.25
 
 
 def _redis_key(team_id: int, hour: datetime) -> str:
@@ -17,7 +18,8 @@ def record_read(*, team_id: int, insight_id: Optional[int], dashboard_id: Option
     if not insight_id:
         return
     key = _redis_key(team_id, at)
-    pipeline = redis.get_client().pipeline(transaction=False)
+    client = redis.get_client(socket_timeout=_RECORD_TIMEOUT_SECONDS, socket_connect_timeout=_RECORD_TIMEOUT_SECONDS)
+    pipeline = client.pipeline(transaction=False)
     pipeline.sadd(key, insight_identifier(insight_id, dashboard_id))
     pipeline.expire(key, _TTL)
     pipeline.execute()
