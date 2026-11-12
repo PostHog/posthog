@@ -12,6 +12,8 @@ const STATE_POLL_MS = 20
 
 const isRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null
 
+const EXITED_STATES = [null, 'Z', 'X']
+
 export type RoleExit = {
     role: Role
     at: string
@@ -48,7 +50,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
 
     const runningChild = (role: Role): ChildProcess & { pid: number } => {
         const child = children.get(role)
-        if (child?.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+        if (child?.pid === undefined || !isRunning(child) || EXITED_STATES.includes(processState(child.pid))) {
             throw new Error(`${role} is not running`)
         }
         return child as ChildProcess & { pid: number }
@@ -141,12 +143,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             const child = runningChild(role)
             killedByValve.add(child)
             const exited = once(child, 'exit').then(([, signal]) => signal === 'SIGKILL')
-            try {
-                process.kill(-child.pid, 'SIGKILL')
-            } catch (error) {
-                killedByValve.delete(child)
-                throw error
-            }
+            process.kill(-child.pid, 'SIGKILL')
             const gaveUp = new AbortController()
             const outcome = await Promise.race([
                 exited,
